@@ -266,7 +266,7 @@ class DirectMediaUploadController extends Controller
         $request->validate([
             'media_id' => ['required', 'integer'],
             'uid' => ['required', 'string', 'max:255'],
-            'video' => ['required', 'file'],
+            'content_type' => ['nullable', 'string', 'max:120'],
         ]);
 
         $media = Media::query()->find($request->integer('media_id'));
@@ -299,8 +299,17 @@ class DirectMediaUploadController extends Controller
         }
 
         $videoFile = $request->file('video');
+        $requestStream = null;
+        $readStream = null;
         $videoSize = (int) ($videoFile?->getSize() ?? 0);
+        $contentType = (string) ($videoFile?->getMimeType() ?: $request->input('content_type') ?: $media->mime ?: 'video/mp4');
         $maxRawFallbackSize = max(5, (int) config('media.cloudflare.r2.raw_fallback_max_mb', 8)) * 1024 * 1024;
+
+        if(! $videoFile) {
+            $requestStream = $this->openRawRequestStream($request);
+            $readStream = $requestStream['stream'] ?? null;
+            $videoSize = (int) ($requestStream['size'] ?? 0);
+        }
 
         if($videoSize < 1 || $videoSize > ($maxRawFallbackSize + (1024 * 1024))) {
             return $this->responseValidationError([
@@ -313,7 +322,9 @@ class DirectMediaUploadController extends Controller
             ]);
         }
 
-        $readStream = fopen($videoFile->getRealPath(), 'rb');
+        if($videoFile) {
+            $readStream = fopen($videoFile->getRealPath(), 'rb');
+        }
 
         if(! is_resource($readStream)) {
             return $this->responseValidationError([
@@ -330,7 +341,7 @@ class DirectMediaUploadController extends Controller
             $r2DirectUploadService->uploadRawObject(
                 $media->source_path,
                 $readStream,
-                (string) ($videoFile->getMimeType() ?: $media->mime ?: 'video/mp4')
+                $contentType ?: (string) ($media->mime ?: 'video/mp4')
             );
         }
         catch (Exception $e) {
@@ -361,7 +372,6 @@ class DirectMediaUploadController extends Controller
             'uid' => ['required', 'string', 'max:255'],
             'upload_id' => ['required', 'string', 'max:2048'],
             'part_number' => ['required', 'integer', 'min:1', 'max:10000'],
-            'part' => ['required', 'file'],
         ]);
 
         $media = Media::query()->find($request->integer('media_id'));
@@ -410,7 +420,16 @@ class DirectMediaUploadController extends Controller
         }
 
         $partFile = $request->file('part');
+        $requestStream = null;
+        $readStream = null;
         $partSize = (int) ($partFile?->getSize() ?? 0);
+
+        if(! $partFile) {
+            $requestStream = $this->openRawRequestStream($request);
+            $readStream = $requestStream['stream'] ?? null;
+            $partSize = (int) ($requestStream['size'] ?? 0);
+        }
+
         $configuredPartSize = max(5, (int) config('media.cloudflare.r2.multipart_part_size_mb', 5)) * 1024 * 1024;
         $expectedPartSize = (int) data_get($metadata, 'part_size', $configuredPartSize);
         $maxPartSize = max(1, $expectedPartSize) + (1024 * 1024);
@@ -426,7 +445,9 @@ class DirectMediaUploadController extends Controller
             ]);
         }
 
-        $readStream = fopen($partFile->getRealPath(), 'rb');
+        if($partFile) {
+            $readStream = fopen($partFile->getRealPath(), 'rb');
+        }
 
         if(! is_resource($readStream)) {
             return $this->responseValidationError([
@@ -467,5 +488,35 @@ class DirectMediaUploadController extends Controller
                 'etag' => $etag,
             ]
         ]);
+    }
+
+    private function openRawRequestStream(Request $request): ?array
+    {
+        $requestBody = $request->getContent(true);
+
+        if(! is_resource($requestBody)) {
+            return null;
+        }
+
+        $stream = tmpfile();
+
+        if(! is_resource($stream)) {
+            return null;
+        }
+
+        $bytes = stream_copy_to_stream($requestBody, $stream);
+
+        if($bytes === false || $bytes < 1) {
+            fclose($stream);
+
+            return null;
+        }
+
+        rewind($stream);
+
+        return [
+            'stream' => $stream,
+            'size' => (int) $bytes,
+        ];
     }
 }

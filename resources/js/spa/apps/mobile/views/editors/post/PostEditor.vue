@@ -252,13 +252,12 @@
 			}
 
 			const uploadRawFileViaApp = (uploadData, mediaFile, onProgress) => {
-				const formData = new FormData();
-				formData.append('media_id', uploadData.media?.id);
-				formData.append('uid', uploadData.uid);
-				formData.append('video', mediaFile);
-
-				return colibriAPI().postEditor().with(formData).withHeaders({
-					'Content-Type': 'multipart/form-data'
+				return colibriAPI().postEditor().with(mediaFile).params({
+					media_id: uploadData.media?.id,
+					uid: uploadData.uid,
+					content_type: mediaFile.type || 'video/mp4'
+				}).withHeaders({
+					'Content-Type': 'application/octet-stream'
 				}).uploadProgress((progressEvent) => {
 					if(progressEvent.lengthComputable || progressEvent.total) {
 						onProgress(progressEvent.loaded, progressEvent.total || mediaFile.size);
@@ -288,7 +287,7 @@
 							const uploadTotal = Math.max(1, total || mediaFile.size);
 							onProgress(Math.round((loaded / uploadTotal) * 100));
 						});
-					});
+					}, 1);
 				}
 				catch (error) {
 					const requestMethod = uploadData.upload_method || 'POST';
@@ -306,15 +305,13 @@
 			}
 
 			const uploadMultipartPartViaApp = (uploadData, part, partBlob, onProgress) => {
-				const formData = new FormData();
-				formData.append('media_id', uploadData.media?.id);
-				formData.append('uid', uploadData.uid);
-				formData.append('upload_id', uploadData.upload_id);
-				formData.append('part_number', part.part_number);
-				formData.append('part', partBlob, `part-${part.part_number}`);
-
-				return colibriAPI().postEditor().with(formData).withHeaders({
-					'Content-Type': 'multipart/form-data'
+				return colibriAPI().postEditor().with(partBlob).params({
+					media_id: uploadData.media?.id,
+					uid: uploadData.uid,
+					upload_id: uploadData.upload_id,
+					part_number: part.part_number
+				}).withHeaders({
+					'Content-Type': 'application/octet-stream'
 				}).uploadProgress((progressEvent) => {
 					if(progressEvent.lengthComputable || progressEvent.total) {
 						onProgress(progressEvent.loaded, progressEvent.total || partBlob.size);
@@ -352,7 +349,7 @@
 						return uploadDirectRequest(part.upload_method || 'PUT', part.upload_url, part.upload_headers || {}, partBlob, (loaded) => {
 							updateMultipartProgress(part.part_number, loaded, partBlob.size);
 						});
-					}, 2).catch(() => null);
+					}, 1).catch(() => null);
 
 					if(! result?.etag) {
 						loadedParts.set(part.part_number, 0);
