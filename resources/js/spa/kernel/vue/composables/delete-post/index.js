@@ -10,20 +10,20 @@ function useDeletePost() {
 			title: t('prompt.delete_post.title'),
 			description: t('prompt.delete_post.description'),
 			onConfirm: () => {
-				colibriAPI().userTimeline().with({
+				return colibriAPI().userTimeline().with({
 					id: postData.id
 				}).delete('post/delete').then(() => {
 
 					// Call the callback if it is provided.
-					if (callback) {
+					if (typeof callback === 'function') {
 						callback(postData.id);
 					}
-	
+
+					return postData.id;
 				}).catch((error) => {
-					if (error.response) {
-						callback(postData.id);
-						console.log(error.response.data.message);
-					}
+					console.error('Unable to delete post', error);
+
+					throw error;
 				});
 			}
 		});

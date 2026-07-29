@@ -294,6 +294,47 @@ class TimelineDataIntegrityTest extends TestCase
         ]);
     }
 
+    public function test_post_owner_can_delete_a_post_via_the_timeline_api(): void
+    {
+        $author = $this->createUser('delete-owner');
+        $post = $this->createPost($author, 'Post to delete');
+        $author->increment('publications_count');
+
+        $this->actingAs($author)
+            ->withoutMiddleware()
+            ->deleteJson('/api/timeline/post/delete', [
+                'id' => $post->id,
+            ])
+            ->assertOk();
+
+        $this->assertDatabaseMissing('posts', [
+            'id' => $post->id,
+        ]);
+
+        $this->assertDatabaseHas('users', [
+            'id' => $author->id,
+            'publications_count' => 0,
+        ]);
+    }
+
+    public function test_non_owner_cannot_delete_a_post_via_the_timeline_api(): void
+    {
+        $author = $this->createUser('delete-author');
+        $viewer = $this->createUser('delete-viewer');
+        $post = $this->createPost($author, 'Protected post');
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->deleteJson('/api/timeline/post/delete', [
+                'id' => $post->id,
+            ])
+            ->assertForbidden();
+
+        $this->assertDatabaseHas('posts', [
+            'id' => $post->id,
+        ]);
+    }
+
     public function test_latest_feed_is_ordered_by_time_only(): void
     {
         $viewer = $this->createUser('latest-viewer');
