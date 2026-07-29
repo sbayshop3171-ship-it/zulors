@@ -14,6 +14,10 @@ class FileStorageDisksProvider extends ServiceProvider
 
     public function boot(): void
     {
+        if($this->app->configurationIsCached()) {
+            return;
+        }
+
         Config::set('filesystems.disks', array_merge(config('filesystems.system_disks'), require(var_path('config/filesystems/disks.php'))));
     }
 }
