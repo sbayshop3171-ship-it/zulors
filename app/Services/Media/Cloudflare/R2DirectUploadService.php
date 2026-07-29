@@ -3,6 +3,7 @@
 namespace App\Services\Media\Cloudflare;
 
 use Exception;
+use Aws\S3\S3Client;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Storage;
 
@@ -33,6 +34,11 @@ class R2DirectUploadService
         $extension = $this->cleanExtension((string) ($fileData['extension'] ?? 'mp4'));
         $path = $this->makeTemporaryPath($extension);
         $expiresAt = now()->addMinutes($this->expiryMinutes());
+        $size = max(0, (int) ($fileData['size'] ?? 0));
+
+        if($this->shouldUseMultipart($size)) {
+            return $this->createMultipartVideoUpload($path, $mime, $size, $expiresAt);
+        }
 
         $upload = Storage::disk($this->tempDisk())->temporaryUploadUrl($path, $expiresAt, [
             'ContentType' => $mime,
@@ -50,6 +56,53 @@ class R2DirectUploadService
             'upload_headers' => $this->normalizeUploadHeaders($upload['headers'] ?? []),
             'expires_at' => $expiresAt->toIso8601String(),
         ];
+    }
+
+    public function completeMultipartUpload(string $path, string $uploadId, array $parts): void
+    {
+        if(! $this->isConfigured()) {
+            throw new Exception('Cloudflare R2 direct upload is not configured.');
+        }
+
+        $normalizedParts = collect($parts)
+            ->map(function(array $part) {
+                return [
+                    'PartNumber' => (int) ($part['part_number'] ?? $part['PartNumber'] ?? 0),
+                    'ETag' => (string) ($part['etag'] ?? $part['ETag'] ?? ''),
+                ];
+            })
+            ->filter(function(array $part) {
+                return $part['PartNumber'] > 0 && filled($part['ETag']);
+            })
+            ->sortBy('PartNumber')
+            ->values()
+            ->all();
+
+        if(empty($normalizedParts)) {
+            throw new Exception('No multipart upload parts were provided.');
+        }
+
+        $this->s3Client($this->tempDisk())->completeMultipartUpload([
+            'Bucket' => $this->bucket($this->tempDisk()),
+            'Key' => $path,
+            'UploadId' => $uploadId,
+            'MultipartUpload' => [
+                'Parts' => $normalizedParts,
+            ],
+        ]);
+    }
+
+    public function abortMultipartUpload(string $path, string $uploadId): void
+    {
+        if(! $this->isConfigured() || blank($path) || blank($uploadId)) {
+            return;
+        }
+
+        $this->s3Client($this->tempDisk())->abortMultipartUpload([
+            'Bucket' => $this->bucket($this->tempDisk()),
+            'Key' => $path,
+            'UploadId' => $uploadId,
+        ]);
     }
 
     public function uploaded(string $path): bool
@@ -93,6 +146,98 @@ class R2DirectUploadService
     private function expiryMinutes(): int
     {
         return max(5, (int) config('media.cloudflare.r2.direct_upload_expiry_minutes', 30));
+    }
+
+    private function createMultipartVideoUpload(string $path, string $mime, int $size, $expiresAt): array
+    {
+        $client = $this->s3Client($this->tempDisk());
+        $bucket = $this->bucket($this->tempDisk());
+        $partSize = $this->multipartPartSize();
+        $partCount = (int) ceil($size / $partSize);
+
+        if($partCount < 1 || $partCount > 10000) {
+            throw new Exception('Video file is too large for multipart upload.');
+        }
+
+        $createdUpload = $client->createMultipartUpload([
+            'Bucket' => $bucket,
+            'Key' => $path,
+            'ContentType' => $mime,
+        ]);
+
+        $uploadId = (string) $createdUpload->get('UploadId');
+
+        $parts = [];
+
+        for($partNumber = 1; $partNumber <= $partCount; $partNumber++) {
+            $command = $client->getCommand('UploadPart', [
+                'Bucket' => $bucket,
+                'Key' => $path,
+                'UploadId' => $uploadId,
+                'PartNumber' => $partNumber,
+            ]);
+
+            $parts[] = [
+                'part_number' => $partNumber,
+                'start' => ($partNumber - 1) * $partSize,
+                'end' => min($size, $partNumber * $partSize),
+                'upload_url' => (string) $client->createPresignedRequest($command, $expiresAt)->getUri(),
+                'upload_method' => 'PUT',
+                'upload_headers' => [],
+            ];
+        }
+
+        return [
+            'provider' => 'r2_temp',
+            'uid' => $path,
+            'path' => $path,
+            'disk' => $this->tempDisk(),
+            'final_disk' => $this->finalDisk(),
+            'upload_url' => null,
+            'upload_method' => 'PUT',
+            'upload_type' => 'multipart',
+            'upload_headers' => [],
+            'upload_id' => $uploadId,
+            'part_size' => $partSize,
+            'parts' => $parts,
+            'expires_at' => $expiresAt->toIso8601String(),
+        ];
+    }
+
+    private function shouldUseMultipart(int $size): bool
+    {
+        return $size >= $this->multipartThreshold();
+    }
+
+    private function multipartThreshold(): int
+    {
+        return max(5, (int) config('media.cloudflare.r2.multipart_threshold_mb', 64)) * 1024 * 1024;
+    }
+
+    private function multipartPartSize(): int
+    {
+        return max(5, (int) config('media.cloudflare.r2.multipart_part_size_mb', 64)) * 1024 * 1024;
+    }
+
+    private function s3Client(string $disk): S3Client
+    {
+        $config = config("filesystems.disks.{$disk}");
+
+        return new S3Client([
+            'version' => 'latest',
+            'region' => (string) ($config['region'] ?? 'auto'),
+            'endpoint' => (string) $config['endpoint'],
+            'use_path_style_endpoint' => (bool) ($config['use_path_style_endpoint'] ?? true),
+            'credentials' => [
+                'key' => (string) $config['key'],
+                'secret' => (string) $config['secret'],
+            ],
+        ]);
+    }
+
+    private function bucket(string $disk): string
+    {
+        return (string) config("filesystems.disks.{$disk}.bucket");
     }
 
     private function normalizeUploadHeaders(array $headers): array

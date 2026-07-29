@@ -343,31 +343,34 @@
                 return response.data?.data || {};
             }
 
-            const uploadFileToDirectUrl = (uploadData, mediaFile, onProgress) => {
+            const normalizePartETag = (etag) => {
+                return String(etag || '').trim();
+            }
+
+            const uploadDirectRequest = (requestMethod, uploadUrl, uploadHeaders, payload, onProgress) => {
                 return new Promise((resolve, reject) => {
-                    const requestMethod = uploadData.upload_method || 'POST';
-                    const uploadType = uploadData.upload_type || 'form';
-
                     const request = new XMLHttpRequest();
-                    request.open(requestMethod, uploadData.upload_url, true);
+                    request.open(requestMethod, uploadUrl, true);
 
-                    Object.entries(uploadData.upload_headers || {}).forEach(([header, value]) => {
+                    Object.entries(uploadHeaders || {}).forEach(([header, value]) => {
                         request.setRequestHeader(header, value);
                     });
 
                     request.upload.onprogress = (event) => {
-                        if(event.lengthComputable) {
-                            onProgress(Math.round((event.loaded / event.total) * 100));
+                        if(event.lengthComputable && typeof onProgress === 'function') {
+                            onProgress(event.loaded, event.total);
                         }
                     };
 
                     request.onload = () => {
                         if(request.status >= 200 && request.status < 300) {
-                            resolve();
+                            resolve({
+                                etag: normalizePartETag(request.getResponseHeader('ETag'))
+                            });
                         }
 
                         else {
-                            reject(new Error('Direct upload failed'));
+                            reject(new Error(`Direct upload failed with status ${request.status}`));
                         }
                     };
 
@@ -375,17 +378,81 @@
                         reject(new Error('Direct upload failed'));
                     };
 
-                    if(uploadType === 'raw' || requestMethod === 'PUT') {
-                        request.send(mediaFile);
-                    }
-
-                    else {
-                        const formData = new FormData();
-                        formData.append('file', mediaFile);
-
-                        request.send(formData);
-                    }
+                    request.send(payload);
                 });
+            }
+
+            const retryDirectUpload = async (callback, attempts = 3) => {
+                let lastError = null;
+
+                for(let attempt = 1; attempt <= attempts; attempt++) {
+                    try {
+                        return await callback(attempt);
+                    }
+                    catch (error) {
+                        lastError = error;
+
+                        if(attempt < attempts) {
+                            await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+                        }
+                    }
+                }
+
+                throw lastError || new Error('Direct upload failed');
+            }
+
+            const uploadFileToDirectUrl = (uploadData, mediaFile, onProgress) => {
+                return retryDirectUpload(() => {
+                    const requestMethod = uploadData.upload_method || 'POST';
+                    const uploadType = uploadData.upload_type || 'form';
+
+                    if(uploadType === 'raw' || requestMethod === 'PUT') {
+                        return uploadDirectRequest(requestMethod, uploadData.upload_url, uploadData.upload_headers, mediaFile, (loaded, total) => {
+                            onProgress(Math.round((loaded / total) * 100));
+                        });
+                    }
+
+                    const formData = new FormData();
+                    formData.append('file', mediaFile);
+
+                    return uploadDirectRequest(requestMethod, uploadData.upload_url, uploadData.upload_headers, formData, (loaded, total) => {
+                        onProgress(Math.round((loaded / total) * 100));
+                    });
+                });
+            }
+
+            const uploadMultipartFileToDirectUrl = async (uploadData, mediaFile, onProgress) => {
+                const parts = Array.isArray(uploadData.parts) ? uploadData.parts : [];
+                const completedParts = [];
+                let uploadedBytes = 0;
+
+                for(const part of parts) {
+                    const partStart = Number(part.start || 0);
+                    const partEnd = Number(part.end || Math.min(mediaFile.size, partStart + Number(uploadData.part_size || 0)));
+                    const partBlob = mediaFile.slice(partStart, partEnd);
+
+                    const result = await retryDirectUpload(() => {
+                        return uploadDirectRequest(part.upload_method || 'PUT', part.upload_url, part.upload_headers || {}, partBlob, (loaded) => {
+                            const totalUploaded = Math.min(mediaFile.size, uploadedBytes + loaded);
+                            onProgress(Math.round((totalUploaded / mediaFile.size) * 100));
+                        });
+                    });
+
+                    if(! result.etag) {
+                        throw new Error('Direct upload did not return an ETag.');
+                    }
+
+                    uploadedBytes += partBlob.size;
+
+                    completedParts.push({
+                        part_number: part.part_number,
+                        etag: result.etag
+                    });
+
+                    onProgress(Math.round((uploadedBytes / mediaFile.size) * 100));
+                }
+
+                return completedParts;
             }
 
             const uploadPostMediaLocally = (mediaFile, type = 'image') => {
@@ -434,22 +501,35 @@
                     }).sendTo('media/video/direct/create');
 
                     const uploadData = getUploadResponseData(response);
+                    const isMultipartUpload = uploadData.upload_type === 'multipart' && Array.isArray(uploadData.parts);
 
-                    if(! uploadData.direct_upload || ! uploadData.upload_url) {
+                    if(! uploadData.direct_upload || (! uploadData.upload_url && ! isMultipartUpload)) {
                         state.postMediaUploadProgress = 0;
 
                         return await uploadPostMediaLocally(mediaFile, 'video');
                     }
 
-                    await uploadFileToDirectUrl(uploadData, mediaFile, (progress) => {
-                        state.postMediaUploadProgress = Math.min(90, Math.max(10, Math.round(10 + (progress * 0.8))));
-                    });
+                    let completedParts = [];
+
+                    if(isMultipartUpload) {
+                        completedParts = await uploadMultipartFileToDirectUrl(uploadData, mediaFile, (progress) => {
+                            state.postMediaUploadProgress = Math.min(90, Math.max(10, Math.round(10 + (progress * 0.8))));
+                        });
+                    }
+
+                    else {
+                        await uploadFileToDirectUrl(uploadData, mediaFile, (progress) => {
+                            state.postMediaUploadProgress = Math.min(90, Math.max(10, Math.round(10 + (progress * 0.8))));
+                        });
+                    }
 
                     state.postMediaUploadProgress = 95;
 
                     await colibriAPI().postEditor().with({
                         media_id: uploadData.media?.id,
-                        uid: uploadData.uid
+                        uid: uploadData.uid,
+                        upload_id: uploadData.upload_id,
+                        parts: completedParts || []
                     }).sendTo('media/video/direct/complete');
 
                     await postEditorStore.fetchDraftPost({

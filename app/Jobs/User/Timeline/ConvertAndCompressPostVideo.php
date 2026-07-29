@@ -25,13 +25,14 @@ class ConvertAndCompressPostVideo implements ShouldQueue
 {
     use Queueable;
 
-    public $timeout = (60 * 30); // 30 minutes
+    public $timeout = (60 * 60 * 6); // 6 hours
 
     private $postData;
 
     public function __construct(Post $postData)
     {
         $this->postData = $postData;
+        $this->timeout = max(60 * 30, (int) config('post.processing.video.timeout', $this->timeout));
     }
 
     public function handle(): void

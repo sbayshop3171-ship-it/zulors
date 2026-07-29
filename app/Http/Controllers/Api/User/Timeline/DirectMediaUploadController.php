@@ -87,6 +87,9 @@ class DirectMediaUploadController extends Controller
                         'upload_url_expires_at' => $uploadData['expires_at'],
                         'upload_method' => $uploadData['upload_method'],
                         'upload_type' => $uploadData['upload_type'],
+                        'upload_id' => $uploadData['upload_id'] ?? null,
+                        'part_size' => $uploadData['part_size'] ?? null,
+                        'parts_count' => count($uploadData['parts'] ?? []),
                         'original_name' => (string) $request->input('name'),
                     ]
                 ]);
@@ -100,6 +103,9 @@ class DirectMediaUploadController extends Controller
                         'upload_method' => $uploadData['upload_method'],
                         'upload_type' => $uploadData['upload_type'],
                         'upload_headers' => $uploadData['upload_headers'],
+                        'upload_id' => $uploadData['upload_id'] ?? null,
+                        'part_size' => $uploadData['part_size'] ?? null,
+                        'parts' => $uploadData['parts'] ?? [],
                         'expires_at' => $uploadData['expires_at'],
                         'media' => MediaResource::make($media),
                     ]
@@ -159,6 +165,10 @@ class DirectMediaUploadController extends Controller
         $request->validate([
             'media_id' => ['required', 'integer'],
             'uid' => ['required', 'string', 'max:255'],
+            'upload_id' => ['nullable', 'string', 'max:255'],
+            'parts' => ['nullable', 'array'],
+            'parts.*.part_number' => ['required_with:parts', 'integer', 'min:1', 'max:10000'],
+            'parts.*.etag' => ['required_with:parts', 'string', 'max:255'],
         ]);
 
         $media = Media::query()->find($request->integer('media_id'));
@@ -176,6 +186,39 @@ class DirectMediaUploadController extends Controller
         $metadata = $media->metadata ?? [];
 
         if(data_get($metadata, 'provider') === 'r2_temp') {
+            if(data_get($metadata, 'upload_type') === 'multipart' && data_get($metadata, 'upload_state') !== 'uploaded') {
+                $uploadId = (string) ($request->input('upload_id') ?: data_get($metadata, 'upload_id'));
+
+                if(blank($uploadId)) {
+                    return $this->responseValidationError([
+                        'message' => 'Multipart upload id is missing.',
+                        'errors' => [
+                            'video' => [
+                                'Multipart upload id is missing.'
+                            ]
+                        ]
+                    ]);
+                }
+
+                try {
+                    $r2DirectUploadService->completeMultipartUpload(
+                        $media->source_path,
+                        $uploadId,
+                        $request->array('parts')
+                    );
+                }
+                catch (Exception $e) {
+                    return $this->responseValidationError([
+                        'message' => $e->getMessage(),
+                        'errors' => [
+                            'video' => [
+                                $e->getMessage()
+                            ]
+                        ]
+                    ]);
+                }
+            }
+
             if(! $r2DirectUploadService->uploaded($media->source_path)) {
                 return $this->responseValidationError([
                     'message' => 'Direct upload file was not found on R2.',
