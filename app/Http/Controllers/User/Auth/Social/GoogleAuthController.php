@@ -23,6 +23,7 @@ use Illuminate\Support\Facades\Storage;
 use Laravel\Socialite\Facades\Socialite;
 use Laravel\Socialite\Two\GoogleProvider;
 use App\Services\Auth\Social\SocialAuthService;
+use App\Services\User\AutoVerifyUserService;
 
 class GoogleAuthController extends Controller
 {
@@ -99,6 +100,8 @@ class GoogleAuthController extends Controller
             ]);
 
             Auth::login($newUser);
+
+            app(AutoVerifyUserService::class)->verifyIfEnabled($newUser);
 
             request()->session()->regenerate();
 

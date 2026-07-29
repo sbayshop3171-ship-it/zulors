@@ -117,6 +117,10 @@ return [
             'title' => 'Registration Verification',
             'caption' => 'When enabled, new users will be required to verify their registration via email or other verification method.',
         ],
+        'auto_verification_enabled' => [
+            'title' => 'Automatic Blue Verification',
+            'caption' => 'When enabled, users receive the blue verification badge automatically after registration or login.',
+        ],
         'switch_account_enabled' => [
             'title' => 'Switch Account',
             'caption' => 'Defines if users can switch between their accounts if they have multiple accounts linked.',

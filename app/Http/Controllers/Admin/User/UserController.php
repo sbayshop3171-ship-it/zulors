@@ -121,6 +121,7 @@ class UserController extends Controller
 
         $userData->update([
             'verified' => true,
+            'verified_at' => now(),
         ]);
 
         return redirect()->route('admin.users.show', $userId)->with('flashMessage', (new Flash(content: __('admin/flash.user.verify_success')))->get());
@@ -132,6 +133,7 @@ class UserController extends Controller
 
         $userData->update([
             'verified' => false,
+            'verified_at' => null,
         ]);
 
         return redirect()->route('admin.users.show', $userId)->with('flashMessage', (new Flash(content: __('admin/flash.user.unverify_success')))->get());

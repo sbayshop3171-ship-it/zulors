@@ -8,6 +8,7 @@ use App\Support\SocialLoginDrivers;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use App\Events\User\Auth\UserLoggedInEvent;
+use App\Services\User\AutoVerifyUserService;
 
 class Login extends Component
 {
@@ -76,6 +77,8 @@ class Login extends Component
                 $rememberMe = (empty($this->authCreds['remember']) == true) ? false : true;
 
                 Auth::login($this->userData, $rememberMe);
+
+                app(AutoVerifyUserService::class)->verifyIfEnabled($this->userData);
 
                 event(new UserLoggedInEvent(me()));
 

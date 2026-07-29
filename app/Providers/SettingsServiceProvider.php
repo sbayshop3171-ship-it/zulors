@@ -229,6 +229,7 @@ class SettingsServiceProvider extends ServiceProvider
             'auth_settings.registration_enabled' => $authSettings->registration_enabled,
             'auth_settings.login_enabled' => $authSettings->login_enabled,
             'auth_settings.reg_verification_enabled' => $authSettings->reg_verification_enabled,
+            'auth_settings.auto_verification_enabled' => $authSettings->auto_verification_enabled,
             'auth_settings.reg_verification_type' => $authSettings->reg_verification_type,
             'auth_settings.switch_account_enabled' => $authSettings->switch_account_enabled,
             'auth_settings.link_accounts_enabled' => $authSettings->link_accounts_enabled,
@@ -238,6 +239,7 @@ class SettingsServiceProvider extends ServiceProvider
             'features.registration.enabled' => $authSettings->registration_enabled,
             'features.login.enabled' => $authSettings->login_enabled,
             'features.reg_verification.enabled' => $authSettings->reg_verification_enabled,
+            'features.auto_verification.enabled' => $authSettings->auto_verification_enabled,
             'features.switch_account.enabled' => $authSettings->switch_account_enabled,
             'features.link_accounts.enabled' => $authSettings->link_accounts_enabled,
         ]);

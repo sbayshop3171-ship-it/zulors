@@ -18,6 +18,7 @@ class Auth extends Component
             'registration_enabled' => $authSettings->registration_enabled,
             'login_enabled' => $authSettings->login_enabled,
             'reg_verification_enabled' => $authSettings->reg_verification_enabled,
+            'auto_verification_enabled' => $authSettings->auto_verification_enabled,
             'switch_account_enabled' => $authSettings->switch_account_enabled,
             'link_accounts_enabled' => $authSettings->link_accounts_enabled,
         ];
@@ -29,12 +30,14 @@ class Auth extends Component
             'formData.registration_enabled' => ['required', 'boolean'],
             'formData.login_enabled' => ['required', 'boolean'],
             'formData.reg_verification_enabled' => ['required', 'boolean'],
+            'formData.auto_verification_enabled' => ['required', 'boolean'],
             'formData.switch_account_enabled' => ['required', 'boolean'],
             'formData.link_accounts_enabled' => ['required', 'boolean'],
         ], attributes: [
             'formData.registration_enabled' => __('admin/config.callout.registration_enabled.title'),
             'formData.login_enabled' => __('admin/config.callout.login_enabled.title'),
             'formData.reg_verification_enabled' => __('admin/config.callout.reg_verification_enabled.title'),
+            'formData.auto_verification_enabled' => __('admin/config.callout.auto_verification_enabled.title'),
             'formData.switch_account_enabled' => __('admin/config.callout.switch_account_enabled.title'),
             'formData.link_accounts_enabled' => __('admin/config.callout.link_accounts_enabled.title'),
         ]);
@@ -44,6 +47,7 @@ class Auth extends Component
         $authSettings->registration_enabled = $this->formData['registration_enabled'];
         $authSettings->login_enabled = $this->formData['login_enabled'];
         $authSettings->reg_verification_enabled = $this->formData['reg_verification_enabled'];
+        $authSettings->auto_verification_enabled = $this->formData['auto_verification_enabled'];
         $authSettings->switch_account_enabled = $this->formData['switch_account_enabled'];
         $authSettings->link_accounts_enabled = $this->formData['link_accounts_enabled'];
         $authSettings->save();

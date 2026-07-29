@@ -8,6 +8,7 @@ use App\Models\SocialAccount;
 use App\Support\SocialLoginDrivers;
 use Illuminate\Support\Facades\Auth;
 use App\Actions\User\CreateUserAction;
+use App\Services\User\AutoVerifyUserService;
 use App\Services\Blacklist\BlacklistService;
 use Laravel\Socialite\Two\User as SocialiteUser;
 
@@ -36,6 +37,8 @@ class SocialAuthService
 
             if($socialAccount) {
                 Auth::login($socialAccount->user);
+
+                app(AutoVerifyUserService::class)->verifyIfEnabled($socialAccount->user);
 
                 return [
                     'user' => $socialAccount->user,

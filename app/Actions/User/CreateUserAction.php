@@ -22,6 +22,7 @@ use Illuminate\Support\Str;
 use App\Enums\User\UserType;
 use App\Enums\NotificationType;
 use App\Models\UserNotificationSettings;
+use App\Services\User\AutoVerifyUserService;
 
 class CreateUserAction
 {
@@ -50,6 +51,8 @@ class CreateUserAction
             'ip_address' => request()->ip(),
             'type' => config('user.authorize_users') ? UserType::AUTHOR : UserType::READER
         ], $this->userData));
+
+        app(AutoVerifyUserService::class)->verifyIfEnabled($userData);
 
         $userData->wallet()->create([
             'wallet_number' => $this->generateUniqueWalletNumber(),

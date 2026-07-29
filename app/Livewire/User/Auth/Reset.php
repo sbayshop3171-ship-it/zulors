@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use App\Models\EmailConfirmation;
 use Illuminate\Validation\Rules\Password;
+use App\Services\User\AutoVerifyUserService;
 
 class Reset extends Component
 {
@@ -47,6 +48,8 @@ class Reset extends Component
         EmailConfirmation::where('email', $this->confirmationData->email)->delete();
 
         Auth::login($this->userData);
+
+        app(AutoVerifyUserService::class)->verifyIfEnabled($this->userData);
 
         $this->redirect(route('user.desktop.index'));
     }

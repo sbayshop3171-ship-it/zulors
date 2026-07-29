@@ -46,6 +46,20 @@
     </div>
     <x-form.group>
         <x-callout.default
+            iconName="check-verified-02"
+            titleText="{{ __('admin/config.callout.auto_verification_enabled.title') }}"
+        captionText="{{ __('admin/config.callout.auto_verification_enabled.caption') }}" />
+        <x-form.switcher
+            labelText="{{ __('admin/config.form.switch_status') }}"
+            wire:model="formData.auto_verification_enabled"
+            name="formData.auto_verification_enabled">
+        </x-form.switcher>
+    </x-form.group>
+    <div class="mb-6">
+        <x-div/>
+    </div>
+    <x-form.group>
+        <x-callout.default
             iconName="mask-01"
             titleText="{{ __('admin/config.callout.switch_account_enabled.title') }}"
         captionText="{{ __('admin/config.callout.switch_account_enabled.caption') }}" />

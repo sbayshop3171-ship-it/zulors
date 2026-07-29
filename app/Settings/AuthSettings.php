@@ -10,6 +10,7 @@ class AuthSettings extends Settings
     public bool $registration_enabled;
     public bool $login_enabled;
     public bool $reg_verification_enabled;
+    public bool $auto_verification_enabled;
     public bool $switch_account_enabled;
     public bool $link_accounts_enabled;
     public string $reg_verification_type;

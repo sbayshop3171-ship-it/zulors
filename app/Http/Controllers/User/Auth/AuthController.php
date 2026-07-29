@@ -24,6 +24,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use App\Services\User\AutoVerifyUserService;
 
 class AuthController extends Controller
 {
@@ -104,6 +105,8 @@ class AuthController extends Controller
         $newUser = (new CreateUserAction($insertData))->execute();
 
         Auth::guard('web')->login($newUser, true);
+
+        app(AutoVerifyUserService::class)->verifyIfEnabled($newUser);
 
         event(new UserLoggedInEvent(me()));
 
