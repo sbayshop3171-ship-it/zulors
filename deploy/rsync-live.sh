@@ -51,6 +51,13 @@ rsync -az --delete \
 echo "Running remote deploy script..."
 ssh "${SSH_OPTS[@]}" "${LIVE_USER}@${LIVE_HOST}" "cd '$LIVE_PATH' && bash deploy/live-deploy.sh"
 
+echo "Normalizing remote permissions..."
+ssh "${SSH_OPTS[@]}" "${LIVE_USER}@${LIVE_HOST}" "cd '$LIVE_PATH' && \
+	chmod 755 . && \
+	find public bootstrap config database deploy lang resources routes scripts services var -type d -exec chmod 755 {} + 2>/dev/null || true && \
+	find public bootstrap config database deploy lang resources routes scripts services var -type f -exec chmod 644 {} + 2>/dev/null || true && \
+	chmod 775 bootstrap/cache storage storage/app storage/app/public storage/framework storage/framework/cache storage/framework/sessions storage/framework/views storage/logs 2>/dev/null || true"
+
 echo "Checking live site..."
 curl -fsSI https://zulors.com/admin/login >/dev/null
 curl -fsSI https://zulors.com/auth/signup >/dev/null
