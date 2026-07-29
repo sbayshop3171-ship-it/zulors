@@ -138,6 +138,9 @@ curl -fsSI https://zulors.com/admin/login >/dev/null
 curl -fsSI https://zulors.com/auth/signup >/dev/null
 
 trap - ERR
+
+rm -rf "$REMOTE_RELEASE"
+find "$(dirname "$LIVE_PATH")" -maxdepth 1 -type d -name "$(basename "$LIVE_PATH").backup-*" | sort | head -n -3 | xargs -r rm -rf
 REMOTE
 
 echo "Checking live site..."
