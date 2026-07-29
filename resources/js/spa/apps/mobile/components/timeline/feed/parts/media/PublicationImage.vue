@@ -1,96 +1,37 @@
 <template>
-    <div v-for="(imageGroup, index) in postMedia" v-bind:key="index">
-        <div v-if="imageGroup.length == 1" class="block">
-            <div v-for="imageItem in imageGroup" v-bind:key="imageItem.id" class="overflow-hidden" v-bind:class="[postMedia.length > 1 ? 'mt-px' : '' ]">
-                <ProgressiveImageLoader
-                    v-bind:base64Image="imageItem.lqip_base64"
-                    v-bind:src="imageItem.source_url"
-                    v-bind:isSensitive="isSensitive"
-                class="block size-full object-cover" alt="Image"></ProgressiveImageLoader>
-            </div>
-        </div>
-        <div v-else-if="imageGroup.length == 2">
-            <div class="grid grid-cols-2 gap-px">
-                <div v-for="imageItem in imageGroup" v-bind:key="imageItem.id" class="overflow-hidden max-h-96">
-                    <ProgressiveImageLoader
-                        v-bind:base64Image="imageItem.lqip_base64"
-                        v-bind:src="imageItem.source_url"
-                        v-bind:isSensitive="isSensitive"
-                    class="block size-full object-cover" alt="Image"></ProgressiveImageLoader>
-                </div>
-            </div>
-        </div>
-        <div v-else-if="imageGroup.length == 3">
-            <div class="grid grid-cols-3 gap-px">
-                <div v-for="(imageItem, idx) in imageGroup"
-                    v-bind:key="imageItem.id"
-                    class="aspect-square overflow-hidden"
-                v-bind:class="{'col-span-2 row-span-2': (idx == 0)}">
+    <div v-if="previewMedia.length" v-bind:class="gridClasses">
+        <div
+            v-for="(imageItem, idx) in previewMedia"
+            v-bind:key="imageItem.id || imageItem.source_url || idx"
+            class="relative bg-fill-tr overflow-hidden"
+            v-bind:class="getTileClasses(idx)"
+        >
 
-                    <ProgressiveImageLoader
-                        v-bind:base64Image="imageItem.lqip_base64"
-                        v-bind:src="imageItem.source_url"
-                        v-bind:isSensitive="isSensitive"
-                    class="block size-full object-cover" alt="Image"></ProgressiveImageLoader>
-                </div>
-            </div>
-        </div>
-        <div v-else-if="imageGroup.length == 4">
-            <div class="grid grid-cols-3 gap-px">
-                <div
-                    v-for="(imageItem, idx) in imageGroup"
-                    v-bind:key="imageItem.id"
-                    class="aspect-square overflow-hidden"
-                v-bind:class="{'col-span-3': (idx == 3)}">
+            <ProgressiveImageLoader
+                v-bind:base64Image="imageItem.lqip_base64"
+                v-bind:src="imageItem.source_url"
+                v-bind:isSensitive="isSensitive"
+                v-bind:class="getImageClasses"
+                alt="Image"
+            ></ProgressiveImageLoader>
 
-                    <ProgressiveImageLoader
-                        v-bind:base64Image="imageItem.lqip_base64"
-                        v-bind:src="imageItem.source_url"
-                        v-bind:isSensitive="isSensitive"
-                    class="block size-full object-cover" alt="Image"></ProgressiveImageLoader>
-                </div>
-            </div>
-        </div>
-        <div v-else-if="imageGroup.length == 5">
-            <div class="grid grid-cols-3 gap-px mb-px">
-                <div
-                    v-for="imageItem in imageGroup.slice(0, 3)"
-                    v-bind:key="imageItem.id"
-                class="aspect-square overflow-hidden">
-
-                    <ProgressiveImageLoader
-                        v-bind:base64Image="imageItem.lqip_base64"
-                        v-bind:src="imageItem.source_url"
-                        v-bind:isSensitive="isSensitive"
-                    class="block size-full object-cover" alt="Image"></ProgressiveImageLoader>
-                </div>
-            </div>
-            <div class="grid grid-cols-2 gap-px">
-                <div
-                    v-for="imageItem in imageGroup.slice(3)"
-                    v-bind:key="imageItem.id"
-                class="col-span-1 overflow-hidden">
-
-                    <ProgressiveImageLoader
-                        v-bind:base64Image="imageItem.lqip_base64"
-                        v-bind:src="imageItem.source_url"
-                        v-bind:isSensitive="isSensitive"
-                    class="block size-full object-cover max-h-60" alt="Image"></ProgressiveImageLoader>
-                </div>
+            <div v-if="shouldShowMoreOverlay(idx)" class="absolute inset-0 z-20 flex-center bg-black/55 text-white text-title-2 font-bold pointer-events-none">
+                +{{ extraCount }}
             </div>
         </div>
     </div>
 </template>
 <script>
     import { defineComponent, computed } from 'vue';
-    import { Arr } from '@/kernel/helpers/javascript/index.js';
     import ProgressiveImageLoader from '@/kernel/vue/components/media/image/ProgressiveImageLoader.vue';
+
+    const MAX_GRID_IMAGES = 5;
 
     export default defineComponent({
         props: {
             postMedia: {
                 type: Array,
-                default: {}
+                default: () => []
             },
             isSensitive: {
                 type: Boolean,
@@ -99,15 +40,72 @@
         },
         setup: function(props) {
             const postMedia = computed(() => {
-                try {
-                    return Arr.make(props.postMedia).chunk(5).value();
-                } catch (error) {
-                    return [];
+                if(Array.isArray(props.postMedia)) {
+                    return props.postMedia.filter((mediaItem) => {
+                        return Boolean(mediaItem?.source_url);
+                    });
                 }
+
+                return [];
             });
 
+            const previewMedia = computed(() => {
+                return postMedia.value.slice(0, MAX_GRID_IMAGES);
+            });
+
+            const mediaCount = computed(() => {
+                return previewMedia.value.length;
+            });
+
+            const extraCount = computed(() => {
+                return Math.max(postMedia.value.length - MAX_GRID_IMAGES, 0);
+            });
+
+            const gridClasses = computed(() => {
+                if(mediaCount.value === 1) {
+                    return 'block';
+                }
+
+                if(mediaCount.value === 2 || mediaCount.value === 4) {
+                    return 'grid grid-cols-2 gap-px';
+                }
+
+                if(mediaCount.value === 3) {
+                    return 'grid grid-cols-3 gap-px';
+                }
+
+                return 'grid grid-cols-6 gap-px';
+            });
+
+            const getTileClasses = (idx) => {
+                if(mediaCount.value === 1) {
+                    return 'max-h-[70vh]';
+                }
+
+                if(mediaCount.value === 3 && idx === 0) {
+                    return 'col-span-2 row-span-2 aspect-square';
+                }
+
+                if(mediaCount.value >= 5) {
+                    return idx < 2 ? 'col-span-3 aspect-square' : 'col-span-2 aspect-square';
+                }
+
+                return 'aspect-square';
+            };
+
+            const shouldShowMoreOverlay = (idx) => {
+                return extraCount.value > 0 && idx === previewMedia.value.length - 1;
+            };
+
             return {
-                postMedia: postMedia
+                previewMedia: previewMedia,
+                extraCount: extraCount,
+                gridClasses: gridClasses,
+                getTileClasses: getTileClasses,
+                getImageClasses: computed(() => {
+                    return mediaCount.value === 1 ? 'block w-full max-h-[70vh] object-contain' : 'block size-full object-cover';
+                }),
+                shouldShowMoreOverlay: shouldShowMoreOverlay
             }
         },
         components: {
