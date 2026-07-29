@@ -34,7 +34,7 @@ jobs:
 
       - name: Prepare CI environment
         run: |
-          mkdir -p bootstrap/cache storage/framework/cache storage/framework/sessions storage/framework/views storage/logs
+          mkdir -p bootstrap/cache storage/frontend storage/framework/cache storage/framework/sessions storage/framework/views storage/logs
           chmod -R 775 bootstrap/cache storage
           cp .env.example .env
           sed -i 's/^APP_ENV=.*/APP_ENV=testing/' .env

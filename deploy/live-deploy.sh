@@ -13,6 +13,9 @@ if grep -q '^APP_ENV=local' .env; then
 	exit 1
 fi
 
+mkdir -p bootstrap/cache storage/frontend storage/framework/cache storage/framework/sessions storage/framework/views storage/logs
+chmod -R ug+rwX storage bootstrap/cache || true
+
 echo "Installing PHP dependencies..."
 composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction
 

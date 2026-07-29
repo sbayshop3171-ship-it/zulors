@@ -38,6 +38,7 @@ rsync -az --delete \
 	--exclude='database/*.sqlite' \
 	--exclude='testing' \
 	--exclude='storage/app/' \
+	--exclude='storage/frontend/build.num' \
 	--exclude='storage/logs/' \
 	--exclude='storage/framework/cache/' \
 	--exclude='storage/framework/sessions/' \
