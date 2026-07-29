@@ -1,22 +1,22 @@
 <template>
-	<div class="flex gap-4">
-		<span v-if="profileData.followers_count" v-on:click="state.isFollowersModalOpen = true" class="cursor-pointer text-lab-sc text-par-n">
-			<span class="text-lab-pr2 font-mono">
-				{{ profileData.followers_count.formatted }}
+	<div class="flex gap-4 flex-wrap">
+		<span v-if="profileData.followers_count" v-on:click="state.isFollowersModalOpen = true" class="inline-flex items-center gap-1 whitespace-nowrap cursor-pointer text-lab-sc text-par-n">
+			<span class="text-lab-pr2 font-semibold">
+				{{ metricCount(profileData.followers_count) }}
 			</span>
-			{{ $t('labels.followers_count', profileData.followers_count.raw) }}
+			{{ $t('labels.followers_count') }}
 		</span>
-		<span v-if="profileData.following_count" v-on:click="state.isFollowingsModalOpen = true" class="cursor-pointer text-lab-sc text-par-n">
-			<span class="text-lab-pr2 font-mono">
-				{{ profileData.following_count.formatted }}
+		<span v-if="profileData.following_count" v-on:click="state.isFollowingsModalOpen = true" class="inline-flex items-center gap-1 whitespace-nowrap cursor-pointer text-lab-sc text-par-n">
+			<span class="text-lab-pr2 font-semibold">
+				{{ metricCount(profileData.following_count) }}
 			</span>
-			{{ $t('labels.following_count', profileData.following_count.raw) }}
+			{{ $t('labels.following_count') }}
 		</span>
-		<span v-if="profileData.publications_count" class="text-lab-sc text-par-n">
-			<span class="text-lab-pr2 font-mono">
-				{{ profileData.publications_count.formatted }}
+		<span v-if="profileData.publications_count" class="inline-flex items-center gap-1 whitespace-nowrap text-lab-sc text-par-n">
+			<span class="text-lab-pr2 font-semibold">
+				{{ metricCount(profileData.publications_count) }}
 			</span>
-			{{ $t('labels.posts_count', profileData.publications_count.raw) }}
+			{{ $t('labels.posts_count') }}
 		</span>
 	</div>
 	<template v-if="profileData.followers_count && state.isFollowersModalOpen">
@@ -42,7 +42,10 @@
 
 			return {
 				state: state,
-				profileData: profileData
+				profileData: profileData,
+				metricCount: (metric) => {
+					return metric?.formatted || metric?.raw || 0;
+				}
 			}
 		},
 		components: {
