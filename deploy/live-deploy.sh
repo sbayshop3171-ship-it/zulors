@@ -26,7 +26,7 @@ rm -f public/hot
 echo "Running Laravel deployment tasks..."
 php artisan migrate --force
 php artisan storage:link || true
-php artisan livewire:publish --assets --force || true
+php artisan livewire:publish --assets || true
 php artisan optimize:clear
 php artisan settings:discover
 php artisan optimize
