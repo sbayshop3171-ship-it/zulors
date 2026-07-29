@@ -1,0 +1,13 @@
+@import "@fontsource/outfit";
+@import "tailwindcss";
+
+@import "../themes/devices/desktop.css" layer(theme);
+@import "../themes/light/colors.css" layer(theme);
+
+@import "../componented/theme.css" layer(theme);
+
+@theme {
+	--font-outfit: "Outfit", sans-serif;
+}
+
+@import "../themes/base.css" layer(theme);

@@ -1,0 +1,51 @@
+@theme {
+	/* This is the desktop device sizing theme. */
+	
+	--spacing-sidebar-width: 350px;
+	--margin-sidebar-width: 350px;
+	--width-action-bar: 64px;
+	--spacing-action-bar: 64px;
+
+	--width-messenger-sidebar: 414px;
+	--spacing-messenger-sidebar: 414px;
+	
+	--margin-page-offset: 340px;
+	--spacing-page-offset: 340px;
+	--spacing-content: 600px;
+	--spacing-content-side: 400px;
+	--width-catalog: 1280px;
+	--spacing-catalog: 1280px;
+	--spacing-sided-content: 960px;
+	--spacing-lightbox-content: 43.75rem;
+	--spacing-content-grid: 64.075rem;
+	--spacing-large-avatar: 6.875rem;
+	--spacing-medium-avatar: 3.5rem;
+	--spacing-normal-avatar: 3.25rem;
+	--spacing-small-avatar: 38px;
+	--spacing-x-small-avatar: 24px;
+	--spacing-half: 50%;
+	--spacing-28: 7rem;
+	--spacing-icon: 1.25rem;
+	--spacing-top-offset: 1.5rem;
+	--spacing-navbar: 21.25rem;
+	--spacing-icon-x-small: 14px;
+	--spacing-icon-small: 18px;
+	--spacing-icon-normal: 22px;
+	--spacing-icon-medium: 24px;
+	--spacing-half-screen: 50vh;
+
+	--width-page-offset: 340px;
+	--aspect-ratio-story: '9 / 16';
+
+	--text-lg-title: 2.125rem;
+	--text-title-1: 1.75rem;
+	--text-title-2: 1.375rem;
+	--text-title-3: 1.25rem;
+
+	--text-par-l: 1.0625rem;
+	--text-par-m: 0.9375rem;
+	--text-par-n: 14px;
+	--text-par-s: 0.8125rem;
+	--text-cap-l: 0.75rem;
+	--text-cap-s: 0.6875rem;
+}

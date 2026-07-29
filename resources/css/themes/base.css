@@ -1,0 +1,58 @@
+@theme {
+    --font-sans: var(--font-sans);
+    --font-mono: var(--font-mono);
+}
+
+body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    --webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+}
+
+body{
+    @apply bg-bg-pr;
+}
+
+.z-100 {
+    z-index: 100;
+}
+
+.flex-center{
+    @apply flex justify-center items-center;
+}
+
+.inline-flex-center{
+    @apply inline-flex justify-center items-center;
+}
+
+.leading-zero{
+    line-height: 0px;
+}
+
+.smoothing {
+    @apply transition-all ease-in-out duration-300;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Firefox */
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+.app-container{
+    max-width: 1200px;
+}
+
+.callout-success{
+    @apply text-[#00a63e] border-green-900 bg-green-900/5;
+}
+
+.callout-error{
+    @apply text-[#FF6367] border-red-900 bg-red-900/5;
+}

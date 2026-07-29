@@ -1,0 +1,195 @@
+@layer components {
+    .business-jobs-page {
+        @apply mx-auto w-full max-w-[1180px];
+    }
+
+    .business-jobs-header {
+        @apply mb-5 flex items-end justify-between gap-4;
+    }
+
+    .business-jobs-header .mb-4 {
+        @apply mb-1;
+    }
+
+    .business-jobs-kicker {
+        @apply mb-2 inline-flex rounded-full bg-badge-pr px-3 py-1 text-cap-l font-bold text-brand-900;
+    }
+
+    .business-jobs-tabs {
+        @apply mb-6;
+    }
+
+    .business-jobs-grid {
+        @apply grid gap-4;
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 360px));
+        justify-content: start;
+    }
+
+    .business-jobs-card {
+        @apply relative flex min-h-0 w-full flex-col overflow-visible rounded-xl border border-bord-pr bg-bg-pr p-5 shadow-xs transition-colors duration-200 ease-in-out hover:border-bord-card;
+    }
+
+    .business-jobs-card-menu {
+        @apply absolute right-4 top-4 z-20;
+    }
+
+    .business-jobs-menu-button {
+        @apply inline-flex size-9 items-center justify-center rounded-full bg-fill-qt text-lab-sc outline-hidden transition-colors duration-200 ease-in-out hover:bg-fill-tr hover:text-lab-pr2 active:bg-fill-fv;
+    }
+
+    .business-jobs-menu-button > span {
+        @apply block size-icon-normal;
+    }
+
+    .business-jobs-action-menu {
+        @apply absolute right-0 top-11 z-30 w-56 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-bord-pr bg-bg-pr shadow-lg;
+    }
+
+    .business-jobs-action-item {
+        @apply flex w-full items-center gap-3 border-b border-bord-pr px-4 py-3 text-left text-par-m font-medium text-lab-pr transition-colors duration-200 ease-in-out last:border-b-0 hover:bg-fill-qt;
+    }
+
+    .business-jobs-action-item > span:first-child {
+        @apply mr-auto min-w-0 truncate;
+    }
+
+    .business-jobs-action-icon {
+        @apply block size-icon-small shrink-0;
+    }
+
+    .business-jobs-action-item-danger {
+        @apply text-red-900;
+    }
+
+    .business-jobs-card-title {
+        @apply mr-12 line-clamp-2 text-title-3 font-bold leading-tight text-lab-pr2 transition-colors duration-200 ease-in-out hover:text-brand-900;
+    }
+
+    .business-jobs-card-desc {
+        @apply mt-4 line-clamp-3 text-par-s leading-relaxed text-lab-sc;
+    }
+
+    .business-jobs-card-badges {
+        @apply mt-5 flex flex-wrap items-center gap-1.5;
+    }
+
+    .business-jobs-card-badges > span {
+        @apply max-w-full truncate whitespace-nowrap;
+    }
+
+    .business-jobs-urgent-badge {
+        @apply inline-block rounded-md bg-red-400 px-2 py-0.5 text-par-s font-semibold text-white;
+    }
+
+    .business-jobs-card-facts {
+        @apply mt-3 flex flex-col gap-1.5;
+    }
+
+    .business-jobs-card-facts span {
+        @apply block truncate text-par-s font-medium text-lab-sc;
+    }
+
+    .business-jobs-card-facts strong {
+        @apply font-semibold text-lab-pr2;
+    }
+
+    .business-jobs-card-footer {
+        @apply mt-5 grid grid-cols-2 gap-3 border-t border-bord-pr pt-4 text-cap-l font-semibold text-lab-sc;
+    }
+
+    .business-jobs-card-footer span {
+        @apply min-w-0 truncate;
+    }
+
+    .business-jobs-card-footer span:last-child {
+        @apply text-right;
+    }
+
+    .business-jobs-empty {
+        @apply flex min-h-72 flex-col items-center justify-center rounded-2xl border border-dashed border-bord-card bg-bg-pr px-6 py-10 text-center;
+    }
+
+    .business-jobs-empty-icon {
+        @apply mb-4 block size-12 rounded-2xl bg-fill-qt p-3 text-lab-sc;
+    }
+
+    .business-jobs-empty strong {
+        @apply text-par-m font-bold text-lab-pr2;
+    }
+
+    .business-jobs-empty p {
+        @apply mt-1 max-w-sm text-par-s leading-snug text-lab-sc;
+    }
+
+    .business-jobs-empty-action {
+        @apply mt-4 inline-flex h-11 items-center justify-center rounded-full bg-lab-pr2 px-5 text-par-n font-semibold text-bg-pr transition-all duration-300 ease-in-out active:scale-95;
+    }
+
+    .business-jobs-pagination {
+        @apply mt-5;
+    }
+
+    @media (max-width: 1023px) {
+        .business-jobs-page {
+            @apply max-w-4xl;
+        }
+
+    }
+
+    @media (max-width: 767px) {
+        .business-jobs-page {
+            @apply pb-1;
+        }
+
+        .business-jobs-header {
+            @apply mb-4 block;
+        }
+
+        .business-jobs-kicker {
+            @apply hidden;
+        }
+
+        .business-jobs-tabs {
+            @apply -mx-4 mb-4 px-4;
+        }
+
+        .business-jobs-grid {
+            @apply gap-3;
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .business-jobs-card {
+            @apply rounded-xl p-4;
+        }
+
+        .business-jobs-card-menu {
+            @apply right-3 top-3;
+        }
+
+        .business-jobs-card-title {
+            @apply mr-10 text-par-l;
+        }
+
+        .business-jobs-card-desc {
+            @apply mt-3 text-par-s leading-snug;
+        }
+
+        .business-jobs-card-badges {
+            @apply mt-3;
+        }
+
+        .business-jobs-card-footer {
+            @apply gap-2 pt-4;
+        }
+    }
+
+    @media (max-width: 374px) {
+        .business-jobs-grid {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .business-jobs-card {
+            @apply min-h-0;
+        }
+    }
+}

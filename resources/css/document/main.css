@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+@import "../themes/devices/desktop.css" layer(theme);
+@import "../themes/light/colors.css" layer(theme);
+
+@import "../themes/base.css" layer(theme);
+
+/* Document specific styles */
+
+.document-container ul, ol {
+	@apply list-disc list-inside;
+}
+
+.document-container ul li, ol li {
+	@apply list-disc list-inside;
+}
+
+.document-container h1 {
+	@apply text-title-1 font-bold;
+}
+
+.document-container h2 {
+	@apply text-title-2 font-bold;
+}
+
+.document-container h3 {
+	@apply text-title-3 font-bold;
+}
+
+.document-container h4 {
+	@apply text-par-l font-bold;
+}
+
+.document-container .legal-doc {
+	@apply space-y-10 text-par-m leading-7 text-lab-pr2;
+}
+
+.document-container .legal-doc-hero {
+	@apply rounded-3xl border border-bord-pr bg-fill-qt px-6 py-7 md:px-8 md:py-9;
+}
+
+.document-container .legal-doc-kicker {
+	@apply mb-3 inline-flex rounded-full bg-bg-pr px-3 py-1 text-cap-l font-bold text-brand-900;
+}
+
+.document-container .legal-doc-meta {
+	@apply mt-4 flex flex-wrap gap-x-4 gap-y-2 text-par-s text-lab-sc;
+}
+
+.document-container .legal-doc-grid {
+	@apply grid gap-4 md:grid-cols-2;
+}
+
+.document-container .legal-doc-card {
+	@apply rounded-2xl border border-bord-pr bg-bg-pr p-5;
+}
+
+.document-container .legal-doc-card h3 {
+	@apply mb-3;
+}
+
+.document-container .legal-doc-section {
+	@apply space-y-4 rounded-2xl border border-bord-pr bg-bg-pr p-6 md:p-7;
+}
+
+.document-container .legal-doc-section p {
+	@apply text-par-m leading-7 text-lab-pr2;
+}
+
+.document-container .legal-doc-section ul {
+	@apply mt-1 space-y-2;
+}
+
+.document-container .legal-doc-note {
+	@apply rounded-2xl border border-bord-pr bg-fill-qt px-5 py-4 text-par-s leading-6 text-lab-sc;
+}
+
+.document-container .legal-doc-anchor {
+	@apply text-brand-900 underline underline-offset-4 transition-colors duration-200 ease-in-out hover:text-lab-pr2;
+}
+
+.document-container pre {
+	@apply overflow-x-auto rounded-2xl border border-bord-pr bg-lab-pr2 p-4 text-par-s leading-6 text-bg-pr;
+}
+
+.document-container code {
+	@apply rounded-md bg-fill-qt px-1.5 py-0.5 font-mono text-par-s text-lab-pr2;
+}
+
+.document-container pre code {
+	@apply bg-transparent p-0 text-inherit;
+}

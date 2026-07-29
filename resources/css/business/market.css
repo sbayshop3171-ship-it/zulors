@@ -1,0 +1,158 @@
+@layer components {
+    .business-market-page {
+        @apply mx-auto w-full max-w-[1180px];
+    }
+
+    .business-market-header {
+        @apply mb-5 flex items-end justify-between gap-4;
+    }
+
+    .business-market-header .mb-4 {
+        @apply mb-1;
+    }
+
+    .business-market-kicker {
+        @apply mb-2 inline-flex rounded-full bg-badge-pr px-3 py-1 text-cap-l font-bold text-brand-900;
+    }
+
+    .business-market-caption {
+        @apply max-w-xl text-par-s leading-snug text-lab-sc;
+    }
+
+    .business-market-tabs {
+        @apply mb-6;
+    }
+
+    .business-market-table > div {
+        @apply rounded-2xl shadow-xs;
+    }
+
+    .business-market-table table {
+        min-width: 920px;
+    }
+
+    .business-market-mobile-list {
+        @apply flex flex-col gap-3;
+    }
+
+    .business-market-card {
+        @apply rounded-2xl border border-bord-pr bg-bg-pr p-4 shadow-xs transition-all duration-300 ease-in-out active:bg-fill-fv;
+    }
+
+    .business-market-card-main {
+        @apply flex gap-3;
+    }
+
+    .business-market-card-image {
+        @apply block size-16 shrink-0 overflow-hidden rounded-xl border border-bord-pr bg-fill-fv;
+    }
+
+    .business-market-card-image img {
+        @apply size-full object-cover;
+    }
+
+    .business-market-card-body {
+        @apply min-w-0 flex-1;
+    }
+
+    .business-market-card-title {
+        @apply line-clamp-2 text-par-m font-bold leading-snug text-lab-pr2;
+    }
+
+    .business-market-card-meta {
+        @apply mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-cap-l font-medium text-lab-sc;
+    }
+
+    .business-market-card-meta span {
+        @apply max-w-full truncate;
+    }
+
+    .business-market-card-badges {
+        @apply mt-2 flex flex-wrap gap-1.5;
+    }
+
+    .business-market-card-stats {
+        @apply mt-4 grid grid-cols-2 gap-2;
+    }
+
+    .business-market-card-stats > div {
+        @apply rounded-xl bg-fill-fv p-3;
+    }
+
+    .business-market-card-stats span {
+        @apply block text-cap-l font-semibold text-lab-sc;
+    }
+
+    .business-market-card-stats strong {
+        @apply mt-1 block truncate text-par-n font-bold text-lab-pr2;
+    }
+
+    .business-market-card-actions {
+        @apply mt-3 grid grid-cols-4 gap-2;
+    }
+
+    .business-market-card-action {
+        @apply inline-flex h-11 items-center justify-center rounded-xl bg-fill-qt text-lab-pr2 transition-all duration-300 ease-in-out active:bg-fill-tr;
+    }
+
+    .business-market-card-action-icon {
+        @apply size-icon-small;
+    }
+
+    .business-market-card-action-danger {
+        @apply text-red-900;
+    }
+
+    .business-market-empty {
+        @apply flex min-h-72 flex-col items-center justify-center rounded-2xl border border-dashed border-bord-card bg-bg-pr px-6 py-10 text-center;
+    }
+
+    .business-market-empty-icon {
+        @apply mb-4 block size-12 rounded-2xl bg-fill-qt p-3 text-lab-sc;
+    }
+
+    .business-market-empty strong {
+        @apply text-par-m font-bold text-lab-pr2;
+    }
+
+    .business-market-empty-action {
+        @apply mt-4 inline-flex h-11 items-center justify-center rounded-full bg-lab-pr2 px-5 text-par-n font-semibold text-bg-pr;
+    }
+
+    .business-market-pagination {
+        @apply mt-5;
+    }
+
+    @media (max-width: 1023px) {
+        .business-market-page {
+            @apply max-w-4xl;
+        }
+
+    }
+
+    @media (max-width: 767px) {
+        .business-market-page {
+            @apply pb-1;
+        }
+
+        .business-market-header {
+            @apply mb-4 block;
+        }
+
+        .business-market-kicker {
+            @apply hidden;
+        }
+
+        .business-market-caption {
+            @apply hidden;
+        }
+
+        .business-market-tabs {
+            @apply -mx-4 mb-4 px-4;
+        }
+
+        .business-market-pagination {
+            @apply mt-4;
+        }
+    }
+}

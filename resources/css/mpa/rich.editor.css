@@ -1,0 +1,18 @@
+@import 'quill/dist/quill.snow.css';
+
+
+.ql-container.ql-snow {
+	border-color: var(--color-bord-pr);
+	border-bottom-right-radius: var(--radius-xl);
+	border-bottom-left-radius: var(--radius-xl);
+}
+
+.ql-toolbar.ql-snow {
+	border-color: var(--color-bord-pr);
+	border-top-right-radius: var(--radius-xl);
+	border-top-left-radius: var(--radius-xl);
+}
+
+.ql-editor {
+	color: var(--color-lab-pr2);
+}

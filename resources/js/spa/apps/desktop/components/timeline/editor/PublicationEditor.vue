@@ -1,0 +1,827 @@
+<template>
+    <div class="block leading-none"
+        v-on:drop.prevent="handleFileDrop"
+		v-on:dragenter.prevent="state.isDragging = true"
+		v-on:dragover.prevent="state.isDragging = true">
+        <form class="block" v-on:submit.prevent="submitForm">
+            <div class="block px-5 pb-3 pt-6">
+                <div class="flex gap-2.5">
+                    <div class="shrink-0">
+                        <AvatarSmall v-bind:avatarSrc="userData.avatar_url"></AvatarSmall>
+                    </div>
+                    <div class="flex-1 pb-2">
+                        <div class="mb-1">
+                            <h4 class="text-par-m font-semibold text-lab-pr2">
+                                {{ userData.name }}
+                            </h4>
+                        </div>
+                        <textarea
+                            v-on:paste="onMediaPaste"
+                            v-on:input="textInputHandler"
+                            ref="postTextInputField"
+                            v-model="postData.content"
+                            class="resize-none w-full min-h-[80px] leading-5 bg-transparent text-par-l text-lab-pr2 pr-4 outline-hidden placeholder:font-light placeholder:text-par-l pt-0.5"
+                        v-bind:placeholder="postTextInputPlaceholder"></textarea>
+
+                        <template v-if="state.emojisMenu.status">
+                            <div class="relative">
+                                <div class="absolute top-full left-0 w-80 z-50">
+                                    <EmojisPicker
+                                        v-on:pick="insertPostEmoji"
+                                    v-on:close="state.emojisMenu.close"></EmojisPicker>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                    <div class="shrink-0 opacity-90">
+                        <EmojisPickerButton v-on:click.stop="state.emojisMenu.open"></EmojisPickerButton>
+                    </div>
+                </div>
+                <div v-if="isAiGeneratedPost" class="block mb-3">
+                    <div class="text-cap-s text-lab-sc font-medium">
+                        {{ $t('labels.ai_generated') }}
+                    </div>
+                </div>
+                <MentionsPicker
+                    v-on:select="selectMention"
+                classes="absolute top-0 left-0 w-80 z-50 border border-bord-pr rounded-lg popup-background-tr"></MentionsPicker>
+                <template v-if="state.isDragging">
+                    <MediaFileDropper v-on:click="state.isDragging = false"></MediaFileDropper>
+                </template>
+                <template v-else>
+                    <div v-if="postHasMedia" class="block mb-3">
+                        <template v-if="PostTypeUtils.isImage(postData.type)">
+                            <div class="overflow-hidden">
+                                <div class="grid grid-cols-3 gap-1">
+                                    <div v-for="mediaItem in postMedia" v-bind:key="mediaItem.id" class="relative rounded-md overflow-hidden border border-bord-card">
+                                        <MediaBlurOverlay v-if="mediaItem.deleted"></MediaBlurOverlay>
+
+                                        <div v-else-if="! isEditingPost" class="absolute top-2 right-2 inline-block">
+                                            <MediaDeleteButton v-on:click="deletePostMedia(mediaItem)"></MediaDeleteButton>
+                                        </div>
+
+                                        <img v-bind:src="mediaItem.source_url" class="w-full aspect-square h-full object-cover bg-fill-tr" alt="Image">
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                        <template v-else-if="PostTypeUtils.isVideo(postData.type)">
+                            <PostVideoPreview
+                                v-for="mediaItem in postMedia" v-bind:key="mediaItem.id"
+                                v-bind:mediaItem="mediaItem"
+                                v-bind:canDelete="! isEditingPost"
+                            v-on:delete="deletePostMedia"></PostVideoPreview>
+                        </template>
+                        <template v-else-if="PostTypeUtils.isGif(postData.type)">
+                            <PostGifPreview v-bind:canDelete="! isEditingPost" v-bind:postMedia="postMedia" v-on:delete="deletePostMedia"></PostGifPreview>
+                        </template>
+                        <template v-else-if="PostTypeUtils.isDocument(postData.type) || PostTypeUtils.isAudio(postData.type)">
+                            <PostDocumentPreview v-bind:canDelete="! isEditingPost" v-bind:postMedia="postMedia" v-on:delete="deletePostMedia"></PostDocumentPreview>
+                        </template>
+                    </div>
+                    <div v-else-if="postHasPoll && ! isEditingPost" class="block mb-3">
+                        <PostPollForm v-on:remove="deletePostPoll"></PostPollForm>
+                    </div>
+                    <div v-else-if="postHasLinkSnapshot" class="block mb-3">
+                        <PostLinkSnapshotPreview
+                            v-bind:canDelete="! isEditingPost"
+                            v-bind:key="postLinkSnapshot.id"
+                            v-on:delete="deletePostLinkSnapshot"
+                        v-bind:linkSnapshot="postLinkSnapshot"></PostLinkSnapshotPreview>
+                    </div>
+                    <div v-if="postHasQuotedPost" class="block mb-3">
+                        <PublicationQuote v-bind:quotedPost="quotedPost" v-bind:key="quotedPost.id"></PublicationQuote>
+                    </div>
+                </template>
+            </div>
+            <div class="pb-4 px-5 pt-3">
+                <div class="flex items-center mb-5 gap-2.5">
+                    <template v-if="! isEditingPost">
+                        <div class="shrink-0 inline-flex relative">
+                            <MediaCreateButton v-on:click.stop="state.mainMenu.open" iconName="plus" iconType="solid"></MediaCreateButton>
+
+                            <div class="absolute w-96 top-full left-0 z-50" v-if="state.mainMenu.status">
+                                <RichMenu v-outside-click="state.mainMenu.close" v-on:click="state.mainMenu.close">
+                                    <RichMenuItem
+                                        v-on:click="selectImage"
+                                        v-bind:disabled="postMediaButtonStatus(PostType.IMAGE)"
+                                        iconName="image-05"
+                                        v-bind:title="$t('editor.main_menu.image.title')"
+                                    v-bind:description="$t('editor.main_menu.image.description')"></RichMenuItem>
+                                    <RichMenuItem
+                                        v-on:click="selectVideo"
+                                        v-bind:disabled="postMediaButtonStatus(PostType.VIDEO)"
+                                        iconName="video-recorder"
+                                        v-bind:title="$t('editor.main_menu.video.title')"
+                                    v-bind:description="$t('editor.main_menu.video.description')"></RichMenuItem>
+                                    <RichMenuItem
+                                        v-on:click="createPoll"
+                                        v-bind:disabled="postMediaButtonStatus(PostType.POLL)"
+                                        iconName="bar-chart-12"
+                                        v-bind:title="$t('editor.main_menu.poll.title')"
+                                    v-bind:description="$t('editor.main_menu.poll.description')"></RichMenuItem>
+                                    <RichMenuItem
+                                        v-on:click="selectAudio"
+                                        v-bind:disabled="postMediaButtonStatus(PostType.AUDIO)"
+                                        iconName="music-note-01"
+                                        v-bind:title="$t('editor.main_menu.audio.title')"
+                                    v-bind:description="$t('editor.main_menu.audio.description')"></RichMenuItem>
+                                    <RichMenuItem
+                                        v-on:click="selectDocument"
+                                        v-bind:disabled="postMediaButtonStatus(PostType.DOCUMENT)"
+                                        iconName="sticker-square"
+                                        v-bind:title="$t('editor.main_menu.document.title')"
+                                    v-bind:description="$t('editor.main_menu.document.description')"></RichMenuItem>
+                                    <RichMenuItem
+                                        v-on:click="state.recorderMenu.open"
+                                        v-bind:disabled="postMediaButtonStatus(PostType.RECORDING)"
+                                        iconName="recording-02"
+                                        iconType="line"
+                                        v-bind:title="$t('editor.main_menu.recording.title')"
+                                        trailingIconName="microphone-01"
+                                    v-bind:description="$t('editor.main_menu.recording.description')"></RichMenuItem>
+                                    <RichMenuItem
+                                        v-on:click.stop="state.gifMenu.open(); state.mainMenu.close();"
+                                        v-bind:disabled="postMediaButtonStatus(PostType.GIF)"
+                                        iconName="gif"
+                                        iconType="line"
+                                        v-bind:title="$t('editor.main_menu.gif.title')"
+                                    v-bind:description="$t('editor.main_menu.gif.description')"></RichMenuItem>
+                                </RichMenu>
+                            </div>
+                            <template v-if="state.recorderMenu.status">
+                                <div class="absolute top-full left-0 w-80">
+                                    <PostRecordingForm v-on:uploaded="onAudioRecorded" v-on:close="state.recorderMenu.close"></PostRecordingForm>
+                                </div>
+                            </template>
+
+                            <template v-if="state.gifMenu.status">
+                                <div class="absolute top-full left-0 w-80 z-50">
+                                    <PostGifForm v-outside-click="state.gifMenu.close" v-on:select="selectGif"></PostGifForm>
+                                </div>
+                            </template>
+                        </div>
+                        <span class="w-px h-4 bg-bord-sc"></span>
+                    </template>
+                    <div class="shrink-0 inline-flex relative">
+                        <MediaCreateButton v-on:click="openCheatSheetPanel" iconName="type-01"></MediaCreateButton>
+                    </div>
+                    <template v-if="! isEditingPost">
+                        <span class="w-px h-4 bg-bord-sc"></span>
+                        <div class="shrink-0 inline-flex relative">
+                            <MediaCreateButton v-on:click.stop="state.moreMenu.open" iconName="circle-dots"></MediaCreateButton>
+
+                            <div class="absolute top-full left-0 z-50" v-if="state.moreMenu.status">
+                                <DropdownMenu v-outside-click="state.moreMenu.close" v-on:click="state.moreMenu.close">
+                                    <DropdownMenuItem v-on:click="markPostAsSensitive" iconName="alert-triangle" v-bind:textLabel="(isSensitivePost ? $t('editor.unmark_sensitive') : $t('editor.mark_sensitive'))"></DropdownMenuItem>
+                                    <DropdownMenuItem v-on:click="markPostAsAiGenerated" iconName="cpu-chip-02" v-bind:textLabel="(isAiGeneratedPost ? $t('editor.unmark_ai_generated') : $t('editor.mark_ai_generated'))"></DropdownMenuItem>
+                                    <Border/>
+                                    <a v-bind:href="$link('guide_links.publication_rules')" target="_blank">
+                                        <DropdownMenuItem
+                                            iconName="arrow-up-right"
+                                        v-bind:textLabel="$t('editor.publication_guidelines')"></DropdownMenuItem>
+                                    </a>
+                                </DropdownMenu>
+                            </div>
+                        </div>
+                    </template>
+                    <template v-if="state.postMediaUploadProgress && ! isEditingPost">
+                        <span class="w-px h-4 bg-bord-sc"></span>
+                        <div class="shrink-0 inline-flex">
+                            <span class="inline-flex text-par-s items-center gap-2 text-lab-sc leading-none disabled:opacity-60">
+                                <span class="text-brand-900">{{ $t('labels.uploading') }} <span class="inline-block w-8">{{ state.postMediaUploadProgress }}%</span></span>
+                            </span>
+                        </div>
+                    </template>
+
+                    <div class="ml-auto">
+                        <PrimaryTextButton buttonRole="marginal" buttonType="submit" v-bind:loading="state.postSubmitting" v-bind:buttonText="submitButtonText"></PrimaryTextButton>
+                    </div>
+                </div>
+                <div v-if="! isEditingPost" class="block leading-normal">
+                    <div class="w-10/12">
+                        <p  v-if="userData.is_author" class="text-par-s text-lab-sc">
+                            {{ $t('editor.post_privacy') }}
+                        </p>
+                        <p v-else class="text-par-s text-lab-sc">
+                            {{ $t('editor.post_author_note') }} <a v-bind:href="$getRoute('become_author')" class="hover:underline text-brand-900">{{ $t('labels.learn_more') }}</a>
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="hidden">
+                <input v-on:change="onImageSelect" type="file" accept="image/*" ref="postImageFileInput">
+                <input v-on:change="onVideoSelect" type="file" accept="video/*" ref="postVideoFileInput">
+                <input v-on:change="onDocumentSelect" type="file" ref="postDocumentFileInput">
+                <input v-on:change="onAudioSelect" type="file" accept="audio/*" ref="postAudioFileInput">
+            </div>
+        </form>
+        <SensitivePostTape v-if="isSensitivePost"></SensitivePostTape>
+    </div>
+</template>
+
+<script>
+    import { defineComponent, defineAsyncComponent, onMounted, ref, reactive, computed, nextTick } from 'vue';
+    import { PostTypeUtils, PostType } from '@/kernel/enums/post/post.type.js';
+
+    import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
+    import { colibriEventBus } from '@/kernel/events/bus/index.js';
+    import { imagePasteHandler } from '@/kernel/events/image-paste/index.js';
+    import { useCheatSheet } from '@D/core/composables/cheat-sheet/index.js';
+    import { useInputHandlers } from '@/kernel/vue/composables/input/index.js';
+    import { useAuthStore } from '@D/store/auth/auth.store.js';
+    import { useTimelineStore } from '@D/store/timeline/timeline.store.js';
+    import { usePostEditorStore } from '@D/store/timeline/editor.store.js';
+    import { useMenu } from '@/kernel/vue/composables/menu/index.js';
+
+    import DropdownButton from '@D/components/general/dropdowns/parts/DropdownButton.vue';
+
+    import PrimaryTextButton from '@D/components/inter-ui/buttons/PrimaryTextButton.vue';
+    import MediaCreateButton from '@D/components/timeline/editor/buttons/MediaCreateButton.vue';
+    import EmojisPickerButton from '@D/components/timeline/editor/buttons/EmojisPickerButton.vue';
+
+    import MentionsPicker from '@D/components/mentions/MentionsPicker.vue';
+    import DropdownMenu from '@D/components/general/dropdowns/parts/DropdownMenu.vue';
+    import DropdownMenuItem from '@D/components/general/dropdowns/parts/DropdownMenuItem.vue';
+    import AvatarSmall from '@D/components/general/avatars/AvatarSmall.vue';
+    import RichMenu from '@D/components/general/rich-menu/RichMenu.vue';
+    import RichMenuItem from '@D/components/general/rich-menu/RichMenuItem.vue';
+
+    export default defineComponent({
+        setup: function(props, context) {
+            const postImageFileInput = ref(null);
+            const postDocumentFileInput = ref(null);
+            const postVideoFileInput = ref(null);
+            const postAudioFileInput = ref(null);
+            const postTextInputField = ref('');
+            const ignoredLinkSnapshots = ref([]);
+
+            const { openCheatSheetPanel } = useCheatSheet();
+            const { autoResize, insertSymbolAtCaret, matchMention, matchLink, completeText } = useInputHandlers();
+
+            const authStore = useAuthStore();
+            const timelineStore = useTimelineStore();
+            const postEditorStore = usePostEditorStore();
+            const userData = computed(() => {
+                return authStore.userData;
+            });
+
+            const postData = computed(() => {
+                return postEditorStore.draftPost;
+            });
+
+            const state = reactive({
+                postSubmitting: false,
+                postMediaUploadProgress: 0,
+                isDragging: false,
+                isLinkPreviewing: false,
+                isFetchingLinkPreview: false,
+                moreMenu: useMenu(),
+                emojisMenu: useMenu(),
+                recorderMenu: useMenu(),
+                gifMenu: useMenu(),
+                mainMenu: useMenu()
+            });
+
+            const textInputHandler = function() {
+                const mentionMatch = matchMention(postTextInputField.value);
+
+                if(mentionMatch) {
+                    colibriEventBus.emit('editor:mention-input', mentionMatch.username);
+                }
+
+                if(! postEditorStore.isEditingPost && ! state.isLinkPreviewing && ! state.isFetchingLinkPreview) {
+                    const linkMatch = matchLink(postTextInputField.value);
+
+                    if(PostTypeUtils.isText(postData.value.type) && linkMatch && ! ignoredLinkSnapshots.value.includes(linkMatch)) {
+                        // If the link has already been previewed and ignored, don't preview it again
+                        // This is to prevent spamming the API with the same link over and over
+
+                        state.isFetchingLinkPreview = true;
+
+                        colibriAPI().postEditor().with({
+                            url: linkMatch
+                        }).sendTo('link/preview').then((response) => {
+
+                            // Using nextTick to ensure reactivity updates are processed
+                            nextTick(() => {
+                                postEditorStore.setLinkSnapshot(response.data.data);
+                            });
+
+                            state.isLinkPreviewing = true;
+                            state.isFetchingLinkPreview = false;
+                        }).catch((error) => {
+                            state.isLinkPreviewing = false;
+                            state.isFetchingLinkPreview = false;
+                        });
+                    }
+                }
+
+                if(postTextInputField.value.value.length <= 10) {
+                    postEditorStore.preservedPostData = {};
+                }
+
+                autoResize(postTextInputField.value);
+            }
+
+            const resetFileInputTags = () => {
+                postImageFileInput.value.value = '';
+                postDocumentFileInput.value.value = '';
+                postVideoFileInput.value.value = '';
+                postAudioFileInput.value.value = '';
+            }
+
+            onMounted(async function() {
+                await postEditorStore.fetchDraftPost();
+            });
+
+            const getFileExtension = (mediaFile) => {
+                return (mediaFile.name?.split('.').pop() || '').toLowerCase();
+            }
+
+            const getUploadResponseData = (response) => {
+                return response.data?.data || {};
+            }
+
+            const uploadFileToDirectUrl = (uploadData, mediaFile, onProgress) => {
+                return new Promise((resolve, reject) => {
+                    const requestMethod = uploadData.upload_method || 'POST';
+                    const uploadType = uploadData.upload_type || 'form';
+
+                    const request = new XMLHttpRequest();
+                    request.open(requestMethod, uploadData.upload_url, true);
+
+                    Object.entries(uploadData.upload_headers || {}).forEach(([header, value]) => {
+                        request.setRequestHeader(header, value);
+                    });
+
+                    request.upload.onprogress = (event) => {
+                        if(event.lengthComputable) {
+                            onProgress(Math.round((event.loaded / event.total) * 100));
+                        }
+                    };
+
+                    request.onload = () => {
+                        if(request.status >= 200 && request.status < 300) {
+                            resolve();
+                        }
+
+                        else {
+                            reject(new Error('Direct upload failed'));
+                        }
+                    };
+
+                    request.onerror = () => {
+                        reject(new Error('Direct upload failed'));
+                    };
+
+                    if(uploadType === 'raw' || requestMethod === 'PUT') {
+                        request.send(mediaFile);
+                    }
+
+                    else {
+                        const formData = new FormData();
+                        formData.append('file', mediaFile);
+
+                        request.send(formData);
+                    }
+                });
+            }
+
+            const uploadPostMediaLocally = (mediaFile, type = 'image') => {
+                if(! mediaFile) {
+                    return false;
+                }
+
+                const formData = new FormData();
+                formData.append(type, mediaFile);
+
+                return colibriAPI().postEditor().with(formData).withHeaders({
+                    'Content-Type': 'multipart/form-data'
+                }).uploadProgress((progressEvent) => {
+                    state.postMediaUploadProgress = Math.round((progressEvent.loaded / progressEvent.total) * 100);
+                }).sendTo(`media/${type}/upload`).then((response) => {
+
+                    postEditorStore.fetchDraftPost({
+                        preserveContent: true
+                    });
+
+                    state.postMediaUploadProgress = 0;
+
+                    resetFileInputTags();
+                }).catch((error) => {
+                    toastError(error.response?.data?.message || error.message || 'Upload failed');
+
+                    state.postMediaUploadProgress = 0;
+
+                    resetFileInputTags();
+                });
+            }
+
+            const uploadPostVideoDirectly = async (mediaFile) => {
+                if(! mediaFile) {
+                    return false;
+                }
+
+                try {
+                    state.postMediaUploadProgress = 5;
+
+                    const response = await colibriAPI().postEditor().with({
+                        name: mediaFile.name || 'video',
+                        size: mediaFile.size,
+                        mime: mediaFile.type || 'video/mp4',
+                        extension: getFileExtension(mediaFile)
+                    }).sendTo('media/video/direct/create');
+
+                    const uploadData = getUploadResponseData(response);
+
+                    if(! uploadData.direct_upload || ! uploadData.upload_url) {
+                        state.postMediaUploadProgress = 0;
+
+                        return await uploadPostMediaLocally(mediaFile, 'video');
+                    }
+
+                    await uploadFileToDirectUrl(uploadData, mediaFile, (progress) => {
+                        state.postMediaUploadProgress = Math.min(90, Math.max(10, Math.round(10 + (progress * 0.8))));
+                    });
+
+                    state.postMediaUploadProgress = 95;
+
+                    await colibriAPI().postEditor().with({
+                        media_id: uploadData.media?.id,
+                        uid: uploadData.uid
+                    }).sendTo('media/video/direct/complete');
+
+                    await postEditorStore.fetchDraftPost({
+                        preserveContent: true
+                    });
+                }
+
+                catch (error) {
+                    toastError(error.response?.data?.message || error.message || 'Upload failed');
+                }
+
+                finally {
+                    state.postMediaUploadProgress = 0;
+
+                    resetFileInputTags();
+                }
+            }
+
+            const uploadPostMedia = (mediaFile, type = 'image') => {
+                if(type === 'video') {
+                    return uploadPostVideoDirectly(mediaFile);
+                }
+
+                return uploadPostMediaLocally(mediaFile, type);
+            }
+
+            const getFormSubmitData = () => {
+                let formData = {
+                    content: postData.value.content,
+                    marks: {
+                        is_sensitive: postEditorStore.isSensitive,
+                        is_ai_generated: postEditorStore.isAiGenerated
+                    }
+                };
+
+                if(PostTypeUtils.isPoll(postData.value.type)) {
+                    formData['poll_options'] = postData.value.relations.poll.choices;
+                }
+
+                if(postEditorStore.quotedPost) {
+                    formData['quoted_post_id'] = postEditorStore.quotedPost.id;
+                }
+
+                return formData;
+            }
+
+            const submitForm = async () => {
+                state.postSubmitting = true;
+
+                const endpoint = postEditorStore.isEditingPost ? 'post/update' : 'create';
+                const apiClient = postEditorStore.isEditingPost ? colibriAPI().userTimeline() : colibriAPI().postEditor();
+                const submitData = postEditorStore.isEditingPost ? {
+                    id: postData.value.id,
+                    content: postData.value.content
+                } : getFormSubmitData();
+
+                await apiClient.with(submitData)[postEditorStore.isEditingPost ? 'putTo' : 'sendTo'](endpoint).then((response) => {
+                    if(postEditorStore.isEditingPost) {
+                        timelineStore.updatePost(response.data.data);
+                        colibriEventBus.emit('timeline:post-updated', response.data.data);
+                        toastSuccess(__t('toast.post.updated'));
+                    }
+                    else {
+                        timelineStore.prependPost(response.data.data);
+                    }
+
+                    autoResize(postTextInputField.value);
+
+                    postEditorStore.finishEditing();
+
+                    colibriEventBus.emit('post-editor:close');
+                }).catch((error) => {
+                    toastError(error.response?.data?.message || error.message);
+
+                    if(PostTypeUtils.isPoll(postData.value.type)) {
+                        postEditorStore.validatePollOptions(error.response?.data?.errors || {});
+                    }
+                });
+
+                state.postSubmitting = false;
+            }
+
+            const selectDocument = () => {
+                postDocumentFileInput.value.click();
+            }
+
+            const selectImage = () => {
+                postImageFileInput.value.click();
+            }
+
+            const selectAudio = () => {
+                postAudioFileInput.value.click();
+            }
+
+            const selectVideo = () => {
+                postVideoFileInput.value.click();
+            }
+
+            const createPoll = () => {
+                colibriAPI().postEditor().sendTo('poll/create').then((response) => {
+                    postEditorStore.fetchDraftPost({
+                        preserveContent: true
+                    });
+                });
+            };
+
+            const selectGif = (gifItem) => {
+                colibriAPI().postEditor().with({
+                    id: gifItem.id
+                }).sendTo('gif/create').then((response) => {
+                    postEditorStore.fetchDraftPost({
+                        preserveContent: true
+                    });
+                }).catch((error) => {
+                    toastError(error.response.data.message);
+                });
+
+                state.gifMenu.close();
+            };
+
+            return {
+                state: state,
+                userData: userData,
+                postData: postData,
+                textInputHandler: textInputHandler,
+                postTextInputField: postTextInputField,
+                PostTypeUtils: PostTypeUtils,
+                PostType: PostType,
+                openCheatSheetPanel: openCheatSheetPanel,
+                onImageSelect: (event) => {
+                    uploadPostMedia(event.target.files[0], 'image');
+                },
+                onAudioSelect: (event) => {
+                    uploadPostMedia(event.target.files[0], 'audio');
+                },
+                onVideoSelect: (event) => {
+                    uploadPostMedia(event.target.files[0], 'video');
+                },
+                onDocumentSelect: (event) => {
+                    uploadPostMedia(event.target.files[0], 'document');
+                },
+                onAudioRecorded: (audioFile) => {
+                    state.recorderMenu.close();
+
+                    uploadPostMedia(audioFile, 'audio');
+                },
+                onMediaPaste: (event) => {
+                    if(postEditorStore.isEditingPost) {
+                        return false;
+                    }
+
+                    postEditorStore.preservedPostData = {
+                        content: postData.value.content
+                    };
+
+                    imagePasteHandler(event, (imageFile) => {
+                        uploadPostMedia(imageFile, 'image');
+                    });
+                },
+                submitForm: submitForm,
+                deletePostMedia: (mediaItem) => {
+                    if(postEditorStore.isEditingPost) {
+                        return false;
+                    }
+
+                    mediaItem.deleted = true;
+
+                    colibriAPI().postEditor().with({
+                        id: mediaItem.id
+                    }).delete('media/delete').then((response) => {
+                        postEditorStore.fetchDraftPost({
+                            preserveContent: true
+                        });
+                    });
+                },
+                deletePostLinkSnapshot: () => {
+                    if(postEditorStore.isEditingPost) {
+                        return false;
+                    }
+
+                    ignoredLinkSnapshots.value.push(postData.value.relations.link_snapshot.url);
+
+                    colibriAPI().postEditor().delete('link/delete').then(() => {
+                        postEditorStore.deleteLinkSnapshot();
+                        state.isLinkPreviewing = false;
+                    });
+                },
+                deletePostPoll: () => {
+                    if(postEditorStore.isEditingPost) {
+                        return false;
+                    }
+
+                    colibriAPI().postEditor().delete('poll/delete').then(() => {
+                        postEditorStore.fetchDraftPost({
+                            preserveContent: true
+                        });
+                    });
+                },
+                deletePostGif: () => {
+                    postEditorStore.resetDraftPost();
+                },
+                postHasMedia: computed(() => {
+                    return postData.value.relations?.media?.length;
+                }),
+                postHasPoll: computed(() => {
+                    return postData.value.relations?.poll;
+                }),
+                postHasLinkSnapshot: computed(() => {
+                    if(postData.value.relations?.link_snapshot) {
+                        return true;
+                    }
+
+                    return false;
+                }),
+                postHasQuotedPost: computed(() => {
+                    return postEditorStore.quotedPost !== null;
+                }),
+                postMedia: computed(() => {
+                    return postData.value.relations.media;
+                }),
+                quotedPost: computed(() => {
+                    return postEditorStore.quotedPost;
+                }),
+                postLinkSnapshot: computed(() => {
+                    return postData.value.relations.link_snapshot;
+                }),
+                selectGif: selectGif,
+                createPoll: createPoll,
+                selectImage: selectImage,
+                selectVideo: selectVideo,
+                selectAudio: selectAudio,
+                selectDocument: selectDocument,
+                postImageFileInput: postImageFileInput,
+                postVideoFileInput: postVideoFileInput,
+                postDocumentFileInput: postDocumentFileInput,
+                postAudioFileInput: postAudioFileInput,
+                postTextInputPlaceholder: computed(() => {
+                    if(postEditorStore.isEditingPost) {
+                        return __t('editor.edit_post_text_input_placeholder');
+                    }
+
+                    if(PostTypeUtils.isPoll(postData.value.type)) {
+                        return __t('editor.post_poll_input_placeholder');
+                    }
+                    else{
+                        return __t('editor.post_text_input_placeholder');
+                    }
+                }),
+                postMediaButtonStatus: (postType = null) => {
+                    if (state.postSubmitting || postEditorStore.isEditingPost) {
+                        return true;
+                    }
+                    else if(state.recorderMenu.status && PostTypeUtils.isRecording(postType)) {
+                        return false;
+                    }
+                    else if(state.recorderMenu.status) {
+                        return true;
+                    }
+                    else{
+                        if(PostTypeUtils.isText(postData.value.type)) {
+                            return false;
+                        }
+                        else{
+                            if (PostTypeUtils.isImage(postData.value.type) && PostTypeUtils.isImage(postType)) {
+                                return false;
+                            }
+
+                            return !!postData.value.type;
+                        }
+                    }
+                },
+                insertPostEmoji: (emojiSymbol) => {
+                    postData.value.content = insertSymbolAtCaret(postTextInputField.value, emojiSymbol);
+                    postTextInputField.value.focus();
+                },
+                handleFileDrop: (event) => {
+                    state.isDragging = false;
+
+                    if(postEditorStore.isEditingPost) {
+                        return false;
+                    }
+
+					const droppedFile = event.dataTransfer.files[0];
+
+					if (droppedFile) {
+						if (droppedFile.type.startsWith('image')) {
+                            uploadPostMedia(droppedFile, 'image');
+                        }
+                        else if(droppedFile.type.startsWith('video')) {
+                            uploadPostMedia(droppedFile, 'video');
+                        }
+					}
+                },
+                markPostAsSensitive: postEditorStore.markPostAsSensitive,
+                markPostAsAiGenerated: postEditorStore.markPostAsAiGenerated,
+                isSensitivePost: computed(() => {
+                    return postEditorStore.isSensitive;
+                }),
+                isAiGeneratedPost: computed(() => {
+                    return postEditorStore.isAiGenerated;
+	                }),
+                    isEditingPost: computed(() => {
+                        return postEditorStore.isEditingPost;
+                    }),
+                    submitButtonText: computed(() => {
+                        return postEditorStore.isEditingPost ? __t('labels.save_changes') : __t('editor.publish');
+                    }),
+	                selectMention: (username) => {
+					let mentionMatch = matchMention(postTextInputField.value);
+
+					if(mentionMatch) {
+						postData.value.content = completeText(postTextInputField.value, {
+							completable: `@${username}`,
+							start: mentionMatch.start,
+							end: mentionMatch.end
+						});
+
+						postTextInputField.value.focus();
+					}
+                }
+            };
+        },
+        components: {
+            PrimaryTextButton: PrimaryTextButton,
+            MediaCreateButton: MediaCreateButton,
+            DropdownButton: DropdownButton,
+            DropdownMenu: DropdownMenu,
+            AvatarSmall: AvatarSmall,
+            DropdownMenuItem: DropdownMenuItem,
+            MentionsPicker: MentionsPicker,
+            RichMenu: RichMenu,
+            RichMenuItem: RichMenuItem,
+            EmojisPickerButton: EmojisPickerButton,
+            MediaDeleteButton: defineAsyncComponent(() => {
+                return import('@D/components/timeline/editor/buttons/MediaDeleteButton.vue');
+            }),
+            MediaBlurOverlay: defineAsyncComponent(() => {
+                return import('@D/components/timeline/editor/animations/MediaBlurOverlay.vue');
+            }),
+            PostPollForm: defineAsyncComponent(() => {
+                return import('@D/components/timeline/editor/poll/PostPollForm.vue');
+            }),
+            PostGifForm: defineAsyncComponent(() => {
+                return import('@D/components/timeline/editor/gif/PostGifForm.vue');
+            }),
+            PostRecordingForm: defineAsyncComponent(() => {
+                return import('@D/components/timeline/editor/recording/PostRecordingForm.vue');
+            }),
+            PostGifPreview: defineAsyncComponent(() => {
+                return import('@D/components/timeline/editor/preview/gif/PostGifPreview.vue');
+            }),
+            PostDocumentPreview: defineAsyncComponent(() => {
+                return import('@D/components/timeline/editor/preview/document/PostDocumentPreview.vue');
+            }),
+            PostVideoPreview: defineAsyncComponent(() => {
+                return import('@D/components/timeline/editor/preview/video/PostVideoPreview.vue');
+            }),
+            SensitivePostTape: defineAsyncComponent(() => {
+                return import('@D/components/timeline/editor/assets/SensitivePostTape.vue');
+            }),
+            MediaFileDropper: defineAsyncComponent(() => {
+                return import('@D/components/timeline/editor/parts/MediaFileDropper.vue');
+            }),
+            EmojisPicker: defineAsyncComponent(() => {
+                return import('@D/components/emojis/EmojisPicker.vue');
+            }),
+            PublicationQuote: defineAsyncComponent(() => {
+                return import('@D/components/timeline/feed/parts/quote/PublicationQuote.vue');
+            }),
+            PostLinkSnapshotPreview: defineAsyncComponent(() => {
+                return import('@D/components/timeline/editor/preview/link/PostLinkSnapshotPreview.vue');
+            })
+        }
+    });
+</script>

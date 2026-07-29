@@ -1,0 +1,5 @@
+const APP_NEWS_RESOURCE_URL = import.meta.env.VITE_APP_NEWS_RESOURCE_URL;
+
+export {
+    APP_NEWS_RESOURCE_URL
+};

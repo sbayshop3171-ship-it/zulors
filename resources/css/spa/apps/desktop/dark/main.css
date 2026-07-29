@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+@plugin "tailwindcss-primeui";
+
+@theme {
+    --button-dot-fill-pr: var(--color-bord-pr);
+    --button-dot-fill-sc: var(--color-fill-pr);
+}
+
+@import "../../../../themes/base.css" layer(theme);
+@import "../../../../themes/devices/desktop.css" layer(theme);
+@import "../../../../themes/dark/colors.css" layer(theme);
+
+@import "../desktop-base.css";
+

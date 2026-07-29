@@ -1,0 +1,106 @@
+name: Zulors CI
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: zulors-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build And Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: bcmath, ctype, curl, dom, fileinfo, filter, gd, intl, json, mbstring, mysql, openssl, pdo, pdo_mysql, pdo_sqlite, tokenizer, xml, zip
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Prepare CI environment
+        run: |
+          cp .env.example .env
+          sed -i 's/^APP_ENV=.*/APP_ENV=testing/' .env
+          sed -i 's#^APP_URL=.*#APP_URL=http://127.0.0.1:8000#' .env
+          sed -i 's/^DB_CONNECTION=.*/DB_CONNECTION=sqlite/' .env
+          sed -i 's#^DB_DATABASE=.*#DB_DATABASE=database/database.sqlite#' .env
+          sed -i 's/^CACHE_STORE=.*/CACHE_STORE=file/' .env
+          sed -i 's/^QUEUE_CONNECTION=.*/QUEUE_CONNECTION=sync/' .env
+          sed -i 's/^BROADCAST_CONNECTION=.*/BROADCAST_CONNECTION=log/' .env
+          sed -i 's/^NOTIFICATIONS_BROADCAST_ENABLED=.*/NOTIFICATIONS_BROADCAST_ENABLED=false/' .env
+          touch database/database.sqlite
+
+      - name: Install PHP dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Generate app key
+        run: php artisan key:generate --ansi
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Build assets
+        run: |
+          npm run build
+          rm -f public/hot
+
+      - name: Run database migrations
+        run: php artisan migrate --force
+
+      - name: Laravel boot check
+        run: php artisan about
+
+  deploy:
+    name: Deploy Live
+    needs: build
+    runs-on: ubuntu-latest
+
+    env:
+      LIVE_HOST: ${{ secrets.LIVE_HOST }}
+      LIVE_USER: ${{ secrets.LIVE_USER }}
+      LIVE_PORT: ${{ secrets.LIVE_PORT }}
+      LIVE_PATH: ${{ secrets.LIVE_PATH }}
+      LIVE_SSH_PRIVATE_KEY: ${{ secrets.LIVE_SSH_PRIVATE_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check deploy secrets
+        id: deploy_secrets
+        run: |
+          if [ -n "$LIVE_HOST" ] && [ -n "$LIVE_USER" ] && [ -n "$LIVE_PATH" ] && [ -n "$LIVE_SSH_PRIVATE_KEY" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Deploy secrets are not configured. Build stays green; live deploy is skipped."
+          fi
+
+      - name: Install SSH key
+        if: steps.deploy_secrets.outputs.ready == 'true'
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$LIVE_SSH_PRIVATE_KEY" > ~/.ssh/zulors_live_deploy
+          chmod 600 ~/.ssh/zulors_live_deploy
+
+      - name: Deploy to live server
+        if: steps.deploy_secrets.outputs.ready == 'true'
+        env:
+          LIVE_SSH_KEY: ~/.ssh/zulors_live_deploy
+          LIVE_PORT: ${{ secrets.LIVE_PORT || '22' }}
+        run: bash deploy/rsync-live.sh

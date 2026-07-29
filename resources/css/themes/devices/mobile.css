@@ -1,0 +1,32 @@
+@theme {
+	/* This is the mobile device sizing theme. */
+	
+	--spacing-large-avatar: 4.5rem;
+	--spacing-medium-avatar: 3.5rem;
+	--spacing-normal-avatar: 3.25rem;
+	--spacing-small-avatar: 38px;
+	--spacing-x-small-avatar: 32px;
+	--spacing-2x-small-avatar: 24px;
+	--spacing-safe-bottom: env(safe-area-inset-bottom);
+	
+	--spacing-half: 50%;
+	--spacing-icon: 1.25rem;
+
+	--spacing-icon-x-small: 14px;
+	--spacing-icon-small: 18px;
+	--spacing-icon-normal: 22px;
+	--spacing-icon-medium: 24px;
+	--spacing-half-screen: 50vh;
+
+	--text-lg-title: 2.125rem;
+	--text-title-1: 1.75rem;
+	--text-title-2: 1.375rem;
+	--text-title-3: 1.25rem;
+
+	--text-par-l: 1.0625rem;
+	--text-par-m: 0.9375rem;
+	--text-par-n: 14px;
+	--text-par-s: 0.8125rem;
+	--text-cap-l: 0.75rem;
+	--text-cap-s: 0.6875rem;
+}

@@ -1,0 +1,13 @@
+This folder contains the parts of the layouts.
+
+favicons.blade.php
+
+This file contains the favicon including for all the app pages.
+
+
+
+
+
+
+
+

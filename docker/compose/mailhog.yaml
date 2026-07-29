@@ -1,0 +1,8 @@
+services:
+    mailhog:
+        image: mailhog/mailhog
+        container_name: zulors-mailhog
+        ports:
+            - '8025:8025'
+            - '1025:1025'
+        networks: [appnet]

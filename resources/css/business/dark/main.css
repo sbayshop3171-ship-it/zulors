@@ -1,0 +1,188 @@
+@import "tailwindcss";
+
+@import "../../themes/base.css" layer(theme);
+@import "../../themes/devices/desktop.css" layer(theme);
+@import "../../themes/dark/colors.css" layer(theme);
+
+@import "../../componented/theme.css" layer(theme);
+@import "../market.css";
+@import "../jobs.css";
+@import "../ads.css";
+
+@layer components {
+    .business-content-shell {
+        @apply block ml-72 pr-8 pb-12 pl-8;
+    }
+
+    .business-form-actions {
+        @apply flex flex-wrap gap-2;
+    }
+
+    .business-mobile-topbar,
+    .business-mobile-bottomnav,
+    .business-mobile-more-backdrop,
+    .business-mobile-more-sheet {
+        display: none;
+    }
+
+    .business-more-toggle {
+        @apply sr-only;
+    }
+
+    @media (max-width: 1023px) {
+        .business-app {
+            @apply pt-16 pb-20 overflow-x-hidden;
+            padding-top: 4rem !important;
+            padding-bottom: 5rem !important;
+        }
+
+        .business-app > main > aside,
+        .business-app > main > header {
+            @apply hidden;
+        }
+
+        .business-content-shell {
+            @apply ml-0 px-4 pb-28;
+        }
+
+        .business-content-shell .w-content {
+            @apply w-full max-w-full;
+        }
+
+        .business-content-shell .grid.grid-cols-2,
+        .business-content-shell .grid.grid-cols-3,
+        .business-content-shell .grid.grid-cols-4,
+        .business-content-shell .xl\:grid-cols-2,
+        .business-content-shell .xl\:grid-cols-3 {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .business-content-shell .grid.grid-cols-4.business-media-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .business-content-shell .business-wallet-actions.grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .business-content-shell .business-wallet-action-wide {
+            grid-column: 1 / -1;
+        }
+
+        .business-content-shell table {
+            @apply min-w-[760px];
+        }
+
+        .business-content-shell .overflow-x-auto,
+        .business-content-shell .table-scroll,
+        .business-content-shell .table-responsive {
+            @apply -mx-4 px-4;
+        }
+
+        .business-mobile-topbar {
+            @apply fixed left-0 right-0 top-0 z-50 flex h-16 items-center gap-3 border-b border-bord-pr bg-bg-pr/95 px-4 backdrop-blur-sm;
+        }
+
+        .business-mobile-icon-btn {
+            @apply inline-flex size-10 shrink-0 items-center justify-center rounded-full text-lab-pr2 active:bg-fill-tr;
+        }
+
+        .business-mobile-avatar {
+            @apply block size-9 shrink-0 overflow-hidden rounded-full border border-bord-card;
+        }
+
+        .business-mobile-bottomnav {
+            @apply fixed bottom-0 left-0 right-0 z-50 grid border-t border-bord-pr bg-bg-pr/95 backdrop-blur-sm;
+            grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+            padding-bottom: max(env(safe-area-inset-bottom), 0.35rem);
+        }
+
+        .business-mobile-nav-item {
+            @apply flex min-w-0 flex-col items-center justify-center gap-1 px-1 py-2 text-cap-s font-semibold text-lab-sc;
+        }
+
+        .business-mobile-nav-item > span:last-child {
+            @apply max-w-full truncate whitespace-nowrap;
+        }
+
+        .business-mobile-nav-item-active {
+            @apply text-brand-900;
+        }
+
+        .business-mobile-nav-icon {
+            @apply block size-5;
+        }
+
+        .business-content-shell .text-title-1 {
+            @apply text-title-2;
+        }
+
+        .business-content-shell .w-content.bg-bg-pr {
+            @apply rounded-xl p-4;
+        }
+
+        .business-content-shell .py-40 {
+            @apply py-20;
+        }
+
+        .business-more-toggle:checked ~ .business-mobile-more-backdrop {
+            @apply fixed inset-0 z-50 block bg-black/30;
+        }
+
+        .business-more-toggle:checked ~ .business-mobile-more-sheet {
+            @apply fixed bottom-0 left-0 right-0 z-50 block rounded-t-3xl border-t border-bord-pr bg-bg-pr p-4 shadow-2xl;
+            padding-bottom: max(env(safe-area-inset-bottom), 1rem);
+        }
+
+        .business-mobile-more-handle {
+            @apply mx-auto mb-4 h-1 w-12 rounded-full bg-fill-tr;
+        }
+
+        .business-mobile-more-list {
+            @apply overflow-hidden rounded-2xl border border-bord-pr bg-bg-pr;
+        }
+
+        .business-mobile-more-item {
+            @apply flex items-center gap-3 border-b border-bord-pr px-4 py-4 text-par-m text-lab-pr2 last:border-b-0;
+        }
+
+        .business-mobile-more-item > span {
+            @apply block size-6 shrink-0 text-lab-sc;
+        }
+
+        .business-mobile-more-item-active,
+        .business-mobile-more-item-active > span {
+            @apply text-brand-900;
+        }
+
+        .business-mobile-more-item-danger,
+        .business-mobile-more-item-danger > span {
+            @apply text-red-900;
+        }
+    }
+
+    @media (max-width: 767px) {
+        .business-form-actions {
+            @apply grid grid-cols-2 gap-3;
+        }
+
+        .business-form-actions.business-form-actions-single {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .business-form-actions a,
+        .business-form-actions button {
+            @apply w-full justify-center;
+        }
+    }
+
+    @media (max-width: 359px) {
+        .business-content-shell .business-wallet-actions.grid {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .business-content-shell .business-wallet-action-wide {
+            grid-column: auto;
+        }
+    }
+}

@@ -1,0 +1,87 @@
+{
+    "name": "zulors/zulors",
+    "type": "project",
+    "description": "Zulors is a robust social media script built from scratch using Laravel 11 and VueJS 3/4. It is designed as a commercial PHP application, intended for sale under a license model similar to platforms like CodeCanyon.",
+    "keywords": ["laravel", "framework", "social", "media", "script", "codecanyon"],
+    "license": "proprietary",
+    "require": {
+        "php": "^8.3",
+        "defstudio/telegraph": "^1.56",
+        "embed/embed": "^4.4",
+        "fakerphp/faker": "^1.24",
+        "intervention/image": "^3.0",
+        "jenssegers/agent": "^2.6",
+        "laravel/ai": "^0.5.1",
+        "laravel/framework": "^13.0",
+        "laravel/horizon": "^5.31",
+        "laravel/nightwatch": "^1.7",
+        "laravel/reverb": "^1.0",
+        "laravel/sanctum": "^4.0",
+        "laravel/socialite": "^5.16",
+        "laravel/tinker": "^3.0",
+        "livewire/livewire": "^4.0",
+        "opcodesio/log-viewer": "^3.15",
+        "patrickschur/language-detection": "^5.3",
+        "php-ffmpeg/php-ffmpeg": "^1.3",
+        "spatie/laravel-backup": "^10.2",
+        "spatie/laravel-settings": "^3.7",
+        "stripe/stripe-php": "^20.0",
+        "vinkla/hashids": "^14.0",
+        "vonage/client": "^4.1"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "app/",
+            "Database\\Factories\\": "database/factories/",
+            "Database\\Seeders\\": "database/seeders/",
+            "Plugins\\": "plugins/"
+        },
+        "files": ["app/Support/helpers.php"]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
+            "@php artisan package:discover --ansi"
+        ],
+        "post-update-cmd": [
+            "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
+        ],
+        "post-root-package-install": [
+            "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""
+        ],
+        "post-create-project-cmd": [
+            "@php artisan key:generate --ansi",
+            "@php -r \"file_exists('database/database.sqlite') || touch('database/database.sqlite');\"",
+            "@php artisan migrate --graceful --ansi"
+        ]
+    },
+    "extra": {
+        "laravel": {
+            "dont-discover": []
+        }
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "preferred-install": "dist",
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true,
+            "php-http/discovery": true,
+            "wikimedia/composer-merge-plugin": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "require-dev": {
+        "barryvdh/laravel-debugbar": "^4.0",
+        "laravel/boost": "^2.0",
+        "laravel/sail": "^1.41",
+        "mockery/mockery": "^1.6",
+        "phpunit/phpunit": "^11"
+    }
+}

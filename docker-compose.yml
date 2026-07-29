@@ -1,0 +1,93 @@
+services:
+    nginx:
+        image: 'nginx:latest'
+        restart: always
+        ports:
+            - '80:80'
+        volumes:
+            - './docker/nginx/conf.d/nginx.conf:/etc/nginx/conf.d/default.conf'
+            - './public:/var/www/html/public'
+            - './storage:/var/www/html/storage'
+        depends_on:
+            - zulors
+        container_name: zulors-nginx
+        networks: [appnet]
+    zulors:
+        build:
+            context: .
+            dockerfile: docker/zulors/Dockerfile
+            target: php-web
+        volumes:
+            - './:/var/www/html'
+        stdin_open: true
+        tty: true
+        expose:
+            - '9000'
+        container_name: zulors-app
+        depends_on:
+            - database
+        networks: [appnet]
+    database:
+        image: mysql
+        restart: always
+        volumes:
+            - './docker/database/mysql/data:/var/lib/mysql'
+        ports:
+            - '3307:3306'
+        environment:
+            - MYSQL_ROOT_PASSWORD=99099
+            - MYSQL_DATABASE=zulors
+        container_name: zulors-db
+        networks: [appnet]
+    node:
+        image: 'node:20'
+        working_dir: /var/www/html
+        volumes:
+            - './:/var/www/html'
+        container_name: zulors-node
+        command: 'sh -c "npm run dev"'
+        ports:
+            - '5173:5173'
+        depends_on:
+            - zulors
+    reverb:
+        build:
+            context: .
+            dockerfile: docker/zulors/Dockerfile
+            target: php-runtime
+        stdin_open: true
+        tty: true
+        volumes:
+            - './:/var/www/html'
+        depends_on:
+            - zulors
+        command: 'php artisan reverb:start'
+        container_name: zulors-reverb
+        networks: [appnet]
+    horizon:
+        build:
+            context: .
+            dockerfile: docker/zulors/Dockerfile
+            target: php-web
+        volumes:
+            - './:/var/www/html'
+        depends_on:
+            - redis
+        command: 'php artisan horizon'
+        container_name: zulors-horizon
+        networks: [appnet]
+    redis:
+        image: 'redis:latest'
+        container_name: zulors-redis
+        ports:
+            - '6390:6379'
+        networks: [appnet]
+volumes:
+    sail-mysql:
+        driver: local
+
+networks:
+    appnet:
+        driver: bridge
+    sail:
+        driver: bridge

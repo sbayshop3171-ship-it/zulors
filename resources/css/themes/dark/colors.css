@@ -1,0 +1,44 @@
+@theme {
+    --color-icon-pr: #468EF9;
+
+	--color-fill-pr: rgba(120, 120, 128, 0.36);
+	--color-fill-sc: rgba(120, 120, 128, 0.32);
+	--color-fill-tr: rgba(118, 118, 128, 0.24);
+	--color-fill-qt: rgba(116, 116, 128, 0.18);
+	--color-fill-fv: rgba(116, 116, 128, 0.12);
+
+	--color-input-pr: #202327;
+
+	--color-badge-pr: #202327;
+
+	--color-lab-pr: rgba(255, 255, 255, 1);
+	--color-lab-pr2: rgba(255, 255, 255, 0.80);
+	--color-lab-pr3: rgba(255, 255, 255, 0.60);
+	--color-lab-sc: rgba(235, 235, 245, 0.60);
+	--color-lab-tr: rgba(235, 235, 245, 0.30);
+	--color-lab-qt: rgba(235, 235, 245, 0.16);
+
+	--color-bord-pr: rgba(76, 76, 80, 0.3);
+	--color-bord-sc: rgba(76, 76, 80, 0.2);
+	--color-bord-tr: rgba(76, 76, 80, 0.2);
+	--color-bord-dark: black;
+	--color-bord-card: rgba(76, 76, 80, 0.5);
+
+	--color-edge-pr: rgba(235, 235, 245, 0.36);
+	--color-edge-sc: rgba(76, 76, 80, 1);
+	--color-edge-tr: rgba(76, 76, 80, 0.6);
+
+	--color-bg-pr: #111111;
+	--color-bg-sc: rgba(44, 44, 46, 1);
+
+	--color-red-900: rgba(255, 59, 48, 1);
+	--color-green-900: #19AF00;
+	--color-mint: #004D2E;
+
+	--color-brand-900: rgba(0, 122, 255, 1);
+
+	--color-icon-pr: #468EF9;
+
+	--shadow-vertical-tr: 0 0px 20px 0px rgba(0, 0, 0, 0.1);
+	--shadow-vertical-qt: 0 0px 20px 0px rgba(0, 0, 0, 0.06);
+}

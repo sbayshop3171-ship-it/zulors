@@ -1,0 +1,37 @@
+<?php
+
+return [
+    'business_account' => 'Business account',
+    'balance' => 'Balance',
+    'overview' => 'Overview',
+    'ads' => 'Advertising',
+    'marketplace' => 'Marketplace',
+    'jobs' => 'Jobs',
+    'wallet' => 'Wallet',
+    'business_account' => 'Business account',
+    'information' => 'Information',
+    'help' => 'Help',
+    'for_developers' => 'API documentation',
+    'privacy_policy' => 'Privacy policy',
+    'terms_of_use' => 'Terms of use',
+    'language' => 'Language',
+    'about_account' => 'About account',
+    'account_settings' => 'Account settings',
+    'more' => 'More',
+    'campaign' => 'Campaign',
+    'product' => 'Product',
+    'job' => 'Job',
+    'service' => 'Service',
+    'type_labels' => [
+        'physical' => 'Physical',
+        'digital' => 'Digital',
+        'service' => 'Service',
+        'subscription' => 'Subscription',
+        'membership' => 'Membership',
+        'event_ticket' => 'Event ticket',
+        'gift_card' => 'Gift card',
+        'vacancy' => 'Vacancy',
+        'project' => 'Project',
+    ],
+    'product_contacts' => 'Contacts'
+];

@@ -1,0 +1,8 @@
+Copyright (c) 2024-present Mansur Terla
+
+This folder contains icons created by Mansur Terla for Zulors and other projects. 
+Any use, modification, distribution, or republication of these icons without the prior 
+written permission of Mansur Terla is strictly prohibited. 
+
+By using these icons, you agree to be bound by the terms of this license. 
+Failure to comply with these terms will result in legal action.

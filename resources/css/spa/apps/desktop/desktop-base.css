@@ -1,0 +1,188 @@
+/* Desktop specific styles */
+
+body.sticky-bar-open {
+    @apply pb-14;
+}
+
+.svg-icon{
+    stroke-width: 2;
+}
+
+.svg-icon path{
+    stroke-width: 2;
+}
+
+body.sticky-bar-open .sticky-bar-bottom-offset{
+    @apply bottom-14;
+}
+
+body.sticky-bar-open .sticky-bar-bottom-fix{
+    @apply bottom-20;
+}
+
+.marginal-link{
+    @apply text-cap-l text-brand-900 hover:underline;
+}
+
+.sidenav-active span{
+    @apply text-lab-pr font-medium;
+}
+
+.sidenav-inactive span{
+    @apply first:text-lab-pr2 text-lab-pr2;
+}
+
+.active-settings-tab .link-item-container{
+    @apply bg-fill-qt rounded-xl;
+}
+
+.h-screen-with-scroll{
+    height: calc(100vh - 100px);
+    overflow-y: auto;
+}
+
+.skeleton{
+    @apply relative overflow-hidden block bg-fill-tr rounded-md leading-none;
+}
+
+.skeleton-rounded{
+    @apply relative overflow-hidden block bg-fill-tr rounded-2xl leading-none;
+}
+
+.skeleton-square{
+    @apply relative overflow-hidden block bg-fill-tr leading-none;
+}
+
+.skeleton-circle{
+    @apply relative overflow-hidden block bg-fill-tr rounded-full leading-none;
+}
+
+.skeleton::after, .skeleton-circle::after, .skeleton-square::after{
+    content: "";
+    animation: skeleton-animation 1.2s infinite;
+    height: 100%;
+    left: 0;
+    position: absolute;
+    right: 0;
+    top: 0;
+    transform: translateX(-100%);
+    z-index: 1;
+    background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255, 255, 255, 0.4), rgba(255,255,255,0));
+}
+
+.colibri-primary-animation{
+    @apply w-2 aspect-square rounded-full;
+    animation: primary-animation 1s infinite linear alternate;
+}
+
+@keyframes primary-animation {
+    0%  {
+        box-shadow: 12px 0 var(--button-dot-fill-pr), -12px 0 var(--button-dot-fill-sc);
+        background-color: var(--button-dot-fill-pr)
+    }
+    33% {
+        box-shadow: 12px 0 var(--button-dot-fill-pr), -12px 0 var(--button-dot-fill-sc);
+        background-color: var(--button-dot-fill-sc)
+    }
+    66% {
+        box-shadow: 12px 0 var(--button-dot-fill-sc), -12px 0 var(--button-dot-fill-pr); 
+        background-color: var(--button-dot-fill-sc)
+    }
+    100%{
+        box-shadow: 12px 0 var(--button-dot-fill-sc), -12px 0 var(--button-dot-fill-pr);
+        background-color: var(--button-dot-fill-pr)
+    }
+}
+
+@keyframes skeleton-animation {
+    from {
+        transform: translateX(-100%);
+    }
+
+    to {
+        transform: translateX(100%);
+    }
+}
+
+.dropdown-menu{
+    @apply absolute py-2 overflow-hidden min-w-60 divide-y divide-fill-sc rounded-md backdrop-blur-xs bg-bg-pr/85 shadow-2xl focus:outline-hidden;
+}
+
+.dropdown-item-label{
+    @apply px-3 py-2 block text-par-n text-lab-pr2 truncate;
+}
+
+.markdown-text code {
+    @apply border text-lab-pr px-2 py-2 border-l-5 border-bord-pr rounded-r-2xl text-par-n overflow-hidden break-words rounded-md block;
+}
+
+.markdown-text a {
+    @apply text-brand-900 hover:opacity-80 font-medium;
+}
+
+.bounce-up {
+    animation: bounce-up 2s ease-in-out infinite;
+}
+
+@keyframes bounce-up {
+    0%, 100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+}
+
+.popup-background-pr {
+    @apply backdrop-blur-xs bg-bg-pr/80;
+}
+
+.popup-background-sc {
+    @apply backdrop-blur-xs bg-bg-pr/90;
+}
+
+.popup-background-tr {
+    @apply backdrop-blur-xs bg-bg-pr/95;
+}
+
+.popup-card {
+    @apply overflow-hidden rounded-2xl border border-fill-qt/50 shadow-2xl;
+}
+
+.rich-menu-card {
+    @apply shadow-lg;
+}
+
+.active-tab{
+    @apply relative after:content-[''] after:absolute after:-bottom-px after:left-0 after:w-full after:h-px after:bg-brand-900 after:rounded-tl-sm after:rounded-tr-sm;
+}
+
+.emojis-picker-active-tab{
+    @apply after:content-[''] after:absolute after:left-0 after:bottom-0 after:h-[3px] after:rounded-tl-md after:rounded-tr-md after:right-0 after:w-full after:bg-brand-900;
+}
+
+.active-tab-link{
+    @apply relative after:content-[''] after:absolute after:-bottom-px after:left-0 after:w-full after:h-0.5 after:bg-lab-pr;
+}
+
+.auth-content{
+    width: 400px;
+}
+
+.backdrop-close-button-container-top-right{
+    @apply fixed top-4 right-6 2xl:top-8 2xl:right-8 inline-block;
+}
+
+.backdrop-close-button-container-top-left{
+    @apply fixed top-4 left-6 2xl:top-8 2xl:left-8 inline-block;
+}
+
+.hidden-scroll{
+    overflow-x: auto;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+.hidden-scroll::-webkit-scrollbar{
+    display: none;
+}

@@ -1,0 +1,237 @@
+<template>
+	<TimelineContainer>
+		<div class="sticky top-0 popup-background-tr z-10">
+            <Soundbar></Soundbar>
+			<div class="px-4 pt-4">
+				<QuickSearch v-on:cancel="handleSearchCancel" v-model.lazy="postSearchQuery" v-bind:placeholder="$t('labels.search')"></QuickSearch>
+			</div>
+			<ContentTabs v-bind:cols="2">
+				<TabsLink v-bind:link="{ name: 'explore_posts' }">
+					{{ $t('labels.explore') }}
+				</TabsLink>
+				<TabsLink v-bind:link="{ name: 'explore_people' }">
+					{{ $t('labels.people') }}
+				</TabsLink>
+			</ContentTabs>
+			<FeedUpdate v-if="newPosts.length" v-bind:posts="newPosts" v-on:click="applyNewPosts"></FeedUpdate>
+			<Border></Border>
+		</div>
+		<template v-if="state.isLoading">
+			<TimelinePublicationSkeleton v-for="i in 15" v-bind:key="i"></TimelinePublicationSkeleton>
+		</template>
+		<div v-else>
+			<div v-if="state.isSearchLoading">
+				<TimelinePublicationSkeleton v-for="i in 15" v-bind:key="i"></TimelinePublicationSkeleton>
+			</div>
+			<div v-else-if="posts.length">
+				<template v-for="(postData, index) in posts" v-bind:key="postData.id">
+					<TimelinePublication v-bind:postData="postData" v-on:delete="handlePostDelete(postData)"></TimelinePublication>
+
+					<!-- Show follow recommendation every 35 posts -->
+					<template v-if="(index + 1) % 35 === 0">
+						<FollowRecommendation v-bind:key="index"></FollowRecommendation>
+					</template>
+
+					<!-- Show ad card every 10 posts -->
+					<template v-if="(index + 1) % 10 === 0">
+						<AdCard v-bind:key="index"></AdCard>
+						<Border height="h-2" opacity="opacity-30"></Border>
+					</template>
+				</template>
+			</div>
+			<div v-else class="py-32">
+				<p class="text-lab-sc text-par-s text-center">
+					{{ $t('empty_state.empty') }}
+				</p>
+			</div>
+
+			<div v-if="state.isLoadingContent">
+				<Border></Border>
+				<div class="flex justify-center my-4">
+					<div class="colibri-primary-animation"></div>
+				</div>
+			</div>
+		</div>
+	</TimelineContainer>
+</template>
+
+<script>
+    import { defineComponent, reactive, computed, onMounted, onUnmounted, ref, watch } from 'vue';
+    import { useExplorePostsStore } from '@M/store/explore/posts.store.js';
+    import { useInfiniteScroll } from '@/kernel/vue/composables/infinite-scroll/index.js';
+	import { useDeletePost } from '@/kernel/vue/composables/delete-post/index.js';
+	import { useInstantRevalidation } from '@/kernel/vue/composables/instant-revalidation/index.js';
+	import { colibriEventBus } from '@/kernel/events/bus/index.js';
+	import BRD from '@/kernel/websockets/brd/index.js';
+
+    import TimelineContainer from '@M/components/timeline/feed/TimelineContainer.vue';
+    import TimelinePublication from '@M/components/timeline/feed/TimelinePublication.vue';
+    import TimelinePublicationSkeleton from '@M/components/timeline/feed/TimelinePublicationSkeleton.vue';
+    import ContentTabs from '@M/components/general/tabs/content/ContentTabs.vue';
+    import TabsLink from '@M/components/general/tabs/content/parts/TabsLink.vue';
+    import FeedUpdate from '@M/components/timeline/update/FeedUpdate.vue';
+	import AdCard from '@M/components/ads/AdCard.vue';
+    import FollowRecommendation from '@M/components/recommend/follow/FollowRecommendation.vue';
+    import Soundbar from '@M/components/soundbar/Soundbar.vue';
+	import QuickSearch from '@M/components/general/search/QuickSearch.vue';
+
+    export default defineComponent({
+        setup: function() {
+			const postSearchQuery = ref('');
+
+			const state = reactive({
+				isLoading: true,
+                isLoadingContent: false,
+                noMoreContent: false,
+                isUpdating: false,
+				isSearchLoading: false
+			});
+
+            let updateIntervalId = null;
+            let realtimeChannel = null;
+
+			const { postDeleter } = useDeletePost();
+
+            const explorePostsStore = useExplorePostsStore();
+            const newPosts = computed(() => {
+                return explorePostsStore.update;
+            });
+
+            const posts = computed(() => {
+				return explorePostsStore.posts;
+			});
+
+			const isSearchActive = computed(() => {
+				return postSearchQuery.value.trim().length > 0;
+			});
+
+			const refreshLatestFeed = async () => {
+				if(state.isUpdating || isSearchActive.value) {
+					return;
+				}
+
+				state.isUpdating = true;
+
+				try {
+					await explorePostsStore.updateFeed();
+
+					if(newPosts.value.length) {
+						explorePostsStore.applyUpdate();
+					}
+				} catch (error) {
+					console.log(error);
+				} finally {
+					state.isUpdating = false;
+				}
+			};
+
+			const setupFeedUpdateInterval = () => {
+				if(! updateIntervalId) {
+					updateIntervalId = setInterval(refreshLatestFeed, (30 * 1000));
+				}
+			};
+
+			const setupRealtimeFeedUpdates = () => {
+				if(window.ColibriBRD && ! realtimeChannel) {
+					const channelName = BRD.getChannel('PUBLIC_TIMELINE');
+
+					realtimeChannel = window.ColibriBRD.channel(channelName);
+					realtimeChannel.listen(BRD.getEvent('TIMELINE_POST_CREATED'), refreshLatestFeed);
+				}
+			};
+
+			useInstantRevalidation(refreshLatestFeed, {
+				minDelay: 2000
+			});
+
+            useInfiniteScroll({
+                callback: async () => {
+                    if(! state.isLoadingContent && ! state.noMoreContent && posts.value.length) {
+                        state.isLoadingContent = true;
+
+                        explorePostsStore.filter.page += 1;
+
+                        state.noMoreContent = (! await explorePostsStore.loadMorePosts());
+
+                        state.isLoadingContent = false;
+                    }
+                }
+            });
+
+			const applyFilters = async () => {
+				explorePostsStore.filter.page = 1;
+				explorePostsStore.update = [];
+				state.noMoreContent = false;
+				state.isSearchLoading = true;
+				await explorePostsStore.fetchPosts();
+				state.isSearchLoading = false;
+			};
+
+            onMounted(async() => {
+                state.isLoading = true;
+
+				// Reset filter on mount.
+				// Because there can be a filter applied from the previous visits.
+
+				explorePostsStore.resetFilter();
+
+                await explorePostsStore.fetchPosts();
+
+               	state.isLoading = false;
+
+				setupFeedUpdateInterval();
+				setupRealtimeFeedUpdates();
+            });
+
+			watch(postSearchQuery, () => {
+				explorePostsStore.filter.query = postSearchQuery.value;
+
+				debounce(async () => {
+					await applyFilters();
+				}, 500);
+			});
+
+            onUnmounted(() => {
+                if(updateIntervalId) {
+                    clearInterval(updateIntervalId);
+                }
+
+					if(realtimeChannel) {
+						realtimeChannel.stopListening(BRD.getEvent('TIMELINE_POST_CREATED'));
+					}
+	            });
+
+            return {
+                state: state,
+				posts: posts,
+				postSearchQuery: postSearchQuery,
+                newPosts: newPosts,
+                applyNewPosts: () => {
+                    explorePostsStore.applyUpdate();
+                },
+				handleSearchCancel: () => {
+					postSearchQuery.value = '';
+				},
+				handlePostDelete: (postData) => {
+					postDeleter(postData, (postId) => {
+						colibriEventBus.emit('timeline:post-deleted', postId);
+
+                        toastSuccess(__t('toast.media.post_deleted'));
+					});
+				}
+            };
+        },
+        components: {
+            TimelineContainer: TimelineContainer,
+            TimelinePublication: TimelinePublication,
+            TimelinePublicationSkeleton: TimelinePublicationSkeleton,
+            ContentTabs: ContentTabs,
+            TabsLink: TabsLink,
+            FeedUpdate: FeedUpdate,
+			AdCard: AdCard,
+			Soundbar: Soundbar,
+			QuickSearch: QuickSearch,
+			FollowRecommendation: FollowRecommendation
+        }
+    });
+</script>

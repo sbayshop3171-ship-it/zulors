@@ -1,0 +1,109 @@
+# Supervisor Cheat Sheet for Laravel Background Processes
+
+## Installation
+sudo apt-get install supervisor  # Ubuntu/Debian
+sudo yum install supervisor      # CentOS/RHEL
+
+## Configuration Files Location
+Main config: /etc/supervisor/supervisord.conf
+Program configs: /etc/supervisor/conf.d/*.conf
+
+## Creating a Laravel Queue Worker Config
+# Create new config file:
+sudo nano /etc/supervisor/conf.d/laravel-worker.conf
+
+# Example config content:
+[program:laravel-worker]
+process_name=%(program_name)s_%(process_num)02d
+command=php /path/to/artisan queue:work --sleep=3 --tries=3
+directory=/path/to/laravel
+autostart=true
+autorestart=true
+user=www-data
+numprocs=8
+redirect_stderr=true
+stdout_logfile=/path/to/laravel/storage/logs/worker.log
+stopwaitsecs=3600
+
+## Basic Supervisor Commands
+# Reload config files:
+sudo supervisorctl reread
+
+# Update all processes:
+sudo supervisorctl update
+
+# Start/Stop/Restart specific process:
+sudo supervisorctl start laravel-worker:*
+sudo supervisorctl stop laravel-worker:*
+sudo supervisorctl restart laravel-worker:*
+
+# Check status:
+sudo supervisorctl status
+
+# Start supervisor daemon:
+sudo systemctl start supervisord
+
+# Stop supervisor daemon:
+sudo systemctl stop supervisord
+
+# Enable on boot:
+sudo systemctl enable supervisord
+
+## Common Laravel Process Types
+# Queue Worker:
+[program:queue-worker]
+command=php artisan queue:work
+autostart=true
+autorestart=true
+
+# Horizon:
+[program:horizon]
+command=php artisan horizon
+autostart=true
+autorestart=true
+
+# WebSockets:
+[program:websockets]
+command=php artisan websockets:serve
+autostart=true
+autorestart=true
+
+## Logging
+# View logs:
+sudo tail -f /var/log/supervisor/supervisord.log
+sudo tail -f /path/to/laravel/storage/logs/worker.log
+
+## Troubleshooting
+1. Check supervisor is running:
+   sudo systemctl status supervisord
+
+2. Check config syntax:
+   sudo supervisord -n
+
+3. Common issues:
+   - Permission denied: Check user/group settings
+   - Process won't start: Check paths and commands
+   - Process keeps restarting: Check error logs
+
+## Best Practices
+1. Use descriptive program names
+2. Set appropriate numprocs based on server resources
+3. Configure proper log rotation
+4. Use environment variables when needed
+5. Set reasonable memory limits
+6. Configure proper stop wait time for graceful shutdowns
+
+## Environment Variables
+# Add to config:
+[program:laravel-worker]
+environment=
+    APP_ENV="production",
+    DB_HOST="localhost",
+    QUEUE_CONNECTION="redis"
+
+## Security
+1. Run processes as non-root user
+2. Restrict file permissions
+3. Use environment-specific configs
+4. Monitor memory usage
+5. Set up alerting for failures

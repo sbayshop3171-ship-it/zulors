@@ -1,0 +1,11 @@
+# Apache rewrite rules for Zulors if you are using Apache as the web server.
+
+RewriteEngine On
+RewriteBase /
+
+# Rewrite all requests to public/index.php
+RewriteRule ^$ public/index.php [L]
+
+# Exclude public directory from being rewritten to public/
+# This is to prevent the public directory from being rewritten to public/
+RewriteRule ^((?!public/).*)$ public/$1 [L,NC]

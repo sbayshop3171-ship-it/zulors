@@ -1,0 +1,6 @@
+This folder contains the parts of the layouts.
+
+header.blade.php, footer.blade.php
+
+This file contains the header and footer of the mpa app pages like auth and document,
+where layout is mpa and comes with header and footer.

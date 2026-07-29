@@ -1,0 +1,39 @@
+<?php
+
+return [
+    'queues' => [
+        'video' => env('MEDIA_VIDEO_QUEUE', 'media-video'),
+        'audio' => env('MEDIA_AUDIO_QUEUE', 'media-audio'),
+    ],
+
+    'cache' => [
+        'control' => env('MEDIA_CACHE_CONTROL', 'public, max-age=31536000, immutable'),
+    ],
+
+    'images' => [
+        'max_width' => (int) env('MEDIA_IMAGE_MAX_WIDTH', 2048),
+        'max_height' => (int) env('MEDIA_IMAGE_MAX_HEIGHT', 2048),
+    ],
+
+    'cloudflare' => [
+        'r2' => [
+            'direct_upload_enabled' => env('R2_DIRECT_UPLOAD_ENABLED', false),
+            'temp_disk' => env('R2_TEMP_DISK', 'r2_temp'),
+            'final_disk' => env('R2_FINAL_DISK', 'r2_final'),
+            'temp_prefix' => trim(env('R2_TEMP_PREFIX', 'tmp/direct/videos'), '/'),
+            'direct_upload_expiry_minutes' => (int) env('R2_DIRECT_UPLOAD_EXPIRY_MINUTES', 30),
+            'temp_preview_expiry_minutes' => (int) env('R2_TEMP_PREVIEW_EXPIRY_MINUTES', 30),
+        ],
+
+        'stream' => [
+            'enabled' => env('CLOUDFLARE_STREAM_ENABLED', false),
+            'account_id' => env('CLOUDFLARE_ACCOUNT_ID'),
+            'api_token' => env('CLOUDFLARE_STREAM_API_TOKEN'),
+            'webhook_secret' => env('CLOUDFLARE_STREAM_WEBHOOK_SECRET'),
+            'customer_subdomain' => env('CLOUDFLARE_STREAM_CUSTOMER_SUBDOMAIN'),
+            'require_signed_urls' => env('CLOUDFLARE_STREAM_REQUIRE_SIGNED_URLS', false),
+            'direct_upload_expiry_minutes' => env('CLOUDFLARE_STREAM_DIRECT_UPLOAD_EXPIRY_MINUTES', 60),
+            'max_duration_seconds' => env('CLOUDFLARE_STREAM_MAX_DURATION_SECONDS', 36000),
+        ],
+    ],
+];

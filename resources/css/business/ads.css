@@ -1,0 +1,156 @@
+@layer components {
+    .business-ads-page {
+        @apply mx-auto w-full max-w-[1180px];
+    }
+
+    .business-ads-header {
+        @apply mb-5 flex items-end justify-between gap-4;
+    }
+
+    .business-ads-header .mb-4 {
+        @apply mb-1;
+    }
+
+    .business-ads-kicker {
+        @apply mb-2 inline-flex rounded-full bg-badge-pr px-3 py-1 text-cap-l font-bold text-brand-900;
+    }
+
+    .business-ads-caption {
+        @apply max-w-xl text-par-s leading-snug text-lab-sc;
+    }
+
+    .business-ads-tabs {
+        @apply mb-6;
+    }
+
+    .business-ads-grid {
+        @apply grid gap-4;
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 360px));
+    }
+
+    .business-ads-card {
+        @apply overflow-hidden rounded-2xl border border-bord-pr bg-bg-pr shadow-xs transition-all duration-300 ease-in-out active:bg-fill-fv;
+    }
+
+    .business-ads-card-media {
+        @apply block aspect-video overflow-hidden bg-fill-fv;
+    }
+
+    .business-ads-card-media img {
+        @apply size-full object-cover;
+    }
+
+    .business-ads-card-body {
+        @apply p-4;
+    }
+
+    .business-ads-card-title {
+        @apply line-clamp-2 text-par-l font-bold leading-snug text-lab-pr2;
+    }
+
+    .business-ads-card-content {
+        @apply mt-2 line-clamp-3 text-par-s leading-relaxed text-lab-sc;
+    }
+
+    .business-ads-card-badges {
+        @apply mt-4 flex flex-wrap gap-1.5;
+    }
+
+    .business-ads-badge {
+        @apply inline-flex items-center rounded-full bg-fill-qt px-2.5 py-1 text-cap-l font-bold text-lab-pr2;
+    }
+
+    .business-ads-card-stats {
+        @apply mt-4 grid grid-cols-2 gap-2;
+    }
+
+    .business-ads-card-stats > div {
+        @apply rounded-xl bg-fill-fv p-3;
+    }
+
+    .business-ads-card-stats span {
+        @apply block text-cap-l font-semibold text-lab-sc;
+    }
+
+    .business-ads-card-stats strong {
+        @apply mt-1 block truncate text-par-n font-bold text-lab-pr2;
+    }
+
+    .business-ads-card-footer {
+        @apply mt-4 flex items-center justify-between gap-3 border-t border-bord-pr pt-4 text-cap-l font-semibold text-lab-sc;
+    }
+
+    .business-ads-card-actions {
+        @apply flex shrink-0 items-center gap-2;
+    }
+
+    .business-ads-card-action {
+        @apply inline-flex size-10 items-center justify-center rounded-xl bg-fill-qt text-lab-pr2 transition-all duration-300 ease-in-out active:bg-fill-tr;
+    }
+
+    .business-ads-card-action-icon {
+        @apply size-icon-small;
+    }
+
+    .business-ads-empty {
+        @apply flex min-h-72 flex-col items-center justify-center rounded-2xl border border-dashed border-bord-card bg-bg-pr px-6 py-10 text-center;
+    }
+
+    .business-ads-empty-icon {
+        @apply mb-4 block size-12 rounded-2xl bg-fill-qt p-3 text-lab-sc;
+    }
+
+    .business-ads-empty strong {
+        @apply text-par-m font-bold text-lab-pr2;
+    }
+
+    .business-ads-empty p {
+        @apply mt-1 max-w-sm text-par-s leading-snug text-lab-sc;
+    }
+
+    .business-ads-empty-action {
+        @apply mt-4 inline-flex h-11 items-center justify-center rounded-full bg-lab-pr2 px-5 text-par-n font-semibold text-bg-pr;
+    }
+
+    .business-ads-pagination {
+        @apply mt-5;
+    }
+
+    @media (max-width: 1023px) {
+        .business-ads-page {
+            @apply max-w-4xl;
+        }
+    }
+
+    @media (max-width: 767px) {
+        .business-ads-page {
+            @apply pb-1;
+        }
+
+        .business-ads-header {
+            @apply mb-4 block;
+        }
+
+        .business-ads-kicker,
+        .business-ads-caption {
+            @apply hidden;
+        }
+
+        .business-ads-tabs {
+            @apply -mx-4 mb-4 px-4;
+        }
+
+        .business-ads-grid {
+            @apply gap-3;
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .business-ads-card {
+            @apply rounded-xl;
+        }
+
+        .business-ads-pagination {
+            @apply mt-4;
+        }
+    }
+}
