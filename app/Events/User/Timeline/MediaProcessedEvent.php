@@ -17,6 +17,7 @@ namespace App\Events\User\Timeline;
 
 use App\Models\Media;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Foundation\Events\Dispatchable;
 use App\Http\Resources\User\Media\MediaResource;
@@ -42,7 +43,8 @@ class MediaProcessedEvent implements ShouldBroadcastNow
     public function broadcastOn(): array
     {
         return [
-            new PrivateChannel("App.Models.User.{$this->userId}")
+            new PrivateChannel("App.Models.User.{$this->userId}"),
+            new Channel('timeline.public')
         ];
     }
 

@@ -246,9 +246,22 @@ class PostController extends Controller
     {
         $this->draftPost->status = PostStatus::ACTIVE;
 
-        if($this->draftPost->type->isVideo()) {
+        if($this->draftPost->type->isVideo() && ! $this->canPlayVideoImmediately()) {
             $this->draftPost->status = PostStatus::PROCESSING_VIDEO;
         }
+    }
+
+    private function canPlayVideoImmediately(): bool
+    {
+        $videoMedia = $this->draftPost->media()
+            ->where('type', MediaType::VIDEO->value)
+            ->latest('id')
+            ->first();
+
+        return $videoMedia
+            && data_get($videoMedia->metadata, 'provider') === 'r2_temp'
+            && data_get($videoMedia->metadata, 'upload_state') === 'uploaded'
+            && filled($videoMedia->source_path);
     }
 
     private function validateDraftVideoUploadIsReady()
