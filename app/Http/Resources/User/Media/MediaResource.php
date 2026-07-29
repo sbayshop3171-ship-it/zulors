@@ -2,7 +2,7 @@
 
 namespace App\Http\Resources\User\Media;
 
-use Exception;
+use Throwable;
 use Illuminate\Support\Arr;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -74,7 +74,7 @@ class MediaResource extends JsonResource
                     now()->addMinutes(config('media.cloudflare.r2.temp_preview_expiry_minutes', 30))
                 );
             }
-            catch(Exception $e) {
+            catch(Throwable $e) {
                 return null;
             }
         }

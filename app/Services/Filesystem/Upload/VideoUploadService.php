@@ -35,8 +35,17 @@ class VideoUploadService extends AbstractUploadService
     {
         try {
             $videoPath = $this->determineStoragePath($this->videoDefaultExtension);
+            $videoStream = fopen($videoFileLocalPath, 'rb');
 
-            $resultState = Storage::disk($this->storageDisk)->put($videoPath, file_get_contents($videoFileLocalPath), $this->getUploadOptions());
+            if (! is_resource($videoStream)) {
+                $this->makeUploadException("Processed video source ({$videoFileLocalPath}) could not be opened.");
+            }
+
+            try {
+                $resultState = Storage::disk($this->storageDisk)->put($videoPath, $videoStream, $this->getUploadOptions());
+            } finally {
+                fclose($videoStream);
+            }
 
             if (! $resultState) {
                 $this->makeUploadException("Processed video uploading to disk ({$this->storageDisk}) failed.");
