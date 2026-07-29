@@ -22,41 +22,123 @@ SSH_OPTS=(
 	-o UserKnownHostsFile=/dev/null
 )
 
-echo "Syncing source to ${LIVE_USER}@${LIVE_HOST}:${LIVE_PATH}"
+DEPLOY_ID="${GITHUB_SHA:-$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || date +%s)}-$(date +%Y%m%d%H%M%S)"
+REMOTE_RELEASE="${LIVE_PATH}.release-${DEPLOY_ID}"
+REMOTE_BACKUP="${LIVE_PATH}.backup-${DEPLOY_ID}"
+
+RSYNC_EXCLUDES=(
+	--exclude='.git/'
+	--exclude='.github/'
+	--exclude='.env'
+	--exclude='.env.*'
+	--exclude='auth.json'
+	--exclude='node_modules/'
+	--exclude='vendor/'
+	--exclude='public/build/'
+	--exclude='public/hot'
+	--exclude='public/storage/'
+	--exclude='database/*.sqlite'
+	--exclude='testing'
+	--exclude='storage/app/'
+	--exclude='storage/frontend/build.num'
+	--exclude='storage/logs/'
+	--exclude='storage/framework/cache/'
+	--exclude='storage/framework/sessions/'
+	--exclude='storage/framework/views/'
+	--exclude='bootstrap/cache/*.php'
+	--exclude='.DS_Store'
+	--exclude='**/.DS_Store'
+)
+
+RSYNC_PERMISSIONS=(
+	--no-perms
+	--delay-updates
+	--chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r
+)
+
+echo "Preparing remote release ${REMOTE_RELEASE}"
+ssh "${SSH_OPTS[@]}" "${LIVE_USER}@${LIVE_HOST}" "set -e && \
+	mkdir -p '$REMOTE_RELEASE' && \
+	chmod 755 '$REMOTE_RELEASE' && \
+	test -f '$LIVE_PATH/.env' && \
+	cp '$LIVE_PATH/.env' '$REMOTE_RELEASE/.env'"
+
+echo "Syncing source to staged release..."
 rsync -az --delete \
+	"${RSYNC_PERMISSIONS[@]}" \
 	-e "ssh ${SSH_OPTS[*]}" \
-	--exclude='.git/' \
-	--exclude='.github/' \
-	--exclude='.env' \
-	--exclude='.env.*' \
-	--exclude='auth.json' \
-	--exclude='node_modules/' \
-	--exclude='vendor/' \
-	--exclude='public/build/' \
-	--exclude='public/hot' \
-	--exclude='public/storage/' \
-	--exclude='database/*.sqlite' \
-	--exclude='testing' \
-	--exclude='storage/app/' \
-	--exclude='storage/frontend/build.num' \
-	--exclude='storage/logs/' \
-	--exclude='storage/framework/cache/' \
-	--exclude='storage/framework/sessions/' \
-	--exclude='storage/framework/views/' \
-	--exclude='bootstrap/cache/*.php' \
-	--exclude='.DS_Store' \
-	--exclude='**/.DS_Store' \
-	"$ROOT_DIR/" "${LIVE_USER}@${LIVE_HOST}:${LIVE_PATH}/"
+	"${RSYNC_EXCLUDES[@]}" \
+	"$ROOT_DIR/" "${LIVE_USER}@${LIVE_HOST}:${REMOTE_RELEASE}/"
 
-echo "Running remote deploy script..."
-ssh "${SSH_OPTS[@]}" "${LIVE_USER}@${LIVE_HOST}" "cd '$LIVE_PATH' && bash deploy/live-deploy.sh"
+echo "Building staged release..."
+ssh "${SSH_OPTS[@]}" "${LIVE_USER}@${LIVE_HOST}" "set -e && \
+	cp '$LIVE_PATH/.env' '$REMOTE_RELEASE/.env' && \
+	cd '$REMOTE_RELEASE' && \
+	bash deploy/live-deploy.sh && \
+	php artisan about --only=environment --no-ansi >/dev/null"
 
-echo "Normalizing remote permissions..."
-ssh "${SSH_OPTS[@]}" "${LIVE_USER}@${LIVE_HOST}" "cd '$LIVE_PATH' && \
-	chmod 755 . && \
-	find public bootstrap config database deploy lang resources routes scripts services var -type d -exec chmod 755 {} + 2>/dev/null || true && \
-	find public bootstrap config database deploy lang resources routes scripts services var -type f -exec chmod 644 {} + 2>/dev/null || true && \
-	chmod 775 bootstrap/cache storage storage/app storage/app/public storage/framework storage/framework/cache storage/framework/sessions storage/framework/views storage/logs 2>/dev/null || true"
+echo "Promoting staged release to live..."
+ssh "${SSH_OPTS[@]}" "${LIVE_USER}@${LIVE_HOST}" "bash -s" -- "$LIVE_PATH" "$REMOTE_RELEASE" "$REMOTE_BACKUP" <<'REMOTE'
+set -euo pipefail
+
+LIVE_PATH="$1"
+REMOTE_RELEASE="$2"
+REMOTE_BACKUP="$3"
+
+rsync_excludes=(
+	--exclude='.env'
+	--exclude='.env.*'
+	--exclude='auth.json'
+	--exclude='public/hot'
+	--exclude='public/storage/'
+	--exclude='database/*.sqlite'
+	--exclude='testing'
+	--exclude='storage/app/'
+	--exclude='storage/logs/'
+	--exclude='storage/framework/cache/'
+	--exclude='storage/framework/sessions/'
+	--exclude='storage/framework/views/'
+	--exclude='bootstrap/cache/*.php'
+	--exclude='.DS_Store'
+	--exclude='**/.DS_Store'
+)
+
+rsync_permissions=(
+	--no-perms
+	--delay-updates
+	--chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r
+)
+
+restore_live() {
+	status=$?
+
+	echo "Promotion failed. Restoring previous live copy..."
+
+	if [ -d "$REMOTE_BACKUP" ]; then
+		rsync -a --delete "${rsync_permissions[@]}" "${rsync_excludes[@]}" "$REMOTE_BACKUP/" "$LIVE_PATH/"
+		cd "$LIVE_PATH"
+		INSTALL_DEPS=0 BUILD_ASSETS=0 RUN_MIGRATIONS=0 bash deploy/live-deploy.sh || true
+	fi
+
+	exit "$status"
+}
+
+trap restore_live ERR
+
+test -d "$LIVE_PATH"
+test -d "$REMOTE_RELEASE"
+
+cp -al "$LIVE_PATH" "$REMOTE_BACKUP"
+
+rsync -a --delete "${rsync_permissions[@]}" "${rsync_excludes[@]}" "$REMOTE_RELEASE/" "$LIVE_PATH/"
+
+cd "$LIVE_PATH"
+INSTALL_DEPS=0 BUILD_ASSETS=0 RUN_MIGRATIONS=0 bash deploy/live-deploy.sh
+curl -fsSI https://zulors.com/admin/login >/dev/null
+curl -fsSI https://zulors.com/auth/signup >/dev/null
+
+trap - ERR
+REMOTE
 
 echo "Checking live site..."
 curl -fsSI https://zulors.com/admin/login >/dev/null
