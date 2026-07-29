@@ -228,6 +228,12 @@ return [
                 'balanceMaxShift' => 1,
                 'balanceCooldown' => 3,
             ],
+            'supervisor-media-video' => [
+                'maxProcesses' => (int) env('MEDIA_VIDEO_MAX_PROCESSES', 1),
+            ],
+            'supervisor-media-audio' => [
+                'maxProcesses' => (int) env('MEDIA_AUDIO_MAX_PROCESSES', 1),
+            ],
         ],
 
         'local' => [
