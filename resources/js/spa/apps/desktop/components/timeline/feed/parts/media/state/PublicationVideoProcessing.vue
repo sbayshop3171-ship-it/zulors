@@ -43,8 +43,15 @@
             });
 
             const userId = authStore.userData.id;
+            let refreshIntervalId = null;
 
             onMounted(() => {
+                timelineStore.refreshFirstPage();
+
+                refreshIntervalId = setInterval(() => {
+                    timelineStore.refreshFirstPage();
+                }, 10000);
+
                 if(window.ColibriBRD) {
                     ColibriBRD.private(BRD.getChannel('AUTH_USER', [userId])).listen(BRD.getEvent('TIMELINE_MEDIA_PROCESSED'), function (event) {
                         if(event.data.mediaable_id == mediaItem.value.mediaable_id) {
@@ -57,6 +64,10 @@
             });
 
             onUnmounted(() => {
+                if(refreshIntervalId) {
+                    clearInterval(refreshIntervalId);
+                }
+
                 if(window.ColibriBRD) {
                     ColibriBRD.private(BRD.getChannel('AUTH_USER', [userId])).stopListening(BRD.getEvent('TIMELINE_MEDIA_PROCESSED'));
                 }
