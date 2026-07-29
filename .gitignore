@@ -41,7 +41,8 @@ yarn-error.log
 /.fleet
 /.idea
 /.vscode
-/bootstrap/cache
+/bootstrap/cache/*
+!/bootstrap/cache/.gitignore
 /public/vendor/
 /docker/database
 /services/ffmpeg/bin
