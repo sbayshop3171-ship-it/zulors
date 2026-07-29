@@ -37,6 +37,11 @@ class ConvertAndCompressPostVideo implements ShouldQueue
 
     public function handle(): void
     {
+        $postMedia = null;
+        $videoUploadService = null;
+        $fileDeleteService = null;
+        $videoTempOldPath = null;
+
         try {
             $videoUploadService = app(VideoUploadService::class);
             $fileDeleteService = app(FileDeleteService::class);
@@ -168,10 +173,34 @@ class ConvertAndCompressPostVideo implements ShouldQueue
             }
         }
 
-        catch (Exception $e) {
+        catch (\Throwable $e) {
             Log::error('Post video processing failed after 5 attempts. Error: ' . $e->getMessage());
 
-            $this->fail($e);
+            if(
+                $postMedia
+                && $videoUploadService
+                && $fileDeleteService
+                && $videoTempOldPath
+                && data_get($postMedia->metadata, 'provider') === 'r2_temp'
+                && is_file(storage_local_path($videoTempOldPath))
+            ) {
+                try {
+                    $this->publishOriginalVideoFallback(
+                        $postMedia,
+                        $videoTempOldPath,
+                        $videoUploadService,
+                        $fileDeleteService,
+                        $e
+                    );
+
+                    return;
+                }
+                catch (\Throwable $fallbackException) {
+                    Log::error('Original R2 video fallback also failed. Error: ' . $fallbackException->getMessage());
+                }
+            }
+
+            throw $e;
         }
     }
 
@@ -224,6 +253,63 @@ class ConvertAndCompressPostVideo implements ShouldQueue
         }
 
         return $postMedia->disk;
+    }
+
+    private function publishOriginalVideoFallback(
+        $postMedia,
+        string $videoTempOldPath,
+        VideoUploadService $videoUploadService,
+        FileDeleteService $fileDeleteService,
+        \Throwable $processingException
+    ): void {
+        $targetDisk = $this->targetStorageDisk($postMedia);
+
+        try {
+            $this->ensureThumbnail($postMedia, $videoTempOldPath, $targetDisk);
+        }
+        catch (\Throwable $thumbnailException) {
+            Log::warning('Video thumbnail fallback skipped. Error: ' . $thumbnailException->getMessage());
+        }
+
+        $videoData = $videoUploadService
+            ->setStorageDisk($targetDisk)
+            ->setNamespace(Filesystem::mediaNamespace('posts/videos'))
+            ->upload(storage_local_path($videoTempOldPath));
+
+        $oldDisk = $postMedia->disk;
+        $oldPath = $postMedia->source_path;
+        $oldSize = (int) $postMedia->size;
+        $metadata = $postMedia->metadata ?? [];
+
+        $postMedia->source_path = $videoData['video_path'];
+        $postMedia->disk = $videoData['disk'];
+        $postMedia->status = MediaStatus::PROCESSED;
+        $postMedia->extension = $videoUploadService->videoDefaultExtension;
+        $postMedia->mime = 'video/mp4';
+        $postMedia->size = $videoData['video_size'] ?? 0;
+        $postMedia->metadata = array_merge($metadata, [
+            'provider' => 'r2',
+            'processed_at' => now()->toIso8601String(),
+            'processing_fallback' => 'original_upload',
+            'processing_error' => str($processingException->getMessage())->limit(500)->toString(),
+            'original_size' => $oldSize,
+            'optimized_size' => (int) $postMedia->size,
+            'optimization_ratio' => $this->optimizationRatio($oldSize, (int) $postMedia->size),
+        ]);
+        $postMedia->save();
+
+        $this->postData->status = PostStatus::ACTIVE;
+        $this->postData->save();
+
+        $this->deleteOriginalSource($oldDisk, $oldPath, $videoTempOldPath, $fileDeleteService);
+
+        event(new MediaProcessedEvent($postMedia->refresh(), $this->postData->user_id));
+        event(new PublicTimelinePostCreatedEvent($this->postData->refresh()));
+
+        Log::warning('Published original R2 video because optimized processing failed.', [
+            'post_id' => $this->postData->id,
+            'media_id' => $postMedia->id,
+        ]);
     }
 
     private function resizeVideoIfNeeded($video, VideoUploadService $videoUploadService, string $videoLocalAbsolutePath): void
