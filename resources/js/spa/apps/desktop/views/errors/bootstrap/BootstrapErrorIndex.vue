@@ -10,9 +10,25 @@
 			<p class="text-par-l text-lab-sc mb-8">
 				The app could not finish loading. Please try again in a moment.
 			</p>
-			<a href="/" class="rounded-full smoothing bg-fill-tr hover:bg-fill-sc text-brand-900 text-par-l font-semibold block px-6 py-4 text-center cursor-pointer">
+			<a href="/" v-on:click.prevent="retryApplication" class="rounded-full smoothing bg-fill-tr hover:bg-fill-sc text-brand-900 text-par-l font-semibold block px-6 py-4 text-center cursor-pointer">
 				Try again
 			</a>
 		</div>
 	</div>
 </template>
+
+<script>
+export default {
+	methods: {
+		retryApplication: function() {
+			sessionStorage.removeItem('bootstrap-reload-attempted');
+			sessionStorage.removeItem('bootstrap-hard-reload-attempted');
+
+			const retryUrl = new URL('/', window.location.origin);
+
+			retryUrl.searchParams.set('bootstrap_retry', Date.now().toString());
+			window.location.replace(retryUrl.toString());
+		}
+	}
+};
+</script>

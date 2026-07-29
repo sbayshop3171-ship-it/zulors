@@ -9,6 +9,14 @@ const wait = (timeout) => {
     });
 };
 
+const refreshApplication = () => {
+    const refreshUrl = new URL(resolveAppBaseUrl());
+
+    refreshUrl.searchParams.set('bootstrap_refresh', Date.now().toString());
+
+    window.location.replace(refreshUrl.toString());
+};
+
 const useAppStore = defineStore('app', {
     state: () => {
         return {
@@ -28,24 +36,26 @@ const useAppStore = defineStore('app', {
                 }
 
                 try {
-                    const csrfResponse = await fetch(`${resolveAppBaseUrl()}/sanctum/csrf-cookie`, {
+                    await fetch(`${resolveAppBaseUrl()}/sanctum/csrf-cookie`, {
                         method: 'GET',
                         credentials: 'include'
-                    });
+                    }).catch(() => null);
 
-                    if(! csrfResponse.ok) {
-                        throw Object.assign(new Error(`CSRF bootstrap failed with ${csrfResponse.status}`), {
+                    const response = await colibriAPI().bootstrap().getFrom('bootstrap');
+                    const bootstrapData = response?.data?.data;
+
+                    if(! bootstrapData) {
+                        throw Object.assign(new Error('Bootstrap returned an invalid payload'), {
                             response: {
-                                status: csrfResponse.status
+                                status: response?.status ?? 500
                             }
                         });
                     }
 
-                    const response = await colibriAPI().bootstrap().getFrom('bootstrap');
-
-                    state.appData = response.data.data;
+                    state.appData = bootstrapData;
                     authStore.setUser(state.appData?.auth?.user ?? null);
                     sessionStorage.removeItem('bootstrap-reload-attempted');
+                    sessionStorage.removeItem('bootstrap-hard-reload-attempted');
 
                     return true;
                 } catch (error) {
@@ -72,6 +82,12 @@ const useAppStore = defineStore('app', {
                     if (isRecoverableLoadError && ! sessionStorage.getItem('bootstrap-reload-attempted')) {
                         sessionStorage.setItem('bootstrap-reload-attempted', 'true');
                         window.location.reload();
+                        return false;
+                    }
+
+                    if (isRecoverableLoadError && ! sessionStorage.getItem('bootstrap-hard-reload-attempted')) {
+                        sessionStorage.setItem('bootstrap-hard-reload-attempted', 'true');
+                        refreshApplication();
                         return false;
                     }
 
