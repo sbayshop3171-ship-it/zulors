@@ -20,6 +20,7 @@ use App\Models\Post;
 use App\Support\Num;
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
+use App\Enums\Media\MediaType;
 use App\Enums\Post\PostStatus;
 use Illuminate\Support\Facades\Validator;
 use App\Http\Controllers\Controller;
@@ -70,6 +71,10 @@ class PostController extends Controller
         }
 
         $this->initializePostAndValidateData($request);
+
+        if($videoUploadError = $this->validateDraftVideoUploadIsReady()) {
+            return $videoUploadError;
+        }
         
         $this->defineAndSetPostStatus();
 
@@ -244,6 +249,45 @@ class PostController extends Controller
         if($this->draftPost->type->isVideo()) {
             $this->draftPost->status = PostStatus::PROCESSING_VIDEO;
         }
+    }
+
+    private function validateDraftVideoUploadIsReady()
+    {
+        if(! $this->draftPost->type->isVideo()) {
+            return null;
+        }
+
+        $videoMedia = $this->draftPost->media()
+            ->where('type', MediaType::VIDEO->value)
+            ->latest('id')
+            ->first();
+
+        if(empty($videoMedia)) {
+            return $this->responseValidationError([
+                'message' => 'Please attach a video before publishing.',
+                'errors' => [
+                    'video' => [
+                        'Please attach a video before publishing.'
+                    ]
+                ]
+            ]);
+        }
+
+        $isDirectR2Upload = data_get($videoMedia->metadata, 'provider') === 'r2_temp';
+        $uploadState = data_get($videoMedia->metadata, 'upload_state');
+
+        if($isDirectR2Upload && $uploadState !== 'uploaded') {
+            return $this->responseValidationError([
+                'message' => 'Video upload is still finishing. Please wait until the upload reaches 100% before publishing.',
+                'errors' => [
+                    'video' => [
+                        'Video upload is still finishing. Please wait until the upload reaches 100% before publishing.'
+                    ]
+                ]
+            ]);
+        }
+
+        return null;
     }
 
     private function initializePostAndValidateData(Request $request)

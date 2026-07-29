@@ -1,6 +1,11 @@
 <template>
     <div class="bg-fill-pr overflow-hidden relative">
-        <img v-bind:src="mediaItem.thumbnail_url" class="w-full h-full object-cover" alt="Video thumbnail">
+        <img v-if="mediaItem.thumbnail_url" v-bind:src="mediaItem.thumbnail_url" class="w-full h-full object-cover" alt="Video thumbnail">
+        <div v-else class="aspect-video min-h-48 flex-center bg-fill-tr text-lab-sc">
+            <span class="size-icon-large">
+                <SvgIcon name="video-recorder" type="line"></SvgIcon>
+            </span>
+        </div>
         <div class="from-black/60 to-transparent bg-gradient-to-t absolute bottom-0 left-0 right-0 px-4 pb-4 pt-6">
             <span class="text-white text-cap-s leading-none animate-pulse animate-ease-in-out animate-infinite">
                 {{ $t('labels.video_processing') }}

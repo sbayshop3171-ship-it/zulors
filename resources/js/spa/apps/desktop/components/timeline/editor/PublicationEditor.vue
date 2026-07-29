@@ -50,7 +50,7 @@
                 </template>
                 <template v-else>
                     <div v-if="postHasMedia" class="block mb-3">
-                        <template v-if="PostTypeUtils.isImage(postData.type)">
+                        <template v-if="PostTypeUtils.isImage(currentPostType)">
                             <div class="overflow-hidden">
                                 <div class="grid grid-cols-3 gap-1">
                                     <div v-for="mediaItem in postMedia" v-bind:key="mediaItem.id" class="relative rounded-md overflow-hidden border border-bord-card">
@@ -65,17 +65,17 @@
                                 </div>
                             </div>
                         </template>
-                        <template v-else-if="PostTypeUtils.isVideo(postData.type)">
+                        <template v-else-if="PostTypeUtils.isVideo(currentPostType)">
                             <PostVideoPreview
                                 v-for="mediaItem in postMedia" v-bind:key="mediaItem.id"
                                 v-bind:mediaItem="mediaItem"
                                 v-bind:canDelete="! isEditingPost"
                             v-on:delete="deletePostMedia"></PostVideoPreview>
                         </template>
-                        <template v-else-if="PostTypeUtils.isGif(postData.type)">
+                        <template v-else-if="PostTypeUtils.isGif(currentPostType)">
                             <PostGifPreview v-bind:canDelete="! isEditingPost" v-bind:postMedia="postMedia" v-on:delete="deletePostMedia"></PostGifPreview>
                         </template>
-                        <template v-else-if="PostTypeUtils.isDocument(postData.type) || PostTypeUtils.isAudio(postData.type)">
+                        <template v-else-if="PostTypeUtils.isDocument(currentPostType) || PostTypeUtils.isAudio(currentPostType)">
                             <PostDocumentPreview v-bind:canDelete="! isEditingPost" v-bind:postMedia="postMedia" v-on:delete="deletePostMedia"></PostDocumentPreview>
                         </template>
                     </div>
@@ -221,7 +221,7 @@
 </template>
 
 <script>
-    import { defineComponent, defineAsyncComponent, onMounted, ref, reactive, computed, nextTick } from 'vue';
+    import { defineComponent, defineAsyncComponent, onMounted, onBeforeUnmount, ref, reactive, computed, nextTick } from 'vue';
     import { PostTypeUtils, PostType } from '@/kernel/enums/post/post.type.js';
 
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
@@ -273,6 +273,7 @@
             const state = reactive({
                 postSubmitting: false,
                 postMediaUploadProgress: 0,
+                localMediaPreviews: [],
                 isDragging: false,
                 isLinkPreviewing: false,
                 isFetchingLinkPreview: false,
@@ -333,6 +334,41 @@
 
             onMounted(async function() {
                 await postEditorStore.fetchDraftPost();
+            });
+
+            const clearLocalMediaPreviews = () => {
+                state.localMediaPreviews.forEach((mediaItem) => {
+                    if(mediaItem.preview_url) {
+                        URL.revokeObjectURL(mediaItem.preview_url);
+                    }
+                });
+
+                state.localMediaPreviews = [];
+            }
+
+            const createLocalMediaPreview = (mediaFile, type = 'image') => {
+                if(! ['image', 'video'].includes(type)) {
+                    return null;
+                }
+
+                const previewUrl = URL.createObjectURL(mediaFile);
+
+                return {
+                    id: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                    deleted: false,
+                    is_local_preview: true,
+                    type: type,
+                    source_url: previewUrl,
+                    preview_url: previewUrl,
+                    thumbnail_url: '',
+                    metadata: {
+                        duration: 0
+                    }
+                };
+            }
+
+            onBeforeUnmount(() => {
+                clearLocalMediaPreviews();
             });
 
             const getFileExtension = (mediaFile) => {
@@ -561,10 +597,14 @@
                         preserveContent: true
                     });
 
+                    clearLocalMediaPreviews();
+
                     state.postMediaUploadProgress = 0;
 
                     resetFileInputTags();
                 }).catch((error) => {
+                    clearLocalMediaPreviews();
+
                     toastError(error.response?.data?.message || error.message || 'Upload failed');
 
                     state.postMediaUploadProgress = 0;
@@ -576,6 +616,13 @@
             const uploadPostVideoDirectly = async (mediaFile) => {
                 if(! mediaFile) {
                     return false;
+                }
+
+                const localPreview = createLocalMediaPreview(mediaFile, 'video');
+
+                if(localPreview) {
+                    clearLocalMediaPreviews();
+                    state.localMediaPreviews.push(localPreview);
                 }
 
                 try {
@@ -623,9 +670,13 @@
                     await postEditorStore.fetchDraftPost({
                         preserveContent: true
                     });
+
+                    clearLocalMediaPreviews();
                 }
 
                 catch (error) {
+                    clearLocalMediaPreviews();
+
                     toastError(error.response?.data?.message || error.message || 'Upload failed');
                 }
 
@@ -783,6 +834,11 @@
                         return false;
                     }
 
+                    if(mediaItem.is_local_preview) {
+                        clearLocalMediaPreviews();
+                        return;
+                    }
+
                     mediaItem.deleted = true;
 
                     colibriAPI().postEditor().with({
@@ -820,7 +876,7 @@
                     postEditorStore.resetDraftPost();
                 },
                 postHasMedia: computed(() => {
-                    return postData.value.relations?.media?.length;
+                    return state.localMediaPreviews.length || postData.value.relations?.media?.length;
                 }),
                 postHasPoll: computed(() => {
                     return postData.value.relations?.poll;
@@ -836,7 +892,16 @@
                     return postEditorStore.quotedPost !== null;
                 }),
                 postMedia: computed(() => {
-                    return postData.value.relations.media;
+                    const serverMedia = postData.value.relations?.media || [];
+
+                    return serverMedia.concat(state.localMediaPreviews);
+                }),
+                currentPostType: computed(() => {
+                    if(state.localMediaPreviews.length) {
+                        return state.localMediaPreviews[0].type;
+                    }
+
+                    return postData.value.type;
                 }),
                 quotedPost: computed(() => {
                     return postEditorStore.quotedPost;
@@ -877,15 +942,17 @@
                         return true;
                     }
                     else{
-                        if(PostTypeUtils.isText(postData.value.type)) {
+                        const editorPostType = state.localMediaPreviews.length ? state.localMediaPreviews[0].type : postData.value.type;
+
+                        if(PostTypeUtils.isText(editorPostType)) {
                             return false;
                         }
                         else{
-                            if (PostTypeUtils.isImage(postData.value.type) && PostTypeUtils.isImage(postType)) {
+                            if (PostTypeUtils.isImage(editorPostType) && PostTypeUtils.isImage(postType)) {
                                 return false;
                             }
 
-                            return !!postData.value.type;
+                            return !!editorPostType;
                         }
                     }
                 },

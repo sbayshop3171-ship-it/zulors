@@ -33,7 +33,7 @@ class Media extends Model
 
     public function mediaable()
     {
-        return $this->morphTo('mediaable', 'mediaable_id', 'mediaable_type', 'id', 'id');
+        return $this->morphTo('mediaable', 'mediaable_type', 'mediaable_id', 'id');
     }
 
     public function message()
