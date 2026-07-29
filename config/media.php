@@ -22,8 +22,9 @@ return [
             'final_disk' => env('R2_FINAL_DISK', 'r2_final'),
             'temp_prefix' => trim(env('R2_TEMP_PREFIX', 'tmp/direct/videos'), '/'),
             'direct_upload_expiry_minutes' => (int) env('R2_DIRECT_UPLOAD_EXPIRY_MINUTES', 30),
-            'multipart_threshold_mb' => (int) env('R2_DIRECT_UPLOAD_MULTIPART_THRESHOLD_MB', 64),
-            'multipart_part_size_mb' => (int) env('R2_DIRECT_UPLOAD_MULTIPART_PART_SIZE_MB', 64),
+            'multipart_threshold_mb' => (int) env('R2_DIRECT_UPLOAD_MULTIPART_THRESHOLD_MB', 5),
+            'multipart_part_size_mb' => (int) env('R2_DIRECT_UPLOAD_MULTIPART_PART_SIZE_MB', 5),
+            'raw_fallback_max_mb' => (int) env('R2_DIRECT_UPLOAD_RAW_FALLBACK_MAX_MB', 8),
             'temp_preview_expiry_minutes' => (int) env('R2_TEMP_PREVIEW_EXPIRY_MINUTES', 30),
         ],
 

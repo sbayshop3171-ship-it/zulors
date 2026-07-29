@@ -25,6 +25,10 @@ Route::post('/media/video/upload', [App\Http\Controllers\Api\User\Timeline\PostV
 
 Route::post('/media/video/direct/create', [App\Http\Controllers\Api\User\Timeline\DirectMediaUploadController::class, 'createVideoUpload']);
 
+Route::post('/media/video/direct/raw', [App\Http\Controllers\Api\User\Timeline\DirectMediaUploadController::class, 'uploadRawVideo']);
+
+Route::post('/media/video/direct/part', [App\Http\Controllers\Api\User\Timeline\DirectMediaUploadController::class, 'uploadVideoPart']);
+
 Route::post('/media/video/direct/complete', [App\Http\Controllers\Api\User\Timeline\DirectMediaUploadController::class, 'completeVideoUpload']);
 
 Route::get('/media/video/preview/{mediaId}', [App\Http\Controllers\Api\User\Timeline\PostMediaController::class, 'previewVideo']);

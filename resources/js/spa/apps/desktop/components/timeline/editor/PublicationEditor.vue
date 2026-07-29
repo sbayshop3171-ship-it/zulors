@@ -401,48 +401,123 @@
                 throw lastError || new Error('Direct upload failed');
             }
 
-            const uploadFileToDirectUrl = (uploadData, mediaFile, onProgress) => {
-                return retryDirectUpload(() => {
+            const uploadRawFileViaApp = (uploadData, mediaFile, onProgress) => {
+                const formData = new FormData();
+                formData.append('media_id', uploadData.media?.id);
+                formData.append('uid', uploadData.uid);
+                formData.append('video', mediaFile);
+
+                return colibriAPI().postEditor().with(formData).withHeaders({
+                    'Content-Type': 'multipart/form-data'
+                }).uploadProgress((progressEvent) => {
+                    if(progressEvent.lengthComputable || progressEvent.total) {
+                        onProgress(progressEvent.loaded, progressEvent.total || mediaFile.size);
+                    }
+                }).sendTo('media/video/direct/raw').then((response) => {
+                    return getUploadResponseData(response);
+                });
+            }
+
+            const uploadFileToDirectUrl = async (uploadData, mediaFile, onProgress) => {
+                try {
+                    return await retryDirectUpload(() => {
+                        const requestMethod = uploadData.upload_method || 'POST';
+                        const uploadType = uploadData.upload_type || 'form';
+
+                        if(uploadType === 'raw' || requestMethod === 'PUT') {
+                            return uploadDirectRequest(requestMethod, uploadData.upload_url, uploadData.upload_headers, mediaFile, (loaded, total) => {
+                                const uploadTotal = Math.max(1, total || mediaFile.size);
+                                onProgress(Math.round((loaded / uploadTotal) * 100));
+                            });
+                        }
+
+                        const formData = new FormData();
+                        formData.append('file', mediaFile);
+
+                        return uploadDirectRequest(requestMethod, uploadData.upload_url, uploadData.upload_headers, formData, (loaded, total) => {
+                            const uploadTotal = Math.max(1, total || mediaFile.size);
+                            onProgress(Math.round((loaded / uploadTotal) * 100));
+                        });
+                    });
+                }
+                catch (error) {
                     const requestMethod = uploadData.upload_method || 'POST';
                     const uploadType = uploadData.upload_type || 'form';
 
                     if(uploadType === 'raw' || requestMethod === 'PUT') {
-                        return uploadDirectRequest(requestMethod, uploadData.upload_url, uploadData.upload_headers, mediaFile, (loaded, total) => {
-                            onProgress(Math.round((loaded / total) * 100));
+                        return uploadRawFileViaApp(uploadData, mediaFile, (loaded, total) => {
+                            const uploadTotal = Math.max(1, total || mediaFile.size);
+                            onProgress(Math.round((loaded / uploadTotal) * 100));
                         });
                     }
 
-                    const formData = new FormData();
-                    formData.append('file', mediaFile);
+                    throw error;
+                }
+            }
 
-                    return uploadDirectRequest(requestMethod, uploadData.upload_url, uploadData.upload_headers, formData, (loaded, total) => {
-                        onProgress(Math.round((loaded / total) * 100));
-                    });
+            const uploadMultipartPartViaApp = (uploadData, part, partBlob, onProgress) => {
+                const formData = new FormData();
+                formData.append('media_id', uploadData.media?.id);
+                formData.append('uid', uploadData.uid);
+                formData.append('upload_id', uploadData.upload_id);
+                formData.append('part_number', part.part_number);
+                formData.append('part', partBlob, `part-${part.part_number}`);
+
+                return colibriAPI().postEditor().with(formData).withHeaders({
+                    'Content-Type': 'multipart/form-data'
+                }).uploadProgress((progressEvent) => {
+                    if(progressEvent.lengthComputable || progressEvent.total) {
+                        onProgress(progressEvent.loaded, progressEvent.total || partBlob.size);
+                    }
+                }).sendTo('media/video/direct/part').then((response) => {
+                    return getUploadResponseData(response);
                 });
             }
 
             const uploadMultipartFileToDirectUrl = async (uploadData, mediaFile, onProgress) => {
                 const parts = Array.isArray(uploadData.parts) ? uploadData.parts : [];
                 const completedParts = [];
+                const loadedParts = new Map();
+                const uploadConcurrency = Math.min(3, Math.max(1, Number(uploadData.upload_concurrency || 3)));
                 let uploadedBytes = 0;
+                let nextPartIndex = 0;
 
-                for(const part of parts) {
+                const updateMultipartProgress = (partNumber, loaded, total) => {
+                    loadedParts.set(partNumber, Math.min(Number(total || 0), Number(loaded || 0)));
+
+                    const activeUploadedBytes = Array.from(loadedParts.values()).reduce((totalBytes, partBytes) => {
+                        return totalBytes + partBytes;
+                    }, 0);
+
+                    const totalUploaded = Math.min(mediaFile.size, uploadedBytes + activeUploadedBytes);
+                    onProgress(Math.round((totalUploaded / mediaFile.size) * 100));
+                }
+
+                const uploadPart = async (part) => {
                     const partStart = Number(part.start || 0);
                     const partEnd = Number(part.end || Math.min(mediaFile.size, partStart + Number(uploadData.part_size || 0)));
                     const partBlob = mediaFile.slice(partStart, partEnd);
 
-                    const result = await retryDirectUpload(() => {
+                    let result = await retryDirectUpload(() => {
                         return uploadDirectRequest(part.upload_method || 'PUT', part.upload_url, part.upload_headers || {}, partBlob, (loaded) => {
-                            const totalUploaded = Math.min(mediaFile.size, uploadedBytes + loaded);
-                            onProgress(Math.round((totalUploaded / mediaFile.size) * 100));
+                            updateMultipartProgress(part.part_number, loaded, partBlob.size);
                         });
-                    });
+                    }, 2).catch(() => null);
 
-                    if(! result.etag) {
+                    if(! result?.etag) {
+                        loadedParts.set(part.part_number, 0);
+
+                        result = await uploadMultipartPartViaApp(uploadData, part, partBlob, (loaded) => {
+                            updateMultipartProgress(part.part_number, loaded, partBlob.size);
+                        });
+                    }
+
+                    if(! result?.etag) {
                         throw new Error('Direct upload did not return an ETag.');
                     }
 
                     uploadedBytes += partBlob.size;
+                    loadedParts.delete(part.part_number);
 
                     completedParts.push({
                         part_number: part.part_number,
@@ -452,7 +527,20 @@
                     onProgress(Math.round((uploadedBytes / mediaFile.size) * 100));
                 }
 
-                return completedParts;
+                const workers = Array.from({
+                    length: Math.min(uploadConcurrency, parts.length)
+                }, async () => {
+                    while(nextPartIndex < parts.length) {
+                        const part = parts[nextPartIndex++];
+                        await uploadPart(part);
+                    }
+                });
+
+                await Promise.all(workers);
+
+                return completedParts.sort((firstPart, secondPart) => {
+                    return firstPart.part_number - secondPart.part_number;
+                });
             }
 
             const uploadPostMediaLocally = (mediaFile, type = 'image') => {

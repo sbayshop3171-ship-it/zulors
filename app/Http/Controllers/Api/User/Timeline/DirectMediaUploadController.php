@@ -165,7 +165,7 @@ class DirectMediaUploadController extends Controller
         $request->validate([
             'media_id' => ['required', 'integer'],
             'uid' => ['required', 'string', 'max:255'],
-            'upload_id' => ['nullable', 'string', 'max:255'],
+            'upload_id' => ['nullable', 'string', 'max:2048'],
             'parts' => ['nullable', 'array'],
             'parts.*.part_number' => ['required_with:parts', 'integer', 'min:1', 'max:10000'],
             'parts.*.etag' => ['required_with:parts', 'string', 'max:255'],
@@ -257,6 +257,214 @@ class DirectMediaUploadController extends Controller
         return $this->responseSuccess([
             'data' => [
                 'media' => MediaResource::make($media->refresh()),
+            ]
+        ]);
+    }
+
+    public function uploadRawVideo(Request $request, R2DirectUploadService $r2DirectUploadService)
+    {
+        $request->validate([
+            'media_id' => ['required', 'integer'],
+            'uid' => ['required', 'string', 'max:255'],
+            'video' => ['required', 'file'],
+        ]);
+
+        $media = Media::query()->find($request->integer('media_id'));
+
+        if(empty($media) || $media->source_path !== $request->input('uid')) {
+            return $this->responseNotFoundError();
+        }
+
+        $media->load('mediaable');
+
+        if(! ($media->mediaable instanceof Post) || $media->mediaable->user_id !== me()->id) {
+            return $this->responseUnauthorizedError();
+        }
+
+        $metadata = $media->metadata ?? [];
+
+        if(
+            data_get($metadata, 'provider') !== 'r2_temp' ||
+            data_get($metadata, 'upload_type') !== 'raw' ||
+            data_get($metadata, 'upload_state') === 'uploaded'
+        ) {
+            return $this->responseValidationError([
+                'message' => 'Invalid direct upload session.',
+                'errors' => [
+                    'video' => [
+                        'Invalid direct upload session.'
+                    ]
+                ]
+            ]);
+        }
+
+        $videoFile = $request->file('video');
+        $videoSize = (int) ($videoFile?->getSize() ?? 0);
+        $maxRawFallbackSize = max(5, (int) config('media.cloudflare.r2.raw_fallback_max_mb', 8)) * 1024 * 1024;
+
+        if($videoSize < 1 || $videoSize > ($maxRawFallbackSize + (1024 * 1024))) {
+            return $this->responseValidationError([
+                'message' => 'Video is too large for server fallback upload.',
+                'errors' => [
+                    'video' => [
+                        'Video is too large for server fallback upload.'
+                    ]
+                ]
+            ]);
+        }
+
+        $readStream = fopen($videoFile->getRealPath(), 'rb');
+
+        if(! is_resource($readStream)) {
+            return $this->responseValidationError([
+                'message' => 'Unable to read uploaded video file.',
+                'errors' => [
+                    'video' => [
+                        'Unable to read uploaded video file.'
+                    ]
+                ]
+            ]);
+        }
+
+        try {
+            $r2DirectUploadService->uploadRawObject(
+                $media->source_path,
+                $readStream,
+                (string) ($videoFile->getMimeType() ?: $media->mime ?: 'video/mp4')
+            );
+        }
+        catch (Exception $e) {
+            return $this->responseValidationError([
+                'message' => $e->getMessage(),
+                'errors' => [
+                    'video' => [
+                        $e->getMessage()
+                    ]
+                ]
+            ]);
+        }
+        finally {
+            fclose($readStream);
+        }
+
+        return $this->responseSuccess([
+            'data' => [
+                'uploaded' => true,
+            ]
+        ]);
+    }
+
+    public function uploadVideoPart(Request $request, R2DirectUploadService $r2DirectUploadService)
+    {
+        $request->validate([
+            'media_id' => ['required', 'integer'],
+            'uid' => ['required', 'string', 'max:255'],
+            'upload_id' => ['required', 'string', 'max:2048'],
+            'part_number' => ['required', 'integer', 'min:1', 'max:10000'],
+            'part' => ['required', 'file'],
+        ]);
+
+        $media = Media::query()->find($request->integer('media_id'));
+
+        if(empty($media) || $media->source_path !== $request->input('uid')) {
+            return $this->responseNotFoundError();
+        }
+
+        $media->load('mediaable');
+
+        if(! ($media->mediaable instanceof Post) || $media->mediaable->user_id !== me()->id) {
+            return $this->responseUnauthorizedError();
+        }
+
+        $metadata = $media->metadata ?? [];
+        $uploadId = (string) $request->input('upload_id');
+        $partNumber = $request->integer('part_number');
+
+        if(
+            data_get($metadata, 'provider') !== 'r2_temp' ||
+            data_get($metadata, 'upload_type') !== 'multipart' ||
+            data_get($metadata, 'upload_state') === 'uploaded' ||
+            $uploadId !== (string) data_get($metadata, 'upload_id')
+        ) {
+            return $this->responseValidationError([
+                'message' => 'Invalid multipart upload session.',
+                'errors' => [
+                    'video' => [
+                        'Invalid multipart upload session.'
+                    ]
+                ]
+            ]);
+        }
+
+        $partsCount = (int) data_get($metadata, 'parts_count', 0);
+
+        if($partsCount > 0 && $partNumber > $partsCount) {
+            return $this->responseValidationError([
+                'message' => 'Invalid multipart upload part number.',
+                'errors' => [
+                    'video' => [
+                        'Invalid multipart upload part number.'
+                    ]
+                ]
+            ]);
+        }
+
+        $partFile = $request->file('part');
+        $partSize = (int) ($partFile?->getSize() ?? 0);
+        $configuredPartSize = max(5, (int) config('media.cloudflare.r2.multipart_part_size_mb', 5)) * 1024 * 1024;
+        $expectedPartSize = (int) data_get($metadata, 'part_size', $configuredPartSize);
+        $maxPartSize = max(1, $expectedPartSize) + (1024 * 1024);
+
+        if($partSize < 1 || $partSize > $maxPartSize) {
+            return $this->responseValidationError([
+                'message' => 'Invalid multipart upload part size.',
+                'errors' => [
+                    'video' => [
+                        'Invalid multipart upload part size.'
+                    ]
+                ]
+            ]);
+        }
+
+        $readStream = fopen($partFile->getRealPath(), 'rb');
+
+        if(! is_resource($readStream)) {
+            return $this->responseValidationError([
+                'message' => 'Unable to read uploaded video part.',
+                'errors' => [
+                    'video' => [
+                        'Unable to read uploaded video part.'
+                    ]
+                ]
+            ]);
+        }
+
+        try {
+            $etag = $r2DirectUploadService->uploadMultipartPart(
+                $media->source_path,
+                $uploadId,
+                $partNumber,
+                $readStream
+            );
+        }
+        catch (Exception $e) {
+            return $this->responseValidationError([
+                'message' => $e->getMessage(),
+                'errors' => [
+                    'video' => [
+                        $e->getMessage()
+                    ]
+                ]
+            ]);
+        }
+        finally {
+            fclose($readStream);
+        }
+
+        return $this->responseSuccess([
+            'data' => [
+                'part_number' => $partNumber,
+                'etag' => $etag,
             ]
         ]);
     }

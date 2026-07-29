@@ -92,6 +92,45 @@ class R2DirectUploadService
         ]);
     }
 
+    public function uploadRawObject(string $path, mixed $body, string $contentType = 'video/mp4'): void
+    {
+        if(! $this->isConfigured()) {
+            throw new Exception('Cloudflare R2 direct upload is not configured.');
+        }
+
+        if(blank($path)) {
+            throw new Exception('Invalid direct upload object path.');
+        }
+
+        $this->s3Client($this->tempDisk())->putObject([
+            'Bucket' => $this->bucket($this->tempDisk()),
+            'Key' => $path,
+            'Body' => $body,
+            'ContentType' => $contentType,
+        ]);
+    }
+
+    public function uploadMultipartPart(string $path, string $uploadId, int $partNumber, mixed $body): string
+    {
+        if(! $this->isConfigured()) {
+            throw new Exception('Cloudflare R2 direct upload is not configured.');
+        }
+
+        if(blank($path) || blank($uploadId) || $partNumber < 1 || $partNumber > 10000) {
+            throw new Exception('Invalid multipart upload part request.');
+        }
+
+        $result = $this->s3Client($this->tempDisk())->uploadPart([
+            'Bucket' => $this->bucket($this->tempDisk()),
+            'Key' => $path,
+            'UploadId' => $uploadId,
+            'PartNumber' => $partNumber,
+            'Body' => $body,
+        ]);
+
+        return (string) $result->get('ETag');
+    }
+
     public function abortMultipartUpload(string $path, string $uploadId): void
     {
         if(! $this->isConfigured() || blank($path) || blank($uploadId)) {
