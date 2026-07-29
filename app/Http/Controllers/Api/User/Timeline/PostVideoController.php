@@ -65,9 +65,13 @@ class PostVideoController extends Controller
                 $this->draftPost->save();
             }
 
+            $wasChangedToVideo = false;
+
             if($this->draftPost->type->isTextified()) {
                 $this->draftPost->type = PostType::VIDEO;
                 $this->draftPost->save();
+
+                $wasChangedToVideo = true;
             }
 
             try {
@@ -115,6 +119,8 @@ class PostVideoController extends Controller
                 ]);
 
             } catch (Exception $e) {
+                $this->resetDraftPostTypeAfterFailedAttachment($wasChangedToVideo);
+
                 return $this->responseValidationError([
                     'message' => $e->getMessage(),
                     'errors' => [
@@ -156,5 +162,21 @@ class PostVideoController extends Controller
         list($width, $height) = getimagesize($videoPath);
 
         return [$width, $height];
+    }
+
+    private function resetDraftPostTypeAfterFailedAttachment(bool $wasChangedToVideo): void
+    {
+        if(! $wasChangedToVideo) {
+            return;
+        }
+
+        try {
+            if($this->draftPost->exists && $this->draftPost->media()->count() === 0) {
+                $this->draftPost->type = PostType::TEXT;
+                $this->draftPost->save();
+            }
+        } catch (Exception $e) {
+            report($e);
+        }
     }
 }

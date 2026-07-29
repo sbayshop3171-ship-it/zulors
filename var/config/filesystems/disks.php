@@ -18,6 +18,7 @@ return [
 		'root' => storage_path('app/public'),
 		'url' => env('APP_URL').'/storage',
 		'visibility' => 'public',
+		'round_robin' => env('PUBLIC_DISK_ROUND_ROBIN', true),
 		'permissions' => [
 			'file' => [
 				'public' => 0644,

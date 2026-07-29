@@ -57,10 +57,15 @@ class FFMpegService
             return $pathFromEnvironment;
         }
 
-        $bundledPath = storage_path("app/bin/ffmpeg-darwin-x64/{$binaryName}");
+        $bundledPaths = [
+            storage_path("app/bin/ffmpeg-linux-amd64/{$binaryName}"),
+            storage_path("app/bin/ffmpeg-darwin-x64/{$binaryName}"),
+        ];
 
-        if(is_executable($bundledPath)) {
-            return $bundledPath;
+        foreach($bundledPaths as $bundledPath) {
+            if(is_executable($bundledPath)) {
+                return $bundledPath;
+            }
         }
 
         return (string) $configuredPath;

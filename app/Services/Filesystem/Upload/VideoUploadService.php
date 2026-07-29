@@ -68,6 +68,8 @@ class VideoUploadService extends AbstractUploadService
 
     public function tempSaveLocally(UploadedFile $videoFile): array
     {
+        $videoTempPath = null;
+
         try {
             $videoTempPath = Storage::disk('local')->putFile($this->videoTemporaryLocation, $videoFile);
 
@@ -86,6 +88,10 @@ class VideoUploadService extends AbstractUploadService
         }
 
         catch(Exception $e) {
+            if($videoTempPath && Storage::disk('local')->exists($videoTempPath)) {
+                Storage::disk('local')->delete($videoTempPath);
+            }
+
             $this->makeUploadException($e->getMessage());
         }
     }
