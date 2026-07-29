@@ -482,12 +482,35 @@
 
 						state.uploadProgress = 95;
 
-						await colibriAPI().postEditor().with({
-							media_id: uploadData.media?.id,
-							uid: uploadData.uid,
-							upload_id: uploadData.upload_id,
-							parts: completedParts
-						}).sendTo('media/video/direct/complete');
+                        const completionData = {
+                            media_id: uploadData.media?.id,
+                            uid: uploadData.uid,
+                            upload_id: uploadData.upload_id,
+                            parts: completedParts
+                        };
+
+                        let completionError = null;
+
+                        for(let attempt = 1; attempt <= 3; attempt++) {
+                            try {
+                                await colibriAPI().postEditor().with(completionData).sendTo('media/video/direct/complete');
+                                completionError = null;
+                                break;
+                            }
+                            catch(error) {
+                                completionError = error;
+
+                                if(attempt < 3) {
+                                    await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+                                }
+                            }
+                        }
+
+                        if(completionError) {
+                            throw completionError;
+                        }
+
+                        state.uploadProgress = 100;
 
 					await postEditorStore.fetchDraftPost({
 						preserveContent: true
@@ -497,7 +520,15 @@
 				}
 
 				catch (error) {
-					clearLocalMediaPreviews();
+					try {
+						await postEditorStore.fetchDraftPost({
+							preserveContent: true
+						});
+						clearLocalMediaPreviews();
+					}
+					catch (draftError) {
+						// Keep the local preview visible when the recovery request also fails.
+					}
 
 					validatePost(error.response?.data?.message || error.message || 'Upload failed');
 				}
@@ -521,7 +552,12 @@
 				clearLocalMediaPreviews();
 			});
 
-				const submitForm = async () => {
+					const submitForm = async () => {
+	                if(state.uploadProgress) {
+	                    validatePost('Please wait until the video upload reaches 100%.');
+	                    return;
+	                }
+
 	                state.postSubmitting = true;
 
 	                const endpoint = postEditorStore.isEditingPost ? 'post/update' : 'create';
