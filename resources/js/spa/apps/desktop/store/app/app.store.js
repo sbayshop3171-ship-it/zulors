@@ -10,7 +10,7 @@ const wait = (timeout) => {
 };
 
 const refreshApplication = () => {
-    const refreshUrl = new URL(resolveAppBaseUrl());
+    const refreshUrl = new URL(window.location.href);
 
     refreshUrl.searchParams.set('bootstrap_refresh', Date.now().toString());
 
