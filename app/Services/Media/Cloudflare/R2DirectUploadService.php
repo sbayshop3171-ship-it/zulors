@@ -12,6 +12,8 @@ use Illuminate\Support\Facades\Storage;
 
 class R2DirectUploadService
 {
+    private const MAX_SINGLE_COPY_BYTES = 5 * 1024 * 1024 * 1024;
+
     public function isConfigured(): bool
     {
         $tempDisk = $this->tempDisk();
@@ -82,19 +84,43 @@ class R2DirectUploadService
         $finalDisk = $this->finalDisk();
         $finalClient = $this->s3Client($finalDisk);
 
-        $copyOptions = [
-            'Bucket' => $this->bucket($finalDisk),
-            'Key' => $finalPath,
-            'CopySource' => $this->copySource($this->bucket($this->tempDisk()), $tempPath),
-            'ContentType' => $contentType ?: 'video/mp4',
-            'MetadataDirective' => 'REPLACE',
-        ];
+        $tempBucket = $this->bucket($this->tempDisk());
+        $tempClient = $this->s3Client($this->tempDisk());
+        $sourceObject = $tempClient->headObject([
+            'Bucket' => $tempBucket,
+            'Key' => $tempPath,
+        ]);
+        $sourceSize = (int) $sourceObject->get('ContentLength');
+        $normalizedContentType = $contentType ?: 'video/mp4';
+        $cacheControl = config('media.cache.control');
 
-        if($cacheControl = config('media.cache.control')) {
-            $copyOptions['CacheControl'] = $cacheControl;
+        if($sourceSize <= self::MAX_SINGLE_COPY_BYTES) {
+            $copyOptions = [
+                'Bucket' => $this->bucket($finalDisk),
+                'Key' => $finalPath,
+                'CopySource' => $this->copySource($tempBucket, $tempPath),
+                'ContentType' => $normalizedContentType,
+                'MetadataDirective' => 'REPLACE',
+            ];
+
+            if($cacheControl) {
+                $copyOptions['CacheControl'] = $cacheControl;
+            }
+
+            $finalClient->copyObject($copyOptions);
         }
-
-        $finalClient->copyObject($copyOptions);
+        else {
+            $this->multipartCopyObject(
+                $finalClient,
+                $tempBucket,
+                $tempPath,
+                $this->bucket($finalDisk),
+                $finalPath,
+                $sourceSize,
+                $normalizedContentType,
+                $cacheControl
+            );
+        }
 
         $finalObject = $finalClient->headObject([
             'Bucket' => $this->bucket($finalDisk),
@@ -331,6 +357,87 @@ class R2DirectUploadService
         return "{$bucket}/".str_replace('%2F', '/', rawurlencode($path));
     }
 
+    private function multipartCopyObject(
+        S3Client $client,
+        string $sourceBucket,
+        string $sourcePath,
+        string $targetBucket,
+        string $targetPath,
+        int $sourceSize,
+        string $contentType,
+        ?string $cacheControl = null
+    ): void {
+        $createOptions = [
+            'Bucket' => $targetBucket,
+            'Key' => $targetPath,
+            'ContentType' => $contentType,
+        ];
+
+        if($cacheControl) {
+            $createOptions['CacheControl'] = $cacheControl;
+        }
+
+        $createdUpload = $client->createMultipartUpload($createOptions);
+        $uploadId = (string) $createdUpload->get('UploadId');
+        $copySource = $this->copySource($sourceBucket, $sourcePath);
+        $partSize = max(64 * 1024 * 1024, (int) ceil($sourceSize / 10000));
+        $parts = [];
+
+        try {
+            $partNumber = 1;
+
+            for($start = 0; $start < $sourceSize; $start += $partSize) {
+                $end = min($sourceSize - 1, $start + $partSize - 1);
+                $result = $client->uploadPartCopy([
+                    'Bucket' => $targetBucket,
+                    'Key' => $targetPath,
+                    'UploadId' => $uploadId,
+                    'PartNumber' => $partNumber,
+                    'CopySource' => $copySource,
+                    'CopySourceRange' => "bytes={$start}-{$end}",
+                ]);
+                $copyPartResult = $result->get('CopyPartResult') ?: [];
+                $etag = (string) ($copyPartResult['ETag'] ?? $result->get('ETag') ?? '');
+
+                if(blank($etag)) {
+                    throw new Exception('R2 multipart copy returned an empty part ETag.');
+                }
+
+                $parts[] = [
+                    'PartNumber' => $partNumber,
+                    'ETag' => $etag,
+                ];
+                $partNumber++;
+            }
+
+            $client->completeMultipartUpload([
+                'Bucket' => $targetBucket,
+                'Key' => $targetPath,
+                'UploadId' => $uploadId,
+                'MultipartUpload' => [
+                    'Parts' => $parts,
+                ],
+            ]);
+        }
+        catch(\Throwable $exception) {
+            try {
+                $client->abortMultipartUpload([
+                    'Bucket' => $targetBucket,
+                    'Key' => $targetPath,
+                    'UploadId' => $uploadId,
+                ]);
+            }
+            catch(\Throwable $abortException) {
+                Log::warning('Unable to abort failed R2 multipart copy.', [
+                    'target_path' => $targetPath,
+                    'error' => $abortException->getMessage(),
+                ]);
+            }
+
+            throw $exception;
+        }
+    }
+
     private function cleanExtension(string $extension): string
     {
         $extension = strtolower(trim($extension));
@@ -344,7 +451,7 @@ class R2DirectUploadService
 
     private function expiryMinutes(): int
     {
-        return max(5, (int) config('media.cloudflare.r2.direct_upload_expiry_minutes', 30));
+        return max(5, (int) config('media.cloudflare.r2.direct_upload_expiry_minutes', 720));
     }
 
     private function createMultipartVideoUpload(string $path, string $mime, int $size, $expiresAt): array
@@ -429,7 +536,7 @@ class R2DirectUploadService
 
     private function uploadStallTimeoutMs(): int
     {
-        return max(15, (int) config('media.cloudflare.r2.upload_stall_timeout_seconds', 45)) * 1000;
+        return max(15, (int) config('media.cloudflare.r2.upload_stall_timeout_seconds', 180)) * 1000;
     }
 
     private function rawFallbackMaxBytes(): int

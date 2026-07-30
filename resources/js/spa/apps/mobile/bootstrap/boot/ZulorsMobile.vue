@@ -1,9 +1,34 @@
 <template>
 	<template v-if="appLoading">
-		<div class="fixed inset-0 z-100 bg-bg-pr flex-center">
-            <div class="inline-block w-10">
-                <img v-bind:src="$embedder('assets.logos.url')" alt="Logo" class="w-full">
-            </div>
+		<div class="zulors-boot-shell zulors-boot-shell--mobile" role="status" aria-label="Loading Zulors">
+            <header class="zulors-boot-mobile-header">
+                <span class="zulors-boot-line zulors-boot-line--short" aria-hidden="true"></span>
+                <span class="zulors-boot-title">Zulors</span>
+                <span class="zulors-boot-dot" aria-hidden="true"></span>
+            </header>
+
+            <main class="zulors-boot-feed">
+                <div class="zulors-boot-story" aria-hidden="true">
+                    <span class="zulors-boot-avatar"></span>
+                    <span class="zulors-boot-line zulors-boot-line--short"></span>
+                </div>
+
+                <article class="zulors-boot-post" aria-hidden="true">
+                    <div class="zulors-boot-post-head">
+                        <span class="zulors-boot-avatar"></span>
+                        <span class="zulors-boot-lines">
+                            <span class="zulors-boot-line zulors-boot-line--medium"></span>
+                            <span class="zulors-boot-line zulors-boot-line--short"></span>
+                        </span>
+                    </div>
+                    <div class="zulors-boot-media"></div>
+                    <div class="zulors-boot-actions">
+                        <span class="zulors-boot-action"></span>
+                        <span class="zulors-boot-action"></span>
+                        <span class="zulors-boot-action"></span>
+                    </div>
+                </article>
+            </main>
         </div>
 	</template>
 	<template v-else>

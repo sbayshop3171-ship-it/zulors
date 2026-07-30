@@ -5,5 +5,6 @@
         @unless(config('app.hide_author_attribution'))
             @include('apps.spa.devnote')
         @endunless
+        @include('apps.spa.boot-shell', ['variant' => 'desktop'])
     </div>
 @endsection

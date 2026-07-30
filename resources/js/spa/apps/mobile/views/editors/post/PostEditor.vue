@@ -227,7 +227,7 @@
 				return String(etag || '').trim();
 			}
 
-			const defaultDirectUploadStallTimeoutMs = 45 * 1000;
+			const defaultDirectUploadStallTimeoutMs = 180 * 1000;
 			const defaultDirectUploadFirstProgressTimeoutMs = 0;
 			const defaultRawFallbackMaxBytes = 8 * 1024 * 1024;
 
@@ -741,7 +741,6 @@
 						return await uploadMediaLocally(mediaFile, 'video', false);
 					}
 
-						state.directVideoUploadReady = true;
 						syncUploadMedia(uploadData, uploadData.media);
 
 						const reportUploadProgress = createDirectUploadProgressReporter(uploadData);
@@ -866,7 +865,12 @@
 					id: postData.value.id || state.directVideoUploadMedia?.mediaable_id || clientId,
 					content: postData.value.content || '',
 					type: postType,
-					status: PostTypeUtils.isVideo(postType) ? PostStatus.PROCESSING_VIDEO : PostStatus.ACTIVE,
+					status: PostTypeUtils.isVideo(postType)
+						? (mediaItems.some((mediaItem) =>
+							mediaItem.status === 'processed' ||
+							mediaItem.metadata?.upload_state === 'uploaded'
+						) ? PostStatus.ACTIVE : PostStatus.PROCESSING_VIDEO)
+						: PostStatus.ACTIVE,
 					text_language: postData.value.text_language || '',
 					hash_id: postData.value.hash_id || `local-${clientId}`,
 					relations: {

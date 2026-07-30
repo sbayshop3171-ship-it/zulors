@@ -1,11 +1,57 @@
 <template>
     <template v-if="appLoading">
-        <div class="flex-center w-screen h-screen relative">
-            <span class="absolute top-6 left-6 text-par-m text-lab-pr">{{ $t('labels.hi_there') }}</span>
-            <span class="absolute top-6 right-6 text-par-m text-lab-pr">{{ $t('labels.one_moment') }}...</span>
-            <div class="inline-block w-16">
-                <img v-bind:src="$embedder('assets.logos.url')" alt="Logo" class="w-full">
-            </div>
+        <div class="zulors-boot-shell zulors-boot-shell--desktop" role="status" aria-label="Loading Zulors">
+            <aside class="zulors-boot-desktop-sidebar" aria-hidden="true">
+                <div class="zulors-boot-dot"></div>
+                <div class="zulors-boot-nav-item"></div>
+                <div class="zulors-boot-nav-item"></div>
+                <div class="zulors-boot-nav-item"></div>
+                <div class="zulors-boot-nav-item"></div>
+                <div class="zulors-boot-nav-item"></div>
+            </aside>
+
+            <main class="zulors-boot-desktop-main">
+                <header class="zulors-boot-desktop-header">Home</header>
+
+                <div class="zulors-boot-feed">
+                    <div class="zulors-boot-story" aria-hidden="true">
+                        <span class="zulors-boot-avatar"></span>
+                        <span class="zulors-boot-line zulors-boot-line--short"></span>
+                    </div>
+
+                    <article class="zulors-boot-post" aria-hidden="true">
+                        <div class="zulors-boot-post-head">
+                            <span class="zulors-boot-avatar"></span>
+                            <span class="zulors-boot-lines">
+                                <span class="zulors-boot-line zulors-boot-line--medium"></span>
+                                <span class="zulors-boot-line zulors-boot-line--short"></span>
+                            </span>
+                        </div>
+                        <div class="zulors-boot-media"></div>
+                        <div class="zulors-boot-actions">
+                            <span class="zulors-boot-action"></span>
+                            <span class="zulors-boot-action"></span>
+                            <span class="zulors-boot-action"></span>
+                        </div>
+                    </article>
+                </div>
+            </main>
+
+            <aside class="zulors-boot-desktop-aside" aria-hidden="true">
+                <div class="zulors-boot-title">Zulors</div>
+                <div class="zulors-boot-suggestion">
+                    <span class="zulors-boot-avatar"></span>
+                    <span class="zulors-boot-line"></span>
+                </div>
+                <div class="zulors-boot-suggestion">
+                    <span class="zulors-boot-avatar"></span>
+                    <span class="zulors-boot-line"></span>
+                </div>
+                <div class="zulors-boot-suggestion">
+                    <span class="zulors-boot-avatar"></span>
+                    <span class="zulors-boot-line"></span>
+                </div>
+            </aside>
         </div>
     </template>
     <template v-else>

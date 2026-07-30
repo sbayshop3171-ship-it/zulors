@@ -10,6 +10,7 @@
 
         @include('layouts.parts.meta')
         @include('layouts.parts.favicons')
+        @include('layouts.spa.apps.parts.boot-shell-styles')
 
         @vite([
             'resources/js/spa/apps/desktop/bootstrap/application.js',

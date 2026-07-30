@@ -403,7 +403,7 @@
                 return String(etag || '').trim();
             }
 
-            const defaultDirectUploadStallTimeoutMs = 45 * 1000;
+            const defaultDirectUploadStallTimeoutMs = 180 * 1000;
             const defaultRawFallbackMaxBytes = 8 * 1024 * 1024;
 
             const normalizeUploadProgress = (progress) => {
@@ -846,7 +846,6 @@
                         return await uploadPostMediaLocally(mediaFile, 'video');
                     }
 
-                    state.directVideoUploadReady = true;
                     syncUploadMedia(uploadData, uploadData.media);
 
                     const reportUploadProgress = createDirectUploadProgressReporter(uploadData);

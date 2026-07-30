@@ -11,10 +11,12 @@ use App\Enums\Post\PostType;
 use App\Enums\Post\PostStatus;
 use App\Enums\Media\MediaType;
 use App\Enums\Media\MediaStatus;
+use Illuminate\Support\Facades\Storage;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\User\Media\MediaResource;
 use App\Events\User\Timeline\MediaUpdatedEvent;
-use App\Jobs\User\Timeline\ConvertAndCompressPostVideo;
+use App\Events\User\Timeline\MediaProcessedEvent;
+use App\Events\User\Timeline\PublicTimelinePostCreatedEvent;
 use App\Traits\Http\Api\SupportsApiResponses;
 use App\Services\Media\Cloudflare\R2DirectUploadService;
 use App\Services\Media\Cloudflare\CloudflareStreamService;
@@ -183,8 +185,14 @@ class DirectMediaUploadController extends Controller
         ]);
 
         $media = Media::query()->find($request->integer('media_id'));
+        $requestedUid = (string) $request->input('uid');
+        $mediaMetadata = $media?->metadata ?? [];
+        $publishedR2Retry = $media
+            && $media->status->isProcessed()
+            && data_get($mediaMetadata, 'provider') === 'r2'
+            && data_get($mediaMetadata, 'temp_path') === $requestedUid;
 
-        if(empty($media) || $media->source_path !== $request->input('uid')) {
+        if(empty($media) || ($media->source_path !== $requestedUid && ! $publishedR2Retry)) {
             return $this->responseNotFoundError();
         }
 
@@ -248,8 +256,14 @@ class DirectMediaUploadController extends Controller
         ]);
 
         $media = Media::query()->find($request->integer('media_id'));
+        $requestedUid = (string) $request->input('uid');
+        $mediaMetadata = $media?->metadata ?? [];
+        $publishedR2Retry = $media
+            && $media->status->isProcessed()
+            && data_get($mediaMetadata, 'provider') === 'r2'
+            && data_get($mediaMetadata, 'temp_path') === $requestedUid;
 
-        if(empty($media) || $media->source_path !== $request->input('uid')) {
+        if(empty($media) || ($media->source_path !== $requestedUid && ! $publishedR2Retry)) {
             return $this->responseNotFoundError();
         }
 
@@ -260,6 +274,14 @@ class DirectMediaUploadController extends Controller
         }
 
         $metadata = $media->metadata ?? [];
+
+        if($publishedR2Retry) {
+            return $this->responseSuccess([
+                'data' => [
+                    'media' => MediaResource::make($media->refresh()),
+                ]
+            ]);
+        }
 
         if(data_get($metadata, 'provider') === 'r2_temp') {
             if(data_get($metadata, 'upload_type') === 'multipart' && data_get($metadata, 'upload_state') !== 'uploaded') {
@@ -309,13 +331,79 @@ class DirectMediaUploadController extends Controller
             $metadata['upload_state'] = 'uploaded';
             $metadata['upload_progress'] = 100;
             $metadata['upload_completed_at'] = now()->toIso8601String();
+            $metadata['processing_state'] = 'publishing';
+            $metadata['processing_progress'] = max(95, (int) data_get($metadata, 'processing_progress', 0));
+            $metadata['processing_updated_at'] = now()->toIso8601String();
 
             $media->metadata = $metadata;
             $media->status = MediaStatus::PROCESSING;
             $media->save();
 
+            $oldDisk = $media->disk;
+            $oldPath = $media->source_path;
+            $originalSize = (int) ($media->size ?: data_get($metadata, 'original_size', 0));
+            $post = $media->mediaable;
+            $postWasProcessing = $post instanceof Post && $post->status === PostStatus::PROCESSING_VIDEO;
+
+            try {
+                $videoData = $r2DirectUploadService->publishUploadedVideo(
+                    $oldPath,
+                    $media->extension ?: 'mp4',
+                    $media->mime ?: 'video/mp4'
+                );
+            }
+            catch(Throwable $e) {
+                $metadata['processing_state'] = 'publish_failed';
+                $metadata['processing_error'] = $e->getMessage();
+                $metadata['processing_updated_at'] = now()->toIso8601String();
+                $media->metadata = $metadata;
+                $media->save();
+                $this->broadcastMediaUpdated($media);
+
+                return $this->responseValidationError([
+                    'message' => 'Upload completed, but final media publishing failed. Please retry.',
+                    'errors' => [
+                        'video' => [
+                            'Upload completed, but final media publishing failed. Please retry.'
+                        ]
+                    ]
+                ]);
+            }
+
+            $media->source_path = $videoData['video_path'];
+            $media->disk = $videoData['disk'];
+            $media->status = MediaStatus::PROCESSED;
+            $media->size = $videoData['video_size'] ?: $media->size;
+            $media->metadata = array_merge($metadata, [
+                'provider' => 'r2',
+                'processed_at' => now()->toIso8601String(),
+                'processing_progress' => 100,
+                'processing_state' => 'processed',
+                'processing_updated_at' => now()->toIso8601String(),
+                'processing_fallback' => 'direct_original_publish',
+                'original_size' => $originalSize ?: (int) ($videoData['video_size'] ?: $media->size),
+                'optimized_size' => (int) ($videoData['video_size'] ?: $media->size),
+            ]);
+            $media->save();
+
+            if($postWasProcessing) {
+                $post->status = PostStatus::ACTIVE;
+                $post->save();
+            }
+
+            try {
+                Storage::disk($oldDisk)->delete($oldPath);
+            }
+            catch(Throwable $e) {
+                report($e);
+            }
+
             $this->broadcastMediaUpdated($media);
-            $this->dispatchVideoProcessingIfPostIsPublished($media);
+
+            if($postWasProcessing) {
+                event(new MediaProcessedEvent($media->refresh(), $post->user_id));
+                event(new PublicTimelinePostCreatedEvent($post->refresh()));
+            }
 
             return $this->responseSuccess([
                 'data' => [
@@ -603,34 +691,6 @@ class DirectMediaUploadController extends Controller
             'stream' => $stream,
             'size' => (int) $bytes,
         ];
-    }
-
-    private function dispatchVideoProcessingIfPostIsPublished(Media $media): void
-    {
-        $media->loadMissing('mediaable');
-
-        $post = $media->mediaable;
-
-        if(! ($post instanceof Post) || $post->status !== PostStatus::PROCESSING_VIDEO || $media->status->isProcessed()) {
-            return;
-        }
-
-        $metadata = $media->metadata ?? [];
-
-        if(filled(data_get($metadata, 'processing_dispatched_at'))) {
-            return;
-        }
-
-        $metadata['processing_dispatched_at'] = now()->toIso8601String();
-        $metadata['processing_state'] = 'queued';
-        $metadata['processing_progress'] = max((int) data_get($metadata, 'processing_progress', 0), 5);
-        $metadata['processing_updated_at'] = now()->toIso8601String();
-        $media->metadata = $metadata;
-        $media->save();
-
-        $this->broadcastMediaUpdated($media);
-
-        ConvertAndCompressPostVideo::dispatchAfterResponse($post->refresh())->onQueue(config('media.queues.video'));
     }
 
     private function broadcastMediaUpdated(Media $media): void
