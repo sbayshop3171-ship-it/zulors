@@ -28,9 +28,11 @@ export default defineConfig({
 
                 // Desktop CSS files
                 'resources/css/spa/apps/desktop/main.css',
+                'resources/css/spa/apps/desktop/dark/main.css',
                 'resources/css/spa/apps/desktop/auth.css',
 
                 'resources/css/spa/apps/mobile/main.css',
+                'resources/css/spa/apps/mobile/dark/main.css',
 
                 'resources/fonts/stylesheet.css',
 

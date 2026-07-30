@@ -46,12 +46,20 @@ window.resolveThemeMode = (preference = window.getThemePreference()) => {
 	return ['light', 'dark'].includes(preference) ? preference : 'light';
 };
 
+window.writeThemePreferenceCookie = (theme) => {
+	if (!['light', 'dark', 'system'].includes(theme) || typeof document == 'undefined') {
+		return;
+	}
+
+	document.cookie = `theme=${theme}; path=/; max-age=${60 * 60 * 24 * 365 * 3}; samesite=lax`;
+};
+
 window.writeThemeRuntimeCookie = (theme) => {
 	if (!['light', 'dark'].includes(theme) || typeof document == 'undefined') {
 		return;
 	}
 
-	document.cookie = `theme_runtime=${theme}; path=/; max-age=${60 * 60 * 24 * 365 * 3}`;
+	document.cookie = `theme_runtime=${theme}; path=/; max-age=${60 * 60 * 24 * 365 * 3}; samesite=lax`;
 };
 
 window.applyThemeMode = (theme) => {
@@ -71,19 +79,23 @@ window.syncThemeMode = () => {
 	const preference = window.getThemePreference();
 	const resolvedTheme = window.resolveThemeMode(preference);
 
+	window.writeThemePreferenceCookie(preference);
 	window.writeThemeRuntimeCookie(resolvedTheme);
 	window.applyThemeMode(resolvedTheme);
 
 	if (typeof embedder === 'function') {
 		const serverTheme = embedder('theme', resolvedTheme);
+		const serverPreference = embedder('theme_preference', preference);
 		const reloadKey = '__zulors_theme_sync__';
+		const reloadTarget = `${preference}:${resolvedTheme}`;
+		const needsStylesheetReload = serverTheme != resolvedTheme || serverPreference != preference;
 
-		if (preference == 'system' && serverTheme != resolvedTheme) {
+		if (needsStylesheetReload) {
 			try {
 				const savedResolvedTheme = sessionStorage.getItem(reloadKey);
 
-				if (savedResolvedTheme != resolvedTheme) {
-					sessionStorage.setItem(reloadKey, resolvedTheme);
+				if (savedResolvedTheme != reloadTarget) {
+					sessionStorage.setItem(reloadKey, reloadTarget);
 					window.location.reload();
 				} else {
 					sessionStorage.removeItem(reloadKey);

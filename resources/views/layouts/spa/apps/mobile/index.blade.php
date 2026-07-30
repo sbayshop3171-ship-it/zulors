@@ -22,12 +22,8 @@
             config('assets.fonts.mono')
         ])
 
-        @php
-            $mobileDarkStylesheet = public_path('build/assets/mobile-main-dark.css');
-        @endphp
-
-        @if(theme_name() == 'dark' && file_exists($mobileDarkStylesheet))
-            <link rel="stylesheet" href="{{ asset('build/assets/mobile-main-dark.css') }}?v={{ $buildNumber }}">
+        @if(theme_name() == 'dark')
+            @vite('resources/css/spa/apps/mobile/dark/main.css')
         @else
             @vite('resources/css/spa/apps/mobile/main.css')
         @endif

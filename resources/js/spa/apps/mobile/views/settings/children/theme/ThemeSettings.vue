@@ -108,6 +108,14 @@
                     } catch (error) {
                         //
                     }
+
+                    if(typeof window.writeThemePreferenceCookie == 'function') {
+                        window.writeThemePreferenceCookie(preferenceTheme);
+                    }
+
+                    if(typeof window.writeThemeRuntimeCookie == 'function') {
+                        window.writeThemeRuntimeCookie(resolvedTheme);
+                    }
                     
                     colibriAPI().userSettings().with({
                         theme: preferenceTheme,

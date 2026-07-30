@@ -1,7 +1,5 @@
 <template>
     <div v-if="state.isLoading" class="zulors-boot-shell zulors-boot-shell--desktop zulors-route-loader" role="status" aria-label="Loading Zulors">
-        <span class="zulors-boot-corner zulors-boot-corner--left">{{ $t('labels.hi_there') }}</span>
-        <span class="zulors-boot-corner zulors-boot-corner--right">{{ $t('labels.one_moment') }}...</span>
         <img v-bind:src="$embedder('assets.logos.url')" alt="Logo" class="zulors-boot-logo">
     </div>
 

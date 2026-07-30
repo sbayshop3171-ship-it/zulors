@@ -18,12 +18,8 @@
             config('assets.fonts.mono')
         ])
 
-        @php
-            $desktopDarkStylesheet = public_path('build/assets/desktop-main-dark.css');
-        @endphp
-
-        @if(theme_name() == 'dark' && file_exists($desktopDarkStylesheet))
-            <link rel="stylesheet" href="{{ asset('build/assets/desktop-main-dark.css') }}?v={{ $buildNumber }}">
+        @if(theme_name() == 'dark')
+            @vite('resources/css/spa/apps/desktop/dark/main.css')
         @else
             @vite('resources/css/spa/apps/desktop/main.css')
         @endif
