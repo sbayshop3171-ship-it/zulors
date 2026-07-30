@@ -29,6 +29,8 @@ Route::post('/media/video/direct/raw', [App\Http\Controllers\Api\User\Timeline\D
 
 Route::post('/media/video/direct/part', [App\Http\Controllers\Api\User\Timeline\DirectMediaUploadController::class, 'uploadVideoPart']);
 
+Route::post('/media/video/direct/progress', [App\Http\Controllers\Api\User\Timeline\DirectMediaUploadController::class, 'updateVideoUploadProgress']);
+
 Route::post('/media/video/direct/complete', [App\Http\Controllers\Api\User\Timeline\DirectMediaUploadController::class, 'completeVideoUpload']);
 
 Route::get('/media/video/preview/{mediaId}', [App\Http\Controllers\Api\User\Timeline\PostMediaController::class, 'previewVideo']);

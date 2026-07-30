@@ -268,6 +268,33 @@
 				throw lastError || new Error('Direct upload failed');
 			}
 
+			const createDirectUploadProgressReporter = (uploadData) => {
+				let lastProgress = -1;
+				let lastReportedAt = 0;
+
+				return (progress, options = {}) => {
+					if(! uploadData?.media?.id || ! uploadData?.uid) {
+						return;
+					}
+
+					const normalizedProgress = Math.max(0, Math.min(100, Math.round(Number(progress || 0))));
+					const nowTimestamp = Date.now();
+
+					if(! options.force && normalizedProgress < 100 && (normalizedProgress - lastProgress) < 2 && (nowTimestamp - lastReportedAt) < 2000) {
+						return;
+					}
+
+					lastProgress = normalizedProgress;
+					lastReportedAt = nowTimestamp;
+
+					colibriAPI().postEditor().with({
+						media_id: uploadData.media.id,
+						uid: uploadData.uid,
+						upload_progress: normalizedProgress
+					}).sendTo('media/video/direct/progress').catch(() => {});
+				};
+			}
+
 			const uploadRawFileViaApp = (uploadData, mediaFile, onProgress) => {
 				return colibriAPI().postEditor().with(mediaFile).params({
 					media_id: uploadData.media?.id,
@@ -487,25 +514,35 @@
 						return await uploadMediaLocally(mediaFile, 'video', false);
 					}
 
-					state.directVideoUploadReady = true;
+						state.directVideoUploadReady = true;
 
-					let completedParts = [];
-
-					if(isMultipartUpload) {
-						completedParts = await uploadMultipartFileToDirectUrl(uploadData, mediaFile, (progress) => {
-							state.uploadProgress = Math.min(90, Math.max(10, Math.round(10 + (progress * 0.8))));
+						const reportUploadProgress = createDirectUploadProgressReporter(uploadData);
+						reportUploadProgress(0, {
+							force: true
 						});
-					}
 
-					else {
-						await uploadFileToDirectUrl(uploadData, mediaFile, (progress) => {
-							state.uploadProgress = Math.min(90, Math.max(10, Math.round(10 + (progress * 0.8))));
+						let completedParts = [];
+
+						if(isMultipartUpload) {
+							completedParts = await uploadMultipartFileToDirectUrl(uploadData, mediaFile, (progress) => {
+								state.uploadProgress = Math.min(90, Math.max(10, Math.round(10 + (progress * 0.8))));
+								reportUploadProgress(progress);
+							});
+						}
+
+						else {
+							await uploadFileToDirectUrl(uploadData, mediaFile, (progress) => {
+								state.uploadProgress = Math.min(90, Math.max(10, Math.round(10 + (progress * 0.8))));
+								reportUploadProgress(progress);
+							});
+						}
+
+						state.uploadProgress = 95;
+						reportUploadProgress(100, {
+							force: true
 						});
-					}
 
-					state.uploadProgress = 95;
-
-					const completionData = {
+						const completionData = {
 						media_id: uploadData.media?.id,
 						uid: uploadData.uid,
 						upload_id: uploadData.upload_id,
@@ -618,9 +655,17 @@
 			}
 
 			const resetFileInputTags = () => {
-                imageFileInput.value.value = '';
-				videoFileInput.value.value = '';
-				audioFileInput.value.value = '';
+				if(imageFileInput.value) {
+					imageFileInput.value.value = '';
+				}
+
+				if(videoFileInput.value) {
+					videoFileInput.value.value = '';
+				}
+
+				if(audioFileInput.value) {
+					audioFileInput.value.value = '';
+				}
             }
 
 			const leaveEditor = () => {

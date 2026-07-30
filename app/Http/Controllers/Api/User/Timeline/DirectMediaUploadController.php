@@ -92,6 +92,9 @@ class DirectMediaUploadController extends Controller
                         'upload_id' => $uploadData['upload_id'] ?? null,
                         'part_size' => $uploadData['part_size'] ?? null,
                         'parts_count' => count($uploadData['parts'] ?? []),
+                        'upload_progress' => 0,
+                        'processing_progress' => 0,
+                        'processing_state' => 'waiting_for_upload',
                         'original_name' => (string) $request->input('name'),
                     ]
                 ]);
@@ -135,6 +138,9 @@ class DirectMediaUploadController extends Controller
                     'cloudflare_uid' => $uploadData['uid'],
                     'upload_state' => 'waiting_for_upload',
                     'upload_url_expires_at' => $uploadData['expires_at'],
+                    'upload_progress' => 0,
+                    'processing_progress' => 0,
+                    'processing_state' => 'waiting_for_upload',
                     'playback' => $uploadData['playback'],
                     'original_name' => (string) $request->input('name'),
                 ]
@@ -160,6 +166,52 @@ class DirectMediaUploadController extends Controller
                 ]
             ]);
         }
+    }
+
+    public function updateVideoUploadProgress(Request $request)
+    {
+        $request->validate([
+            'media_id' => ['required', 'integer'],
+            'uid' => ['required', 'string', 'max:255'],
+            'upload_progress' => ['required', 'integer', 'min:0', 'max:100'],
+        ]);
+
+        $media = Media::query()->find($request->integer('media_id'));
+
+        if(empty($media) || $media->source_path !== $request->input('uid')) {
+            return $this->responseNotFoundError();
+        }
+
+        $media->load('mediaable');
+
+        if(! ($media->mediaable instanceof Post) || $media->mediaable->user_id !== me()->id) {
+            return $this->responseUnauthorizedError();
+        }
+
+        $metadata = $media->metadata ?? [];
+
+        if(data_get($metadata, 'upload_state') === 'uploaded') {
+            return $this->responseSuccess([
+                'data' => [
+                    'media' => MediaResource::make($media)
+                ]
+            ]);
+        }
+
+        $progress = $request->integer('upload_progress');
+
+        $metadata['upload_state'] = $progress > 0 ? 'uploading' : data_get($metadata, 'upload_state', 'waiting_for_upload');
+        $metadata['upload_progress'] = $progress;
+        $metadata['upload_progress_updated_at'] = now()->toIso8601String();
+
+        $media->metadata = $metadata;
+        $media->save();
+
+        return $this->responseSuccess([
+            'data' => [
+                'media' => MediaResource::make($media->refresh())
+            ]
+        ]);
     }
 
     public function completeVideoUpload(Request $request, CloudflareStreamService $cloudflareStreamService, R2DirectUploadService $r2DirectUploadService)
@@ -233,6 +285,7 @@ class DirectMediaUploadController extends Controller
             }
 
             $metadata['upload_state'] = 'uploaded';
+            $metadata['upload_progress'] = 100;
             $metadata['upload_completed_at'] = now()->toIso8601String();
 
             $media->metadata = $metadata;
@@ -252,6 +305,7 @@ class DirectMediaUploadController extends Controller
         }
 
         $metadata['upload_state'] = 'uploaded';
+        $metadata['upload_progress'] = 100;
         $metadata['upload_completed_at'] = now()->toIso8601String();
         $metadata['playback'] = $cloudflareStreamService->playbackUrls($media->source_path);
 
@@ -541,6 +595,9 @@ class DirectMediaUploadController extends Controller
         }
 
         $metadata['processing_dispatched_at'] = now()->toIso8601String();
+        $metadata['processing_state'] = 'queued';
+        $metadata['processing_progress'] = max((int) data_get($metadata, 'processing_progress', 0), 5);
+        $metadata['processing_updated_at'] = now()->toIso8601String();
         $media->metadata = $metadata;
         $media->save();
 

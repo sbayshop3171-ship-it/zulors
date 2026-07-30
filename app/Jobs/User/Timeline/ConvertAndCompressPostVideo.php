@@ -68,8 +68,12 @@ class ConvertAndCompressPostVideo implements ShouldQueue
                 throw new Exception('Required services are not available. Ensure that fileUploaderService and ffmpegService are properly injected.');
             }
 
+            $this->updateProcessingProgress($postMedia, 10, 'preparing');
+
             // Get video video local temporary path
             $videoTempOldPath = $this->prepareLocalSourceVideo($postMedia, $videoUploadService);
+
+            $this->updateProcessingProgress($postMedia, 15, 'transcoding');
 
             // Generate new video temporary path for compressed video marking it as compressed. [compressed.mp4]
             $videoTempNewPath = $videoUploadService->generateVideoTemporaryFilePath("compressed.{$videoUploadService->videoDefaultExtension}");
@@ -103,6 +107,18 @@ class ConvertAndCompressPostVideo implements ShouldQueue
                     '+faststart',
                 ]);
 
+            $lastSavedTranscodeProgress = 15;
+
+            $format->on('progress', function ($video, $format, $percentage) use ($postMedia, &$lastSavedTranscodeProgress) {
+                $transcodeProgress = min(85, max(15, (int) round(15 + (((int) $percentage) * 0.70))));
+
+                if($transcodeProgress >= ($lastSavedTranscodeProgress + 5) || $transcodeProgress >= 85) {
+                    $lastSavedTranscodeProgress = $transcodeProgress;
+
+                    $this->updateProcessingProgress($postMedia, $transcodeProgress, 'transcoding');
+                }
+            });
+
             if(config('brand.videos_watermark_enabled')) {
                 $watermarkConfig = config('assets.watermark');
                 $video->filters()->watermark(public_path($watermarkConfig['local_path']), [
@@ -117,7 +133,11 @@ class ConvertAndCompressPostVideo implements ShouldQueue
             if(file_exists($videoNewAbsLocalPath)) {
                 $targetDisk = $this->targetStorageDisk($postMedia);
 
+                $this->updateProcessingProgress($postMedia, 88, 'thumbnailing');
+
                 $this->ensureThumbnail($postMedia, $videoTempNewPath, $targetDisk);
+
+                $this->updateProcessingProgress($postMedia, 92, 'publishing');
 
                 // Upload compressed video to public disk and update post media
                 // Public disk is determined by post media with round robin algorithm
@@ -142,6 +162,9 @@ class ConvertAndCompressPostVideo implements ShouldQueue
                 $postMedia->metadata = array_merge($metadata, [
                     'provider' => data_get($metadata, 'provider') === 'r2_temp' ? 'r2' : data_get($metadata, 'provider'),
                     'processed_at' => now()->toIso8601String(),
+                    'processing_progress' => 100,
+                    'processing_state' => 'processed',
+                    'processing_updated_at' => now()->toIso8601String(),
                     'original_size' => $oldSize,
                     'optimized_size' => (int) $postMedia->size,
                     'optimization_ratio' => $this->optimizationRatio($oldSize, (int) $postMedia->size),
@@ -175,6 +198,10 @@ class ConvertAndCompressPostVideo implements ShouldQueue
 
         catch (\Throwable $e) {
             Log::error('Post video processing failed after 5 attempts. Error: ' . $e->getMessage());
+
+            if($postMedia) {
+                $this->updateProcessingProgress($postMedia, (int) data_get($postMedia->metadata, 'processing_progress', 0), 'failed');
+            }
 
             if(
                 $postMedia
@@ -290,6 +317,9 @@ class ConvertAndCompressPostVideo implements ShouldQueue
         $postMedia->metadata = array_merge($metadata, [
             'provider' => 'r2',
             'processed_at' => now()->toIso8601String(),
+            'processing_progress' => 100,
+            'processing_state' => 'processed',
+            'processing_updated_at' => now()->toIso8601String(),
             'processing_fallback' => 'original_upload',
             'processing_error' => str($processingException->getMessage())->limit(500)->toString(),
             'original_size' => $oldSize,
@@ -339,6 +369,31 @@ class ConvertAndCompressPostVideo implements ShouldQueue
         $targetHeight = $this->makeEven((int) floor($height * $scale));
 
         $video->filters()->resize(new Dimension($targetWidth, $targetHeight), ResizeFilter::RESIZEMODE_INSET)->synchronize();
+    }
+
+    private function updateProcessingProgress($postMedia, int $progress, string $state): void
+    {
+        if(empty($postMedia)) {
+            return;
+        }
+
+        $metadata = $postMedia->metadata ?? [];
+        $progress = max(0, min(100, $progress));
+
+        if($state !== 'failed') {
+            $progress = max((int) data_get($metadata, 'processing_progress', 0), $progress);
+        }
+
+        $metadata['processing_progress'] = $progress;
+        $metadata['processing_state'] = $state;
+        $metadata['processing_updated_at'] = now()->toIso8601String();
+
+        if(blank(data_get($metadata, 'processing_started_at'))) {
+            $metadata['processing_started_at'] = now()->toIso8601String();
+        }
+
+        $postMedia->metadata = $metadata;
+        $postMedia->save();
     }
 
     private function ensureThumbnail($postMedia, string $videoLocalPath, string $targetDisk): void

@@ -335,10 +335,21 @@
             }
 
             const resetFileInputTags = () => {
-                postImageFileInput.value.value = '';
-                postDocumentFileInput.value.value = '';
-                postVideoFileInput.value.value = '';
-                postAudioFileInput.value.value = '';
+                if(postImageFileInput.value) {
+                    postImageFileInput.value.value = '';
+                }
+
+                if(postDocumentFileInput.value) {
+                    postDocumentFileInput.value.value = '';
+                }
+
+                if(postVideoFileInput.value) {
+                    postVideoFileInput.value.value = '';
+                }
+
+                if(postAudioFileInput.value) {
+                    postAudioFileInput.value.value = '';
+                }
             }
 
             onMounted(async function() {
@@ -452,6 +463,33 @@
                 }
 
                 throw lastError || new Error('Direct upload failed');
+            }
+
+            const createDirectUploadProgressReporter = (uploadData) => {
+                let lastProgress = -1;
+                let lastReportedAt = 0;
+
+                return (progress, options = {}) => {
+                    if(! uploadData?.media?.id || ! uploadData?.uid) {
+                        return;
+                    }
+
+                    const normalizedProgress = Math.max(0, Math.min(100, Math.round(Number(progress || 0))));
+                    const nowTimestamp = Date.now();
+
+                    if(! options.force && normalizedProgress < 100 && (normalizedProgress - lastProgress) < 2 && (nowTimestamp - lastReportedAt) < 2000) {
+                        return;
+                    }
+
+                    lastProgress = normalizedProgress;
+                    lastReportedAt = nowTimestamp;
+
+                    colibriAPI().postEditor().with({
+                        media_id: uploadData.media.id,
+                        uid: uploadData.uid,
+                        upload_progress: normalizedProgress
+                    }).sendTo('media/video/direct/progress').catch(() => {});
+                };
             }
 
             const uploadRawFileViaApp = (uploadData, mediaFile, onProgress) => {
@@ -671,21 +709,31 @@
 
                     state.directVideoUploadReady = true;
 
+                    const reportUploadProgress = createDirectUploadProgressReporter(uploadData);
+                    reportUploadProgress(0, {
+                        force: true
+                    });
+
                     let completedParts = [];
 
                     if(isMultipartUpload) {
                         completedParts = await uploadMultipartFileToDirectUrl(uploadData, mediaFile, (progress) => {
                             state.postMediaUploadProgress = Math.min(90, Math.max(10, Math.round(10 + (progress * 0.8))));
+                            reportUploadProgress(progress);
                         });
                     }
 
                     else {
                         await uploadFileToDirectUrl(uploadData, mediaFile, (progress) => {
                             state.postMediaUploadProgress = Math.min(90, Math.max(10, Math.round(10 + (progress * 0.8))));
+                            reportUploadProgress(progress);
                         });
                     }
 
                     state.postMediaUploadProgress = 95;
+                    reportUploadProgress(100, {
+                        force: true
+                    });
 
                     const completionData = {
                         media_id: uploadData.media?.id,
