@@ -65,6 +65,11 @@ return Application::configure(basePath: dirname(__DIR__))->withRouting(
 
             $middleware->statefulApi();
 
+            $middleware->encryptCookies(except: [
+                'theme',
+                'theme_runtime',
+            ]);
+
             $middleware->trustProxies('*');
 
             $middleware->group('admin-area', ['web', 'admin']);

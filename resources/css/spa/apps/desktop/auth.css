@@ -3,5 +3,6 @@
 @import "../../../themes/base.css" layer(theme);
 @import "../../../themes/devices/desktop.css" layer(theme);
 @import "../../../themes/light/colors.css" layer(theme);
+@import "../../../themes/runtime.css";
 
 @import "./desktop-base.css";

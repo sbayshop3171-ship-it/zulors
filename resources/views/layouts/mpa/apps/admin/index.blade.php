@@ -1,9 +1,11 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" data-theme="{{ theme_name() }}">
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="csrf-token" content="{{ csrf_token() }}">
+        <meta name="theme-color" content="{{ theme_name() == 'dark' ? '#111111' : '#ffffff' }}">
+        <meta name="color-scheme" content="{{ theme_name() == 'dark' ? 'dark light' : 'light dark' }}">
 
         <title>{{ config('app.name') }}</title>
 
@@ -31,7 +33,7 @@
         @livewireStyles
     </head>
 
-    <body @class(['pt-20 pb-6', (theme_name() == 'dark' ? 'bg-black' : 'bg-pr')])>
+    <body @class(['pt-20 pb-6', (theme_name() == 'dark' ? 'bg-black' : 'bg-pr')]) data-theme="{{ theme_name() }}">
         <x-main>
             @include('adminLayout::parts.sidebar')
 
