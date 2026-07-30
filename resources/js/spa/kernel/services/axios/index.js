@@ -28,6 +28,15 @@ const resolveAppBaseUrl = () => {
         const configuredUrl = new URL(runtimeBaseURL, currentOrigin);
         const currentUrl = new URL(currentOrigin);
 
+        // A local build can accidentally carry a loopback VITE_API_BASE_URL into
+        // production. Always keep a real-domain page on its current origin.
+        if (
+            isLoopbackHost(configuredUrl.hostname) &&
+            !isLoopbackHost(currentUrl.hostname)
+        ) {
+            return currentOrigin;
+        }
+
         if (
             isLoopbackHost(configuredUrl.hostname) &&
             isLoopbackHost(currentUrl.hostname) &&
