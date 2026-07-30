@@ -42,6 +42,12 @@
         min-width: 1200px;
     }
 
+    .zulors-route-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+    }
+
     .zulors-boot-logo {
         display: block;
         width: 64px;

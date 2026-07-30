@@ -1,13 +1,14 @@
 <template>
-	<TimelineContainer>
+	<div v-if="state.isLoading" class="zulors-boot-shell zulors-boot-shell--mobile zulors-route-loader" role="status" aria-label="Loading Zulors">
+		<img v-bind:src="$embedder('assets.logos.url')" alt="Logo" class="zulors-boot-logo">
+	</div>
+
+	<TimelineContainer v-else>
         <div class="px-4 pb-3 pt-1">
             <StoriesFeed></StoriesFeed>
         </div>
         <Border height="h-2" opacity="opacity-30"></Border>
-		<div v-if="state.isLoading">
-			<TimelinePublicationSkeleton v-for="i in 2" v-bind:key="i"></TimelinePublicationSkeleton>
-		</div>
-		<div class="pb-6" v-else>
+		<div class="pb-6">
             <FeedUpdate v-if="timelineNewPosts.length" v-bind:posts="timelineNewPosts" v-on:click="applyTimelineUpdate"></FeedUpdate>
 			<div v-if="timelinePosts.length">
                 <template v-for="(postData, index) in timelinePosts" v-bind:key="postData.hash_id">
@@ -51,7 +52,6 @@
     import BRD from '@/kernel/websockets/brd/index.js';
 
     import TimelinePublication from '@M/components/timeline/feed/TimelinePublication.vue';
-    import TimelinePublicationSkeleton from '@M/components/timeline/feed/TimelinePublicationSkeleton.vue';
     import TimelineContainer from '@M/components/timeline/feed/TimelineContainer.vue';
     import StoriesFeed from '@M/components/stories/feed/StoriesFeed.vue';
     import AdCard from '@M/components/ads/AdCard.vue';
@@ -61,7 +61,7 @@
     export default defineComponent({
         setup: function() {
             const state = reactive({
-                isLoading: false,
+                isLoading: true,
                 isLoadingContent: false,
                 noMoreContent: false,
                 isUpdating: false,
@@ -129,19 +129,21 @@
 
                 state.isLoading = ! hasInstantPosts;
 
-                if(hasInstantPosts) {
-                    timelineStore.refreshFirstPage();
-
+                try {
+                    if(hasInstantPosts) {
+                        timelineStore.refreshFirstPage();
+                    }
+                    else {
+                        await timelineStore.initialLoad();
+                    }
+                } catch (error) {
+                    console.log(error);
+                } finally {
                     state.isLoading = false;
-                }
-                else {
-                    await timelineStore.initialLoad();
-    
-                    state.isLoading = false;
-                }
 
-                setupFeedUpdateInterval();
-                setupRealtimeFeedUpdates();
+                    setupFeedUpdateInterval();
+                    setupRealtimeFeedUpdates();
+                }
             });
 
             onUnmounted(() => {
@@ -201,7 +203,6 @@
         },
         components: {
             TimelinePublication: TimelinePublication,
-            TimelinePublicationSkeleton: TimelinePublicationSkeleton,
             TimelineContainer: TimelineContainer,
             StoriesFeed: StoriesFeed,
             AdCard: AdCard,

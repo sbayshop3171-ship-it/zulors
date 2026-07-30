@@ -1,5 +1,11 @@
 <template>
-    <SidedContentLayout>
+    <div v-if="state.isLoading" class="zulors-boot-shell zulors-boot-shell--desktop zulors-route-loader" role="status" aria-label="Loading Zulors">
+        <span class="zulors-boot-corner zulors-boot-corner--left">{{ $t('labels.hi_there') }}</span>
+        <span class="zulors-boot-corner zulors-boot-corner--right">{{ $t('labels.one_moment') }}...</span>
+        <img v-bind:src="$embedder('assets.logos.url')" alt="Logo" class="zulors-boot-logo">
+    </div>
+
+    <SidedContentLayout v-else>
         <template v-slot:content>
             <TimelineContainer>
                 <HomeHeader></HomeHeader>
@@ -13,10 +19,7 @@
                         <PublicationEditorTrigger></PublicationEditorTrigger>
                     </div>
                     <Border></Border>
-                    <div class="block" v-if="state.isLoading">
-                        <TimelinePublicationSkeleton v-for="i in 3" v-bind:key="i"></TimelinePublicationSkeleton>
-                    </div>
-                    <template v-else-if="globalPinnedPosts.length">
+                    <template v-if="globalPinnedPosts.length">
                         <TimelinePublication
                             v-for="pinnedPostData in globalPinnedPosts"
                             v-bind:postData="pinnedPostData"
@@ -69,7 +72,6 @@
 
     import StoriesFeed from '@D/components/stories/feed/StoriesFeed.vue';
     import TimelinePublication from '@D/components/timeline/feed/TimelinePublication.vue';
-    import TimelinePublicationSkeleton from '@D/components/timeline/feed/TimelinePublicationSkeleton.vue';
     import PublicationEditorTrigger from '@D/features/home/parts/PublicationEditorTrigger.vue';
 
     import TimelineContainer from '@D/components/layout/TimelineContainer.vue';
@@ -83,7 +85,7 @@
     export default defineComponent({
         setup: function() {
             const state = reactive({
-                isLoading: false,
+                isLoading: true,
                 isLoadingContent: false,
                 noMoreContent: false,
                 isUpdating: false,
@@ -156,17 +158,21 @@
 
                 pinsStore.fetchGlobalPins();
 
-                if(hasInstantPosts) {
-                    timelineStore.refreshFirstPage();
-                }
-                else {
-                    await timelineStore.initialLoad();
-
+                try {
+                    if(hasInstantPosts) {
+                        timelineStore.refreshFirstPage();
+                    }
+                    else {
+                        await timelineStore.initialLoad();
+                    }
+                } catch (error) {
+                    console.log(error);
+                } finally {
                     state.isLoading = false;
-                }
 
-                setupFeedUpdateInterval();
-                setupRealtimeFeedUpdates();
+                    setupFeedUpdateInterval();
+                    setupRealtimeFeedUpdates();
+                }
             });
 
             onUnmounted(() => {
@@ -227,7 +233,6 @@
             StoriesFeed: StoriesFeed,
             TimelinePublication: TimelinePublication,
             PublicationEditorTrigger: PublicationEditorTrigger,
-            TimelinePublicationSkeleton: TimelinePublicationSkeleton,
             TimelineContainer: TimelineContainer,
             FollowRecommendationList: FollowRecommendationList,
             AdGridItem: AdGridItem,
