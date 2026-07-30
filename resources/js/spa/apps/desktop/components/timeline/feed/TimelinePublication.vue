@@ -211,6 +211,7 @@
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
     import { useLightboxStore } from '@D/store/lightbox/lightbox.store.js';
     import { colibriTranslator } from '@/kernel/services/translator/index.js';
+    import { applyOptimisticReaction } from '@/kernel/services/reactions/optimistic.js';
 
     import AvatarSmall from '@D/components/general/avatars/AvatarSmall.vue';
     import DropdownButton from '@D/components/general/dropdowns/parts/DropdownButton.vue';
@@ -290,12 +291,19 @@
                 addReaction: (reactionId) => {
                     closeReactionsPicker();
 
+                    const rollbackReaction = applyOptimisticReaction(postData.value, reactionId);
+                    colibriEventBus.emit('timeline:post-updated', postData.value);
+
                     colibriAPI().userTimeline().with({
                         unified_id: reactionId,
                         post_id: postData.value.id
                     }).sendTo('post/reaction/add').then((response) => {
                         postData.value.relations.reactions = response.data.data;
+                        colibriEventBus.emit('timeline:post-updated', postData.value);
                     }).catch((error) => {
+                        rollbackReaction();
+                        colibriEventBus.emit('timeline:post-updated', postData.value);
+
                         if (error.response) {
                             toastError(error.response.data.message);
                         }

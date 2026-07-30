@@ -154,6 +154,7 @@
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
     import { colibriTranslator } from '@/kernel/services/translator/index.js';
+    import { applyOptimisticReaction } from '@/kernel/services/reactions/optimistic.js';
     import { useLightboxStore } from '@M/store/lightbox/lightbox.store.js';
     import { useMenu } from '@/kernel/vue/composables/menu/index.js';
 
@@ -271,12 +272,19 @@
 
                     state.reactionMenu.close();
 
+                    const rollbackReaction = applyOptimisticReaction(postData.value, reactionId);
+                    colibriEventBus.emit('timeline:post-updated', postData.value);
+
                     colibriAPI().userTimeline().with({
                         unified_id: reactionId,
                         post_id: postData.value.id
                     }).sendTo('post/reaction/add').then((response) => {
                         postData.value.relations.reactions = response.data.data;
+                        colibriEventBus.emit('timeline:post-updated', postData.value);
                     }).catch((error) => {
+                        rollbackReaction();
+                        colibriEventBus.emit('timeline:post-updated', postData.value);
+
                         if (error.response) {
                             toastError(error.response.data.message);
                         }

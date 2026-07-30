@@ -102,6 +102,9 @@
     import { useAuthStore } from '@D/store/auth/auth.store.js';
     import { useNotificationsStore } from '@D/store/notifications/notifications.store.js';
     import { useInboxStore } from '@D/store/chats/inbox.store.js';
+    import { useTimelineStore } from '@D/store/timeline/timeline.store.js';
+    import { useExplorePostsStore } from '@D/store/explore/posts.store.js';
+    import { useExplorePeopleStore } from '@D/store/explore/people.store.js';
     import useToastNotificationStore from '@D/store/toast/toast.store.js';
     import { colibriSounds } from '@/kernel/services/sounds/index.js';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
@@ -114,9 +117,14 @@
             const authStore = useAuthStore();
             const notificationsStore = useNotificationsStore();
             const inboxStore = useInboxStore();
+            const timelineStore = useTimelineStore();
+            const explorePostsStore = useExplorePostsStore();
+            const explorePeopleStore = useExplorePeopleStore();
             const toastStore = useToastNotificationStore();
             let isListening = false;
             let unreadRefreshTimer = null;
+            let navigationWarmHandle = null;
+            let navigationWarmHandleIsIdle = false;
             const notificationsCount = computed(() => {
                 return notificationsStore.unreadCount;
             });
@@ -208,6 +216,33 @@
                 }
             };
 
+            const warmPrimaryNavigation = () => {
+                const warm = () => {
+                    navigationWarmHandle = null;
+                    navigationWarmHandleIsIdle = false;
+
+                    if(document.visibilityState === 'hidden') {
+                        return;
+                    }
+
+                    timelineStore.initialLoad();
+                    explorePostsStore.warmFirstPage();
+                    explorePeopleStore.warmFirstPage();
+
+                    import('@D/views/home/HomeIndex.vue');
+                    import('@D/views/explore/children/posts/ExplorePosts.vue');
+                    import('@D/views/explore/children/people/ExplorePeople.vue');
+                };
+
+                if('requestIdleCallback' in window) {
+                    navigationWarmHandleIsIdle = true;
+                    navigationWarmHandle = window.requestIdleCallback(warm, { timeout: 1800 });
+                }
+                else {
+                    navigationWarmHandle = window.setTimeout(warm, 800);
+                }
+            };
+
             onMounted(() => {
                 if(! authStore.userData) {
                     return;
@@ -219,6 +254,7 @@
                 window.addEventListener('focus', handleFocus);
                 document.addEventListener('visibilitychange', handleVisibilityChange);
                 attachRealtimeListener();
+                warmPrimaryNavigation();
             });
 
             onUnmounted(() => {
@@ -228,6 +264,15 @@
 
                 if(unreadRefreshTimer) {
                     window.clearTimeout(unreadRefreshTimer);
+                }
+
+                if(navigationWarmHandle) {
+                    if(navigationWarmHandleIsIdle && 'cancelIdleCallback' in window) {
+                        window.cancelIdleCallback(navigationWarmHandle);
+                    }
+                    else {
+                        window.clearTimeout(navigationWarmHandle);
+                    }
                 }
 
                 detachRealtimeListener();

@@ -84,16 +84,23 @@
 				// Because there can be a filter applied from the previous visits.
 
 				explorePeopleStore.resetFilter();
+				state.isLoading = ! people.value.length;
 
-				await explorePeopleStore.fetchPeople();
+				if(people.value.length) {
+					explorePeopleStore.fetchPeople().finally(() => {
+						state.isLoading = false;
+					});
+				}
+				else {
+					await explorePeopleStore.fetchPeople();
+					state.isLoading = false;
+				}
 
 				debounce(() => {
                     if(! people.value.length) {
                         state.isEmpty = true;
                     }
                 }, 500);
-
-                state.isLoading = false;
 			});
 
 			watch(peopleSearchQuery, () => {
@@ -107,9 +114,11 @@
 			const applyFilters = async () => {
 				explorePeopleStore.filter.page = 1;
 				state.noMoreContent = false;
-				state.isSearchLoading = true;
-				await explorePeopleStore.fetchPeople();
-				state.isSearchLoading = false;
+				state.isSearchLoading = ! explorePeopleStore.hydrateCachedFirstPage(peopleSearchQuery.value);
+
+				explorePeopleStore.fetchPeople().finally(() => {
+					state.isSearchLoading = false;
+				});
 			}
 
 			useInfiniteScroll({

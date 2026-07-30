@@ -1,13 +1,33 @@
 import { defineStore } from 'pinia';
 import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
+import { readCache, writeCache } from '@/kernel/services/cache/index.js';
+import { prefetchTimelineMedia } from '@/kernel/services/media-prefetch/index.js';
+import { useAuthStore } from '@D/store/auth/auth.store.js';
+
+const normalizeQuery = function(query = '') {
+	return String(query || '').trim().toLowerCase().slice(0, 80);
+};
+
+const getExplorePostsCacheKey = function(query = '') {
+	const authStore = useAuthStore();
+
+	return `colibri.desktop.explore.posts.first_page.v1.${authStore.userData?.id || 'guest'}.${normalizeQuery(query) || 'default'}`;
+};
+
+const explorePostsCacheLimit = 30;
 
 const useExplorePostsStore = defineStore('explore_posts_store', {
 	deleteAware: true,
     state: function() {
+		const cachedPosts = readCache(getExplorePostsCacheKey(), []);
+
+		prefetchTimelineMedia(cachedPosts);
+
 		return {
 			updateAttempts: 0,
-			posts: [],
+			posts: cachedPosts,
 			update: [],
+			warmPromise: null,
 			filter: {
 				page: 1,
 				query: ''
@@ -43,20 +63,24 @@ const useExplorePostsStore = defineStore('explore_posts_store', {
 				});
 
                 if (! exists) {
+					prefetchTimelineMedia([postItem]);
                     this.posts.unshift(postItem);
                 }
             });
 
             this.update = [];
+			this.persistFirstPage();
         },
-		makeLoadRequest: async function () {
+		makeLoadRequest: async function (filter = this.filter) {
 			return await colibriAPI().explore().with({
-				filter: this.filter
+				filter: filter
 			}).sendTo('posts');
 		},
 		fetchPosts: async function() {
 			await this.makeLoadRequest().then((response) => {
 				this.posts = response.data.data;
+				prefetchTimelineMedia(this.posts);
+				this.persistFirstPage();
 			});
 		},
 		refreshFirstPage: async function() {
@@ -74,6 +98,7 @@ const useExplorePostsStore = defineStore('explore_posts_store', {
 				
 				if (posts.length) {	
 					this.posts = this.posts.concat(posts);
+					prefetchTimelineMedia(posts);
 					return true;
 				}
 
@@ -90,6 +115,58 @@ const useExplorePostsStore = defineStore('explore_posts_store', {
 				page: 1,
 				query: ''
 			};
+
+			if(! this.hydrateCachedFirstPage()) {
+				this.posts = [];
+			}
+		},
+		hydrateCachedFirstPage: function(query = this.filter.query) {
+			const cachedPosts = readCache(getExplorePostsCacheKey(query), []);
+
+			if(cachedPosts.length) {
+				this.posts = cachedPosts;
+				prefetchTimelineMedia(cachedPosts);
+
+				return true;
+			}
+
+			return false;
+		},
+		warmFirstPage: async function() {
+			if(this.posts.length) {
+				prefetchTimelineMedia(this.posts);
+			}
+
+			if(this.warmPromise) {
+				return this.warmPromise;
+			}
+
+			this.warmPromise = this.makeLoadRequest({
+				page: 1,
+				query: ''
+			}).then((response) => {
+				const posts = response.data.data;
+
+				prefetchTimelineMedia(posts);
+				writeCache(getExplorePostsCacheKey(), posts.slice(0, explorePostsCacheLimit));
+
+				if(! this.filter.query && this.filter.page === 1) {
+					this.posts = posts;
+				}
+
+				return posts;
+			}).finally(() => {
+				this.warmPromise = null;
+			});
+
+			return this.warmPromise;
+		},
+		persistFirstPage: function() {
+			if(this.filter.page !== 1) {
+				return;
+			}
+
+			writeCache(getExplorePostsCacheKey(this.filter.query), this.posts.slice(0, explorePostsCacheLimit));
 		}
     }
 });

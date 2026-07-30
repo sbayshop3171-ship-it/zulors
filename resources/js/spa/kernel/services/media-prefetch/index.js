@@ -41,7 +41,7 @@ function prefetchPostMedia(postData, state) {
 
         if(mediaItem.type === 'video') {
             prefetchImage(mediaItem.thumbnail_url);
-            prefetchVideoMetadata(mediaItem.source_url);
+            prefetchVideoMetadata(mediaItem.preview_url || mediaItem.source_url);
         }
         else {
             prefetchImage(mediaItem.source_url);

@@ -157,22 +157,29 @@
                 explorePostsStore.filter.page = 1;
                 explorePostsStore.update = [];
                 state.noMoreContent = false;
-                state.isSearchLoading = true;
-                await explorePostsStore.fetchPosts();
-                state.isSearchLoading = false;
+                state.isSearchLoading = ! explorePostsStore.hydrateCachedFirstPage(postSearchQuery.value);
+
+                explorePostsStore.fetchPosts().finally(() => {
+                    state.isSearchLoading = false;
+                });
             };
 
             onMounted(async() => {
-                state.isLoading = true;
-
                 // Reset filter on mount.
                 // Because there can be a filter applied from the previous visits.
 
                 explorePostsStore.resetFilter();
+                state.isLoading = ! posts.value.length;
 
-                await explorePostsStore.fetchPosts();
-
-               	state.isLoading = false;
+                if(posts.value.length) {
+                    explorePostsStore.refreshFirstPage().finally(() => {
+                        state.isLoading = false;
+                    });
+                }
+                else {
+                    await explorePostsStore.fetchPosts();
+                    state.isLoading = false;
+                }
 
                 setupFeedUpdateInterval();
                 setupRealtimeFeedUpdates();

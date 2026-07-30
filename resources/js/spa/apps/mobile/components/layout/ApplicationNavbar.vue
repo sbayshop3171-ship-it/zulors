@@ -64,6 +64,9 @@
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { useMenu } from '@/kernel/vue/composables/menu/index.js';
 	import { useInboxStore } from '@M/store/chats/inbox.store.js';
+	import { useTimelineStore } from '@M/store/timeline/timeline.store.js';
+	import { useExplorePostsStore } from '@M/store/explore/posts.store.js';
+	import { useExplorePeopleStore } from '@M/store/explore/people.store.js';
 	import useToastNotificationStore from '@M/store/toast/toast.store.js';
 	import { colibriSounds } from '@/kernel/services/sounds/index.js';
 	import BRD from '@/kernel/websockets/brd/index.js';
@@ -80,12 +83,17 @@
 		setup: function() {
 			const authStore = useAuthStore();
 			const inboxStore = useInboxStore();
+			const timelineStore = useTimelineStore();
+			const explorePostsStore = useExplorePostsStore();
+			const explorePeopleStore = useExplorePeopleStore();
 			const toastStore = useToastNotificationStore();
 			const state = reactive({
 				mainMenu: useMenu()
 			});
 			let isListening = false;
 			let unreadRefreshTimer = null;
+			let navigationWarmHandle = null;
+			let navigationWarmHandleIsIdle = false;
 
 			const inboxCount = computed(() => {
                 return inboxStore.unreadCount;
@@ -167,6 +175,33 @@
 				}
 			};
 
+			const warmPrimaryNavigation = () => {
+				const warm = () => {
+					navigationWarmHandle = null;
+					navigationWarmHandleIsIdle = false;
+
+					if(document.visibilityState === 'hidden') {
+						return;
+					}
+
+					timelineStore.initialLoad();
+					explorePostsStore.warmFirstPage();
+					explorePeopleStore.warmFirstPage();
+
+					import('@M/views/home/HomeIndex.vue');
+					import('@M/views/explore/children/posts/ExplorePosts.vue');
+					import('@M/views/explore/children/people/ExplorePeople.vue');
+				};
+
+				if('requestIdleCallback' in window) {
+					navigationWarmHandleIsIdle = true;
+					navigationWarmHandle = window.requestIdleCallback(warm, { timeout: 1800 });
+				}
+				else {
+					navigationWarmHandle = window.setTimeout(warm, 800);
+				}
+			};
+
 			onMounted(() => {
 				if(! authStore.userData) {
 					return;
@@ -177,6 +212,7 @@
 				window.addEventListener('focus', handleFocus);
 				document.addEventListener('visibilitychange', handleVisibilityChange);
 				attachRealtimeListener();
+				warmPrimaryNavigation();
 			});
 
 			onUnmounted(() => {
@@ -186,6 +222,15 @@
 
 				if(unreadRefreshTimer) {
 					window.clearTimeout(unreadRefreshTimer);
+				}
+
+				if(navigationWarmHandle) {
+					if(navigationWarmHandleIsIdle && 'cancelIdleCallback' in window) {
+						window.cancelIdleCallback(navigationWarmHandle);
+					}
+					else {
+						window.clearTimeout(navigationWarmHandle);
+					}
 				}
 
 				detachRealtimeListener();
