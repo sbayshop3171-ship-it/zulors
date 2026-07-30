@@ -1,0 +1,137 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Enums\Post\PostStatus;
+use App\Enums\Post\PostType;
+use App\Enums\User\UserStatus;
+use App\Models\Comment;
+use App\Models\Post;
+use App\Models\Reaction;
+use App\Models\TestContentEngagement;
+use App\Models\User;
+use App\Services\TestContent\BulkTestAccountEngagementPublisher;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
+use Tests\TestCase;
+
+class BulkTestAccountEngagementPublisherTest extends TestCase
+{
+	use RefreshDatabase;
+
+	public function test_it_adds_the_requested_reaction_and_comment_quotas_from_test_accounts(): void
+	{
+		foreach (range(1, 6) as $number) {
+			$this->createUser("bulk-test-{$number}", "bulk-test-{$number}@gmail.test");
+		}
+
+		$post = $this->createPost($this->createUser('bulk-author', 'bulk-author@example.com'), 'A practical technology update');
+		$publisher = app(BulkTestAccountEngagementPublisher::class);
+		$preview = $publisher->preview('bulk-quota-test', 0, 1, 4, 4, 3, 3);
+		$summary = $publisher->publish('bulk-quota-test', $preview['users'], $preview['posts'], $preview['targets']);
+
+		$this->assertSame(1, $summary['posts']);
+		$this->assertSame(4, $summary['reactions_added']);
+		$this->assertSame(3, $summary['comments_added']);
+		$this->assertSame(0, $summary['failed']);
+		$this->assertSame(4, (int) Reaction::query()->sum('reactions_count'));
+		$this->assertSame(3, Comment::query()->where('post_id', $post->id)->count());
+		$this->assertSame(3, TestContentEngagement::query()->where('campaign_key', 'bulk-quota-test')->count());
+		$this->assertDatabaseHas('posts', ['id' => $post->id, 'comments_count' => 3]);
+
+		$comments = Comment::query()->where('post_id', $post->id)->pluck('content')->all();
+		$this->assertCount(3, array_unique($comments));
+	}
+
+	public function test_it_can_be_rerun_without_duplicate_comments_or_reactions(): void
+	{
+		foreach (range(1, 5) as $number) {
+			$this->createUser("bulk-repeat-{$number}", "bulk-repeat-{$number}@gmail.test");
+		}
+
+		$this->createPost($this->createUser('repeat-author', 'repeat-author@example.com'), 'A repeatable business update');
+		$publisher = app(BulkTestAccountEngagementPublisher::class);
+		$preview = $publisher->preview('bulk-repeat-test', 0, 1, 4, 4, 3, 3);
+		$publisher->publish('bulk-repeat-test', $preview['users'], $preview['posts'], $preview['targets']);
+		$summary = $publisher->publish('bulk-repeat-test', $preview['users'], $preview['posts'], $preview['targets']);
+
+		$this->assertSame(0, $summary['reactions_added']);
+		$this->assertSame(0, $summary['comments_added']);
+		$this->assertSame(4, (int) Reaction::query()->sum('reactions_count'));
+		$this->assertSame(3, Comment::query()->count());
+		$this->assertSame(3, TestContentEngagement::query()->count());
+	}
+
+	public function test_command_supports_a_quota_dry_run_and_requires_confirmation(): void
+	{
+		foreach (range(1, 4) as $number) {
+			$this->createUser("bulk-command-{$number}", "bulk-command-{$number}@gmail.test");
+		}
+		$this->createPost($this->createUser('command-author', 'command-author@example.com'), 'A command engagement update');
+
+		$this->artisan('test-content:bulk-engage --campaign=bulk-command-test --posts=1 --reaction-min=3 --reaction-max=3 --comment-min=2 --comment-max=2 --dry-run')
+			->expectsOutput('Active posts in this batch: 1')
+			->expectsOutput('Planned unique reactions: 3')
+			->expectsOutput('Planned unique comments: 2')
+			->expectsOutput('Dry run complete. No data was written.')
+			->assertExitCode(0);
+
+		$this->artisan('test-content:bulk-engage --campaign=bulk-command-test --posts=1 --reaction-min=3 --reaction-max=3 --comment-min=2 --comment-max=2')
+			->expectsOutput('Refusing to write. Re-run with --confirm=FULL_TEST_ENGAGEMENTS.')
+			->assertExitCode(1);
+
+		$this->artisan('test-content:bulk-engage --campaign=bulk-command-test --posts=1 --reaction-min=3 --reaction-max=3 --comment-min=2 --comment-max=2 --confirm=FULL_TEST_ENGAGEMENTS')
+			->assertExitCode(0);
+
+		$this->assertDatabaseCount('comments', 2);
+		$this->assertSame(3, (int) Reaction::query()->sum('reactions_count'));
+	}
+
+	private function createPost(User $user, string $title): Post
+	{
+		return Post::query()->create([
+			'user_id' => $user->id,
+			'title' => $title,
+			'content' => 'Original test post content.',
+			'status' => PostStatus::ACTIVE,
+			'type' => PostType::TEXT,
+			'text_language' => 'en',
+		]);
+	}
+
+	private function createUser(string $username, string $email): User
+	{
+		return User::query()->create([
+			'first_name' => 'Test',
+			'last_name' => 'Account',
+			'username' => $username,
+			'caption' => '@'.$username,
+			'email' => $email,
+			'phone' => '',
+			'website' => '',
+			'bio' => '',
+			'country' => null,
+			'city' => null,
+			'birth_day' => null,
+			'birth_month' => null,
+			'birth_year' => null,
+			'age' => null,
+			'gender' => 'male',
+			'last_active' => now()->timestamp,
+			'language' => 'en',
+			'avatar' => null,
+			'cover' => null,
+			'verified' => false,
+			'tips' => [],
+			'email_verified_at' => now(),
+			'password' => Hash::make('password'),
+			'role' => 'user',
+			'theme' => 'light',
+			'publications_count' => 0,
+			'followers_count' => 0,
+			'following_count' => 0,
+			'status' => UserStatus::ACTIVE,
+			'type' => 'author',
+		]);
+	}
+}
