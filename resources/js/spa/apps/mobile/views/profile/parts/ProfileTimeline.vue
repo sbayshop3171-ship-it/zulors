@@ -158,13 +158,21 @@
 
 				const handleDeletePost = (postData) => {
 					postDeleter(postData, (postId) => {
-					let postIndex = profilePosts.value.findIndex((item) => {
-						return item.id == postId;
-					});
+						const postIndex = profilePosts.value.findIndex((item) => {
+							return item.id == postId;
+						});
 
-					if(postIndex !== -1) {
-						profilePosts.value.splice(postIndex, 1);
-					}
+						if(postIndex !== -1) {
+							const deletedPost = profilePosts.value[postIndex];
+
+							profilePosts.value.splice(postIndex, 1);
+
+							return () => {
+								if(! profilePosts.value.some((item) => item.id == postId)) {
+									profilePosts.value.splice(Math.min(postIndex, profilePosts.value.length), 0, deletedPost);
+								}
+							};
+						}
 					});
 				}
 

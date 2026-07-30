@@ -56,7 +56,8 @@
 					confirm: __t('prompt.confirm_prompt_button'),
 					cancel: __t('prompt.cancel_prompt_button'),
 					confirmSecondary: false,
-					confirmSecondaryText: ''
+					confirmSecondaryText: '',
+					closeOnConfirm: false
 				};
 			};
 
@@ -96,6 +97,10 @@
 						modalData.value.confirmSecondaryText = data.confirmSecondaryText;
 					}
 
+					if (data.closeOnConfirm) {
+						modalData.value.closeOnConfirm = true;
+					}
+
 					modalCallbacks.onConfirm = data.onConfirm;
 					modalCallbacks.onCancel = data.onCancel;
 
@@ -113,6 +118,26 @@
 				state: state,
 				confirm: async function() {
 					if(state.isSubmitting) {
+						return;
+					}
+
+					if(modalData.value.closeOnConfirm) {
+						const onConfirm = modalCallbacks.onConfirm;
+
+						closeModal();
+
+						try {
+							const result = onConfirm?.();
+
+							if(result && typeof result.catch === 'function') {
+								result.catch((error) => {
+									toastError(error?.response?.data?.message || 'Unable to complete this action. Please try again.');
+								});
+							}
+						} catch (error) {
+							toastError(error?.response?.data?.message || 'Unable to complete this action. Please try again.');
+						}
+
 						return;
 					}
 

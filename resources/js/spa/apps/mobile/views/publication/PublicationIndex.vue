@@ -13,6 +13,7 @@
 	import { useRouter } from 'vue-router';
 	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
+	import { useDeletePost } from '@/kernel/vue/composables/delete-post/index.js';
 
 	import TimelinePublication from '@M/components/timeline/feed/TimelinePublication.vue';
     import TimelinePublicationSkeleton from '@M/components/timeline/feed/TimelinePublicationSkeleton.vue';
@@ -28,6 +29,7 @@
 		},
 		setup: function(props) {
 			const router = useRouter();
+			const { postDeleter } = useDeletePost();
 			const state = reactive({
 				isLoading: true
 			});
@@ -63,8 +65,14 @@
 				state: state,
 				postData: postData,
 				postAuthor: postAuthor,
-				handlePostDelete: () => {
-					alert('post deleted');
+				handlePostDelete: (postData) => {
+					postDeleter(postData, () => {
+						toastSuccess(__t('toast.media.post_deleted'));
+
+						router.push({
+	                        name: 'home_index'
+	                    });
+					});
 				}
 			};
 		},

@@ -9,22 +9,31 @@ function useDeletePost() {
 		colibriEventBus.emit('confirmation-modal:open', {
 			title: t('prompt.delete_post.title'),
 			description: t('prompt.delete_post.description'),
+			closeOnConfirm: true,
 			onConfirm: () => {
-				return colibriAPI().userTimeline().with({
-					id: postData.id
+				const postId = postData.id;
+				const rollback = optimisticallyDeletePost(postData, callback);
+
+				colibriAPI().userTimeline().with({
+					id: postId
 				}).delete('post/delete').then(() => {
-
-					// Call the callback if it is provided.
-					if (typeof callback === 'function') {
-						callback(postData.id);
-					}
-
-					return postData.id;
+					colibriEventBus.emit('timeline:post-delete-confirmed', postId);
 				}).catch((error) => {
 					console.error('Unable to delete post', error);
 
-					throw error;
+					if (typeof rollback === 'function') {
+						rollback(error);
+					}
+
+					colibriEventBus.emit('timeline:post-delete-failed', {
+						postId: postId,
+						postData: postData
+					});
+
+					toastError(error?.response?.data?.message || 'Unable to delete post. Please try again.');
 				});
+
+				return postId;
 			}
 		});
 	}
@@ -32,6 +41,18 @@ function useDeletePost() {
 	return {
 		postDeleter: postDeleter
 	}
+}
+
+function optimisticallyDeletePost(postData, callback = null) {
+	const postId = postData.id;
+
+	colibriEventBus.emit('timeline:post-deleted', postId);
+
+	if (typeof callback === 'function') {
+		return callback(postId, postData);
+	}
+
+	return null;
 }
 
 export { useDeletePost };

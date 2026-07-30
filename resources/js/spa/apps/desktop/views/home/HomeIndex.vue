@@ -65,7 +65,6 @@
     import { useDeletePost } from '@/kernel/vue/composables/delete-post/index.js';
     import { useInfiniteScroll } from '@/kernel/vue/composables/infinite-scroll/index.js';
     import { useInstantRevalidation } from '@/kernel/vue/composables/instant-revalidation/index.js';
-    import { colibriEventBus } from '@/kernel/events/bus/index.js';
     import BRD from '@/kernel/websockets/brd/index.js';
 
     import StoriesFeed from '@D/components/stories/feed/StoriesFeed.vue';
@@ -217,9 +216,7 @@
                 timelineNewPosts: timelineNewPosts,
                 globalPinnedPosts: globalPinnedPosts,
                 handlePostDelete: (postData) => {
-                    postDeleter(postData, (postId) => {
-                        colibriEventBus.emit('timeline:post-deleted', postId);
-                    });
+                    postDeleter(postData);
                 },
                 applyTimelineUpdate: () => {
                     timelineStore.applyUpdate();

@@ -61,7 +61,6 @@
     import { useInfiniteScroll } from '@/kernel/vue/composables/infinite-scroll/index.js';
 	import { useDeletePost } from '@/kernel/vue/composables/delete-post/index.js';
 	import { useInstantRevalidation } from '@/kernel/vue/composables/instant-revalidation/index.js';
-	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import BRD from '@/kernel/websockets/brd/index.js';
 
     import TimelineContainer from '@M/components/timeline/feed/TimelineContainer.vue';
@@ -214,8 +213,6 @@
 				},
 				handlePostDelete: (postData) => {
 					postDeleter(postData, (postId) => {
-						colibriEventBus.emit('timeline:post-deleted', postId);
-
                         toastSuccess(__t('toast.media.post_deleted'));
 					});
 				}

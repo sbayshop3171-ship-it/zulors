@@ -218,8 +218,6 @@
                     postData.value.comments_count = commentData.post.comments_count;
                 },
                 handlePostDelete: (postData) => {
-                    colibriEventBus.emit('timeline:post-deleted', postData.id);
-
                     postDeleter(postData, () => {
                         router.push({
                             name: 'home_index'
