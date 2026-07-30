@@ -152,7 +152,9 @@ trap restore_live ERR
 test -d "$LIVE_PATH"
 test -d "$REMOTE_RELEASE"
 
-cp -al "$LIVE_PATH" "$REMOTE_BACKUP"
+rm -rf "$REMOTE_BACKUP"
+mkdir -p "$REMOTE_BACKUP"
+rsync -a --delete "${rsync_permissions[@]}" "${rsync_excludes[@]}" "$LIVE_PATH/" "$REMOTE_BACKUP/"
 
 rsync -a --delete "${rsync_permissions[@]}" "${rsync_excludes[@]}" "$REMOTE_RELEASE/" "$LIVE_PATH/"
 
