@@ -702,7 +702,8 @@
                 const parts = Array.isArray(uploadData.parts) ? uploadData.parts : [];
                 const completedParts = [];
                 const loadedParts = new Map();
-                const uploadConcurrency = Math.min(6, Math.max(1, Number(uploadData.upload_concurrency || 6)));
+                const uploadConcurrency = Math.min(8, Math.max(1, Number(uploadData.upload_concurrency || 8)));
+                const partFallbackMaxBytes = Math.max(0, Number(uploadData.part_fallback_max_bytes || 0));
                 let uploadedBytes = 0;
                 let nextPartIndex = 0;
 
@@ -731,7 +732,7 @@
                         });
                     }, 3).catch(() => null);
 
-                    if(! result?.etag) {
+                    if(! result?.etag && partFallbackMaxBytes > 0 && partBlob.size <= partFallbackMaxBytes) {
                         loadedParts.set(part.part_number, 0);
 
                         result = await retryDirectUpload(() => {
@@ -746,7 +747,7 @@
                     }
 
                     if(! result?.etag) {
-                        throw new Error('Direct upload did not return an ETag.');
+                        throw new Error('Direct video upload was interrupted. Please retry so the video can upload through the fast path.');
                     }
 
                     uploadedBytes += partBlob.size;

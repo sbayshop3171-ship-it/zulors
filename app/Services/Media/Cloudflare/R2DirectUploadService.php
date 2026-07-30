@@ -62,6 +62,7 @@ class R2DirectUploadService
             'upload_concurrency' => $this->uploadConcurrency(),
             'upload_stall_timeout_ms' => $this->uploadStallTimeoutMs(),
             'raw_fallback_max_bytes' => $this->rawFallbackMaxBytes(),
+            'part_fallback_max_bytes' => $this->partFallbackMaxBytes(),
             'expires_at' => $expiresAt->toIso8601String(),
         ];
     }
@@ -401,6 +402,7 @@ class R2DirectUploadService
             'upload_concurrency' => $this->uploadConcurrency(),
             'upload_stall_timeout_ms' => $this->uploadStallTimeoutMs(),
             'raw_fallback_max_bytes' => $this->rawFallbackMaxBytes(),
+            'part_fallback_max_bytes' => $this->partFallbackMaxBytes(),
             'expires_at' => $expiresAt->toIso8601String(),
         ];
     }
@@ -422,7 +424,7 @@ class R2DirectUploadService
 
     private function uploadConcurrency(): int
     {
-        return max(1, min(6, (int) config('media.cloudflare.r2.upload_concurrency', 4)));
+        return max(1, min(8, (int) config('media.cloudflare.r2.upload_concurrency', 8)));
     }
 
     private function uploadStallTimeoutMs(): int
@@ -433,6 +435,17 @@ class R2DirectUploadService
     private function rawFallbackMaxBytes(): int
     {
         return max(5, (int) config('media.cloudflare.r2.raw_fallback_max_mb', 8)) * 1024 * 1024;
+    }
+
+    private function partFallbackMaxBytes(): int
+    {
+        $fallbackMaxMb = (int) config('media.cloudflare.r2.part_fallback_max_mb', 0);
+
+        if($fallbackMaxMb < 1) {
+            return 0;
+        }
+
+        return $fallbackMaxMb * 1024 * 1024;
     }
 
     private function s3Client(string $disk): S3Client
