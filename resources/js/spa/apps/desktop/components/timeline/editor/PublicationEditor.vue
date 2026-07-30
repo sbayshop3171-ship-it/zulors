@@ -702,7 +702,7 @@
                 const parts = Array.isArray(uploadData.parts) ? uploadData.parts : [];
                 const completedParts = [];
                 const loadedParts = new Map();
-                const uploadConcurrency = Math.min(3, Math.max(1, Number(uploadData.upload_concurrency || 3)));
+                const uploadConcurrency = Math.min(6, Math.max(1, Number(uploadData.upload_concurrency || 6)));
                 let uploadedBytes = 0;
                 let nextPartIndex = 0;
 

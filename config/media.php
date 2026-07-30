@@ -22,12 +22,14 @@ return [
             'final_disk' => env('R2_FINAL_DISK', 'r2_final'),
             'temp_prefix' => trim(env('R2_TEMP_PREFIX', 'tmp/direct/videos'), '/'),
             'direct_upload_expiry_minutes' => (int) env('R2_DIRECT_UPLOAD_EXPIRY_MINUTES', 30),
-            'multipart_threshold_mb' => (int) env('R2_DIRECT_UPLOAD_MULTIPART_THRESHOLD_MB', 5),
-            'multipart_part_size_mb' => (int) env('R2_DIRECT_UPLOAD_MULTIPART_PART_SIZE_MB', 5),
-            'upload_concurrency' => (int) env('R2_DIRECT_UPLOAD_CONCURRENCY', 4),
+            'multipart_threshold_mb' => (int) env('R2_DIRECT_UPLOAD_MULTIPART_THRESHOLD_MB', 16),
+            'multipart_part_size_mb' => (int) env('R2_DIRECT_UPLOAD_MULTIPART_PART_SIZE_MB', 16),
+            'upload_concurrency' => (int) env('R2_DIRECT_UPLOAD_CONCURRENCY', 6),
             'upload_stall_timeout_seconds' => (int) env('R2_DIRECT_UPLOAD_STALL_TIMEOUT_SECONDS', 45),
             'raw_fallback_max_mb' => (int) env('R2_DIRECT_UPLOAD_RAW_FALLBACK_MAX_MB', 8),
             'temp_preview_expiry_minutes' => (int) env('R2_TEMP_PREVIEW_EXPIRY_MINUTES', 30),
+            'auto_cors_enabled' => env('R2_DIRECT_UPLOAD_AUTO_CORS_ENABLED', true),
+            'cors_origins' => env('R2_DIRECT_UPLOAD_CORS_ORIGINS'),
         ],
 
         'stream' => [

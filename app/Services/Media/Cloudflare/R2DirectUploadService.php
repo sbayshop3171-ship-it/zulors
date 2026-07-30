@@ -6,6 +6,8 @@ use Exception;
 use Aws\S3\S3Client;
 use Illuminate\Support\Str;
 use App\Constants\Filesystem as MediaFilesystem;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 
 class R2DirectUploadService
@@ -30,6 +32,8 @@ class R2DirectUploadService
         if(! $this->isConfigured()) {
             throw new Exception('Cloudflare R2 direct upload is not configured.');
         }
+
+        $this->ensureCorsConfiguration();
 
         $mime = (string) ($fileData['mime'] ?? 'video/mp4');
         $extension = $this->cleanExtension((string) ($fileData['extension'] ?? 'mp4'));
@@ -214,6 +218,106 @@ class R2DirectUploadService
         $userId = auth_check() ? me()->id : 'guest';
 
         return "{$prefix}/{$userId}/".Str::uuid().".{$extension}";
+    }
+
+    private function ensureCorsConfiguration(): void
+    {
+        if(! (bool) config('media.cloudflare.r2.auto_cors_enabled', true)) {
+            return;
+        }
+
+        $origins = $this->corsOrigins();
+        $cacheKey = 'r2-direct-upload-cors:'.sha1($this->tempDisk().'|'.$this->bucket($this->tempDisk()).'|'.implode(',', $origins));
+
+        if(Cache::get($cacheKey)) {
+            return;
+        }
+
+        try {
+            $this->s3Client($this->tempDisk())->putBucketCors([
+                'Bucket' => $this->bucket($this->tempDisk()),
+                'CORSConfiguration' => [
+                    'CORSRules' => [
+                        [
+                            'AllowedHeaders' => ['*'],
+                            'AllowedMethods' => ['PUT', 'POST', 'GET', 'HEAD'],
+                            'AllowedOrigins' => $origins,
+                            'ExposeHeaders' => ['ETag'],
+                            'MaxAgeSeconds' => 3600,
+                        ],
+                    ],
+                ],
+            ]);
+
+            Cache::put($cacheKey, true, now()->addHours(12));
+        }
+        catch(\Throwable $e) {
+            $failureCacheKey = "{$cacheKey}:failed";
+
+            if(! Cache::get($failureCacheKey)) {
+                Log::warning('Unable to auto-configure R2 direct upload CORS. Browser upload may fall back through the app server.', [
+                    'bucket' => $this->bucket($this->tempDisk()),
+                    'origins' => $origins,
+                    'error' => $e->getMessage(),
+                ]);
+
+                Cache::put($failureCacheKey, true, now()->addMinutes(15));
+            }
+        }
+    }
+
+    private function corsOrigins(): array
+    {
+        $configuredOrigins = collect(explode(',', (string) config('media.cloudflare.r2.cors_origins', '')))
+            ->map(fn(string $origin) => $this->normalizeCorsOrigin($origin))
+            ->filter()
+            ->values()
+            ->all();
+
+        $appOrigin = $this->normalizeCorsOrigin((string) config('app.url'));
+        $requestOrigin = null;
+
+        if(app()->bound('request')) {
+            $requestOrigin = $this->normalizeCorsOrigin((string) request()->headers->get('origin'));
+        }
+
+        $origins = array_values(array_unique(array_filter(array_merge($configuredOrigins, [
+            $appOrigin,
+            $requestOrigin,
+        ]))));
+
+        return empty($origins) ? ['*'] : $origins;
+    }
+
+    private function normalizeCorsOrigin(?string $origin): ?string
+    {
+        $origin = trim((string) $origin);
+
+        if(blank($origin)) {
+            return null;
+        }
+
+        if($origin === '*') {
+            return '*';
+        }
+
+        if(! str_starts_with($origin, 'http://') && ! str_starts_with($origin, 'https://')) {
+            return null;
+        }
+
+        $parts = parse_url($origin);
+
+        if(empty($parts['scheme']) || empty($parts['host'])) {
+            return null;
+        }
+
+        $normalizedOrigin = "{$parts['scheme']}://{$parts['host']}";
+
+        if(! empty($parts['port'])) {
+            $normalizedOrigin .= ":{$parts['port']}";
+        }
+
+        return $normalizedOrigin;
     }
 
     private function makeFinalVideoPath(string $extension): string

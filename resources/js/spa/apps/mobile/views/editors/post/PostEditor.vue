@@ -228,7 +228,7 @@
 			}
 
 			const defaultDirectUploadStallTimeoutMs = 45 * 1000;
-			const defaultDirectUploadFirstProgressTimeoutMs = 12 * 1000;
+			const defaultDirectUploadFirstProgressTimeoutMs = 0;
 			const defaultRawFallbackMaxBytes = 8 * 1024 * 1024;
 
 			const normalizeUploadProgress = (progress) => {
@@ -569,7 +569,7 @@
 				const parts = Array.isArray(uploadData.parts) ? uploadData.parts : [];
 				const completedParts = [];
 				const loadedParts = new Map();
-				const uploadConcurrency = Math.min(4, Math.max(1, Number(uploadData.upload_concurrency || 4)));
+				const uploadConcurrency = Math.min(6, Math.max(1, Number(uploadData.upload_concurrency || 6)));
 				let uploadedBytes = 0;
 				let nextPartIndex = 0;
 				let shouldBypassDirectUpload = false;
