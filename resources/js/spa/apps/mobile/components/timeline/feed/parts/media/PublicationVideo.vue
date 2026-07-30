@@ -1,15 +1,17 @@
 <template>
-	<div class="flex">
+	<div class="flex w-full">
 		<PublicationVideoProcessing
 			v-if="!canPlayImmediately"
-			v-bind:mediaItem="mediaItem"></PublicationVideoProcessing>
+			v-bind:mediaItem="mediaItem"
+			v-bind:isPortrait="isPortrait"></PublicationVideoProcessing>
 
-		<div v-else class="overflow-hidden">
+		<div v-else class="w-full overflow-hidden">
 			<VideoPlayer
 				v-bind:postId="mediaItem.mediaable_id"
 				v-bind:mediaId="mediaItem.id"
 				v-bind:thumbnailUrl="mediaItem.thumbnail_url"
 				v-bind:duration="mediaItem.metadata.duration"
+				v-bind:isPortrait="isPortrait"
 			v-bind:videoUrl="mediaItem.preview_url || mediaItem.source_url"></VideoPlayer>
 		</div>
 	</div>
@@ -96,7 +98,10 @@
 			return {
 				mediaItem: mediaItem,
 				canPlayImmediately: canPlayImmediately,
-				MediaStatusUtils: MediaStatusUtils
+				MediaStatusUtils: MediaStatusUtils,
+				isPortrait: computed(() => {
+					return Boolean(mediaItem.value.metadata?.is_portrait);
+				})
 			};
 		},
 		components: {

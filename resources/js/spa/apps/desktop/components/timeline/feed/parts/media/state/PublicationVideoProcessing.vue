@@ -2,11 +2,15 @@
     <div class="flex">
         <div v-bind:class="[isPortrait ? 'w-72' : 'w-full']"
         class="bg-fill-pr block border border-edge-pr rounded-xl overflow-hidden relative">
-            <img v-if="mediaItem.thumbnail_url" v-bind:src="mediaItem.thumbnail_url" class="w-full h-full object-cover" alt="Video thumbnail">
-            <div v-else class="aspect-video min-h-48 flex-center bg-fill-tr text-lab-sc">
-                <span class="size-icon-large">
-                    <SvgIcon name="video-recorder" type="line"></SvgIcon>
-                </span>
+            <div
+                v-bind:class="frameClass"
+            class="relative">
+                <img v-if="mediaItem.thumbnail_url" v-bind:src="mediaItem.thumbnail_url" class="size-full object-cover" alt="Video thumbnail">
+                <div v-else class="size-full flex-center bg-fill-tr text-lab-sc">
+                    <span class="size-icon-large">
+                        <SvgIcon name="video-recorder" type="line"></SvgIcon>
+                    </span>
+                </div>
             </div>
             <div class="from-black/70 to-transparent bg-gradient-to-t absolute bottom-0 left-0 right-0 px-4 pb-4 pt-8">
                 <div class="flex items-center justify-between gap-3">
@@ -129,7 +133,10 @@
                 mediaItem: mediaItem,
                 progress: progress,
                 progressLabel: progressLabel,
-                progressWidth: progressWidth
+                progressWidth: progressWidth,
+                frameClass: computed(() => {
+                    return props.isPortrait ? 'aspect-[9/16]' : 'aspect-video';
+                })
             }
         }
     });

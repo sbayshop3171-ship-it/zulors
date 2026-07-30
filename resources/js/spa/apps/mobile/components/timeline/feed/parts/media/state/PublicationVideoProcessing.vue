@@ -1,7 +1,9 @@
 <template>
-    <div class="bg-fill-pr overflow-hidden relative">
-        <img v-if="mediaItem.thumbnail_url" v-bind:src="mediaItem.thumbnail_url" class="w-full h-full object-cover" alt="Video thumbnail">
-        <div v-else class="aspect-video min-h-48 flex-center bg-fill-tr text-lab-sc">
+    <div
+        v-bind:class="frameClass"
+    class="w-full bg-fill-pr overflow-hidden relative">
+        <img v-if="mediaItem.thumbnail_url" v-bind:src="mediaItem.thumbnail_url" class="size-full object-cover" alt="Video thumbnail">
+        <div v-else class="size-full flex-center bg-fill-tr text-lab-sc">
             <span class="size-icon-large">
                 <SvgIcon name="video-recorder" type="line"></SvgIcon>
             </span>
@@ -33,6 +35,10 @@
             mediaItem: {
                 type: Object,
                 default: {}
+            },
+            isPortrait: {
+                type: Boolean,
+                default: false
             }
         },
         setup: function(props) {
@@ -122,7 +128,10 @@
                 mediaItem: mediaItem,
                 progress: progress,
                 progressLabel: progressLabel,
-                progressWidth: progressWidth
+                progressWidth: progressWidth,
+                frameClass: computed(() => {
+                    return props.isPortrait ? 'aspect-[9/16]' : 'aspect-video';
+                })
             }
         }
     });

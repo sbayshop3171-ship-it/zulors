@@ -12,6 +12,7 @@
 				v-bind:mediaId="mediaItem.id"
 				v-bind:thumbnailUrl="mediaItem.thumbnail_url"
 				v-bind:duration="mediaItem.metadata.duration"
+				v-bind:isPortrait="isPortrait"
 			v-bind:videoUrl="mediaItem.preview_url || mediaItem.source_url"></VideoPlayer>
 		</div>
 	</div>
@@ -100,7 +101,7 @@
 				canPlayImmediately: canPlayImmediately,
 				MediaStatusUtils: MediaStatusUtils,
 				isPortrait: computed(() => {
-					return mediaItem.value.metadata?.is_portrait;
+					return Boolean(mediaItem.value.metadata?.is_portrait);
 				})
 			};
 		},

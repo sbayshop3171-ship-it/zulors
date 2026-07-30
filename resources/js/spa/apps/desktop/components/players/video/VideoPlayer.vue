@@ -1,8 +1,10 @@
 <template>
-	<div class="relative flex justify-center cursor-pointer group">
+	<div
+		v-bind:class="playerFrameClass"
+	class="relative flex w-full justify-center cursor-pointer group bg-black overflow-hidden">
 		<video
 			v-on:click="togglePlay"
-			class="w-full"
+			class="size-full object-contain"
 			ref="videoPlayerRef"
 			v-bind:poster="thumbnailUrl"
 			preload="metadata"
@@ -57,7 +59,7 @@
 </template>
 
 <script>
-	import { defineComponent, watch, reactive, onMounted, onUnmounted } from 'vue';
+	import { defineComponent, computed, watch, reactive, onMounted, onUnmounted } from 'vue';
 	import { useIntersectionObserver } from '@/kernel/vue/composables/inter-obs/index.js';
 	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 
@@ -77,6 +79,10 @@
 			thumbnailUrl: {
 				type: String,
 				required: true
+			},
+			isPortrait: {
+				type: Boolean,
+				default: false
 			},
 			postId: {
 				type: [Number, String],
@@ -105,6 +111,9 @@
 				loopCount: 0,
 				sessionId: `video-${Date.now()}-${Math.random().toString(36).slice(2)}`,
 				telemetryTimer: null
+			});
+			const playerFrameClass = computed(() => {
+				return props.isPortrait ? 'aspect-[9/16]' : 'aspect-video';
 			});
 
 			function startProgressUpdater() {
@@ -343,6 +352,7 @@
 			return {
 				videoPlayerRef: videoPlayerRef,
 				state: state,
+				playerFrameClass: playerFrameClass,
 				toggleMute: toggleMute,
                 toggleFullscreen: toggleFullscreen,
                 togglePIP: togglePIP,
