@@ -24,12 +24,14 @@
 
     .zulors-boot-shell {
         min-height: 100dvh;
+        width: 100%;
         background: var(--color-bg-pr, {{ $bootBackgroundColor }});
         color: var(--color-lab-pr2, {{ $bootTextColor }});
         display: flex;
         align-items: center;
         justify-content: center;
         position: relative;
+        overflow: hidden;
         font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
 
@@ -46,6 +48,8 @@
         position: fixed;
         inset: 0;
         z-index: 1000;
+        min-width: 0;
+        background: var(--color-bg-pr, {{ $bootBackgroundColor }});
     }
 
     .zulors-boot-logo {

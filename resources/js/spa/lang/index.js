@@ -2,8 +2,8 @@ import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 
 const fallbackMessages = {
     labels: {
-        hi_there: 'Hi there',
-        one_moment: 'One moment',
+        hi_there: 'Hi, there 👋',
+        one_moment: 'Just a moment',
         home: 'Home',
         explore: 'Explore',
         notifications: 'Notifications',
