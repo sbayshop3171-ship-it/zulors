@@ -72,10 +72,10 @@ class PostController extends Controller
 
         $this->initializePostAndValidateData($request);
 
-        if($videoUploadError = $this->validateDraftVideoUploadIsReady()) {
-            return $videoUploadError;
+        if($videoAttachmentError = $this->validateDraftVideoAttachmentExists()) {
+            return $videoAttachmentError;
         }
-        
+
         $this->defineAndSetPostStatus();
 
         if($this->draftPost->content) {
@@ -264,43 +264,28 @@ class PostController extends Controller
             && filled($videoMedia->source_path);
     }
 
-    private function validateDraftVideoUploadIsReady()
+    private function validateDraftVideoAttachmentExists()
     {
         if(! $this->draftPost->type->isVideo()) {
             return null;
         }
 
-        $videoMedia = $this->draftPost->media()
+        $videoMediaExists = $this->draftPost->media()
             ->where('type', MediaType::VIDEO->value)
-            ->latest('id')
-            ->first();
+            ->exists();
 
-        if(empty($videoMedia)) {
-            return $this->responseValidationError([
-                'message' => 'Please attach a video before publishing.',
-                'errors' => [
-                    'video' => [
-                        'Please attach a video before publishing.'
-                    ]
-                ]
-            ]);
+        if($videoMediaExists) {
+            return null;
         }
 
-        $isDirectR2Upload = data_get($videoMedia->metadata, 'provider') === 'r2_temp';
-        $uploadState = data_get($videoMedia->metadata, 'upload_state');
-
-        if($isDirectR2Upload && $uploadState !== 'uploaded') {
-            return $this->responseValidationError([
-                'message' => 'Video upload is still finishing. Please wait until the upload reaches 100% before publishing.',
-                'errors' => [
-                    'video' => [
-                        'Video upload is still finishing. Please wait until the upload reaches 100% before publishing.'
-                    ]
+        return $this->responseValidationError([
+            'message' => 'Please attach a video before publishing.',
+            'errors' => [
+                'video' => [
+                    'Please attach a video before publishing.'
                 ]
-            ]);
-        }
-
-        return null;
+            ]
+        ]);
     }
 
     private function initializePostAndValidateData(Request $request)

@@ -118,8 +118,17 @@
 			const state = reactive({
 				postSubmitting: false,
 				uploadProgress: 0,
+				directVideoUploadReady: false,
 				isGifPickerOpen: false,
 				localMediaPreviews: [],
+			});
+
+			const canSubmitWhileVideoUploadContinues = computed(() => {
+				return Boolean(state.directVideoUploadReady && state.uploadProgress && ! postEditorStore.isEditingPost);
+			});
+
+			const submitButtonStatus = computed(() => {
+				return state.postSubmitting || (Boolean(state.uploadProgress) && ! canSubmitWhileVideoUploadContinues.value);
 			});
 
 			const validatePost = (message) => {
@@ -197,10 +206,14 @@
 				return String(etag || '').trim();
 			}
 
-			const uploadDirectRequest = (requestMethod, uploadUrl, uploadHeaders, payload, onProgress) => {
+			const uploadDirectRequest = (requestMethod, uploadUrl, uploadHeaders, payload, onProgress, options = {}) => {
 				return new Promise((resolve, reject) => {
 					const request = new XMLHttpRequest();
 					request.open(requestMethod, uploadUrl, true);
+
+					if(options.timeoutMs) {
+						request.timeout = options.timeoutMs;
+					}
 
 					Object.entries(uploadHeaders || {}).forEach(([header, value]) => {
 						request.setRequestHeader(header, value);
@@ -226,6 +239,10 @@
 
 					request.onerror = () => {
 						reject(new Error('Direct upload failed'));
+					};
+
+					request.ontimeout = () => {
+						reject(new Error('Direct upload timed out'));
 					};
 
 					request.send(payload);
@@ -348,15 +365,19 @@
 					let result = await retryDirectUpload(() => {
 						return uploadDirectRequest(part.upload_method || 'PUT', part.upload_url, part.upload_headers || {}, partBlob, (loaded) => {
 							updateMultipartProgress(part.part_number, loaded, partBlob.size);
+						}, {
+							timeoutMs: 10 * 60 * 1000
 						});
-					}, 1).catch(() => null);
+					}, 3).catch(() => null);
 
 					if(! result?.etag) {
 						loadedParts.set(part.part_number, 0);
 
-						result = await uploadMultipartPartViaApp(uploadData, part, partBlob, (loaded) => {
-							updateMultipartProgress(part.part_number, loaded, partBlob.size);
-						});
+						result = await retryDirectUpload(() => {
+							return uploadMultipartPartViaApp(uploadData, part, partBlob, (loaded) => {
+								updateMultipartProgress(part.part_number, loaded, partBlob.size);
+							});
+						}, 2);
 					}
 
 					if(! result?.etag) {
@@ -437,6 +458,8 @@
 					return false;
 				}
 
+				state.directVideoUploadReady = false;
+
 				const localPreview = createLocalMediaPreview(mediaFile, 'video');
 
 				if(localPreview) {
@@ -447,67 +470,71 @@
 				try {
 					state.uploadProgress = 5;
 
-						const response = await colibriAPI().postEditor().with({
-							name: mediaFile.name || 'video',
-							size: mediaFile.size,
-							mime: mediaFile.type || 'video/mp4',
-							extension: getFileExtension(mediaFile)
-						}).sendTo('media/video/direct/create');
+					const response = await colibriAPI().postEditor().with({
+						name: mediaFile.name || 'video',
+						size: mediaFile.size,
+						mime: mediaFile.type || 'video/mp4',
+						extension: getFileExtension(mediaFile)
+					}).sendTo('media/video/direct/create');
 
-						const uploadData = getUploadResponseData(response);
-						const isMultipartUpload = uploadData.upload_type === 'multipart' && Array.isArray(uploadData.parts);
+					const uploadData = getUploadResponseData(response);
+					const isMultipartUpload = uploadData.upload_type === 'multipart' && Array.isArray(uploadData.parts);
 
-						if(! uploadData.direct_upload || (! uploadData.upload_url && ! isMultipartUpload)) {
-							state.uploadProgress = 0;
+					if(! uploadData.direct_upload || (! uploadData.upload_url && ! isMultipartUpload)) {
+						state.uploadProgress = 0;
+						state.directVideoUploadReady = false;
 
-							return await uploadMediaLocally(mediaFile, 'video', false);
+						return await uploadMediaLocally(mediaFile, 'video', false);
+					}
+
+					state.directVideoUploadReady = true;
+
+					let completedParts = [];
+
+					if(isMultipartUpload) {
+						completedParts = await uploadMultipartFileToDirectUrl(uploadData, mediaFile, (progress) => {
+							state.uploadProgress = Math.min(90, Math.max(10, Math.round(10 + (progress * 0.8))));
+						});
+					}
+
+					else {
+						await uploadFileToDirectUrl(uploadData, mediaFile, (progress) => {
+							state.uploadProgress = Math.min(90, Math.max(10, Math.round(10 + (progress * 0.8))));
+						});
+					}
+
+					state.uploadProgress = 95;
+
+					const completionData = {
+						media_id: uploadData.media?.id,
+						uid: uploadData.uid,
+						upload_id: uploadData.upload_id,
+						parts: completedParts
+					};
+
+					let completionError = null;
+
+					for(let attempt = 1; attempt <= 3; attempt++) {
+						try {
+							await colibriAPI().postEditor().with(completionData).sendTo('media/video/direct/complete');
+							completionError = null;
+							break;
 						}
+						catch(error) {
+							completionError = error;
 
-						let completedParts = [];
-
-						if(isMultipartUpload) {
-							completedParts = await uploadMultipartFileToDirectUrl(uploadData, mediaFile, (progress) => {
-								state.uploadProgress = Math.min(90, Math.max(10, Math.round(10 + (progress * 0.8))));
-							});
+							if(attempt < 3) {
+								await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+							}
 						}
+					}
 
-						else {
-							await uploadFileToDirectUrl(uploadData, mediaFile, (progress) => {
-								state.uploadProgress = Math.min(90, Math.max(10, Math.round(10 + (progress * 0.8))));
-							});
-						}
+					if(completionError) {
+						throw completionError;
+					}
 
-						state.uploadProgress = 95;
-
-                        const completionData = {
-                            media_id: uploadData.media?.id,
-                            uid: uploadData.uid,
-                            upload_id: uploadData.upload_id,
-                            parts: completedParts
-                        };
-
-                        let completionError = null;
-
-                        for(let attempt = 1; attempt <= 3; attempt++) {
-                            try {
-                                await colibriAPI().postEditor().with(completionData).sendTo('media/video/direct/complete');
-                                completionError = null;
-                                break;
-                            }
-                            catch(error) {
-                                completionError = error;
-
-                                if(attempt < 3) {
-                                    await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
-                                }
-                            }
-                        }
-
-                        if(completionError) {
-                            throw completionError;
-                        }
-
-                        state.uploadProgress = 100;
+					state.uploadProgress = 100;
+					state.directVideoUploadReady = false;
 
 					await postEditorStore.fetchDraftPost({
 						preserveContent: true
@@ -517,10 +544,13 @@
 				}
 
 				catch (error) {
+					state.directVideoUploadReady = false;
+
 					try {
 						await postEditorStore.fetchDraftPost({
 							preserveContent: true
 						});
+
 						clearLocalMediaPreviews();
 					}
 					catch (draftError) {
@@ -549,25 +579,25 @@
 				clearLocalMediaPreviews();
 			});
 
-					const submitForm = async () => {
-	                if(state.uploadProgress) {
-	                    validatePost('Please wait until the video upload reaches 100%.');
-	                    return;
-	                }
+			const submitForm = async () => {
+				if(state.uploadProgress && ! canSubmitWhileVideoUploadContinues.value) {
+					validatePost('Please wait until the video upload reaches 100%.');
+					return;
+				}
 
-	                state.postSubmitting = true;
+				state.postSubmitting = true;
 
-	                const endpoint = postEditorStore.isEditingPost ? 'post/update' : 'create';
-	                const apiClient = postEditorStore.isEditingPost ? colibriAPI().userTimeline() : colibriAPI().postEditor();
-	                const submitData = postEditorStore.isEditingPost ? {
-	                    id: postData.value.id,
-	                    content: postData.value.content
-	                } : getFormSubmitData();
+				const endpoint = postEditorStore.isEditingPost ? 'post/update' : 'create';
+				const apiClient = postEditorStore.isEditingPost ? colibriAPI().userTimeline() : colibriAPI().postEditor();
+				const submitData = postEditorStore.isEditingPost ? {
+					id: postData.value.id,
+					content: postData.value.content
+				} : getFormSubmitData();
 
-	                await apiClient.with(submitData)[postEditorStore.isEditingPost ? 'putTo' : 'sendTo'](endpoint).then((response) => {
-						if(postEditorStore.isEditingPost) {
-							timelineStore.updatePost(response.data.data);
-							colibriEventBus.emit('timeline:post-updated', response.data.data);
+				await apiClient.with(submitData)[postEditorStore.isEditingPost ? 'putTo' : 'sendTo'](endpoint).then((response) => {
+					if(postEditorStore.isEditingPost) {
+						timelineStore.updatePost(response.data.data);
+						colibriEventBus.emit('timeline:post-updated', response.data.data);
 							toastSuccess(__t('toast.post.updated'));
 						}
 						else {
@@ -575,17 +605,17 @@
 							toastSuccess(__t('toast.post_published'));
 						}
 
-						postEditorStore.finishEditing();
-	
-	                    autoResize(contentInput.value);
-	
-						leaveEditor();
-	                }).catch((error) => {
-	                    validatePost(error.response?.data?.message || error.message);
-	                });
+					postEditorStore.finishEditing();
 
-                state.postSubmitting = false;
-            }
+					autoResize(contentInput.value);
+
+					leaveEditor();
+				}).catch((error) => {
+					validatePost(error.response?.data?.message || error.message);
+				});
+
+				state.postSubmitting = false;
+			}
 
 			const resetFileInputTags = () => {
                 imageFileInput.value.value = '';
@@ -593,13 +623,13 @@
 				audioFileInput.value.value = '';
             }
 
-				const leaveEditor = () => {
-					if(postEditorStore.isEditingPost) {
-						postEditorStore.finishEditing();
-					}
-
-					router.go(-1);
+			const leaveEditor = () => {
+				if(postEditorStore.isEditingPost) {
+					postEditorStore.finishEditing();
 				}
+
+				router.go(-1);
+			}
 
 			return {
 				leaveEditor: leaveEditor,
@@ -691,9 +721,7 @@
 						validatePost(error.response.data.message);
 					});
 				},
-				submitButtonStatus: computed(() => {
-					return state.postSubmitting || state.uploadProgress;
-				}),
+					submitButtonStatus: submitButtonStatus,
 					postMediaButtonStatus: (postType = null) => {
 	                    // Disable media button if post is being submitted
 	                    if (state.postSubmitting || state.uploadProgress || postEditorStore.isEditingPost) {

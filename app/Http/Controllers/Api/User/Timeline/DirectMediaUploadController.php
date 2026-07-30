@@ -7,10 +7,12 @@ use App\Models\Post;
 use App\Models\Media;
 use Illuminate\Http\Request;
 use App\Enums\Post\PostType;
+use App\Enums\Post\PostStatus;
 use App\Enums\Media\MediaType;
 use App\Enums\Media\MediaStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\User\Media\MediaResource;
+use App\Jobs\User\Timeline\ConvertAndCompressPostVideo;
 use App\Traits\Http\Api\SupportsApiResponses;
 use App\Services\Media\Cloudflare\R2DirectUploadService;
 use App\Services\Media\Cloudflare\CloudflareStreamService;
@@ -235,6 +237,8 @@ class DirectMediaUploadController extends Controller
 
             $media->metadata = $metadata;
             $media->save();
+
+            $this->dispatchVideoProcessingIfPostIsPublished($media);
 
             return $this->responseSuccess([
                 'data' => [
@@ -518,5 +522,28 @@ class DirectMediaUploadController extends Controller
             'stream' => $stream,
             'size' => (int) $bytes,
         ];
+    }
+
+    private function dispatchVideoProcessingIfPostIsPublished(Media $media): void
+    {
+        $media->loadMissing('mediaable');
+
+        $post = $media->mediaable;
+
+        if(! ($post instanceof Post) || $post->status !== PostStatus::PROCESSING_VIDEO || $media->status->isProcessed()) {
+            return;
+        }
+
+        $metadata = $media->metadata ?? [];
+
+        if(filled(data_get($metadata, 'processing_dispatched_at'))) {
+            return;
+        }
+
+        $metadata['processing_dispatched_at'] = now()->toIso8601String();
+        $media->metadata = $metadata;
+        $media->save();
+
+        ConvertAndCompressPostVideo::dispatchAfterResponse($post->refresh())->onQueue(config('media.queues.video'));
     }
 }

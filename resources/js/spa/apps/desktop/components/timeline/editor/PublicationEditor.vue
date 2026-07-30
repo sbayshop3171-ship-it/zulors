@@ -195,7 +195,7 @@
                     </template>
 
                     <div class="ml-auto">
-                        <PrimaryTextButton buttonRole="marginal" buttonType="submit" v-bind:loading="state.postSubmitting" v-bind:isDisabled="Boolean(state.postMediaUploadProgress)" v-bind:buttonText="submitButtonText"></PrimaryTextButton>
+                        <PrimaryTextButton buttonRole="marginal" buttonType="submit" v-bind:loading="state.postSubmitting" v-bind:isDisabled="submitButtonStatus" v-bind:buttonText="submitButtonText"></PrimaryTextButton>
                     </div>
                 </div>
                 <div v-if="! isEditingPost" class="block leading-normal">
@@ -273,6 +273,7 @@
             const state = reactive({
                 postSubmitting: false,
                 postMediaUploadProgress: 0,
+                directVideoUploadReady: false,
                 localMediaPreviews: [],
                 isDragging: false,
                 isLinkPreviewing: false,
@@ -282,6 +283,14 @@
                 recorderMenu: useMenu(),
                 gifMenu: useMenu(),
                 mainMenu: useMenu()
+            });
+
+            const canSubmitWhileVideoUploadContinues = computed(() => {
+                return Boolean(state.directVideoUploadReady && state.postMediaUploadProgress && ! postEditorStore.isEditingPost);
+            });
+
+            const submitButtonStatus = computed(() => {
+                return state.postSubmitting || (Boolean(state.postMediaUploadProgress) && ! canSubmitWhileVideoUploadContinues.value);
             });
 
             const textInputHandler = function() {
@@ -383,10 +392,14 @@
                 return String(etag || '').trim();
             }
 
-            const uploadDirectRequest = (requestMethod, uploadUrl, uploadHeaders, payload, onProgress) => {
+            const uploadDirectRequest = (requestMethod, uploadUrl, uploadHeaders, payload, onProgress, options = {}) => {
                 return new Promise((resolve, reject) => {
                     const request = new XMLHttpRequest();
                     request.open(requestMethod, uploadUrl, true);
+
+                    if(options.timeoutMs) {
+                        request.timeout = options.timeoutMs;
+                    }
 
                     Object.entries(uploadHeaders || {}).forEach(([header, value]) => {
                         request.setRequestHeader(header, value);
@@ -412,6 +425,10 @@
 
                     request.onerror = () => {
                         reject(new Error('Direct upload failed'));
+                    };
+
+                    request.ontimeout = () => {
+                        reject(new Error('Direct upload timed out'));
                     };
 
                     request.send(payload);
@@ -534,15 +551,23 @@
                     let result = await retryDirectUpload(() => {
                         return uploadDirectRequest(part.upload_method || 'PUT', part.upload_url, part.upload_headers || {}, partBlob, (loaded) => {
                             updateMultipartProgress(part.part_number, loaded, partBlob.size);
+                        }, {
+                            timeoutMs: 10 * 60 * 1000
                         });
-                    }, 1).catch(() => null);
+                    }, 3).catch(() => null);
 
                     if(! result?.etag) {
                         loadedParts.set(part.part_number, 0);
 
-                        result = await uploadMultipartPartViaApp(uploadData, part, partBlob, (loaded) => {
-                            updateMultipartProgress(part.part_number, loaded, partBlob.size);
-                        });
+                        result = await retryDirectUpload(() => {
+                            return uploadMultipartPartViaApp(uploadData, part, partBlob, (loaded) => {
+                                updateMultipartProgress(part.part_number, loaded, partBlob.size);
+                            });
+                        }, 2);
+                    }
+
+                    if(result?.etag) {
+                        updateMultipartProgress(part.part_number, partBlob.size, partBlob.size);
                     }
 
                     if(! result?.etag) {
@@ -615,6 +640,8 @@
                     return false;
                 }
 
+                state.directVideoUploadReady = false;
+
                 const localPreview = createLocalMediaPreview(mediaFile, 'video');
 
                 if(localPreview) {
@@ -637,9 +664,12 @@
 
                     if(! uploadData.direct_upload || (! uploadData.upload_url && ! isMultipartUpload)) {
                         state.postMediaUploadProgress = 0;
+                        state.directVideoUploadReady = false;
 
                         return await uploadPostMediaLocally(mediaFile, 'video');
                     }
+
+                    state.directVideoUploadReady = true;
 
                     let completedParts = [];
 
@@ -686,6 +716,7 @@
                     }
 
                     state.postMediaUploadProgress = 100;
+                    state.directVideoUploadReady = false;
 
                     await postEditorStore.fetchDraftPost({
                         preserveContent: true
@@ -695,6 +726,8 @@
                 }
 
                 catch (error) {
+                    state.directVideoUploadReady = false;
+
                     try {
                         await postEditorStore.fetchDraftPost({
                             preserveContent: true
@@ -744,7 +777,7 @@
             }
 
             const submitForm = async () => {
-                if(state.postMediaUploadProgress) {
+                if(state.postMediaUploadProgress && ! canSubmitWhileVideoUploadContinues.value) {
                     toastError('Please wait until the video upload reaches 100%.');
                     return;
                 }
@@ -831,6 +864,7 @@
                 PostTypeUtils: PostTypeUtils,
                 PostType: PostType,
                 openCheatSheetPanel: openCheatSheetPanel,
+                submitButtonStatus: submitButtonStatus,
                 onImageSelect: (event) => {
                     uploadPostMedia(event.target.files[0], 'image');
                 },
