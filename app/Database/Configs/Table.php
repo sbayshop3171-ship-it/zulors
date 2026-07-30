@@ -25,6 +25,7 @@ class Table
     public const POSTS = 'posts';
     public const POST_TOPICS = 'post_topics';
     public const TEST_CONTENT_PUBLICATIONS = 'test_content_publications';
+    public const TEST_CONTENT_ENGAGEMENTS = 'test_content_engagements';
     public const FEED_EVENTS = 'feed_events';
     public const POST_VIDEO_METRICS = 'post_video_metrics';
     public const USER_INTEREST_SCORES = 'user_interest_scores';
