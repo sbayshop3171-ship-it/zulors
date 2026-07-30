@@ -83,6 +83,10 @@ class TimelineDataIntegrityTest extends TestCase
                     'upload_method' => 'PUT',
                     'upload_type' => 'raw',
                     'upload_headers' => [],
+                    'upload_concurrency' => 4,
+                    'upload_stall_timeout_ms' => 300000,
+                    'raw_fallback_max_bytes' => 8388608,
+                    'part_fallback_max_bytes' => 16777216,
                     'expires_at' => now()->addMinutes(30)->toIso8601String(),
                 ];
             }
@@ -98,6 +102,9 @@ class TimelineDataIntegrityTest extends TestCase
             ])
             ->assertOk()
             ->assertJsonPath('data.direct_upload', true)
+            ->assertJsonPath('data.upload_stall_timeout_ms', 300000)
+            ->assertJsonPath('data.raw_fallback_max_bytes', 8388608)
+            ->assertJsonPath('data.part_fallback_max_bytes', 16777216)
             ->assertJsonPath('data.media.type', MediaKind::VIDEO->value);
 
         $this->assertDatabaseHas('posts', [
@@ -114,6 +121,17 @@ class TimelineDataIntegrityTest extends TestCase
             'status' => MediaStatus::PROCESSING->value,
             'source_path' => 'tmp/direct/videos/test-video.mp4',
         ]);
+    }
+
+    public function test_r2_direct_upload_part_fallback_defaults_to_multipart_part_size(): void
+    {
+        config()->set('media.cloudflare.r2.multipart_part_size_mb', 16);
+        config()->set('media.cloudflare.r2.part_fallback_max_mb', 0);
+
+        $method = new \ReflectionMethod(R2DirectUploadService::class, 'partFallbackMaxBytes');
+        $method->setAccessible(true);
+
+        $this->assertSame(16 * 1024 * 1024, $method->invoke(new R2DirectUploadService()));
     }
 
     public function test_direct_video_progress_can_mark_a_stalled_upload_failed(): void

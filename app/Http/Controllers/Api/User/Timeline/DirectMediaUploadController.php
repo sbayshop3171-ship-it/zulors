@@ -117,6 +117,10 @@ class DirectMediaUploadController extends Controller
                         'upload_id' => $uploadData['upload_id'] ?? null,
                         'part_size' => $uploadData['part_size'] ?? null,
                         'parts' => $uploadData['parts'] ?? [],
+                        'upload_concurrency' => $uploadData['upload_concurrency'] ?? null,
+                        'upload_stall_timeout_ms' => $uploadData['upload_stall_timeout_ms'] ?? null,
+                        'raw_fallback_max_bytes' => $uploadData['raw_fallback_max_bytes'] ?? null,
+                        'part_fallback_max_bytes' => $uploadData['part_fallback_max_bytes'] ?? null,
                         'expires_at' => $uploadData['expires_at'],
                         'media' => MediaResource::make($media),
                     ]

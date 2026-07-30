@@ -31,7 +31,10 @@ return [
             'upload_concurrency' => (int) env('R2_DIRECT_UPLOAD_CONCURRENCY', 4),
             'upload_stall_timeout_seconds' => (int) env('R2_DIRECT_UPLOAD_STALL_TIMEOUT_SECONDS', 300),
             'raw_fallback_max_mb' => (int) env('R2_DIRECT_UPLOAD_RAW_FALLBACK_MAX_MB', 8),
-            'part_fallback_max_mb' => (int) env('R2_DIRECT_UPLOAD_PART_FALLBACK_MAX_MB', 0),
+            'part_fallback_max_mb' => (int) env(
+                'R2_DIRECT_UPLOAD_PART_FALLBACK_MAX_MB',
+                env('R2_DIRECT_UPLOAD_MULTIPART_PART_SIZE_MB', 16)
+            ),
             'temp_preview_expiry_minutes' => (int) env('R2_TEMP_PREVIEW_EXPIRY_MINUTES', 30),
             'auto_cors_enabled' => env('R2_DIRECT_UPLOAD_AUTO_CORS_ENABLED', true),
             'cors_origins' => env('R2_DIRECT_UPLOAD_CORS_ORIGINS'),

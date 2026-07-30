@@ -579,7 +579,7 @@ class R2DirectUploadService
         $fallbackMaxMb = (int) config('media.cloudflare.r2.part_fallback_max_mb', 0);
 
         if($fallbackMaxMb < 1) {
-            return 0;
+            return $this->multipartPartSize();
         }
 
         return $fallbackMaxMb * 1024 * 1024;

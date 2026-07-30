@@ -404,6 +404,7 @@
             }
 
             const defaultDirectUploadStallTimeoutMs = 300 * 1000;
+            const defaultDirectUploadFirstProgressTimeoutMs = 0;
             const defaultRawFallbackMaxBytes = 8 * 1024 * 1024;
 
             const normalizeUploadProgress = (progress) => {
@@ -476,13 +477,21 @@
                 return new Promise((resolve, reject) => {
                     const request = new XMLHttpRequest();
                     const stallTimeoutMs = Number(options.stallTimeoutMs || defaultDirectUploadStallTimeoutMs);
+                    const firstProgressTimeoutMs = Number(options.firstProgressTimeoutMs || defaultDirectUploadFirstProgressTimeoutMs);
                     let settled = false;
                     let stallTimerId = null;
+                    let firstProgressTimerId = null;
+                    let hasUploadProgressStarted = false;
 
-                    const clearStallTimer = () => {
+                    const clearUploadTimers = () => {
                         if(stallTimerId) {
                             clearTimeout(stallTimerId);
                             stallTimerId = null;
+                        }
+
+                        if(firstProgressTimerId) {
+                            clearTimeout(firstProgressTimerId);
+                            firstProgressTimerId = null;
                         }
                     }
 
@@ -492,7 +501,7 @@
                         }
 
                         settled = true;
-                        clearStallTimer();
+                        clearUploadTimers();
 
                         try {
                             request.abort();
@@ -510,7 +519,7 @@
                         }
 
                         settled = true;
-                        clearStallTimer();
+                        clearUploadTimers();
                         resolve(value);
                     }
 
@@ -519,11 +528,28 @@
                             return;
                         }
 
-                        clearStallTimer();
+                        if(stallTimerId) {
+                            clearTimeout(stallTimerId);
+                        }
 
                         stallTimerId = setTimeout(() => {
                             failRequest(new Error('Direct upload stalled. Retrying...'));
                         }, stallTimeoutMs);
+                    }
+
+                    const startFirstProgressTimer = () => {
+                        if(firstProgressTimeoutMs < 1) {
+                            return;
+                        }
+
+                        firstProgressTimerId = setTimeout(() => {
+                            if(! hasUploadProgressStarted) {
+                                const error = new Error('Direct upload did not start. Retrying through app...');
+                                error.skipDirectUploadRetry = true;
+
+                                failRequest(error);
+                            }
+                        }, firstProgressTimeoutMs);
                     }
 
                     request.open(requestMethod, uploadUrl, true);
@@ -537,6 +563,15 @@
                     });
 
                     request.upload.onprogress = (event) => {
+                        if(Number(event.loaded || 0) > 0) {
+                            hasUploadProgressStarted = true;
+
+                            if(firstProgressTimerId) {
+                                clearTimeout(firstProgressTimerId);
+                                firstProgressTimerId = null;
+                            }
+                        }
+
                         resetStallTimer();
 
                         if(event.lengthComputable && typeof onProgress === 'function') {
@@ -569,6 +604,7 @@
                     };
 
                     resetStallTimer();
+                    startFirstProgressTimer();
                     request.send(payload);
                 });
             }
@@ -582,6 +618,10 @@
                     }
                     catch (error) {
                         lastError = error;
+
+                        if(error?.skipDirectUploadRetry) {
+                            break;
+                        }
 
                         if(attempt < attempts) {
                             await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
@@ -667,7 +707,8 @@
                                 const uploadTotal = Math.max(1, total || mediaFile.size);
                                 onProgress(Math.round((loaded / uploadTotal) * 100));
                             }, {
-                                stallTimeoutMs: uploadData.upload_stall_timeout_ms || defaultDirectUploadStallTimeoutMs
+                                stallTimeoutMs: uploadData.upload_stall_timeout_ms || defaultDirectUploadStallTimeoutMs,
+                                firstProgressTimeoutMs: defaultDirectUploadFirstProgressTimeoutMs
                             });
                         }
 
@@ -678,7 +719,8 @@
                             const uploadTotal = Math.max(1, total || mediaFile.size);
                             onProgress(Math.round((loaded / uploadTotal) * 100));
                         }, {
-                            stallTimeoutMs: uploadData.upload_stall_timeout_ms || defaultDirectUploadStallTimeoutMs
+                            stallTimeoutMs: uploadData.upload_stall_timeout_ms || defaultDirectUploadStallTimeoutMs,
+                            firstProgressTimeoutMs: defaultDirectUploadFirstProgressTimeoutMs
                         });
                     }, 5);
                 }
@@ -723,6 +765,7 @@
                 const partFallbackMaxBytes = Math.max(0, Number(uploadData.part_fallback_max_bytes || 0));
                 let uploadedBytes = 0;
                 let nextPartIndex = 0;
+                let shouldBypassDirectUpload = false;
 
                 const updateMultipartProgress = (partNumber, loaded, total) => {
                     loadedParts.set(partNumber, Math.min(Number(total || 0), Number(loaded || 0)));
@@ -740,14 +783,25 @@
                     const partEnd = Number(part.end || Math.min(mediaFile.size, partStart + Number(uploadData.part_size || 0)));
                     const partBlob = mediaFile.slice(partStart, partEnd);
 
-                    let result = await retryDirectUpload(() => {
-                        return uploadDirectRequest(part.upload_method || 'PUT', part.upload_url, part.upload_headers || {}, partBlob, (loaded) => {
-                            updateMultipartProgress(part.part_number, loaded, partBlob.size);
-                        }, {
-                            requestTimeoutMs: 30 * 60 * 1000,
-                            stallTimeoutMs: uploadData.upload_stall_timeout_ms || defaultDirectUploadStallTimeoutMs
+                    let result = null;
+
+                    if(! shouldBypassDirectUpload) {
+                        result = await retryDirectUpload(() => {
+                            return uploadDirectRequest(part.upload_method || 'PUT', part.upload_url, part.upload_headers || {}, partBlob, (loaded) => {
+                                updateMultipartProgress(part.part_number, loaded, partBlob.size);
+                            }, {
+                                requestTimeoutMs: 30 * 60 * 1000,
+                                stallTimeoutMs: uploadData.upload_stall_timeout_ms || defaultDirectUploadStallTimeoutMs,
+                                firstProgressTimeoutMs: defaultDirectUploadFirstProgressTimeoutMs
+                            });
+                        }, 5).catch((error) => {
+                            if(error?.skipDirectUploadRetry) {
+                                shouldBypassDirectUpload = true;
+                            }
+
+                            return null;
                         });
-                    }, 5).catch(() => null);
+                    }
 
                     if(! result?.etag && partFallbackMaxBytes > 0 && partBlob.size <= partFallbackMaxBytes) {
                         loadedParts.set(part.part_number, 0);

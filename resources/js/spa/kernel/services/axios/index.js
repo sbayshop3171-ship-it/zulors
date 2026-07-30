@@ -55,6 +55,34 @@ const resolveApiBaseUrl = () => {
     return `${resolveAppBaseUrl()}/${normalizeApiPrefix(appApiPrefix)}`;
 };
 
+const refreshCsrfCookie = (() => {
+    let pendingRefresh = null;
+
+    return () => {
+        if(! pendingRefresh) {
+            pendingRefresh = fetch(`${resolveAppBaseUrl()}/sanctum/csrf-cookie`, {
+                method: 'GET',
+                credentials: 'include',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            }).finally(() => {
+                pendingRefresh = null;
+            });
+        }
+
+        return pendingRefresh;
+    };
+})();
+
+const normalizeExpiredSessionError = (error) => {
+    if(error?.response?.status === 401 && error.response.data) {
+        error.response.data.message = 'Your session expired. Please refresh the page and sign in again.';
+    }
+
+    return error;
+};
+
 const AxiosAuthHeaders = {
     Accept: 'application/json',
     'X-Requested-With': 'XMLHttpRequest'
@@ -71,5 +99,28 @@ const AxiosAuth = Axios.create({
 });
 
 AxiosAuth.defaults.withCredentials = true;
+AxiosAuth.defaults.withXSRFToken = true;
+
+AxiosAuth.interceptors.response.use((response) => {
+    return response;
+}, async (error) => {
+    const status = Number(error?.response?.status || 0);
+    const requestConfig = error?.config;
+
+    if(! [401, 419].includes(status) || ! requestConfig || requestConfig.__zulorsAuthRetried) {
+        return Promise.reject(normalizeExpiredSessionError(error));
+    }
+
+    requestConfig.__zulorsAuthRetried = true;
+
+    try {
+        await refreshCsrfCookie();
+
+        return AxiosAuth.request(requestConfig);
+    }
+    catch (refreshError) {
+        return Promise.reject(normalizeExpiredSessionError(error));
+    }
+});
 
 export { AxiosAuth, Axios, resolveAppBaseUrl, resolveApiBaseUrl };
