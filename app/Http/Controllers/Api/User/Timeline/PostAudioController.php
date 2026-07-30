@@ -51,13 +51,16 @@ class PostAudioController extends Controller
         ]);
 
         $this->fetchOrInitializeDraftPost();
+        $this->resetEmptyAttachmentDraftPost();
 
         if($this->draftPost->type->isTextified()) {
 
             if(! $this->draftPost->exists) {
-                $this->draftPost->type = PostType::AUDIO;
                 $this->draftPost->save();
             }
+
+            $this->draftPost->type = PostType::AUDIO;
+            $this->draftPost->save();
 
             try {
                 $audioData = $this->audioUploadService

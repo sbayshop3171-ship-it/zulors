@@ -52,6 +52,7 @@ class PostDocumentController extends Controller
         ]);
 
         $this->fetchOrInitializeDraftPost();
+        $this->resetEmptyAttachmentDraftPost();
 
         if($this->draftPost->type->isTextified()) {
             if(! $this->draftPost->exists) {

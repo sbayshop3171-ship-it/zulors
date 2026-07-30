@@ -16,6 +16,7 @@ use App\Models\Follow;
 use App\Models\Mute;
 use App\Models\Post;
 use App\Models\User;
+use App\Services\Media\Cloudflare\R2DirectUploadService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\Sanctum;
@@ -47,6 +48,66 @@ class TimelineDataIntegrityTest extends TestCase
         $this->assertDatabaseHas('users', [
             'id' => $author->id,
             'publications_count' => 1,
+        ]);
+    }
+
+    public function test_video_direct_upload_recovers_empty_stale_media_draft(): void
+    {
+        $author = $this->createUser('stale-video-draft-author');
+
+        $staleDraft = $this->createPost($author, 'Caption kept during retry', null, [
+            'status' => PostStatus::DRAFT,
+            'type' => PostType::IMAGE,
+        ]);
+
+        app()->instance(R2DirectUploadService::class, new class extends R2DirectUploadService {
+            public function isConfigured(): bool
+            {
+                return true;
+            }
+
+            public function createVideoUpload(array $fileData = []): array
+            {
+                return [
+                    'provider' => 'r2_temp',
+                    'uid' => 'tmp/direct/videos/test-video.mp4',
+                    'path' => 'tmp/direct/videos/test-video.mp4',
+                    'disk' => 'local',
+                    'final_disk' => 'public',
+                    'upload_url' => 'https://uploads.example.test/test-video.mp4',
+                    'upload_method' => 'PUT',
+                    'upload_type' => 'raw',
+                    'upload_headers' => [],
+                    'expires_at' => now()->addMinutes(30)->toIso8601String(),
+                ];
+            }
+        });
+
+        $this->actingAs($author)
+            ->withoutMiddleware()
+            ->postJson('/api/post/editor/media/video/direct/create', [
+                'name' => 'clip.mp4',
+                'size' => 1024,
+                'mime' => 'video/mp4',
+                'extension' => 'mp4',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.direct_upload', true)
+            ->assertJsonPath('data.media.type', MediaKind::VIDEO->value);
+
+        $this->assertDatabaseHas('posts', [
+            'id' => $staleDraft->id,
+            'user_id' => $author->id,
+            'content' => 'Caption kept during retry',
+            'status' => PostStatus::DRAFT->value,
+            'type' => PostType::VIDEO->value,
+        ]);
+
+        $this->assertDatabaseHas('media', [
+            'mediaable_id' => $staleDraft->id,
+            'type' => MediaKind::VIDEO->value,
+            'status' => MediaStatus::PROCESSING->value,
+            'source_path' => 'tmp/direct/videos/test-video.mp4',
         ]);
     }
 

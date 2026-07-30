@@ -42,6 +42,7 @@ class DirectMediaUploadController extends Controller
         }
 
         $this->fetchOrInitializeDraftPost();
+        $this->resetEmptyAttachmentDraftPost();
 
         if(! $this->draftPost->type->isTextified()) {
             $errorMessage = __('post.validation.wrong_type_attachment', ['file_type' => __('labels.video')]);
@@ -157,6 +158,8 @@ class DirectMediaUploadController extends Controller
             ]);
         }
         catch (Exception $e) {
+            $this->resetEmptyAttachmentDraftPost();
+
             return $this->responseValidationError([
                 'message' => $e->getMessage(),
                 'errors' => [

@@ -35,6 +35,7 @@ class PostPollController extends Controller
     public function createPoll()
     {
         $this->fetchOrInitializeDraftPost();
+        $this->resetEmptyAttachmentDraftPost();
 
         if($this->draftPost->type->isTextified()) {
             if(! $this->draftPost->exists) {

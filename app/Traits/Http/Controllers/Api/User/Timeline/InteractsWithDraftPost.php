@@ -27,4 +27,18 @@ trait InteractsWithDraftPost
 
         return $this->draftPost;
     }
+
+    private function resetEmptyAttachmentDraftPost(): void
+    {
+        if(! $this->draftPost?->exists || $this->draftPost->type->isTextified()) {
+            return;
+        }
+
+        if($this->draftPost->media()->exists() || $this->draftPost->poll()->exists()) {
+            return;
+        }
+
+        $this->draftPost->type = PostType::TEXT;
+        $this->draftPost->save();
+    }
 }
