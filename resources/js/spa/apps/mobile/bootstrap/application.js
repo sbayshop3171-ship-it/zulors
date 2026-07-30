@@ -122,4 +122,6 @@ Application.component('PrimarySpinAnimation', defineAsyncComponent(() => {
     return import("@M/components/general/animations/PrimarySpinAnimation.vue");
 }));
 
+await Router.isReady();
+
 Application.mount("#zulors-mobile-app");
