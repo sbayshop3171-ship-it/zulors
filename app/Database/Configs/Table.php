@@ -24,6 +24,7 @@ class Table
     public const USERS = 'users';
     public const POSTS = 'posts';
     public const POST_TOPICS = 'post_topics';
+    public const TEST_CONTENT_PUBLICATIONS = 'test_content_publications';
     public const FEED_EVENTS = 'feed_events';
     public const POST_VIDEO_METRICS = 'post_video_metrics';
     public const USER_INTEREST_SCORES = 'user_interest_scores';
