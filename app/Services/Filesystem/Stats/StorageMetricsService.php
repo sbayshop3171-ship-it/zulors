@@ -16,8 +16,9 @@ class StorageMetricsService
         return $this;
     }
 
-    public function incrementPartitionSize(int $size, MediaType $mediaType): void
+    public function incrementPartitionSize($size, MediaType $mediaType): void
     {
+        $size = $this->normalizeSize($size);
         $partitionItem = $this->getPartitionData($mediaType);
 
         $partitionItem->media_type = $mediaType;
@@ -27,8 +28,9 @@ class StorageMetricsService
         $partitionItem->save();
     }
 
-    public function decrementPartitionSize(int $size, MediaType $mediaType): void
+    public function decrementPartitionSize($size, MediaType $mediaType): void
     {
+        $size = $this->normalizeSize($size);
         $partitionItem = $this->getPartitionData($mediaType);
         $partitionItem->media_type = $mediaType;
         $partitionItem->content_size = max(0, intval($partitionItem->content_size - $size));
@@ -46,5 +48,14 @@ class StorageMetricsService
             'media_type' => $mediaType,
             'disk' => $this->disk
         ]);
+    }
+
+    private function normalizeSize($size): int
+    {
+        if(is_numeric($size)) {
+            return max(0, (int) $size);
+        }
+
+        return 0;
     }
 }

@@ -2,7 +2,7 @@
 
 namespace App\Listeners\Media;
 
-use Exception;
+use Throwable;
 use App\Constants\Filesystem;
 use App\Enums\Media\MediaType;
 use App\Events\Media\MediaCreatedEvent;
@@ -40,7 +40,7 @@ class HandleMediaCreation
                 }
             }
 
-            catch (Exception $e) {
+            catch (Throwable $e) {
                 //
             }
         }

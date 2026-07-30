@@ -2,7 +2,7 @@
 
 namespace App\Listeners\Media;
 
-use Exception;
+use Throwable;
 use App\Constants\Filesystem;
 use App\Enums\Media\MediaType;
 use Illuminate\Support\Facades\Log;
@@ -40,7 +40,7 @@ class HandleMediaDeletion
                 }
             }
             
-            catch (Exception $e) {
+            catch (Throwable $e) {
                 Log::error("Error while decrementing partition size: {$e->getMessage()}");
             }
         }

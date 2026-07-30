@@ -20,6 +20,7 @@ use App\Models\Follow;
 use App\Models\Mute;
 use App\Models\Post;
 use App\Models\User;
+use App\Services\Filesystem\Stats\StorageMetricsService;
 use App\Services\Media\Cloudflare\R2DirectUploadService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
@@ -132,6 +133,23 @@ class TimelineDataIntegrityTest extends TestCase
         $method->setAccessible(true);
 
         $this->assertSame(16 * 1024 * 1024, $method->invoke(new R2DirectUploadService()));
+    }
+
+    public function test_storage_metrics_normalize_string_and_blank_media_sizes(): void
+    {
+        $service = app(StorageMetricsService::class)->setDisk('public');
+
+        $service->incrementPartitionSize('100', MediaKind::IMAGE);
+        $service->incrementPartitionSize('', MediaKind::IMAGE);
+        $service->decrementPartitionSize('30', MediaKind::IMAGE);
+        $service->decrementPartitionSize('', MediaKind::IMAGE);
+
+        $this->assertDatabaseHas('data_stats', [
+            'disk' => 'public',
+            'media_type' => MediaKind::IMAGE->value,
+            'content_size' => 70,
+            'content_items' => 0,
+        ]);
     }
 
     public function test_direct_video_progress_can_mark_a_stalled_upload_failed(): void
