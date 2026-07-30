@@ -46,6 +46,11 @@
             };
 
             const closeEditor = (data) => {
+                if(postEditorStore.videoUploadActive) {
+                    toastError('Please wait until the video upload finishes.');
+                    return;
+                }
+
                 state.isOpen = false;
 
                 postEditorStore.finishEditing();

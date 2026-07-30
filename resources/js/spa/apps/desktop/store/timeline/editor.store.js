@@ -17,7 +17,8 @@ const usePostEditorStore = defineStore('post_editor_store', {
             },
             mentionName: null,
             quotePostId: null,
-            editingPostId: null
+            editingPostId: null,
+            videoUploadActive: false
 		}
 	},
     getters: {
@@ -119,6 +120,7 @@ const usePostEditorStore = defineStore('post_editor_store', {
             // Reset mention name after editor is closed
             // and all other data like share link, etc.
 
+            this.videoUploadActive = false;
             this.mentionName = null;
             this.quotePostId = null;
             this.quotedPost = null;
@@ -149,6 +151,9 @@ const usePostEditorStore = defineStore('post_editor_store', {
         },
         markPostAsAiGenerated: function() {
             this.marks.isAiGenerated = !this.marks.isAiGenerated;
+        },
+        setVideoUploadActive: function(isActive) {
+            this.videoUploadActive = Boolean(isActive);
         },
         setLinkSnapshot: function(linkSnapshotData) {
             this.draftPost.relations.link_snapshot = linkSnapshotData;

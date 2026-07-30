@@ -227,7 +227,7 @@
 				return String(etag || '').trim();
 			}
 
-			const defaultDirectUploadStallTimeoutMs = 180 * 1000;
+			const defaultDirectUploadStallTimeoutMs = 300 * 1000;
 			const defaultDirectUploadFirstProgressTimeoutMs = 0;
 			const defaultRawFallbackMaxBytes = 8 * 1024 * 1024;
 
@@ -460,6 +460,29 @@
 			const createDirectUploadProgressReporter = (uploadData) => {
 				let lastProgress = -1;
 				let lastReportedAt = 0;
+				let isReporting = false;
+				let pendingProgress = null;
+
+				const flushProgress = () => {
+					if(isReporting || pendingProgress === null) {
+						return;
+					}
+
+					const progressToReport = pendingProgress;
+					pendingProgress = null;
+					isReporting = true;
+
+					colibriAPI().postEditor().with({
+						media_id: uploadData.media.id,
+						uid: uploadData.uid,
+						upload_progress: progressToReport
+					}).sendTo('media/video/direct/progress').then((response) => {
+						syncUploadMedia(uploadData, getUploadResponseData(response).media);
+					}).catch(() => {}).finally(() => {
+						isReporting = false;
+						flushProgress();
+					});
+				}
 
 				return (progress, options = {}) => {
 					if(! uploadData?.media?.id || ! uploadData?.uid) {
@@ -477,14 +500,8 @@
 
 					lastProgress = normalizedProgress;
 					lastReportedAt = nowTimestamp;
-
-					colibriAPI().postEditor().with({
-						media_id: uploadData.media.id,
-						uid: uploadData.uid,
-						upload_progress: normalizedProgress
-					}).sendTo('media/video/direct/progress').then((response) => {
-						syncUploadMedia(uploadData, getUploadResponseData(response).media);
-					}).catch(() => {});
+					pendingProgress = normalizedProgress;
+					flushProgress();
 				};
 			}
 
@@ -530,7 +547,7 @@
 							stallTimeoutMs: uploadData.upload_stall_timeout_ms || defaultDirectUploadStallTimeoutMs,
 							firstProgressTimeoutMs: defaultDirectUploadFirstProgressTimeoutMs
 						});
-					}, 3);
+					}, 5);
 				}
 				catch (error) {
 					const requestMethod = uploadData.upload_method || 'POST';
@@ -569,7 +586,7 @@
 				const parts = Array.isArray(uploadData.parts) ? uploadData.parts : [];
 				const completedParts = [];
 				const loadedParts = new Map();
-				const uploadConcurrency = Math.min(8, Math.max(1, Number(uploadData.upload_concurrency || 8)));
+				const uploadConcurrency = Math.min(4, Math.max(1, Number(uploadData.upload_concurrency || 4)));
 				const partFallbackMaxBytes = Math.max(0, Number(uploadData.part_fallback_max_bytes || 0));
 				let uploadedBytes = 0;
 				let nextPartIndex = 0;
@@ -598,11 +615,11 @@
 							return uploadDirectRequest(part.upload_method || 'PUT', part.upload_url, part.upload_headers || {}, partBlob, (loaded) => {
 								updateMultipartProgress(part.part_number, loaded, partBlob.size);
 							}, {
-								requestTimeoutMs: 10 * 60 * 1000,
+								requestTimeoutMs: 30 * 60 * 1000,
 								stallTimeoutMs: uploadData.upload_stall_timeout_ms || defaultDirectUploadStallTimeoutMs,
 								firstProgressTimeoutMs: defaultDirectUploadFirstProgressTimeoutMs
 							});
-						}, 3).catch((error) => {
+						}, 5).catch((error) => {
 							if(error?.skipDirectUploadRetry) {
 								shouldBypassDirectUpload = true;
 							}
@@ -712,6 +729,7 @@
 				}
 
 				state.directVideoUploadReady = false;
+				postEditorStore.setVideoUploadActive(true);
 
 				const localPreview = createLocalMediaPreview(mediaFile, 'video');
 				let uploadData = null;
@@ -779,7 +797,7 @@
 					let completionError = null;
 					let completionResponse = null;
 
-					for(let attempt = 1; attempt <= 3; attempt++) {
+					for(let attempt = 1; attempt <= 5; attempt++) {
 						try {
 							completionResponse = await colibriAPI().postEditor().with(completionData).sendTo('media/video/direct/complete');
 							completionError = null;
@@ -788,7 +806,7 @@
 						catch(error) {
 							completionError = error;
 
-							if(attempt < 3) {
+							if(attempt < 5) {
 								await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
 							}
 						}
@@ -820,6 +838,7 @@
 				}
 
 				finally {
+					postEditorStore.setVideoUploadActive(false);
 					state.uploadProgress = 0;
 
 					resetFileInputTags();
@@ -1017,6 +1036,11 @@
             }
 
 			const leaveEditor = () => {
+				if(postEditorStore.videoUploadActive) {
+					validatePost('Please wait until the video upload finishes.');
+					return;
+				}
+
 				if(postEditorStore.isEditingPost) {
 					postEditorStore.finishEditing();
 				}

@@ -10,7 +10,8 @@ const usePostEditorStore = defineStore('mobile_post_editor_store', {
             mentionName: null,
             quotePostId: null,
             editingPostId: null,
-            initialType: PostType.TEXT
+            initialType: PostType.TEXT,
+            videoUploadActive: false
 		}
 	},
     getters: {
@@ -80,6 +81,7 @@ const usePostEditorStore = defineStore('mobile_post_editor_store', {
             };
         },
         finishEditing: function() {
+            this.videoUploadActive = false;
             this.initialType = PostType.TEXT;
             this.mentionName = null;
             this.quotePostId = null;
@@ -99,6 +101,9 @@ const usePostEditorStore = defineStore('mobile_post_editor_store', {
                 type: PostType.TEXT,
                 relations: {}
             };
+        },
+        setVideoUploadActive: function(isActive) {
+            this.videoUploadActive = Boolean(isActive);
         }
     }
 });
