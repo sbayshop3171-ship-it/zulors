@@ -84,22 +84,24 @@ class BulkTestAccountFollowPublisherTest extends TestCase
 
 	public function test_command_can_synchronize_existing_test_follower_counters_without_creating_follows(): void
 	{
-		$first = $this->createUser('follow-sync-one', 'follow-sync-one@gmail.test');
-		$second = $this->createUser('follow-sync-two', 'follow-sync-two@gmail.test');
+		foreach (range(1, 4) as $number) {
+			$this->createUser("follow-sync-{$number}", "follow-sync-{$number}@gmail.test");
+		}
+		$publisher = app(BulkTestAccountFollowPublisher::class);
+		$preview = $publisher->preview('full-test-follow-v1', 0, 4, [1]);
+		$publisher->publish('full-test-follow-v1', $preview['users'], $preview['targets'], $preview['quotas']);
 
-		Follow::query()->create([
-			'follower_id' => $first->id,
-			'following_id' => $second->id,
-			'status' => FollowStatus::FOLLOWING,
-		]);
-
-		$this->artisan('test-content:bulk-follow --sync-only --confirm=FULL_TEST_FOLLOWS')
+		$this->artisan('test-content:bulk-follow --sync-only --targets=1 --confirm=FULL_TEST_FOLLOWS')
 			->expectsOutput('Follower and following counters synchronized for active .test accounts.')
 			->assertExitCode(0);
 
-		$this->assertSame(1, (int) $first->fresh()->following_count);
-		$this->assertSame(1, (int) $second->fresh()->followers_count);
-		$this->assertSame(1, Follow::query()->count());
+		$this->assertSame(4, Follow::query()->count());
+
+		foreach ($preview['targets'] as $user) {
+			$this->assertSame(1, (int) $user->fresh()->followers_count);
+		}
+
+		$this->assertSame(4, User::query()->sum('following_count'));
 	}
 
 	private function createUser(string $username, string $email): User

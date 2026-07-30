@@ -56,7 +56,7 @@ class BulkFollowTestAccounts extends Command
 				return self::FAILURE;
 			}
 
-			$publisher->synchronizeCounts($users);
+			$publisher->synchronizeCampaignCounts($campaign, $users, $targets);
 			$this->info('Follower and following counters synchronized for active .test accounts.');
 
 			return self::SUCCESS;
@@ -99,7 +99,7 @@ class BulkFollowTestAccounts extends Command
 
 		try {
 			$summary = $this->publishBatches($publisher, $campaign, $afterId, $accountLimit, $targets, $preview, (bool) $this->option('all'));
-			$publisher->synchronizeCounts($users);
+			$publisher->synchronizeCampaignCounts($campaign, $users, $targets);
 		} finally {
 			$lock->release();
 		}

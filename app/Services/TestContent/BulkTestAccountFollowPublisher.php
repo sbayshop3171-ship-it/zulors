@@ -79,38 +79,66 @@ class BulkTestAccountFollowPublisher
 			return;
 		}
 
-		if (DB::connection()->getDriverName() === 'mysql') {
-			$followerTotals = DB::table(Table::FOLLOWS)
-				->selectRaw('following_id AS user_id, COUNT(*) AS total')
-				->where('status', FollowStatus::FOLLOWING->value)
-				->groupBy('following_id');
-			$followingTotals = DB::table(Table::FOLLOWS)
-				->selectRaw('follower_id AS user_id, COUNT(*) AS total')
-				->where('status', FollowStatus::FOLLOWING->value)
-				->groupBy('follower_id');
-
-			DB::table(Table::USERS)
-				->leftJoinSub($followerTotals, 'test_follower_totals', function ($join): void {
-					$join->on('test_follower_totals.user_id', '=', Table::USERS.'.id');
-				})
-				->leftJoinSub($followingTotals, 'test_following_totals', function ($join): void {
-					$join->on('test_following_totals.user_id', '=', Table::USERS.'.id');
-				})
-				->whereIn(Table::USERS.'.id', $testUserIds)
-				->update([
-					'followers_count' => DB::raw('COALESCE(test_follower_totals.total, 0)'),
-					'following_count' => DB::raw('COALESCE(test_following_totals.total, 0)'),
-				]);
-
-			return;
-		}
-
 		foreach (array_chunk($testUserIds, 500) as $userIds) {
 			DB::table(Table::USERS)
 				->whereIn('id', $userIds)
 				->update([
 					'followers_count' => DB::raw("(SELECT COUNT(*) FROM ".Table::FOLLOWS." WHERE following_id = ".Table::USERS.".id AND status = '".FollowStatus::FOLLOWING->value."')"),
 					'following_count' => DB::raw("(SELECT COUNT(*) FROM ".Table::FOLLOWS." WHERE follower_id = ".Table::USERS.".id AND status = '".FollowStatus::FOLLOWING->value."')"),
+				]);
+		}
+	}
+
+	/**
+	 * Synchronize the cached counts from this campaign's stable relationship plan.
+	 *
+	 * @param array<int, int> $testUserIds
+	 * @param array<int, int> $followerTargets
+	 */
+	public function synchronizeCampaignCounts(string $campaignKey, array $testUserIds, array $followerTargets): void
+	{
+		if ($testUserIds === []) {
+			return;
+		}
+
+		$totalUsers = count($testUserIds);
+
+		if ($totalUsers - 1 < max($followerTargets)) {
+			throw new \RuntimeException('There are not enough active .test accounts for the requested follower target.');
+		}
+
+		$userPositions = array_flip($testUserIds);
+		$followerCounts = [];
+		$followingCounts = array_fill_keys($testUserIds, 0);
+
+		foreach ($testUserIds as $targetId) {
+			$quota = $this->followerTargetFor($campaignKey, $targetId, $followerTargets);
+			$followerCounts[$targetId] = $quota;
+			$targetIndex = $userPositions[$targetId];
+			$eligibleTotal = $totalUsers - 1;
+			$start = $this->index("{$campaignKey}:{$targetId}:follower-users", $eligibleTotal);
+
+			for ($offset = 0; $offset < $quota; $offset++) {
+				$eligibleIndex = ($start + $offset) % $eligibleTotal;
+				$userIndex = $eligibleIndex >= $targetIndex ? $eligibleIndex + 1 : $eligibleIndex;
+				$followingCounts[$testUserIds[$userIndex]]++;
+			}
+		}
+
+		foreach (array_chunk($testUserIds, 500) as $userIds) {
+			$followerCases = [];
+			$followingCases = [];
+
+			foreach ($userIds as $userId) {
+				$followerCases[] = "WHEN {$userId} THEN {$followerCounts[$userId]}";
+				$followingCases[] = "WHEN {$userId} THEN {$followingCounts[$userId]}";
+			}
+
+			DB::table(Table::USERS)
+				->whereIn('id', $userIds)
+				->update([
+					'followers_count' => DB::raw('CASE id '.implode(' ', $followerCases).' END'),
+					'following_count' => DB::raw('CASE id '.implode(' ', $followingCases).' END'),
 				]);
 		}
 	}
