@@ -47,14 +47,23 @@ class FFMpegService
 
     private function resolveBinaryPath(?string $configuredPath, string $binaryName): string
     {
-        if($configuredPath && is_executable($configuredPath)) {
+        $configuredPath = trim((string) $configuredPath);
+        $pathFromEnvironment = $this->resolveBinaryFromEnvironment($binaryName);
+
+        if(
+            $configuredPath &&
+            is_executable($configuredPath) &&
+            ! $this->shouldPreferSystemBinary($configuredPath, $pathFromEnvironment)
+        ) {
             return $configuredPath;
         }
 
-        $pathFromEnvironment = trim((string) shell_exec('command -v ' . escapeshellarg($binaryName) . ' 2>/dev/null'));
-
         if($pathFromEnvironment && is_executable($pathFromEnvironment)) {
             return $pathFromEnvironment;
+        }
+
+        if($configuredPath && is_executable($configuredPath)) {
+            return $configuredPath;
         }
 
         $bundledPaths = [
@@ -69,6 +78,17 @@ class FFMpegService
         }
 
         return (string) $configuredPath;
+    }
+
+    private function resolveBinaryFromEnvironment(string $binaryName): string
+    {
+        return trim((string) shell_exec('command -v ' . escapeshellarg($binaryName) . ' 2>/dev/null'));
+    }
+
+    private function shouldPreferSystemBinary(string $configuredPath, string $pathFromEnvironment): bool
+    {
+        return $pathFromEnvironment &&
+            str_contains($configuredPath, storage_path('app/bin/ffmpeg-linux-amd64'));
     }
 
     private function resolveTemporaryDirectory(?string $configuredDirectory): string
