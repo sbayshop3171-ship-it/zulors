@@ -35,6 +35,7 @@ class TimelineResource extends JsonResource
             'id' => $this->id,
             'content' => e($this->content),
             'type' => $this->type,
+            'status' => $this->status,
             'text_language' => $this->text_language,
             'hash_id' => $this->hash_id,
             'relations' => [

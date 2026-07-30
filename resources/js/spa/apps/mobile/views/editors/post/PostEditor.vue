@@ -87,6 +87,7 @@
 	import { usePostEditorStore } from '@M/store/timeline/editor.store.js';
 	import { useAuthStore } from '@M/store/auth/auth.store.js';
 		import { PostTypeUtils, PostType } from '@/kernel/enums/post/post.type.js';
+		import { PostStatus } from '@/kernel/enums/post/post.status.js';
 		import { colibriSounds } from '@/kernel/services/sounds/index.js';
 		import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	    import { useTimelineStore } from '@M/store/timeline/timeline.store.js';
@@ -119,6 +120,7 @@
 				postSubmitting: false,
 				uploadProgress: 0,
 				directVideoUploadReady: false,
+				directVideoUploadMedia: null,
 				isGifPickerOpen: false,
 				localMediaPreviews: [],
 			});
@@ -219,6 +221,7 @@
 				}
 
 				uploadData.media = mediaData;
+				state.directVideoUploadMedia = mediaData.type === PostType.VIDEO ? mediaData : state.directVideoUploadMedia;
 				timelineStore.setPostMedia(mediaData);
 				colibriEventBus.emit('timeline:media-updated', mediaData);
 			}
@@ -758,7 +761,144 @@
 				clearLocalMediaPreviews();
 			});
 
-			const submitForm = async () => {
+			const formattedZeroCount = () => {
+				return {
+					raw: 0,
+					formatted: '0'
+				};
+			}
+
+			const getOptimisticPostMedia = () => {
+				const draftMedia = Array.isArray(postData.value.relations?.media) ? postData.value.relations.media : [];
+
+				if(draftMedia.length) {
+					return draftMedia;
+				}
+
+				return state.directVideoUploadMedia ? [state.directVideoUploadMedia] : [];
+			}
+
+			const buildOptimisticPost = (clientId) => {
+				const mediaItems = getOptimisticPostMedia();
+				const postType = mediaItems.length ? (postData.value.type || mediaItems[0].type) : (postData.value.type || PostType.TEXT);
+				const nowIso = new Date().toISOString();
+
+				return {
+					id: postData.value.id || state.directVideoUploadMedia?.mediaable_id || clientId,
+					content: postData.value.content || '',
+					type: postType,
+					status: PostTypeUtils.isVideo(postType) ? PostStatus.PROCESSING_VIDEO : PostStatus.ACTIVE,
+					text_language: postData.value.text_language || '',
+					hash_id: postData.value.hash_id || `local-${clientId}`,
+					relations: {
+						user: {
+							id: userData.value.id,
+							name: userData.value.name,
+							avatar_url: userData.value.avatar_url,
+							is_auth_user: true,
+							username: userData.value.username,
+							caption: userData.value.caption || `@${userData.value.username}`,
+							verified: userData.value.verified || false
+						},
+						reactions: [],
+						comments: [],
+						media: mediaItems,
+						poll: postData.value.relations?.poll || null,
+						link_snapshot: postData.value.relations?.link_snapshot || null,
+						quoted_post: postData.value.relations?.quoted_post || null
+					},
+					views_count: formattedZeroCount(),
+					comments_count: formattedZeroCount(),
+					bookmarks_count: formattedZeroCount(),
+					shares_count: formattedZeroCount(),
+					date: {
+						iso: nowIso,
+						time_ago: 'now',
+						timestamp: Math.floor(Date.now() / 1000)
+					},
+					meta: {
+						client_id: clientId,
+						is_optimistic: true,
+						permissions: {
+							can_like: false,
+							can_comment: false,
+							can_edit: false,
+							can_delete: false,
+							can_report: false
+						},
+						activity: {
+							bookmarked: false
+						},
+						is_translatable: false,
+						is_quoting: Boolean(postData.value.relations?.quoted_post),
+						is_sensitive: false,
+						is_edited: false,
+						is_ai_generated: false
+					}
+				};
+			}
+
+			const navigateBack = () => {
+				router.go(-1);
+			}
+
+			const publishNewPostInstantly = (submitData) => {
+				const clientId = `mobile-post-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+				const optimisticPost = buildOptimisticPost(clientId);
+
+				timelineStore.prependOptimisticPost(optimisticPost);
+				colibriEventBus.emit('timeline:post-updated', optimisticPost);
+
+				postEditorStore.finishEditing();
+				navigateBack();
+
+				colibriAPI().postEditor().with(submitData).sendTo('create').then((response) => {
+					timelineStore.replaceOptimisticPost(clientId, response.data.data);
+					colibriEventBus.emit('timeline:post-updated', response.data.data);
+					toastSuccess(__t('toast.post_published'));
+				}).catch((error) => {
+					timelineStore.removeOptimisticPost(clientId);
+					toastError(error.response?.data?.message || error.message);
+				}).finally(() => {
+					state.postSubmitting = false;
+				});
+			}
+
+			const updatePostInstantly = (submitData) => {
+				const originalPost = JSON.parse(JSON.stringify(postData.value));
+				const optimisticPost = {
+					...postData.value,
+					content: submitData.content,
+					meta: {
+						...(postData.value.meta || {}),
+						is_edited: true
+					}
+				};
+
+				timelineStore.updatePost(optimisticPost);
+				colibriEventBus.emit('timeline:post-updated', optimisticPost);
+
+				postEditorStore.finishEditing();
+				navigateBack();
+
+				colibriAPI().userTimeline().with(submitData).putTo('post/update').then((response) => {
+					timelineStore.updatePost(response.data.data);
+					colibriEventBus.emit('timeline:post-updated', response.data.data);
+					toastSuccess(__t('toast.post.updated'));
+				}).catch((error) => {
+					timelineStore.updatePost(originalPost);
+					colibriEventBus.emit('timeline:post-updated', originalPost);
+					toastError(error.response?.data?.message || error.message);
+				}).finally(() => {
+					state.postSubmitting = false;
+				});
+			}
+
+			const submitForm = () => {
+				if(state.postSubmitting) {
+					return;
+				}
+
 				if(state.uploadProgress && ! canSubmitWhileVideoUploadContinues.value) {
 					validatePost('Please wait until the video upload reaches 100%.');
 					return;
@@ -766,34 +906,17 @@
 
 				state.postSubmitting = true;
 
-				const endpoint = postEditorStore.isEditingPost ? 'post/update' : 'create';
-				const apiClient = postEditorStore.isEditingPost ? colibriAPI().userTimeline() : colibriAPI().postEditor();
 				const submitData = postEditorStore.isEditingPost ? {
 					id: postData.value.id,
 					content: postData.value.content
 				} : getFormSubmitData();
 
-				await apiClient.with(submitData)[postEditorStore.isEditingPost ? 'putTo' : 'sendTo'](endpoint).then((response) => {
-					if(postEditorStore.isEditingPost) {
-						timelineStore.updatePost(response.data.data);
-						colibriEventBus.emit('timeline:post-updated', response.data.data);
-							toastSuccess(__t('toast.post.updated'));
-						}
-						else {
-							timelineStore.prependPost(response.data.data);
-							toastSuccess(__t('toast.post_published'));
-						}
-
-					postEditorStore.finishEditing();
-
-					autoResize(contentInput.value);
-
-					leaveEditor();
-				}).catch((error) => {
-					validatePost(error.response?.data?.message || error.message);
-				});
-
-				state.postSubmitting = false;
+				if(postEditorStore.isEditingPost) {
+					updatePostInstantly(submitData);
+				}
+				else {
+					publishNewPostInstantly(submitData);
+				}
 			}
 
 			const resetFileInputTags = () => {
@@ -815,7 +938,7 @@
 					postEditorStore.finishEditing();
 				}
 
-				router.go(-1);
+				navigateBack();
 			}
 
 			return {

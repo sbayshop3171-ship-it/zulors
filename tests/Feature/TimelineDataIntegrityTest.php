@@ -164,6 +164,87 @@ class TimelineDataIntegrityTest extends TestCase
         Event::assertDispatched(MediaUpdatedEvent::class);
     }
 
+    public function test_owner_can_edit_processing_video_post_caption(): void
+    {
+        $author = $this->createUser('processing-video-edit-owner');
+        $post = $this->createPost($author, 'Processing caption', null, [
+            'status' => PostStatus::PROCESSING_VIDEO,
+            'type' => PostType::VIDEO,
+        ]);
+
+        $post->media()->create([
+            'source_path' => 'tmp/direct/videos/processing-caption.mp4',
+            'type' => MediaKind::VIDEO,
+            'status' => MediaStatus::PROCESSING,
+            'disk' => 'local',
+            'extension' => 'mp4',
+            'mime' => 'video/mp4',
+            'size' => 1024,
+            'metadata' => [
+                'provider' => 'r2_temp',
+                'upload_state' => 'uploaded',
+                'upload_progress' => 100,
+                'processing_state' => 'queued',
+                'processing_progress' => 5,
+            ],
+        ]);
+
+        $this->actingAs($author)
+            ->withoutMiddleware()
+            ->putJson('/api/timeline/post/update', [
+                'id' => $post->id,
+                'content' => 'Updated while processing',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.content', 'Updated while processing')
+            ->assertJsonPath('data.status', PostStatus::PROCESSING_VIDEO->value)
+            ->assertJsonPath('data.meta.permissions.can_edit', true);
+
+        $this->assertDatabaseHas('posts', [
+            'id' => $post->id,
+            'content' => 'Updated while processing',
+            'status' => PostStatus::PROCESSING_VIDEO->value,
+            'edited' => true,
+        ]);
+    }
+
+    public function test_owner_can_fetch_processing_video_post_page_data(): void
+    {
+        $author = $this->createUser('processing-video-fetch-owner');
+        $author->update([
+            'last_active' => now()->toDateTimeString(),
+        ]);
+
+        $post = $this->createPost($author, 'Processing page data', null, [
+            'status' => PostStatus::PROCESSING_VIDEO,
+            'type' => PostType::VIDEO,
+        ]);
+
+        $post->media()->create([
+            'source_path' => 'tmp/direct/videos/processing-page.mp4',
+            'type' => MediaKind::VIDEO,
+            'status' => MediaStatus::PROCESSING,
+            'disk' => 'local',
+            'extension' => 'mp4',
+            'mime' => 'video/mp4',
+            'size' => 1024,
+            'metadata' => [
+                'provider' => 'r2_temp',
+                'upload_state' => 'uploaded',
+                'upload_progress' => 100,
+                'processing_state' => 'queued',
+                'processing_progress' => 5,
+            ],
+        ]);
+
+        $this->actingAs($author)
+            ->withoutMiddleware()
+            ->getJson("/api/timeline/post/{$post->hash_id}")
+            ->assertOk()
+            ->assertJsonPath('data.post.id', $post->id)
+            ->assertJsonPath('data.post.status', PostStatus::PROCESSING_VIDEO->value);
+    }
+
     public function test_feed_excludes_muted_and_blocked_users_in_for_you_and_latest_modes(): void
     {
         $viewer = $this->createUser('viewer');

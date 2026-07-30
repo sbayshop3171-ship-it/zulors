@@ -4,6 +4,10 @@ import { readCache, writeCache } from '@/kernel/services/cache/index.js';
 import { prefetchTimelineMedia } from '@/kernel/services/media-prefetch/index.js';
 import { useAuthStore } from '@M/store/auth/auth.store.js';
 
+const isOptimisticPost = function(postData) {
+    return Boolean(postData?.meta?.is_optimistic);
+};
+
 const getTimelineCacheKey = function() {
     const authStore = useAuthStore();
 
@@ -32,7 +36,11 @@ const useTimelineStore = defineStore('mobile_timeline_store', {
 	},
     actions: {
         updateFeed: async function() {
-            if(! this.posts.length) {
+            const latestServerPost = this.posts.find((postData) => {
+                return ! isOptimisticPost(postData);
+            });
+
+            if(! latestServerPost) {
                 await this.refreshFirstPage();
 
                 return false;
@@ -40,7 +48,7 @@ const useTimelineStore = defineStore('mobile_timeline_store', {
 
             await colibriAPI().userTimeline().params({
                 filter: {
-                    onset: this.posts.at(0).id
+                    onset: latestServerPost.id
                 }
             }).getFrom('feed').then((response) => {
                 this.update = response.data.data;
@@ -84,7 +92,7 @@ const useTimelineStore = defineStore('mobile_timeline_store', {
                 prefetchTimelineMedia(posts);
 
                 this.filter.page = 1;
-                this.posts = posts;
+                this.posts = this.mergeOptimisticPosts(posts);
                 this.persistFirstPage();
 
                 return response;
@@ -110,11 +118,49 @@ const useTimelineStore = defineStore('mobile_timeline_store', {
             this.persistFirstPage();
         },
         prependPost: function(postData) {
+            this.posts = this.posts.filter((item) => {
+                return item.id != postData.id;
+            });
+
             prefetchTimelineMedia([postData]);
             this.posts.unshift(postData);
             this.persistFirstPage();
 
             return this.posts;
+        },
+        prependOptimisticPost: function(postData) {
+            this.posts = this.posts.filter((item) => {
+                return item.id != postData.id && item.meta?.client_id !== postData.meta?.client_id;
+            });
+
+            this.posts.unshift(postData);
+
+            return this.posts;
+        },
+        replaceOptimisticPost: function(clientId, postData) {
+            const postIndex = this.posts.findIndex((item) => {
+                return item.meta?.client_id === clientId;
+            });
+
+            this.posts = this.posts.filter((item, index) => {
+                return index === postIndex || item.id != postData.id;
+            });
+
+            prefetchTimelineMedia([postData]);
+
+            if(postIndex !== -1) {
+                this.posts.splice(postIndex, 1, postData);
+            }
+            else {
+                this.posts.unshift(postData);
+            }
+
+            this.persistFirstPage();
+        },
+        removeOptimisticPost: function(clientId) {
+            this.posts = this.posts.filter((item) => {
+                return item.meta?.client_id !== clientId;
+            });
         },
         removePost: function(postId) {
             let postIndex = this.posts.findIndex((item) => {
@@ -172,8 +218,19 @@ const useTimelineStore = defineStore('mobile_timeline_store', {
                 }
             }
         },
+        mergeOptimisticPosts: function(posts) {
+            const missingOptimisticPosts = this.posts.filter((optimisticPost) => {
+                return isOptimisticPost(optimisticPost) && ! posts.some((postData) => {
+                    return postData.id == optimisticPost.id || postData.hash_id === optimisticPost.hash_id;
+                });
+            });
+
+            return missingOptimisticPosts.concat(posts);
+        },
         persistFirstPage: function() {
-            writeCache(getTimelineCacheKey(), this.posts.slice(0, timelineCacheLimit));
+            writeCache(getTimelineCacheKey(), this.posts.filter((postData) => {
+                return ! isOptimisticPost(postData);
+            }).slice(0, timelineCacheLimit));
         }
     }
 });

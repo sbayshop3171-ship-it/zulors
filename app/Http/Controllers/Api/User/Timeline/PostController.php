@@ -184,7 +184,13 @@ class PostController extends Controller
     {
         $postId = $request->integer('id');
 
-        $postData = Post::activeById($postId)->firstOrFail();
+        $postData = Post::query()
+            ->where('id', $postId)
+            ->whereIn('status', [
+                PostStatus::ACTIVE,
+                PostStatus::PROCESSING_VIDEO,
+            ])
+            ->firstOrFail();
 
         $this->authorize('update', $postData);
 
@@ -201,7 +207,7 @@ class PostController extends Controller
 
         $topicExtractionService->syncPostTopics($postData);
 
-        $updatedPost = Post::timelineFormatPosts()->findOrFail($postData->id);
+        $updatedPost = Post::timelineFormatPosts(true)->findOrFail($postData->id);
 
         try {
             broadcast(new PostUpdatedEvent($updatedPost))->toOthers();

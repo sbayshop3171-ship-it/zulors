@@ -60,9 +60,19 @@ class Post extends Model
         return $query->where('user_id', '!=', me()->id);
     }
 
-    public function scopeTimelineFormatPosts($query)
+    public function scopeTimelineFormatPosts($query, bool $includeProcessing = false)
     {
-        return $query->active()->with(['user', 'media', 'poll', 'reactions', 'quotedPost.user', 'quotedPost.media', 'linkSnapshot', 'bookmarks' => function($query) {
+        if($includeProcessing) {
+            $query->whereIn('status', [
+                PostStatus::ACTIVE,
+                PostStatus::PROCESSING_VIDEO,
+            ]);
+        }
+        else {
+            $query->active();
+        }
+
+        return $query->with(['user', 'media', 'poll', 'reactions', 'quotedPost.user', 'quotedPost.media', 'linkSnapshot', 'bookmarks' => function($query) {
             if(auth_check()) {
                 $query->where('user_id', me()->id);
             }

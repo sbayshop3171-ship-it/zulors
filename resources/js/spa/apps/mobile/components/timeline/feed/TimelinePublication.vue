@@ -56,15 +56,16 @@
                 <div class="pr-4 pl-3 mb-3">
                     <div class="flex items-center gap-1.5">
                         <div class="shrink-0 relative leading-zero">
-                            <PrimaryIconButton v-on:click.stop="state.reactionMenu.open" buttonColor="text-lab-pr2" iconSize="6" iconName="heart-rounded" iconType="line"></PrimaryIconButton>
+                            <PrimaryIconButton v-on:click.stop="openReactions" v-bind:disabled="isPendingPost" buttonColor="text-lab-pr2" iconSize="6" iconName="heart-rounded" iconType="line"></PrimaryIconButton>
                         </div>
                         <div class="shrink-0 leading-zero relative">
-                            <PrimaryIconButton v-on:click.stop="sharePost" buttonColor="text-lab-pr2" iconSize="6" iconName="share-06" iconType="line"></PrimaryIconButton>
+                            <PrimaryIconButton v-on:click.stop="sharePost" v-bind:disabled="isPendingPost" buttonColor="text-lab-pr2" iconSize="6" iconName="share-06" iconType="line"></PrimaryIconButton>
                         </div>
                         <div class="shrink-0 leading-zero relative">
                             <div class="inline-flex items-center">
                                 <PrimaryIconButton 
-                                    v-on:click.stop="state.commentsMenu.open"
+                                    v-on:click.stop="openComments"
+                                    v-bind:disabled="isPendingPost"
                                     buttonColor="text-lab-pr2"
                                     iconSize="6"
                                     iconName="message-circle-02"
@@ -97,22 +98,24 @@
 
     <ActionSheet v-if="state.mainMenu.status" v-on:close="state.mainMenu.close" v-bind:isMuted="true">
         <div v-on:click.stop="state.mainMenu.close" class="h-full overflow-y-auto">
-            <div class="mb-4">
+            <div v-if="! isPendingPost" class="mb-4">
                 <ActionSheetReactions v-on:add="addReaction"></ActionSheetReactions>
             </div>
 
             <div class="mb-4">
                 <ActionSheetGroup>
                     <ActionSheetItem
+                        v-if="! isPendingPost"
                         v-on:click="state.reactionMenu.open"
                         iconName="heart-rounded"
                     v-bind:textLabel="$t('dd.add_reaction')"></ActionSheetItem>
         
-                    <RouterLink v-bind:to="{ name: 'publication_index', params: { hash_id: postData.hash_id }}">
+                    <RouterLink v-if="! isOptimisticPost" v-bind:to="{ name: 'publication_index', params: { hash_id: postData.hash_id }}">
                         <ActionSheetItem v-bind:notLast="true" iconName="arrow-up-right" v-bind:textLabel="$t('dd.post.open_post')"></ActionSheetItem>
                     </RouterLink>
             
                     <ActionSheetItem
+                        v-if="! isPendingPost"
                         v-on:click="bookmarkPost"
                         v-bind:iconName="postData.meta.activity.bookmarked ? 'bookmark-minus' : 'bookmark'"
                     v-bind:textLabel="postData.meta.activity.bookmarked ? $t('dd.post.unbookmark') : $t('dd.post.bookmark')"></ActionSheetItem>
@@ -120,8 +123,8 @@
             </div>
             <div class="mb-4">
                 <ActionSheetGroup>
-                    <ActionSheetItem v-on:click="sharePost" iconName="share-06" v-bind:textLabel="$t('dd.post.share')"></ActionSheetItem>
-                    <ActionSheetItem v-on:click="copyLink" iconName="copy-06" v-bind:textLabel="$t('dd.post.copy_link')"></ActionSheetItem>
+                    <ActionSheetItem v-if="! isPendingPost" v-on:click="sharePost" iconName="share-06" v-bind:textLabel="$t('dd.post.share')"></ActionSheetItem>
+                    <ActionSheetItem v-if="! isOptimisticPost" v-on:click="copyLink" iconName="copy-06" v-bind:textLabel="$t('dd.post.copy_link')"></ActionSheetItem>
                     <ActionSheetItem
                         v-if="postHasContent"
                         v-on:click="copyContent"
@@ -147,6 +150,7 @@
 <script>
     import { defineComponent, defineAsyncComponent, reactive, computed, ref } from 'vue';
     import { PostTypeUtils } from '@/kernel/enums/post/post.type.js';
+    import { PostStatusUtils } from '@/kernel/enums/post/post.status.js';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
     import { colibriTranslator } from '@/kernel/services/translator/index.js';
@@ -201,6 +205,14 @@
                 return base_url(`publication/${postData.value.hash_id}`);
             });
 
+            const isOptimisticPost = computed(() => {
+                return Boolean(postData.value.meta?.is_optimistic);
+            });
+
+            const isPendingPost = computed(() => {
+                return isOptimisticPost.value || ! PostStatusUtils.isActive(postData.value.status || 'active');
+            });
+
             const postContent = computed(() => {
                 return postData.value.content;
             });
@@ -210,6 +222,8 @@
                 PostTypeUtils: PostTypeUtils,
                 postData: postData,
                 state: state,
+                isPendingPost: isPendingPost,
+                isOptimisticPost: isOptimisticPost,
                 postHasContent: computed(() => {
                     return postData.value.content.length;
                 }),
@@ -236,17 +250,25 @@
                     return postData.value.meta.permissions.can_delete;
                 }),
                 canEditPost: computed(() => {
-                    return postData.value.meta.permissions.can_edit;
+                    return postData.value.meta.permissions.can_edit && ! isOptimisticPost.value;
                 }),
                 canReportPost: computed(() => {
                     return postData.value.meta.permissions.can_report;
                 }),
                 editPost: () => {
+                    if(isOptimisticPost.value) {
+                        return false;
+                    }
+
                     colibriEventBus.emit('post-editor:open', {
                         editPost: postData.value
                     });
                 },
                 addReaction: (reactionId) => {
+                    if(isPendingPost.value) {
+                        return false;
+                    }
+
                     state.reactionMenu.close();
 
                     colibriAPI().userTimeline().with({
@@ -276,6 +298,10 @@
                     });
                 },
                 sharePost: () => {
+                    if(isPendingPost.value) {
+                        return false;
+                    }
+
                     colibriAPI().userTimeline().with({
                         id: postData.value.id
                     }).sendTo('post/share/add').then((response) => {
@@ -289,6 +315,10 @@
                     state.shareMenu.open();
                 },
                 bookmarkPost: () => {
+                    if(isPendingPost.value) {
+                        return false;
+                    }
+
                     colibriAPI().userTimeline().with({
                         id: postData.value.id
                     }).sendTo('post/bookmarks/add').then((response) => {
@@ -305,6 +335,16 @@
                             toastError(error.response.data.message);
                         }
                     });
+                },
+                openReactions: () => {
+                    if(! isPendingPost.value) {
+                        state.reactionMenu.open();
+                    }
+                },
+                openComments: () => {
+                    if(! isPendingPost.value) {
+                        state.commentsMenu.open();
+                    }
                 },
                 copyLink: () => {
                     try {

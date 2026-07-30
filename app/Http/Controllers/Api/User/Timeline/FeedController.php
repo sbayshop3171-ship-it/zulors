@@ -17,6 +17,7 @@ namespace App\Http\Controllers\Api\User\Timeline;
 
 use App\Models\Post;
 use Illuminate\Http\Request;
+use App\Enums\Post\PostStatus;
 use App\Http\Controllers\Controller;
 use App\Services\Timeline\FeedService;
 use App\Traits\Http\Api\SupportsApiResponses;
@@ -66,9 +67,12 @@ class FeedController extends Controller
     {
         $postHashId = $request->route('hashId');
 
-        $postData = Post::active()->whereHashId($postHashId)->timelineFormatPosts()->first();
+        $postData = Post::query()
+            ->whereHashId($postHashId)
+            ->timelineFormatPosts(true)
+            ->first();
         
-        if($postData) {
+        if($postData && ($postData->status === PostStatus::ACTIVE || $postData->user_id === me()->id)) {
             $postComments = $this->fetchPostItemComments($postData);
 
             return $this->responseSuccess([
