@@ -1,24 +1,31 @@
+@php
+    $bootIsDark = theme_name() === 'dark';
+    $bootBackgroundColor = $bootIsDark ? '#111111' : '#ffffff';
+    $bootTextColor = $bootIsDark ? 'rgba(255, 255, 255, 0.80)' : '#111827';
+    $bootMutedTextColor = $bootIsDark ? 'rgba(235, 235, 245, 0.60)' : '#6b7280';
+@endphp
+
 <style>
     :root {
-        background: #ffffff;
+        background: {{ $bootBackgroundColor }};
     }
 
     html,
     body {
         min-height: 100%;
-        background: #ffffff;
+        background: var(--color-bg-pr, {{ $bootBackgroundColor }});
     }
 
     #zulors-mobile-app,
     #zulors-desktop-app {
         min-height: 100dvh;
-        background: #ffffff;
+        background: var(--color-bg-pr, {{ $bootBackgroundColor }});
     }
 
     .zulors-boot-shell {
         min-height: 100dvh;
-        background: #ffffff;
-        color: #111827;
+        background: var(--color-bg-pr, {{ $bootBackgroundColor }});
+        color: var(--color-lab-pr2, {{ $bootTextColor }});
         display: flex;
         align-items: center;
         justify-content: center;
@@ -50,7 +57,7 @@
     .zulors-boot-corner {
         position: absolute;
         top: 24px;
-        color: #6b7280;
+        color: var(--color-lab-sc, {{ $bootMutedTextColor }});
         font-size: 14px;
         line-height: 20px;
     }
