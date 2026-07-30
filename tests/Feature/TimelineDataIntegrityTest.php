@@ -12,6 +12,9 @@ use App\Enums\User\UserRole;
 use App\Enums\User\UserStatus;
 use App\Enums\User\UserType;
 use App\Events\User\Timeline\MediaUpdatedEvent;
+use App\Events\User\Timeline\MediaProcessedEvent;
+use App\Events\User\Timeline\PublicTimelinePostCreatedEvent;
+use App\Jobs\User\Timeline\ConvertAndCompressPostVideo;
 use App\Models\Block;
 use App\Models\Follow;
 use App\Models\Mute;
@@ -162,6 +165,73 @@ class TimelineDataIntegrityTest extends TestCase
         $this->assertNotEmpty(data_get($media->metadata, 'upload_failed_at'));
 
         Event::assertDispatched(MediaUpdatedEvent::class);
+    }
+
+    public function test_direct_r2_uploaded_video_is_published_without_waiting_for_transcode(): void
+    {
+        $author = $this->createUser('direct-r2-fast-publish-author');
+        $post = $this->createPost($author, 'Fast publish video', null, [
+            'status' => PostStatus::PROCESSING_VIDEO,
+            'type' => PostType::VIDEO,
+        ]);
+
+        $media = $post->media()->create([
+            'source_path' => 'tmp/direct/videos/fast-publish.mp4',
+            'type' => MediaKind::VIDEO,
+            'status' => MediaStatus::PROCESSING,
+            'disk' => 'local',
+            'extension' => 'mp4',
+            'mime' => 'video/mp4',
+            'size' => 1024,
+            'metadata' => [
+                'provider' => 'r2_temp',
+                'upload_state' => 'uploaded',
+                'upload_progress' => 100,
+                'processing_state' => 'queued',
+                'processing_progress' => 5,
+                'final_disk' => 'public',
+            ],
+        ]);
+
+        app()->instance(R2DirectUploadService::class, new class extends R2DirectUploadService {
+            public function isConfigured(): bool
+            {
+                return true;
+            }
+
+            public function publishUploadedVideo(string $tempPath, string $extension = 'mp4', string $contentType = 'video/mp4'): array
+            {
+                return [
+                    'disk' => 'public',
+                    'video_path' => 'uploads/posts/videos/final-fast-publish.mp4',
+                    'video_size' => 2048,
+                ];
+            }
+        });
+
+        Event::fake([
+            MediaUpdatedEvent::class,
+            MediaProcessedEvent::class,
+            PublicTimelinePostCreatedEvent::class,
+        ]);
+
+        (new ConvertAndCompressPostVideo($post))->handle();
+
+        $post->refresh();
+        $media->refresh();
+
+        $this->assertSame(PostStatus::ACTIVE, $post->status);
+        $this->assertSame(MediaStatus::PROCESSED, $media->status);
+        $this->assertSame('public', $media->disk);
+        $this->assertSame('uploads/posts/videos/final-fast-publish.mp4', $media->source_path);
+        $this->assertSame('r2', data_get($media->metadata, 'provider'));
+        $this->assertSame('processed', data_get($media->metadata, 'processing_state'));
+        $this->assertSame(100, data_get($media->metadata, 'processing_progress'));
+        $this->assertSame('direct_original_publish', data_get($media->metadata, 'processing_fallback'));
+
+        Event::assertDispatched(MediaUpdatedEvent::class);
+        Event::assertDispatched(MediaProcessedEvent::class);
+        Event::assertDispatched(PublicTimelinePostCreatedEvent::class);
     }
 
     public function test_owner_can_edit_processing_video_post_caption(): void

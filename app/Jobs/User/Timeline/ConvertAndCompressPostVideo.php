@@ -21,6 +21,7 @@ use App\Services\Filesystem\Delete\FileDeleteService;
 use App\Services\Filesystem\Upload\ImageUploadService;
 use App\Services\Filesystem\Upload\VideoUploadService;
 use App\Services\Filesystem\Upload\VideoThumbnailService;
+use App\Services\Media\Cloudflare\R2DirectUploadService;
 
 class ConvertAndCompressPostVideo implements ShouldQueue
 {
@@ -44,9 +45,6 @@ class ConvertAndCompressPostVideo implements ShouldQueue
         $videoTempOldPath = null;
 
         try {
-            $videoUploadService = app(VideoUploadService::class);
-            $fileDeleteService = app(FileDeleteService::class);
-
             $postMedia = $this->postData->media()->first();
 
             if(empty($postMedia)) {
@@ -64,6 +62,15 @@ class ConvertAndCompressPostVideo implements ShouldQueue
 
                 return;
             }
+
+            if($this->shouldPublishDirectR2Original($postMedia)) {
+                $this->publishDirectR2OriginalVideo($postMedia, app(R2DirectUploadService::class));
+
+                return;
+            }
+
+            $videoUploadService = app(VideoUploadService::class);
+            $fileDeleteService = app(FileDeleteService::class);
 
             if (! $videoUploadService) {
                 throw new Exception('Required services are not available. Ensure that fileUploaderService and ffmpegService are properly injected.');
@@ -200,10 +207,6 @@ class ConvertAndCompressPostVideo implements ShouldQueue
         catch (\Throwable $e) {
             Log::error('Post video processing failed after 5 attempts. Error: ' . $e->getMessage());
 
-            if($postMedia) {
-                $this->updateProcessingProgress($postMedia, (int) data_get($postMedia->metadata, 'processing_progress', 0), 'failed');
-            }
-
             if(
                 $postMedia
                 && $videoUploadService
@@ -226,6 +229,10 @@ class ConvertAndCompressPostVideo implements ShouldQueue
                 catch (\Throwable $fallbackException) {
                     Log::error('Original R2 video fallback also failed. Error: ' . $fallbackException->getMessage());
                 }
+            }
+
+            if($postMedia) {
+                $this->updateProcessingProgress($postMedia, (int) data_get($postMedia->metadata, 'processing_progress', 0), 'failed');
             }
 
             throw $e;
@@ -281,6 +288,73 @@ class ConvertAndCompressPostVideo implements ShouldQueue
         }
 
         return $postMedia->disk;
+    }
+
+    private function shouldPublishDirectR2Original($postMedia): bool
+    {
+        $metadata = $postMedia->metadata ?? [];
+
+        return data_get($metadata, 'provider') === 'r2_temp'
+            && data_get($metadata, 'upload_state') === 'uploaded'
+            && ! $postMedia->status->isProcessed();
+    }
+
+    private function publishDirectR2OriginalVideo($postMedia, R2DirectUploadService $r2DirectUploadService): void
+    {
+        $this->updateProcessingProgress($postMedia, 95, 'publishing');
+
+        $oldDisk = $postMedia->disk;
+        $oldPath = $postMedia->source_path;
+        $oldSize = (int) $postMedia->size;
+
+        $videoData = $r2DirectUploadService->publishUploadedVideo(
+            $postMedia->source_path,
+            $postMedia->extension ?: 'mp4',
+            $postMedia->mime ?: 'video/mp4'
+        );
+
+        $metadata = $postMedia->metadata ?? [];
+
+        if(blank(data_get($metadata, 'processing_started_at'))) {
+            $metadata['processing_started_at'] = now()->toIso8601String();
+        }
+
+        $postMedia->source_path = $videoData['video_path'];
+        $postMedia->disk = $videoData['disk'];
+        $postMedia->status = MediaStatus::PROCESSED;
+        $postMedia->extension = $postMedia->extension ?: 'mp4';
+        $postMedia->mime = $postMedia->mime ?: 'video/mp4';
+        $postMedia->size = $videoData['video_size'] ?: $oldSize;
+        $postMedia->metadata = array_merge($metadata, [
+            'provider' => 'r2',
+            'processed_at' => now()->toIso8601String(),
+            'processing_progress' => 100,
+            'processing_state' => 'processed',
+            'processing_updated_at' => now()->toIso8601String(),
+            'processing_fallback' => 'direct_original_publish',
+            'original_size' => $oldSize,
+            'optimized_size' => (int) $postMedia->size,
+            'optimization_ratio' => $this->optimizationRatio($oldSize, (int) $postMedia->size),
+        ]);
+        $postMedia->save();
+
+        $this->postData->status = PostStatus::ACTIVE;
+        $this->postData->save();
+
+        try {
+            Storage::disk($oldDisk)->delete($oldPath);
+        }
+        catch (\Throwable $e) {
+            Log::warning('Direct R2 temp video cleanup skipped. Error: ' . $e->getMessage());
+        }
+
+        event(new MediaProcessedEvent($postMedia->refresh(), $this->postData->user_id));
+        event(new PublicTimelinePostCreatedEvent($this->postData->refresh()));
+
+        Log::info('Published direct R2 video without transcoding.', [
+            'post_id' => $this->postData->id,
+            'media_id' => $postMedia->id,
+        ]);
     }
 
     private function publishOriginalVideoFallback(

@@ -5,6 +5,7 @@ namespace App\Services\Media\Cloudflare;
 use Exception;
 use Aws\S3\S3Client;
 use Illuminate\Support\Str;
+use App\Constants\Filesystem as MediaFilesystem;
 use Illuminate\Support\Facades\Storage;
 
 class R2DirectUploadService
@@ -58,6 +59,47 @@ class R2DirectUploadService
             'upload_stall_timeout_ms' => $this->uploadStallTimeoutMs(),
             'raw_fallback_max_bytes' => $this->rawFallbackMaxBytes(),
             'expires_at' => $expiresAt->toIso8601String(),
+        ];
+    }
+
+    public function publishUploadedVideo(string $tempPath, string $extension = 'mp4', string $contentType = 'video/mp4'): array
+    {
+        if(! $this->isConfigured()) {
+            throw new Exception('Cloudflare R2 direct upload is not configured.');
+        }
+
+        if(blank($tempPath)) {
+            throw new Exception('Invalid direct upload object path.');
+        }
+
+        $extension = $this->cleanExtension($extension ?: (string) pathinfo($tempPath, PATHINFO_EXTENSION));
+        $finalPath = $this->makeFinalVideoPath($extension);
+        $finalDisk = $this->finalDisk();
+        $finalClient = $this->s3Client($finalDisk);
+
+        $copyOptions = [
+            'Bucket' => $this->bucket($finalDisk),
+            'Key' => $finalPath,
+            'CopySource' => $this->copySource($this->bucket($this->tempDisk()), $tempPath),
+            'ContentType' => $contentType ?: 'video/mp4',
+            'MetadataDirective' => 'REPLACE',
+        ];
+
+        if($cacheControl = config('media.cache.control')) {
+            $copyOptions['CacheControl'] = $cacheControl;
+        }
+
+        $finalClient->copyObject($copyOptions);
+
+        $finalObject = $finalClient->headObject([
+            'Bucket' => $this->bucket($finalDisk),
+            'Key' => $finalPath,
+        ]);
+
+        return [
+            'disk' => $finalDisk,
+            'video_path' => $finalPath,
+            'video_size' => (int) $finalObject->get('ContentLength'),
         ];
     }
 
@@ -172,6 +214,16 @@ class R2DirectUploadService
         $userId = auth_check() ? me()->id : 'guest';
 
         return "{$prefix}/{$userId}/".Str::uuid().".{$extension}";
+    }
+
+    private function makeFinalVideoPath(string $extension): string
+    {
+        return MediaFilesystem::mediaNamespace('posts/videos').'/'.Str::uuid().".{$extension}";
+    }
+
+    private function copySource(string $bucket, string $path): string
+    {
+        return "{$bucket}/".str_replace('%2F', '/', rawurlencode($path));
     }
 
     private function cleanExtension(string $extension): string
