@@ -19,9 +19,9 @@ fi
 
 normalize_permissions() {
 	chmod 755 . || true
-	chmod -R ug+rwX storage bootstrap/cache || true
-	chmod -R a+rX public bootstrap config database deploy lang resources routes scripts services var vendor 2>/dev/null || true
-	chmod -R a+rX storage/app/public 2>/dev/null || true
+    chmod -R ug+rwX storage bootstrap/cache 2>/dev/null || true
+    chmod -R a+rX public bootstrap config database deploy lang resources routes scripts services var vendor 2>/dev/null || true
+    chmod -R a+rX storage/app/public 2>/dev/null || true
 }
 
 mkdir -p bootstrap/cache storage/frontend storage/framework/cache storage/framework/sessions storage/framework/views storage/logs
@@ -64,6 +64,6 @@ php artisan settings:discover
 php artisan optimize
 
 normalize_permissions
-chmod -R ug+rwX storage bootstrap/cache public/build || true
+chmod -R ug+rwX storage bootstrap/cache public/build 2>/dev/null || true
 
 echo "Deployment finished."
