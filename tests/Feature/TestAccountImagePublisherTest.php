@@ -52,6 +52,33 @@ class TestAccountImagePublisherTest extends TestCase
         $this->assertStringEndsWith('two/first.jpg', $preview['source_files'][1]);
     }
 
+    public function test_multiple_source_directories_are_merged_in_order_without_duplicates(): void
+    {
+        $this->createUser('gallery-test-one', 'gallery-test-one@gmail.test');
+        $this->createUser('gallery-test-two', 'gallery-test-two@gmail.test');
+        $this->createUser('gallery-test-three', 'gallery-test-three@gmail.test');
+
+        $secondDirectory = storage_path('framework/testing/test-image-import-second-' . uniqid());
+        File::ensureDirectoryExists($secondDirectory);
+        File::put($secondDirectory . '/third.png', 'test');
+
+        try {
+            $preview = app(TestAccountImagePublisher::class)->previewForDirectories([
+                $this->sourceDirectory,
+                $secondDirectory,
+                $this->sourceDirectory,
+            ]);
+
+            $this->assertSame(3, $preview['source_count']);
+            $this->assertCount(3, $preview['user_ids']);
+            $this->assertStringEndsWith('one/second.webp', $preview['source_files'][0]);
+            $this->assertStringEndsWith('two/first.jpg', $preview['source_files'][1]);
+            $this->assertStringEndsWith('third.png', $preview['source_files'][2]);
+        } finally {
+            File::deleteDirectory($secondDirectory);
+        }
+    }
+
     public function test_command_dry_run_requires_explicit_confirmation_before_writing(): void
     {
         $this->createUser('image-command-one', 'image-command-one@gmail.test');

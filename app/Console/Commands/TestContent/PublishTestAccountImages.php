@@ -11,7 +11,7 @@ class PublishTestAccountImages extends Command
 {
     protected $signature = 'test-content:publish-images
         {--campaign=test-image-gallery-v1 : A unique campaign key. Rerunning the same campaign resumes without duplicates.}
-        {--source= : Absolute image directory. Defaults to storage/app/test-content/image-gallery-v1.}
+        {--source=* : Absolute image directory. Repeat this option to merge multiple image libraries.}
         {--limit=0 : Maximum number of active .test users and images to process. Use 0 for all.}
         {--dry-run : Show the target count without writing posts or uploading media.}
         {--confirm= : Required value ALL_TEST_IMAGE_POSTS before any image post is written.}';
@@ -21,9 +21,18 @@ class PublishTestAccountImages extends Command
     public function handle(TestAccountImagePublisher $publisher): int
     {
         $campaignKey = trim((string) $this->option('campaign'));
-        $sourceDirectory = trim((string) $this->option('source')) ?: storage_path('app/test-content/image-gallery-v1');
+        $sourceDirectories = collect($this->option('source'))
+            ->filter(fn ($source) => is_string($source) && trim($source) !== '')
+            ->map(fn (string $source) => trim($source))
+            ->values()
+            ->all();
+
+        if ($sourceDirectories === []) {
+            $sourceDirectories = [storage_path('app/test-content/image-gallery-v1')];
+        }
+
         $limit = max(0, (int) $this->option('limit'));
-        $preview = $publisher->preview($sourceDirectory, $limit);
+        $preview = $publisher->previewForDirectories($sourceDirectories, $limit);
         $targetCount = count($preview['user_ids']);
 
         if($campaignKey === '') {
@@ -32,8 +41,10 @@ class PublishTestAccountImages extends Command
             return self::FAILURE;
         }
 
-        if(! is_dir($sourceDirectory)) {
-            $this->error("Source directory was not found: {$sourceDirectory}");
+        $missingDirectory = collect($sourceDirectories)->first(fn (string $sourceDirectory) => ! is_dir($sourceDirectory));
+
+        if ($missingDirectory) {
+            $this->error("Source directory was not found: {$missingDirectory}");
 
             return self::FAILURE;
         }
@@ -41,6 +52,7 @@ class PublishTestAccountImages extends Command
         $alreadyPublished = $publisher->alreadyPublishedCount($campaignKey);
 
         $this->info("Campaign: {$campaignKey}");
+        $this->line('Image source directories: '.count($sourceDirectories));
         $this->line("Usable source images: {$preview['source_count']}");
         $this->line("Eligible active .test accounts: {$preview['eligible_count']}");
         $this->line("Image posts targeted in this run: {$targetCount}");

@@ -76,7 +76,16 @@ class TestAccountImagePublisher
      */
     public function preview(string $sourceDirectory, int $limit = 0): array
     {
-        $sourceFiles = $this->sourceFiles($sourceDirectory);
+        return $this->previewForDirectories([$sourceDirectory], $limit);
+    }
+
+    /**
+     * @param array<int, string> $sourceDirectories
+     * @return array{user_ids: array<int, int>, source_files: array<int, string>, eligible_count: int, source_count: int}
+     */
+    public function previewForDirectories(array $sourceDirectories, int $limit = 0): array
+    {
+        $sourceFiles = $this->sourceFilesForDirectories($sourceDirectories);
         $eligibleUserIds = $this->eligibleUsers()
             ->orderBy('id')
             ->pluck('id')
@@ -160,6 +169,34 @@ class TestAccountImagePublisher
             ->map(fn (\SplFileInfo $file) => $file->getPathname())
             ->values()
             ->all();
+    }
+
+    /**
+     * Keep the configured directory order so image assignment remains stable
+     * across retries, while skipping duplicate files supplied by multiple paths.
+     *
+     * @param array<int, string> $sourceDirectories
+     * @return array<int, string>
+     */
+    public function sourceFilesForDirectories(array $sourceDirectories): array
+    {
+        $files = [];
+        $seen = [];
+
+        foreach ($sourceDirectories as $sourceDirectory) {
+            foreach ($this->sourceFiles($sourceDirectory) as $sourceFile) {
+                $identity = realpath($sourceFile) ?: $sourceFile;
+
+                if (isset($seen[$identity])) {
+                    continue;
+                }
+
+                $seen[$identity] = true;
+                $files[] = $sourceFile;
+            }
+        }
+
+        return $files;
     }
 
     private function publishForUser(User $user, string $campaignKey, string $sourceFile): bool
