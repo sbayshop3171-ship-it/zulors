@@ -75,6 +75,36 @@ class BulkTestAccountFollowPublisher
 	/** @param array<int, int> $testUserIds */
 	public function synchronizeCounts(array $testUserIds): void
 	{
+		if ($testUserIds === []) {
+			return;
+		}
+
+		if (DB::connection()->getDriverName() === 'mysql') {
+			$followerTotals = DB::table(Table::FOLLOWS)
+				->selectRaw('following_id AS user_id, COUNT(*) AS total')
+				->where('status', FollowStatus::FOLLOWING->value)
+				->groupBy('following_id');
+			$followingTotals = DB::table(Table::FOLLOWS)
+				->selectRaw('follower_id AS user_id, COUNT(*) AS total')
+				->where('status', FollowStatus::FOLLOWING->value)
+				->groupBy('follower_id');
+
+			DB::table(Table::USERS)
+				->leftJoinSub($followerTotals, 'test_follower_totals', function ($join): void {
+					$join->on('test_follower_totals.user_id', '=', Table::USERS.'.id');
+				})
+				->leftJoinSub($followingTotals, 'test_following_totals', function ($join): void {
+					$join->on('test_following_totals.user_id', '=', Table::USERS.'.id');
+				})
+				->whereIn(Table::USERS.'.id', $testUserIds)
+				->update([
+					'followers_count' => DB::raw('COALESCE(test_follower_totals.total, 0)'),
+					'following_count' => DB::raw('COALESCE(test_following_totals.total, 0)'),
+				]);
+
+			return;
+		}
+
 		foreach (array_chunk($testUserIds, 500) as $userIds) {
 			DB::table(Table::USERS)
 				->whereIn('id', $userIds)

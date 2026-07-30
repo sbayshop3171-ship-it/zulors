@@ -14,6 +14,7 @@ class BulkFollowTestAccounts extends Command
 		{--accounts=25 : Number of test profiles to process, unless --all is supplied}
 		{--all : Process every remaining active .test profile in controlled batches}
 		{--targets=500,1000,2000,3000,4000 : Comma-separated follower targets assigned deterministically}
+		{--sync-only : Synchronize follower and following counters without creating relationships}
 		{--dry-run : Show the calculated workload without writing data}
 		{--confirm= : Must equal FULL_TEST_FOLLOWS before data is written}';
 
@@ -41,6 +42,25 @@ class BulkFollowTestAccounts extends Command
 		$this->line('Test profiles in this batch: '.$preview['targets']->count());
 		$this->line("Planned follows: {$plannedFollows}");
 		$this->line('Follower target range: '.min($targets).'-'.max($targets));
+
+		if ($this->option('sync-only')) {
+			if ($this->option('dry-run')) {
+				$this->comment('Dry run complete. No follower counters were synchronized.');
+
+				return self::SUCCESS;
+			}
+
+			if ($this->option('confirm') !== 'FULL_TEST_FOLLOWS') {
+				$this->error('Refusing to synchronize. Re-run with --confirm=FULL_TEST_FOLLOWS.');
+
+				return self::FAILURE;
+			}
+
+			$publisher->synchronizeCounts($users);
+			$this->info('Follower and following counters synchronized for active .test accounts.');
+
+			return self::SUCCESS;
+		}
 
 		if (count($users) - 1 < max($targets)) {
 			$this->error('There are not enough active .test accounts for the requested follower target.');

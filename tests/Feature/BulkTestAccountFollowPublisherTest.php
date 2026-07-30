@@ -82,6 +82,26 @@ class BulkTestAccountFollowPublisherTest extends TestCase
 		$this->assertGreaterThan(0, Follow::query()->count());
 	}
 
+	public function test_command_can_synchronize_existing_test_follower_counters_without_creating_follows(): void
+	{
+		$first = $this->createUser('follow-sync-one', 'follow-sync-one@gmail.test');
+		$second = $this->createUser('follow-sync-two', 'follow-sync-two@gmail.test');
+
+		Follow::query()->create([
+			'follower_id' => $first->id,
+			'following_id' => $second->id,
+			'status' => FollowStatus::FOLLOWING,
+		]);
+
+		$this->artisan('test-content:bulk-follow --sync-only --confirm=FULL_TEST_FOLLOWS')
+			->expectsOutput('Follower and following counters synchronized for active .test accounts.')
+			->assertExitCode(0);
+
+		$this->assertSame(1, (int) $first->fresh()->following_count);
+		$this->assertSame(1, (int) $second->fresh()->followers_count);
+		$this->assertSame(1, Follow::query()->count());
+	}
+
 	private function createUser(string $username, string $email): User
 	{
 		return User::query()->create([
