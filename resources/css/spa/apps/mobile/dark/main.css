@@ -10,6 +10,6 @@
 @import "../../../../themes/base.css" layer(theme);
 @import "../../../../themes/devices/mobile.css" layer(theme);
 @import "../../../../themes/dark/colors.css" layer(theme);
+@import "../../../../themes/runtime.css";
 
 @import "../mobile-base.css";
-

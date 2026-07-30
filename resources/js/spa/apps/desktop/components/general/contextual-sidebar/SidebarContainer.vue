@@ -1,5 +1,5 @@
 <template>
-    <div class="h-full w-full border-r border-bord-card pb-12 overflow-y-auto sticky-bar-bottom-offset">
+    <div class="h-full w-full border-r border-bord-card bg-bg-pr text-lab-pr pb-12 overflow-y-auto sticky-bar-bottom-offset">
         <div v-if="$slots.sidebarTitle" class="mt-top-offset">
             <slot name="sidebarTitle"></slot>
         </div>

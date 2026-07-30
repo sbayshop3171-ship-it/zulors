@@ -73,6 +73,18 @@ window.applyThemeMode = (theme) => {
 	if (document.body) {
 		document.body.dataset.theme = theme;
 	}
+
+	const themeColorMeta = document.querySelector('meta[name="theme-color"]');
+
+	if (themeColorMeta) {
+		themeColorMeta.setAttribute('content', theme == 'dark' ? '#111111' : '#ffffff');
+	}
+
+	const colorSchemeMeta = document.querySelector('meta[name="color-scheme"]');
+
+	if (colorSchemeMeta) {
+		colorSchemeMeta.setAttribute('content', theme == 'dark' ? 'dark light' : 'light dark');
+	}
 };
 
 window.syncThemeMode = () => {

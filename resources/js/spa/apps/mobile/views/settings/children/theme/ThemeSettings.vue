@@ -72,7 +72,7 @@
 </template>
 
 <script>
-    import { defineComponent, onMounted, ref } from 'vue';
+    import { defineComponent, ref } from 'vue';
 
     import { RadioGroup, RadioGroupOption } from '@headlessui/vue';
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
@@ -82,25 +82,29 @@
 
     export default defineComponent({
         setup: function() {
+            const allowedThemes = ['light', 'dark', 'system'];
             const currentTheme = ref(window.getThemePreference('light'));
-
-            onMounted(() => {
-                try {
-                    localStorage.setItem('theme', currentTheme.value);
-                } catch (error) {
-                    //
-                }
-            });
 
             const getSystemThemeMode = () => {
                 return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
             }
 
+            const getResolvedTheme = (preferenceTheme) => {
+                if(typeof window.resolveThemeMode == 'function') {
+                    return window.resolveThemeMode(preferenceTheme);
+                }
+
+                return preferenceTheme == 'system' ? getSystemThemeMode() : preferenceTheme;
+            }
+
             return {
                 defaultValue: currentTheme,
-                switchTheme: async () => {
-                    const preferenceTheme = currentTheme.value;
-                    const resolvedTheme = preferenceTheme == 'system' ? getSystemThemeMode() : preferenceTheme;
+                switchTheme: async (selectedTheme) => {
+                    const previousTheme = currentTheme.value;
+                    const preferenceTheme = allowedThemes.includes(selectedTheme) ? selectedTheme : currentTheme.value;
+                    const resolvedTheme = getResolvedTheme(preferenceTheme);
+
+                    currentTheme.value = preferenceTheme;
 
                     try {
                         localStorage.setItem('theme', preferenceTheme);
@@ -116,13 +120,46 @@
                     if(typeof window.writeThemeRuntimeCookie == 'function') {
                         window.writeThemeRuntimeCookie(resolvedTheme);
                     }
+
+                    if(typeof window.applyThemeMode == 'function') {
+                        window.applyThemeMode(resolvedTheme);
+                    }
                     
-                    colibriAPI().userSettings().with({
-                        theme: preferenceTheme,
-                        resolved_theme: resolvedTheme
-                    }).putTo('account/theme/update').then(function(response) {
+                    try {
+                        await colibriAPI().userSettings().with({
+                            theme: preferenceTheme,
+                            resolved_theme: resolvedTheme
+                        }).putTo('account/theme/update');
+
                         window.location.reload();
-                    });
+                    } catch (error) {
+                        const previousResolvedTheme = getResolvedTheme(previousTheme);
+
+                        currentTheme.value = previousTheme;
+
+                        try {
+                            localStorage.setItem('theme', previousTheme);
+                            localStorage.setItem('theme_runtime', previousResolvedTheme);
+                        } catch (error) {
+                            //
+                        }
+
+                        if(typeof window.writeThemePreferenceCookie == 'function') {
+                            window.writeThemePreferenceCookie(previousTheme);
+                        }
+
+                        if(typeof window.writeThemeRuntimeCookie == 'function') {
+                            window.writeThemeRuntimeCookie(previousResolvedTheme);
+                        }
+
+                        if(typeof window.applyThemeMode == 'function') {
+                            window.applyThemeMode(previousResolvedTheme);
+                        }
+
+                        if(typeof window.toastError == 'function') {
+                            window.toastError(__t('labels.something_went_wrong'));
+                        }
+                    }
                 }
             }
         },

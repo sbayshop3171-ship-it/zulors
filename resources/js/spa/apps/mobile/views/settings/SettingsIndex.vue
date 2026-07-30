@@ -1,8 +1,10 @@
 <template>
-	<div class="sticky top-0 z-50 bg-bg-pr">
-		<ToastNotification></ToastNotification>
+	<div class="min-h-screen bg-bg-pr text-lab-pr">
+		<div class="sticky top-0 z-50 bg-bg-pr">
+			<ToastNotification></ToastNotification>
+		</div>
+		<RouterView></RouterView>
 	</div>
-	<RouterView></RouterView>
 </template>
 
 <script>
