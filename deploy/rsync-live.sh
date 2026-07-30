@@ -17,6 +17,11 @@ fi
 
 echo "Running local deployment preflight..."
 git -C "$ROOT_DIR" diff --check
+if [ "${ALLOW_DIRTY_DEPLOY:-0}" != "1" ] && [ -n "$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal)" ]; then
+	echo "Live deployment refused: the workspace has uncommitted changes."
+	echo "Commit and push the intended changes first, or set ALLOW_DIRTY_DEPLOY=1 only for an emergency deployment."
+	exit 1
+fi
 if command -v php >/dev/null 2>&1; then
 	find "$ROOT_DIR/app" "$ROOT_DIR/bootstrap" "$ROOT_DIR/config" "$ROOT_DIR/database" "$ROOT_DIR/routes" "$ROOT_DIR/public" \
 		-type f -name '*.php' -print0 | xargs -0 -n1 php -l >/dev/null
