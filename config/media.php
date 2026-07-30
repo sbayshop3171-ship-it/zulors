@@ -21,6 +21,9 @@ return [
             'temp_disk' => env('R2_TEMP_DISK', 'r2_temp'),
             'final_disk' => env('R2_FINAL_DISK', 'r2_final'),
             'temp_prefix' => trim(env('R2_TEMP_PREFIX', 'tmp/direct/videos'), '/'),
+            // Upload directly to the public/final bucket so completion never copies a large file.
+            'direct_upload_disk' => env('R2_DIRECT_UPLOAD_DISK', 'r2_final'),
+            'direct_upload_prefix' => trim(env('R2_DIRECT_UPLOAD_PREFIX', 'uploads/posts/videos'), '/'),
             // Long uploads must keep their signed part URLs valid for the whole transfer.
             'direct_upload_expiry_minutes' => (int) env('R2_DIRECT_UPLOAD_EXPIRY_MINUTES', 720),
             'multipart_threshold_mb' => (int) env('R2_DIRECT_UPLOAD_MULTIPART_THRESHOLD_MB', 8),

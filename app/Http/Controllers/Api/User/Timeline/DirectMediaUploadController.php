@@ -86,8 +86,9 @@ class DirectMediaUploadController extends Controller
                     'mime' => $request->input('mime', 'video/mp4'),
                     'size' => $request->integer('size', 0),
                     'metadata' => [
-                        'provider' => 'r2_temp',
+                        'provider' => $uploadData['provider'],
                         'temp_disk' => $uploadData['disk'],
+                        'upload_disk' => $uploadData['upload_disk'] ?? $uploadData['disk'],
                         'final_disk' => $uploadData['final_disk'],
                         'temp_path' => $uploadData['path'],
                         'upload_state' => 'waiting_for_upload',
@@ -107,7 +108,7 @@ class DirectMediaUploadController extends Controller
                 return $this->responseSuccess([
                     'data' => [
                         'direct_upload' => true,
-                        'provider' => 'r2_temp',
+                        'provider' => $uploadData['provider'],
                         'uid' => $uploadData['uid'],
                         'upload_url' => $uploadData['upload_url'],
                         'upload_method' => $uploadData['upload_method'],
@@ -203,6 +204,7 @@ class DirectMediaUploadController extends Controller
         }
 
         $metadata = $media->metadata ?? [];
+        $provider = (string) data_get($metadata, 'provider');
 
         if(data_get($metadata, 'upload_state') === 'uploaded') {
             return $this->responseSuccess([
@@ -274,6 +276,7 @@ class DirectMediaUploadController extends Controller
         }
 
         $metadata = $media->metadata ?? [];
+        $provider = (string) data_get($metadata, 'provider');
 
         if($publishedR2Retry) {
             return $this->responseSuccess([
@@ -283,7 +286,7 @@ class DirectMediaUploadController extends Controller
             ]);
         }
 
-        if(data_get($metadata, 'provider') === 'r2_temp') {
+        if(in_array($provider, ['r2_temp', 'r2_direct'], true)) {
             if(data_get($metadata, 'upload_type') === 'multipart' && data_get($metadata, 'upload_state') !== 'uploaded') {
                 $uploadId = (string) ($request->input('upload_id') ?: data_get($metadata, 'upload_id'));
 
@@ -302,7 +305,8 @@ class DirectMediaUploadController extends Controller
                     $r2DirectUploadService->completeMultipartUpload(
                         $media->source_path,
                         $uploadId,
-                        $request->array('parts')
+                        $request->array('parts'),
+                        $media->disk
                     );
                 }
                 catch (Exception $e) {
@@ -317,7 +321,7 @@ class DirectMediaUploadController extends Controller
                 }
             }
 
-            if(! $r2DirectUploadService->uploaded($media->source_path)) {
+            if(! $r2DirectUploadService->uploaded($media->source_path, $media->disk)) {
                 return $this->responseValidationError([
                     'message' => 'Direct upload file was not found on R2.',
                     'errors' => [
@@ -326,6 +330,12 @@ class DirectMediaUploadController extends Controller
                         ]
                     ]
                 ]);
+            }
+
+            // New uploads land directly in the final R2 bucket. Publishing only
+            // updates the database; it must never copy the whole video again.
+            if($provider === 'r2_direct' && $media->disk === $r2DirectUploadService->finalDisk()) {
+                return $this->finalizeDirectR2Upload($media, $metadata);
             }
 
             $metadata['upload_state'] = 'uploaded';
@@ -457,7 +467,7 @@ class DirectMediaUploadController extends Controller
         $metadata = $media->metadata ?? [];
 
         if(
-            data_get($metadata, 'provider') !== 'r2_temp' ||
+            ! in_array(data_get($metadata, 'provider'), ['r2_temp', 'r2_direct'], true) ||
             data_get($metadata, 'upload_type') !== 'raw' ||
             data_get($metadata, 'upload_state') === 'uploaded'
         ) {
@@ -514,7 +524,8 @@ class DirectMediaUploadController extends Controller
             $r2DirectUploadService->uploadRawObject(
                 $media->source_path,
                 $readStream,
-                $contentType ?: (string) ($media->mime ?: 'video/mp4')
+                $contentType ?: (string) ($media->mime ?: 'video/mp4'),
+                $media->disk
             );
         }
         catch (Exception $e) {
@@ -564,7 +575,7 @@ class DirectMediaUploadController extends Controller
         $partNumber = $request->integer('part_number');
 
         if(
-            data_get($metadata, 'provider') !== 'r2_temp' ||
+            ! in_array(data_get($metadata, 'provider'), ['r2_temp', 'r2_direct'], true) ||
             data_get($metadata, 'upload_type') !== 'multipart' ||
             data_get($metadata, 'upload_state') === 'uploaded' ||
             $uploadId !== (string) data_get($metadata, 'upload_id')
@@ -638,7 +649,8 @@ class DirectMediaUploadController extends Controller
                 $media->source_path,
                 $uploadId,
                 $partNumber,
-                $readStream
+                $readStream,
+                $media->disk
             );
         }
         catch (Exception $e) {
@@ -691,6 +703,48 @@ class DirectMediaUploadController extends Controller
             'stream' => $stream,
             'size' => (int) $bytes,
         ];
+    }
+
+    private function finalizeDirectR2Upload(Media $media, array $metadata)
+    {
+        $post = $media->mediaable;
+        $postWasProcessing = $post instanceof Post && $post->status === PostStatus::PROCESSING_VIDEO;
+        $originalSize = (int) ($media->size ?: data_get($metadata, 'original_size', 0));
+        $now = now()->toIso8601String();
+
+        $media->status = MediaStatus::PROCESSED;
+        $media->metadata = array_merge($metadata, [
+            'upload_state' => 'uploaded',
+            'upload_progress' => 100,
+            'upload_completed_at' => data_get($metadata, 'upload_completed_at', $now),
+            'provider' => 'r2_direct',
+            'processed_at' => $now,
+            'processing_progress' => 100,
+            'processing_state' => 'processed',
+            'processing_updated_at' => $now,
+            'processing_fallback' => 'direct_final_upload',
+            'original_size' => $originalSize ?: $media->size,
+            'optimized_size' => $media->size,
+        ]);
+        $media->save();
+
+        if($postWasProcessing) {
+            $post->status = PostStatus::ACTIVE;
+            $post->save();
+        }
+
+        $this->broadcastMediaUpdated($media);
+
+        if($postWasProcessing) {
+            event(new MediaProcessedEvent($media->refresh(), $post->user_id));
+            event(new PublicTimelinePostCreatedEvent($post->refresh()));
+        }
+
+        return $this->responseSuccess([
+            'data' => [
+                'media' => MediaResource::make($media->refresh()),
+            ]
+        ]);
     }
 
     private function broadcastMediaUpdated(Media $media): void

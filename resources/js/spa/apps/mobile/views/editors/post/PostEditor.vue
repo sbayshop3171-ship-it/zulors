@@ -750,21 +750,21 @@
 
 						let completedParts = [];
 
-						if(isMultipartUpload) {
-							completedParts = await uploadMultipartFileToDirectUrl(uploadData, mediaFile, (progress) => {
-								state.uploadProgress = Math.min(90, Math.max(10, Math.round(10 + (progress * 0.8))));
-								reportUploadProgress(progress);
-							});
-						}
+					if(isMultipartUpload) {
+						completedParts = await uploadMultipartFileToDirectUrl(uploadData, mediaFile, (progress) => {
+							state.uploadProgress = normalizeUploadProgress(progress);
+							reportUploadProgress(progress);
+						});
+					}
 
-						else {
-							await uploadFileToDirectUrl(uploadData, mediaFile, (progress) => {
-								state.uploadProgress = Math.min(90, Math.max(10, Math.round(10 + (progress * 0.8))));
-								reportUploadProgress(progress);
-							});
-						}
+					else {
+                        await uploadFileToDirectUrl(uploadData, mediaFile, (progress) => {
+                            state.uploadProgress = normalizeUploadProgress(progress);
+                            reportUploadProgress(progress);
+                        });
+					}
 
-						state.uploadProgress = 95;
+                        state.uploadProgress = 100;
 						reportUploadProgress(100, {
 							force: true
 						});

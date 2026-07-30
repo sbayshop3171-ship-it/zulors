@@ -75,7 +75,7 @@ class PostMediaController extends Controller
         abort_unless($postMedia->type->isVideo(), 404);
         abort_unless($postMedia->post && $postMedia->post->user_id === me()->id, 403);
 
-        if(data_get($postMedia->metadata, 'provider') === 'r2_temp') {
+        if(in_array(data_get($postMedia->metadata, 'provider'), ['r2_temp', 'r2_direct'], true)) {
             return redirect()->away(Storage::disk($postMedia->disk)->temporaryUrl(
                 $postMedia->source_path,
                 now()->addMinutes(config('media.cloudflare.r2.temp_preview_expiry_minutes', 30))

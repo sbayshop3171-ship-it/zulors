@@ -272,7 +272,7 @@ class PostController extends Controller
             return true;
         }
 
-        return data_get($videoMedia->metadata, 'provider') === 'r2_temp'
+        return in_array(data_get($videoMedia->metadata, 'provider'), ['r2_temp', 'r2_direct'], true)
             && data_get($videoMedia->metadata, 'upload_state') === 'uploaded';
     }
 
@@ -289,7 +289,7 @@ class PostController extends Controller
 
         if($videoMedia) {
             if(
-                data_get($videoMedia->metadata, 'provider') === 'r2_temp' &&
+                in_array(data_get($videoMedia->metadata, 'provider'), ['r2_temp', 'r2_direct'], true) &&
                 data_get($videoMedia->metadata, 'upload_state') !== 'uploaded'
             ) {
                 return $this->responseValidationError([

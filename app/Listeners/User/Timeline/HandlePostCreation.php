@@ -69,7 +69,14 @@ class HandlePostCreation
             return false;
         }
 
-        return data_get($metadata, 'provider') !== 'r2_temp'
-            || data_get($metadata, 'upload_state') === 'uploaded';
+        if(data_get($metadata, 'provider') === 'r2_direct') {
+            return false;
+        }
+
+        if(data_get($metadata, 'provider') === 'r2_temp') {
+            return data_get($metadata, 'upload_state') === 'uploaded';
+        }
+
+        return true;
     }
 }

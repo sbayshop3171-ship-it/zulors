@@ -857,19 +857,19 @@
 
                     if(isMultipartUpload) {
                         completedParts = await uploadMultipartFileToDirectUrl(uploadData, mediaFile, (progress) => {
-                            state.postMediaUploadProgress = Math.min(90, Math.max(10, Math.round(10 + (progress * 0.8))));
+                            state.postMediaUploadProgress = normalizeUploadProgress(progress);
                             reportUploadProgress(progress);
                         });
                     }
 
                     else {
                         await uploadFileToDirectUrl(uploadData, mediaFile, (progress) => {
-                            state.postMediaUploadProgress = Math.min(90, Math.max(10, Math.round(10 + (progress * 0.8))));
+                            state.postMediaUploadProgress = normalizeUploadProgress(progress);
                             reportUploadProgress(progress);
                         });
                     }
 
-                    state.postMediaUploadProgress = 95;
+                    state.postMediaUploadProgress = 100;
                     reportUploadProgress(100, {
                         force: true
                     });

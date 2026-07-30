@@ -51,6 +51,7 @@ class MediaResource extends JsonResource
                     'upload_progress_updated_at',
                     'upload_failed_at',
                     'temp_disk',
+                    'upload_disk',
                     'final_disk',
                     'temp_path',
                     'processing_progress',
@@ -77,7 +78,7 @@ class MediaResource extends JsonResource
 
     private function getPreviewUrl(): ?string
     {
-        if($this->type->isVideo() && ! $this->status->isProcessed() && data_get($this->metadata, 'provider') === 'r2_temp') {
+        if($this->type->isVideo() && ! $this->status->isProcessed() && in_array(data_get($this->metadata, 'provider'), ['r2_temp', 'r2_direct'], true)) {
             try {
                 return Storage::disk($this->disk)->temporaryUrl(
                     $this->source_path,

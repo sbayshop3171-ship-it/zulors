@@ -39,23 +39,33 @@ class R2DirectUploadService
 
         $mime = (string) ($fileData['mime'] ?? 'video/mp4');
         $extension = $this->cleanExtension((string) ($fileData['extension'] ?? 'mp4'));
-        $path = $this->makeTemporaryPath($extension);
+        $uploadDisk = $this->directUploadDisk();
+        $path = $uploadDisk === $this->finalDisk()
+            ? $this->makeFinalVideoPath($extension)
+            : $this->makeTemporaryPath($extension);
         $expiresAt = now()->addMinutes($this->expiryMinutes());
         $size = max(0, (int) ($fileData['size'] ?? 0));
 
         if($this->shouldUseMultipart($size)) {
-            return $this->createMultipartVideoUpload($path, $mime, $size, $expiresAt);
+            return $this->createMultipartVideoUpload($path, $mime, $size, $expiresAt, $uploadDisk);
         }
 
-        $upload = Storage::disk($this->tempDisk())->temporaryUploadUrl($path, $expiresAt, [
+        $uploadOptions = [
             'ContentType' => $mime,
-        ]);
+        ];
+
+        if($cacheControl = config('media.cache.control')) {
+            $uploadOptions['CacheControl'] = $cacheControl;
+        }
+
+        $upload = Storage::disk($uploadDisk)->temporaryUploadUrl($path, $expiresAt, $uploadOptions);
 
         return [
-            'provider' => 'r2_temp',
+            'provider' => 'r2_direct',
             'uid' => $path,
             'path' => $path,
-            'disk' => $this->tempDisk(),
+            'disk' => $uploadDisk,
+            'upload_disk' => $uploadDisk,
             'final_disk' => $this->finalDisk(),
             'upload_url' => $upload['url'],
             'upload_method' => 'PUT',
@@ -134,7 +144,7 @@ class R2DirectUploadService
         ];
     }
 
-    public function completeMultipartUpload(string $path, string $uploadId, array $parts): void
+    public function completeMultipartUpload(string $path, string $uploadId, array $parts, ?string $disk = null): void
     {
         if(! $this->isConfigured()) {
             throw new Exception('Cloudflare R2 direct upload is not configured.');
@@ -158,8 +168,10 @@ class R2DirectUploadService
             throw new Exception('No multipart upload parts were provided.');
         }
 
-        $this->s3Client($this->tempDisk())->completeMultipartUpload([
-            'Bucket' => $this->bucket($this->tempDisk()),
+        $uploadDisk = $disk ?: $this->tempDisk();
+
+        $this->s3Client($uploadDisk)->completeMultipartUpload([
+            'Bucket' => $this->bucket($uploadDisk),
             'Key' => $path,
             'UploadId' => $uploadId,
             'MultipartUpload' => [
@@ -168,7 +180,7 @@ class R2DirectUploadService
         ]);
     }
 
-    public function uploadRawObject(string $path, mixed $body, string $contentType = 'video/mp4'): void
+    public function uploadRawObject(string $path, mixed $body, string $contentType = 'video/mp4', ?string $disk = null): void
     {
         if(! $this->isConfigured()) {
             throw new Exception('Cloudflare R2 direct upload is not configured.');
@@ -178,15 +190,17 @@ class R2DirectUploadService
             throw new Exception('Invalid direct upload object path.');
         }
 
-        $this->s3Client($this->tempDisk())->putObject([
-            'Bucket' => $this->bucket($this->tempDisk()),
+        $uploadDisk = $disk ?: $this->tempDisk();
+
+        $this->s3Client($uploadDisk)->putObject([
+            'Bucket' => $this->bucket($uploadDisk),
             'Key' => $path,
             'Body' => $body,
             'ContentType' => $contentType,
         ]);
     }
 
-    public function uploadMultipartPart(string $path, string $uploadId, int $partNumber, mixed $body): string
+    public function uploadMultipartPart(string $path, string $uploadId, int $partNumber, mixed $body, ?string $disk = null): string
     {
         if(! $this->isConfigured()) {
             throw new Exception('Cloudflare R2 direct upload is not configured.');
@@ -196,8 +210,10 @@ class R2DirectUploadService
             throw new Exception('Invalid multipart upload part request.');
         }
 
-        $result = $this->s3Client($this->tempDisk())->uploadPart([
-            'Bucket' => $this->bucket($this->tempDisk()),
+        $uploadDisk = $disk ?: $this->tempDisk();
+
+        $result = $this->s3Client($uploadDisk)->uploadPart([
+            'Bucket' => $this->bucket($uploadDisk),
             'Key' => $path,
             'UploadId' => $uploadId,
             'PartNumber' => $partNumber,
@@ -207,26 +223,28 @@ class R2DirectUploadService
         return (string) $result->get('ETag');
     }
 
-    public function abortMultipartUpload(string $path, string $uploadId): void
+    public function abortMultipartUpload(string $path, string $uploadId, ?string $disk = null): void
     {
         if(! $this->isConfigured() || blank($path) || blank($uploadId)) {
             return;
         }
 
-        $this->s3Client($this->tempDisk())->abortMultipartUpload([
-            'Bucket' => $this->bucket($this->tempDisk()),
+        $uploadDisk = $disk ?: $this->tempDisk();
+
+        $this->s3Client($uploadDisk)->abortMultipartUpload([
+            'Bucket' => $this->bucket($uploadDisk),
             'Key' => $path,
             'UploadId' => $uploadId,
         ]);
     }
 
-    public function uploaded(string $path): bool
+    public function uploaded(string $path, ?string $disk = null): bool
     {
         if(! $this->isConfigured()) {
             return false;
         }
 
-        return Storage::disk($this->tempDisk())->exists($path);
+        return Storage::disk($disk ?: $this->tempDisk())->exists($path);
     }
 
     public function tempDisk(): string
@@ -237,6 +255,11 @@ class R2DirectUploadService
     public function finalDisk(): string
     {
         return (string) config('media.cloudflare.r2.final_disk', 'r2_final');
+    }
+
+    public function directUploadDisk(): string
+    {
+        return (string) config('media.cloudflare.r2.direct_upload_disk', $this->finalDisk());
     }
 
     private function makeTemporaryPath(string $extension): string
@@ -254,41 +277,44 @@ class R2DirectUploadService
         }
 
         $origins = $this->corsOrigins();
-        $cacheKey = 'r2-direct-upload-cors:'.sha1($this->tempDisk().'|'.$this->bucket($this->tempDisk()).'|'.implode(',', $origins));
 
-        if(Cache::get($cacheKey)) {
-            return;
-        }
+        foreach(array_unique([$this->directUploadDisk(), $this->tempDisk()]) as $uploadDisk) {
+            $cacheKey = 'r2-direct-upload-cors:'.sha1($uploadDisk.'|'.$this->bucket($uploadDisk).'|'.implode(',', $origins));
 
-        try {
-            $this->s3Client($this->tempDisk())->putBucketCors([
-                'Bucket' => $this->bucket($this->tempDisk()),
-                'CORSConfiguration' => [
-                    'CORSRules' => [
-                        [
-                            'AllowedHeaders' => ['*'],
-                            'AllowedMethods' => ['PUT', 'POST', 'GET', 'HEAD'],
-                            'AllowedOrigins' => $origins,
-                            'ExposeHeaders' => ['ETag'],
-                            'MaxAgeSeconds' => 3600,
+            if(Cache::get($cacheKey)) {
+                continue;
+            }
+
+            try {
+                $this->s3Client($uploadDisk)->putBucketCors([
+                    'Bucket' => $this->bucket($uploadDisk),
+                    'CORSConfiguration' => [
+                        'CORSRules' => [
+                            [
+                                'AllowedHeaders' => ['*'],
+                                'AllowedMethods' => ['PUT', 'POST', 'GET', 'HEAD'],
+                                'AllowedOrigins' => $origins,
+                                'ExposeHeaders' => ['ETag'],
+                                'MaxAgeSeconds' => 3600,
+                            ],
                         ],
                     ],
-                ],
-            ]);
-
-            Cache::put($cacheKey, true, now()->addHours(12));
-        }
-        catch(\Throwable $e) {
-            $failureCacheKey = "{$cacheKey}:failed";
-
-            if(! Cache::get($failureCacheKey)) {
-                Log::warning('Unable to auto-configure R2 direct upload CORS. Browser upload may fall back through the app server.', [
-                    'bucket' => $this->bucket($this->tempDisk()),
-                    'origins' => $origins,
-                    'error' => $e->getMessage(),
                 ]);
 
-                Cache::put($failureCacheKey, true, now()->addMinutes(15));
+                Cache::put($cacheKey, true, now()->addHours(12));
+            }
+            catch(\Throwable $e) {
+                $failureCacheKey = "{$cacheKey}:failed";
+
+                if(! Cache::get($failureCacheKey)) {
+                    Log::warning('Unable to auto-configure R2 direct upload CORS. Browser upload may fall back through the app server.', [
+                        'bucket' => $this->bucket($uploadDisk),
+                        'origins' => $origins,
+                        'error' => $e->getMessage(),
+                    ]);
+
+                    Cache::put($failureCacheKey, true, now()->addMinutes(15));
+                }
             }
         }
     }
@@ -349,7 +375,9 @@ class R2DirectUploadService
 
     private function makeFinalVideoPath(string $extension): string
     {
-        return MediaFilesystem::mediaNamespace('posts/videos').'/'.Str::uuid().".{$extension}";
+        $prefix = trim((string) config('media.cloudflare.r2.direct_upload_prefix', MediaFilesystem::mediaNamespace('posts/videos')), '/');
+
+        return $prefix.'/'.Str::uuid().".{$extension}";
     }
 
     private function copySource(string $bucket, string $path): string
@@ -454,10 +482,10 @@ class R2DirectUploadService
         return max(5, (int) config('media.cloudflare.r2.direct_upload_expiry_minutes', 720));
     }
 
-    private function createMultipartVideoUpload(string $path, string $mime, int $size, $expiresAt): array
+    private function createMultipartVideoUpload(string $path, string $mime, int $size, $expiresAt, string $uploadDisk): array
     {
-        $client = $this->s3Client($this->tempDisk());
-        $bucket = $this->bucket($this->tempDisk());
+        $client = $this->s3Client($uploadDisk);
+        $bucket = $this->bucket($uploadDisk);
         $partSize = $this->multipartPartSize();
         $partCount = (int) ceil($size / $partSize);
 
@@ -469,6 +497,7 @@ class R2DirectUploadService
             'Bucket' => $bucket,
             'Key' => $path,
             'ContentType' => $mime,
+            'CacheControl' => config('media.cache.control'),
         ]);
 
         $uploadId = (string) $createdUpload->get('UploadId');
@@ -494,10 +523,11 @@ class R2DirectUploadService
         }
 
         return [
-            'provider' => 'r2_temp',
+            'provider' => 'r2_direct',
             'uid' => $path,
             'path' => $path,
-            'disk' => $this->tempDisk(),
+            'disk' => $uploadDisk,
+            'upload_disk' => $uploadDisk,
             'final_disk' => $this->finalDisk(),
             'upload_url' => null,
             'upload_method' => 'PUT',

@@ -234,6 +234,96 @@ class TimelineDataIntegrityTest extends TestCase
         Event::assertDispatched(PublicTimelinePostCreatedEvent::class);
     }
 
+    public function test_final_bucket_direct_video_upload_is_published_without_copying_the_video_again(): void
+    {
+        config([
+            'filesystems.disks.r2_final' => [
+                'driver' => 'local',
+                'root' => storage_path('framework/testing/direct-final-media'),
+                'url' => '/storage/direct-final-media',
+                'throw' => false,
+            ],
+        ]);
+
+        $author = $this->createUser('direct-final-video-author');
+        $post = $this->createPost($author, 'Direct final video', null, [
+            'status' => PostStatus::PROCESSING_VIDEO,
+            'type' => PostType::VIDEO,
+        ]);
+
+        $media = $post->media()->create([
+            'source_path' => 'uploads/posts/videos/direct-final.mp4',
+            'type' => MediaKind::VIDEO,
+            'status' => MediaStatus::PROCESSING,
+            'disk' => 'r2_final',
+            'extension' => 'mp4',
+            'mime' => 'video/mp4',
+            'size' => 1024,
+            'metadata' => [
+                'provider' => 'r2_direct',
+                'upload_type' => 'raw',
+                'upload_state' => 'uploading',
+                'upload_progress' => 100,
+                'processing_state' => 'waiting_for_upload',
+                'processing_progress' => 0,
+                'upload_disk' => 'r2_final',
+                'final_disk' => 'r2_final',
+            ],
+        ]);
+
+        app()->instance(R2DirectUploadService::class, new class extends R2DirectUploadService {
+            public function isConfigured(): bool
+            {
+                return true;
+            }
+
+            public function finalDisk(): string
+            {
+                return 'r2_final';
+            }
+
+            public function uploaded(string $path, ?string $disk = null): bool
+            {
+                return true;
+            }
+
+            public function publishUploadedVideo(string $tempPath, string $extension = 'mp4', string $contentType = 'video/mp4'): array
+            {
+                throw new \RuntimeException('Direct final uploads must not be copied during completion.');
+            }
+        });
+
+        Event::fake([
+            MediaUpdatedEvent::class,
+            MediaProcessedEvent::class,
+            PublicTimelinePostCreatedEvent::class,
+        ]);
+
+        $this->actingAs($author)
+            ->withoutMiddleware()
+            ->postJson('/api/post/editor/media/video/direct/complete', [
+                'media_id' => $media->id,
+                'uid' => $media->source_path,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.media.status', MediaStatus::PROCESSED->value)
+            ->assertJsonPath('data.media.metadata.provider', 'r2_direct')
+            ->assertJsonPath('data.media.metadata.processing_fallback', 'direct_final_upload');
+
+        $post->refresh();
+        $media->refresh();
+
+        $this->assertSame(PostStatus::ACTIVE, $post->status);
+        $this->assertSame(MediaStatus::PROCESSED, $media->status);
+        $this->assertSame('r2_final', $media->disk);
+        $this->assertSame('uploads/posts/videos/direct-final.mp4', $media->source_path);
+        $this->assertSame(100, data_get($media->metadata, 'processing_progress'));
+
+        Event::assertDispatched(MediaUpdatedEvent::class);
+        Event::assertDispatched(MediaProcessedEvent::class);
+        Event::assertDispatched(PublicTimelinePostCreatedEvent::class);
+    }
+
     public function test_owner_can_edit_processing_video_post_caption(): void
     {
         $author = $this->createUser('processing-video-edit-owner');

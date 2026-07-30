@@ -27,7 +27,7 @@ class DeleteMediaAction
 	
 				// Delete media main file
 				if ($this->mediaData->status->isProcessing()) {
-					if(data_get($this->mediaData->metadata, 'provider') === 'r2_temp') {
+					if(in_array(data_get($this->mediaData->metadata, 'provider'), ['r2_temp', 'r2_direct'], true)) {
 						Storage::disk($this->mediaData->disk)->delete($this->mediaData->source_path);
 					}
 
