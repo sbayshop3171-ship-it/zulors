@@ -150,7 +150,7 @@ const useTimelineStore = defineStore('timeline_store', {
                 });
 
                 if(mediaIndex !== -1) {
-                    postItem.relations.media[mediaIndex] = mediaData;
+                    postItem.relations.media.splice(mediaIndex, 1, mediaData);
                     this.persistFirstPage();
                 }
             }

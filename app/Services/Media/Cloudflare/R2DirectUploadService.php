@@ -54,6 +54,9 @@ class R2DirectUploadService
             'upload_method' => 'PUT',
             'upload_type' => 'raw',
             'upload_headers' => $this->normalizeUploadHeaders($upload['headers'] ?? []),
+            'upload_concurrency' => $this->uploadConcurrency(),
+            'upload_stall_timeout_ms' => $this->uploadStallTimeoutMs(),
+            'raw_fallback_max_bytes' => $this->rawFallbackMaxBytes(),
             'expires_at' => $expiresAt->toIso8601String(),
         ];
     }
@@ -239,6 +242,9 @@ class R2DirectUploadService
             'upload_id' => $uploadId,
             'part_size' => $partSize,
             'parts' => $parts,
+            'upload_concurrency' => $this->uploadConcurrency(),
+            'upload_stall_timeout_ms' => $this->uploadStallTimeoutMs(),
+            'raw_fallback_max_bytes' => $this->rawFallbackMaxBytes(),
             'expires_at' => $expiresAt->toIso8601String(),
         ];
     }
@@ -256,6 +262,21 @@ class R2DirectUploadService
     private function multipartPartSize(): int
     {
         return max(5, (int) config('media.cloudflare.r2.multipart_part_size_mb', 64)) * 1024 * 1024;
+    }
+
+    private function uploadConcurrency(): int
+    {
+        return max(1, min(6, (int) config('media.cloudflare.r2.upload_concurrency', 4)));
+    }
+
+    private function uploadStallTimeoutMs(): int
+    {
+        return max(15, (int) config('media.cloudflare.r2.upload_stall_timeout_seconds', 45)) * 1000;
+    }
+
+    private function rawFallbackMaxBytes(): int
+    {
+        return max(5, (int) config('media.cloudflare.r2.raw_fallback_max_mb', 8)) * 1024 * 1024;
     }
 
     private function s3Client(string $disk): S3Client

@@ -199,20 +199,140 @@
 			}
 
 			const getUploadResponseData = (response) => {
-				return response.data?.data || {};
+				return response?.data?.data || {};
 			}
 
 			const normalizePartETag = (etag) => {
 				return String(etag || '').trim();
 			}
 
+			const defaultDirectUploadStallTimeoutMs = 45 * 1000;
+			const defaultRawFallbackMaxBytes = 8 * 1024 * 1024;
+
+			const normalizeUploadProgress = (progress) => {
+				return Math.max(0, Math.min(100, Math.round(Number(progress || 0))));
+			}
+
+			const syncUploadMedia = (uploadData, mediaData) => {
+				if(! mediaData) {
+					return;
+				}
+
+				uploadData.media = mediaData;
+				timelineStore.setPostMedia(mediaData);
+				colibriEventBus.emit('timeline:media-updated', mediaData);
+			}
+
+			const syncUploadMediaProgress = (uploadData, progress) => {
+				if(! uploadData?.media) {
+					return;
+				}
+
+				const normalizedProgress = normalizeUploadProgress(progress);
+				const mediaMetadata = uploadData.media.metadata || {};
+				const uploadState = normalizedProgress > 0
+					? (mediaMetadata.upload_state === 'uploaded' ? 'uploaded' : 'uploading')
+					: (mediaMetadata.upload_state || 'waiting_for_upload');
+
+				syncUploadMedia(uploadData, {
+					...uploadData.media,
+					metadata: {
+						...mediaMetadata,
+						upload_state: uploadState,
+						upload_progress: normalizedProgress,
+						upload_progress_updated_at: new Date().toISOString()
+					}
+				});
+			}
+
+			const markDirectUploadFailed = (uploadData) => {
+				if(! uploadData?.media?.id || ! uploadData?.uid) {
+					return;
+				}
+
+				const failedAt = new Date().toISOString();
+				const failedProgress = normalizeUploadProgress(uploadData.media.metadata?.upload_progress || 0);
+
+				syncUploadMedia(uploadData, {
+					...uploadData.media,
+					status: 'failed',
+					metadata: {
+						...(uploadData.media.metadata || {}),
+						upload_state: 'failed',
+						upload_progress: failedProgress,
+						upload_progress_updated_at: failedAt,
+						upload_failed_at: failedAt,
+						processing_state: 'failed',
+						processing_updated_at: failedAt
+					}
+				});
+
+				colibriAPI().postEditor().with({
+					media_id: uploadData.media.id,
+					uid: uploadData.uid,
+					upload_progress: failedProgress,
+					upload_state: 'failed'
+				}).sendTo('media/video/direct/progress').catch(() => {});
+			}
+
 			const uploadDirectRequest = (requestMethod, uploadUrl, uploadHeaders, payload, onProgress, options = {}) => {
 				return new Promise((resolve, reject) => {
 					const request = new XMLHttpRequest();
+					const stallTimeoutMs = Number(options.stallTimeoutMs || defaultDirectUploadStallTimeoutMs);
+					let settled = false;
+					let stallTimerId = null;
+
+					const clearStallTimer = () => {
+						if(stallTimerId) {
+							clearTimeout(stallTimerId);
+							stallTimerId = null;
+						}
+					}
+
+					const failRequest = (error) => {
+						if(settled) {
+							return;
+						}
+
+						settled = true;
+						clearStallTimer();
+
+						try {
+							request.abort();
+						}
+						catch (abortError) {
+							//
+						}
+
+						reject(error);
+					}
+
+					const finishRequest = (value) => {
+						if(settled) {
+							return;
+						}
+
+						settled = true;
+						clearStallTimer();
+						resolve(value);
+					}
+
+					const resetStallTimer = () => {
+						if(stallTimeoutMs < 1) {
+							return;
+						}
+
+						clearStallTimer();
+
+						stallTimerId = setTimeout(() => {
+							failRequest(new Error('Direct upload stalled. Retrying...'));
+						}, stallTimeoutMs);
+					}
+
 					request.open(requestMethod, uploadUrl, true);
 
-					if(options.timeoutMs) {
-						request.timeout = options.timeoutMs;
+					if(options.requestTimeoutMs || options.timeoutMs) {
+						request.timeout = options.requestTimeoutMs || options.timeoutMs;
 					}
 
 					Object.entries(uploadHeaders || {}).forEach(([header, value]) => {
@@ -220,6 +340,8 @@
 					});
 
 					request.upload.onprogress = (event) => {
+						resetStallTimer();
+
 						if(event.lengthComputable && typeof onProgress === 'function') {
 							onProgress(event.loaded, event.total);
 						}
@@ -227,24 +349,29 @@
 
 					request.onload = () => {
 						if(request.status >= 200 && request.status < 300) {
-							resolve({
+							finishRequest({
 								etag: normalizePartETag(request.getResponseHeader('ETag'))
 							});
 						}
 
 						else {
-							reject(new Error(`Direct upload failed with status ${request.status}`));
+							failRequest(new Error(`Direct upload failed with status ${request.status}`));
 						}
 					};
 
 					request.onerror = () => {
-						reject(new Error('Direct upload failed'));
+						failRequest(new Error('Direct upload failed'));
 					};
 
 					request.ontimeout = () => {
-						reject(new Error('Direct upload timed out'));
+						failRequest(new Error('Direct upload timed out'));
 					};
 
+					request.onabort = () => {
+						failRequest(new Error('Direct upload was cancelled'));
+					};
+
+					resetStallTimer();
 					request.send(payload);
 				});
 			}
@@ -277,8 +404,10 @@
 						return;
 					}
 
-					const normalizedProgress = Math.max(0, Math.min(100, Math.round(Number(progress || 0))));
+					const normalizedProgress = normalizeUploadProgress(progress);
 					const nowTimestamp = Date.now();
+
+					syncUploadMediaProgress(uploadData, normalizedProgress);
 
 					if(! options.force && normalizedProgress < 100 && (normalizedProgress - lastProgress) < 2 && (nowTimestamp - lastReportedAt) < 2000) {
 						return;
@@ -291,7 +420,9 @@
 						media_id: uploadData.media.id,
 						uid: uploadData.uid,
 						upload_progress: normalizedProgress
-					}).sendTo('media/video/direct/progress').catch(() => {});
+					}).sendTo('media/video/direct/progress').then((response) => {
+						syncUploadMedia(uploadData, getUploadResponseData(response).media);
+					}).catch(() => {});
 				};
 			}
 
@@ -321,6 +452,8 @@
 							return uploadDirectRequest(requestMethod, uploadData.upload_url, uploadData.upload_headers, mediaFile, (loaded, total) => {
 								const uploadTotal = Math.max(1, total || mediaFile.size);
 								onProgress(Math.round((loaded / uploadTotal) * 100));
+							}, {
+								stallTimeoutMs: uploadData.upload_stall_timeout_ms || defaultDirectUploadStallTimeoutMs
 							});
 						}
 
@@ -330,14 +463,17 @@
 						return uploadDirectRequest(requestMethod, uploadData.upload_url, uploadData.upload_headers, formData, (loaded, total) => {
 							const uploadTotal = Math.max(1, total || mediaFile.size);
 							onProgress(Math.round((loaded / uploadTotal) * 100));
+						}, {
+							stallTimeoutMs: uploadData.upload_stall_timeout_ms || defaultDirectUploadStallTimeoutMs
 						});
-					}, 1);
+					}, 3);
 				}
 				catch (error) {
 					const requestMethod = uploadData.upload_method || 'POST';
 					const uploadType = uploadData.upload_type || 'form';
+					const rawFallbackMaxBytes = Number(uploadData.raw_fallback_max_bytes || defaultRawFallbackMaxBytes);
 
-					if(uploadType === 'raw' || requestMethod === 'PUT') {
+					if((uploadType === 'raw' || requestMethod === 'PUT') && mediaFile.size <= rawFallbackMaxBytes) {
 						return uploadRawFileViaApp(uploadData, mediaFile, (loaded, total) => {
 							const uploadTotal = Math.max(1, total || mediaFile.size);
 							onProgress(Math.round((loaded / uploadTotal) * 100));
@@ -393,7 +529,8 @@
 						return uploadDirectRequest(part.upload_method || 'PUT', part.upload_url, part.upload_headers || {}, partBlob, (loaded) => {
 							updateMultipartProgress(part.part_number, loaded, partBlob.size);
 						}, {
-							timeoutMs: 10 * 60 * 1000
+							requestTimeoutMs: 10 * 60 * 1000,
+							stallTimeoutMs: uploadData.upload_stall_timeout_ms || defaultDirectUploadStallTimeoutMs
 						});
 					}, 3).catch(() => null);
 
@@ -488,6 +625,7 @@
 				state.directVideoUploadReady = false;
 
 				const localPreview = createLocalMediaPreview(mediaFile, 'video');
+				let uploadData = null;
 
 				if(localPreview) {
 					clearLocalMediaPreviews();
@@ -504,7 +642,7 @@
 						extension: getFileExtension(mediaFile)
 					}).sendTo('media/video/direct/create');
 
-					const uploadData = getUploadResponseData(response);
+					uploadData = getUploadResponseData(response);
 					const isMultipartUpload = uploadData.upload_type === 'multipart' && Array.isArray(uploadData.parts);
 
 					if(! uploadData.direct_upload || (! uploadData.upload_url && ! isMultipartUpload)) {
@@ -515,6 +653,7 @@
 					}
 
 						state.directVideoUploadReady = true;
+						syncUploadMedia(uploadData, uploadData.media);
 
 						const reportUploadProgress = createDirectUploadProgressReporter(uploadData);
 						reportUploadProgress(0, {
@@ -550,10 +689,11 @@
 					};
 
 					let completionError = null;
+					let completionResponse = null;
 
 					for(let attempt = 1; attempt <= 3; attempt++) {
 						try {
-							await colibriAPI().postEditor().with(completionData).sendTo('media/video/direct/complete');
+							completionResponse = await colibriAPI().postEditor().with(completionData).sendTo('media/video/direct/complete');
 							completionError = null;
 							break;
 						}
@@ -572,6 +712,7 @@
 
 					state.uploadProgress = 100;
 					state.directVideoUploadReady = false;
+					syncUploadMedia(uploadData, getUploadResponseData(completionResponse).media);
 
 					await postEditorStore.fetchDraftPost({
 						preserveContent: true
@@ -582,6 +723,7 @@
 
 				catch (error) {
 					state.directVideoUploadReady = false;
+					markDirectUploadFailed(uploadData);
 
 					try {
 						await postEditorStore.fetchDraftPost({

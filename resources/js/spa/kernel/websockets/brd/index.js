@@ -3,6 +3,7 @@ import { Str } from '@/kernel/helpers/javascript/index.js';
 export default {
     events: {
         TIMELINE_MEDIA_PROCESSED: ".timeline.media.processed",
+        TIMELINE_MEDIA_UPDATED: ".timeline.media.updated",
         TIMELINE_POST_CREATED: ".timeline.post.created",
         TIMELINE_POST_UPDATED: ".timeline.post.updated",
         CHAT_MESSAGE_RECEIVED: ".chat.message.received",

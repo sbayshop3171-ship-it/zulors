@@ -8,6 +8,12 @@ const MediaStatus = Object.freeze({
 const MediaStatusUtils = {
     isProcessing: (status) => {
         return status === MediaStatus.PROCESSING;
+    },
+    isProcessed: (status) => {
+        return status === MediaStatus.PROCESSED;
+    },
+    isFailed: (status) => {
+        return status === MediaStatus.FAILED;
     }
 };
 

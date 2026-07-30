@@ -18,7 +18,9 @@
 <script>
 	import { defineComponent, computed, defineAsyncComponent, onMounted, onUnmounted } from 'vue';
 	import { useTimelineStore } from '@M/store/timeline/timeline.store.js';
+	import { useAuthStore } from '@M/store/auth/auth.store.js';
 	import { MediaStatusUtils } from '@/kernel/enums/post/media.status.js';
+	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import BRD from '@/kernel/websockets/brd/index.js';
 
 	import VideoPlayer from '@M/components/players/video/VideoPlayer.vue';
@@ -32,33 +34,63 @@
 		},
 		setup: function(props) {
 			const timelineStore = useTimelineStore();
+			const authStore = useAuthStore();
 			const mediaItem = computed(() => {
-				return props.postMedia[0];
+				return props.postMedia[0] || {};
 			});
 			const canPlayImmediately = computed(() => {
 				const item = mediaItem.value;
 
-				return !MediaStatusUtils.isProcessing(item.status)
+				if(! item?.id || MediaStatusUtils.isFailed(item.status)) {
+					return false;
+				}
+
+				return MediaStatusUtils.isProcessed(item.status)
 					|| (item.metadata?.provider === 'r2_temp'
 						&& item.metadata?.upload_state === 'uploaded'
 						&& Boolean(item.preview_url));
 			});
-			const syncProcessedMedia = (event) => {
-				if(event.data?.mediaable_id == mediaItem.value.mediaable_id && event.data?.id == mediaItem.value.id) {
-					timelineStore.setPostMedia(event.data);
+
+			const replaceCurrentMedia = (mediaData) => {
+				if(! mediaData?.id || mediaData.mediaable_id != mediaItem.value.mediaable_id || mediaData.id != mediaItem.value.id) {
+					return;
 				}
+
+				const mediaIndex = Array.isArray(props.postMedia)
+					? props.postMedia.findIndex((item) => item.id == mediaData.id)
+					: -1;
+
+				if(mediaIndex !== -1) {
+					props.postMedia.splice(mediaIndex, 1, mediaData);
+				}
+
+				else if(mediaItem.value?.id) {
+					Object.assign(mediaItem.value, mediaData);
+				}
+
+				timelineStore.setPostMedia(mediaData);
+			};
+
+			const syncMediaEvent = (event) => {
+				replaceCurrentMedia(event?.data || event);
 			};
 
 			onMounted(() => {
 				if(window.ColibriBRD) {
-					ColibriBRD.channel(BRD.getChannel('PUBLIC_TIMELINE')).listen(BRD.getEvent('TIMELINE_MEDIA_PROCESSED'), syncProcessedMedia);
+					ColibriBRD.channel(BRD.getChannel('PUBLIC_TIMELINE')).listen(BRD.getEvent('TIMELINE_MEDIA_PROCESSED'), syncMediaEvent);
+					ColibriBRD.private(BRD.getChannel('AUTH_USER', [authStore.userData.id])).listen(BRD.getEvent('TIMELINE_MEDIA_UPDATED'), syncMediaEvent);
 				}
+
+				colibriEventBus.on('timeline:media-updated', syncMediaEvent);
 			});
 
 			onUnmounted(() => {
 				if(window.ColibriBRD) {
-					ColibriBRD.channel(BRD.getChannel('PUBLIC_TIMELINE')).stopListening(BRD.getEvent('TIMELINE_MEDIA_PROCESSED'), syncProcessedMedia);
+					ColibriBRD.channel(BRD.getChannel('PUBLIC_TIMELINE')).stopListening(BRD.getEvent('TIMELINE_MEDIA_PROCESSED'), syncMediaEvent);
+					ColibriBRD.private(BRD.getChannel('AUTH_USER', [authStore.userData.id])).stopListening(BRD.getEvent('TIMELINE_MEDIA_UPDATED'), syncMediaEvent);
 				}
+
+				colibriEventBus.off('timeline:media-updated', syncMediaEvent);
 			});
 
 			return {

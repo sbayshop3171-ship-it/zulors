@@ -11,6 +11,7 @@ use App\Enums\User\FollowStatus;
 use App\Enums\User\UserRole;
 use App\Enums\User\UserStatus;
 use App\Enums\User\UserType;
+use App\Events\User\Timeline\MediaUpdatedEvent;
 use App\Models\Block;
 use App\Models\Follow;
 use App\Models\Mute;
@@ -18,6 +19,7 @@ use App\Models\Post;
 use App\Models\User;
 use App\Services\Media\Cloudflare\R2DirectUploadService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -109,6 +111,57 @@ class TimelineDataIntegrityTest extends TestCase
             'status' => MediaStatus::PROCESSING->value,
             'source_path' => 'tmp/direct/videos/test-video.mp4',
         ]);
+    }
+
+    public function test_direct_video_progress_can_mark_a_stalled_upload_failed(): void
+    {
+        $author = $this->createUser('failed-video-upload-author');
+        $draft = $this->createPost($author, 'Upload should fail clearly', null, [
+            'status' => PostStatus::DRAFT,
+            'type' => PostType::VIDEO,
+        ]);
+
+        $media = $draft->media()->create([
+            'source_path' => 'tmp/direct/videos/stalled-video.mp4',
+            'type' => MediaKind::VIDEO,
+            'status' => MediaStatus::PROCESSING,
+            'disk' => 'local',
+            'extension' => 'mp4',
+            'mime' => 'video/mp4',
+            'size' => 1024,
+            'metadata' => [
+                'provider' => 'r2_temp',
+                'upload_state' => 'uploading',
+                'upload_progress' => 50,
+                'processing_state' => 'waiting_for_upload',
+                'processing_progress' => 0,
+            ],
+        ]);
+
+        Event::fake([
+            MediaUpdatedEvent::class,
+        ]);
+
+        $this->actingAs($author)
+            ->withoutMiddleware()
+            ->postJson('/api/post/editor/media/video/direct/progress', [
+                'media_id' => $media->id,
+                'uid' => 'tmp/direct/videos/stalled-video.mp4',
+                'upload_progress' => 50,
+                'upload_state' => 'failed',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.media.status', MediaStatus::FAILED->value)
+            ->assertJsonPath('data.media.metadata.upload_state', 'failed')
+            ->assertJsonPath('data.media.metadata.processing_state', 'failed');
+
+        $media->refresh();
+
+        $this->assertSame(MediaStatus::FAILED, $media->status);
+        $this->assertSame('failed', data_get($media->metadata, 'upload_state'));
+        $this->assertNotEmpty(data_get($media->metadata, 'upload_failed_at'));
+
+        Event::assertDispatched(MediaUpdatedEvent::class);
     }
 
     public function test_feed_excludes_muted_and_blocked_users_in_for_you_and_latest_modes(): void

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\User\Timeline;
 
 use Exception;
+use Throwable;
 use App\Models\Post;
 use App\Models\Media;
 use Illuminate\Http\Request;
@@ -12,6 +13,7 @@ use App\Enums\Media\MediaType;
 use App\Enums\Media\MediaStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\User\Media\MediaResource;
+use App\Events\User\Timeline\MediaUpdatedEvent;
 use App\Jobs\User\Timeline\ConvertAndCompressPostVideo;
 use App\Traits\Http\Api\SupportsApiResponses;
 use App\Services\Media\Cloudflare\R2DirectUploadService;
@@ -177,6 +179,7 @@ class DirectMediaUploadController extends Controller
             'media_id' => ['required', 'integer'],
             'uid' => ['required', 'string', 'max:255'],
             'upload_progress' => ['required', 'integer', 'min:0', 'max:100'],
+            'upload_state' => ['nullable', 'string', 'in:waiting_for_upload,uploading,failed'],
         ]);
 
         $media = Media::query()->find($request->integer('media_id'));
@@ -202,13 +205,29 @@ class DirectMediaUploadController extends Controller
         }
 
         $progress = $request->integer('upload_progress');
+        $requestedUploadState = $request->input('upload_state');
 
-        $metadata['upload_state'] = $progress > 0 ? 'uploading' : data_get($metadata, 'upload_state', 'waiting_for_upload');
+        if($requestedUploadState === 'failed') {
+            $metadata['upload_state'] = 'failed';
+            $metadata['upload_failed_at'] = now()->toIso8601String();
+            $metadata['processing_state'] = 'failed';
+            $media->status = MediaStatus::FAILED;
+        }
+        else {
+            $metadata['upload_state'] = $progress > 0 ? 'uploading' : data_get($metadata, 'upload_state', 'waiting_for_upload');
+
+            if(! $media->status->isProcessed()) {
+                $media->status = MediaStatus::PROCESSING;
+            }
+        }
+
         $metadata['upload_progress'] = $progress;
         $metadata['upload_progress_updated_at'] = now()->toIso8601String();
 
         $media->metadata = $metadata;
         $media->save();
+
+        $this->broadcastMediaUpdated($media);
 
         return $this->responseSuccess([
             'data' => [
@@ -292,8 +311,10 @@ class DirectMediaUploadController extends Controller
             $metadata['upload_completed_at'] = now()->toIso8601String();
 
             $media->metadata = $metadata;
+            $media->status = MediaStatus::PROCESSING;
             $media->save();
 
+            $this->broadcastMediaUpdated($media);
             $this->dispatchVideoProcessingIfPostIsPublished($media);
 
             return $this->responseSuccess([
@@ -313,7 +334,10 @@ class DirectMediaUploadController extends Controller
         $metadata['playback'] = $cloudflareStreamService->playbackUrls($media->source_path);
 
         $media->metadata = $metadata;
+        $media->status = MediaStatus::PROCESSING;
         $media->save();
+
+        $this->broadcastMediaUpdated($media);
 
         return $this->responseSuccess([
             'data' => [
@@ -604,6 +628,28 @@ class DirectMediaUploadController extends Controller
         $media->metadata = $metadata;
         $media->save();
 
+        $this->broadcastMediaUpdated($media);
+
         ConvertAndCompressPostVideo::dispatchAfterResponse($post->refresh())->onQueue(config('media.queues.video'));
+    }
+
+    private function broadcastMediaUpdated(Media $media): void
+    {
+        $media->loadMissing('mediaable');
+
+        $post = $media->mediaable;
+
+        if(! ($post instanceof Post)) {
+            return;
+        }
+
+        $userId = $post->user_id;
+
+        try {
+            event(new MediaUpdatedEvent($media->refresh(), $userId));
+        }
+        catch (Throwable $e) {
+            report($e);
+        }
     }
 }

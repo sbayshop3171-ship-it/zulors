@@ -27,6 +27,8 @@
     import { defineComponent, computed, onMounted, onUnmounted } from 'vue';
     import { useAuthStore } from '@D/store/auth/auth.store.js';
     import { useTimelineStore } from '@D/store/timeline/timeline.store.js';
+    import { colibriEventBus } from '@/kernel/events/bus/index.js';
+    import { MediaStatusUtils } from '@/kernel/enums/post/media.status.js';
 
     import BRD from '@/kernel/websockets/brd/index.js';
 
@@ -59,9 +61,15 @@
             const progressLabel = computed(() => {
                 const metadata = mediaItem.value?.metadata || {};
 
-                return metadata.upload_state && metadata.upload_state !== 'uploaded'
-                    ? 'Uploading'
-                    : 'Processing';
+                if(metadata.upload_state === 'failed') {
+                    return 'Upload failed';
+                }
+
+                if(metadata.processing_state === 'failed' || MediaStatusUtils.isFailed(mediaItem.value?.status)) {
+                    return 'Processing failed';
+                }
+
+                return metadata.upload_state && metadata.upload_state !== 'uploaded' ? 'Uploading' : 'Processing';
             });
             const progressWidth = computed(() => {
                 return `${Math.max(3, progress.value)}%`;
@@ -69,23 +77,39 @@
 
             const userId = authStore.userData.id;
             let refreshIntervalId = null;
+            let hasPublishedToastShown = false;
+
+            const syncMediaData = (mediaData) => {
+                if(! mediaData?.id || mediaData.mediaable_id != mediaItem.value.mediaable_id || mediaData.id != mediaItem.value.id) {
+                    return;
+                }
+
+                Object.assign(mediaItem.value, mediaData);
+                timelineStore.setPostMedia(mediaData);
+
+                if(MediaStatusUtils.isProcessed(mediaData.status) && ! hasPublishedToastShown) {
+                    hasPublishedToastShown = true;
+                    toastSuccess(__t('toast.post_published'));
+                }
+            };
+
+            const syncMediaEvent = (event) => {
+                syncMediaData(event?.data || event);
+            };
 
             onMounted(() => {
                 timelineStore.refreshFirstPage();
 
                 refreshIntervalId = setInterval(() => {
                     timelineStore.refreshFirstPage();
-                }, 10000);
+                }, 5000);
 
                 if(window.ColibriBRD) {
-                    ColibriBRD.private(BRD.getChannel('AUTH_USER', [userId])).listen(BRD.getEvent('TIMELINE_MEDIA_PROCESSED'), function (event) {
-                        if(event.data.mediaable_id == mediaItem.value.mediaable_id) {
-                            timelineStore.setPostMedia(event.data);
-                            
-                            toastSuccess(__t('toast.post_published'));
-                        }
-                    });
+                    ColibriBRD.private(BRD.getChannel('AUTH_USER', [userId])).listen(BRD.getEvent('TIMELINE_MEDIA_PROCESSED'), syncMediaEvent);
+                    ColibriBRD.private(BRD.getChannel('AUTH_USER', [userId])).listen(BRD.getEvent('TIMELINE_MEDIA_UPDATED'), syncMediaEvent);
                 }
+
+                colibriEventBus.on('timeline:media-updated', syncMediaEvent);
             });
 
             onUnmounted(() => {
@@ -94,8 +118,11 @@
                 }
 
                 if(window.ColibriBRD) {
-                    ColibriBRD.private(BRD.getChannel('AUTH_USER', [userId])).stopListening(BRD.getEvent('TIMELINE_MEDIA_PROCESSED'));
+                    ColibriBRD.private(BRD.getChannel('AUTH_USER', [userId])).stopListening(BRD.getEvent('TIMELINE_MEDIA_PROCESSED'), syncMediaEvent);
+                    ColibriBRD.private(BRD.getChannel('AUTH_USER', [userId])).stopListening(BRD.getEvent('TIMELINE_MEDIA_UPDATED'), syncMediaEvent);
                 }
+
+                colibriEventBus.off('timeline:media-updated', syncMediaEvent);
             });
 
             return {

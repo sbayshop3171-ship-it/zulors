@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use App\Events\User\Timeline\MediaProcessedEvent;
+use App\Events\User\Timeline\MediaUpdatedEvent;
 use App\Events\User\Timeline\PublicTimelinePostCreatedEvent;
 use App\Services\Filesystem\Delete\FileDeleteService;
 use App\Services\Filesystem\Upload\ImageUploadService;
@@ -392,8 +393,35 @@ class ConvertAndCompressPostVideo implements ShouldQueue
             $metadata['processing_started_at'] = now()->toIso8601String();
         }
 
+        if($state === 'failed') {
+            $postMedia->status = MediaStatus::FAILED;
+        }
+        elseif(! $postMedia->status->isProcessed()) {
+            $postMedia->status = MediaStatus::PROCESSING;
+        }
+
         $postMedia->metadata = $metadata;
         $postMedia->save();
+
+        $this->broadcastMediaUpdated($postMedia);
+    }
+
+    private function broadcastMediaUpdated($postMedia): void
+    {
+        $postMedia->loadMissing('mediaable');
+
+        if(! ($postMedia->mediaable instanceof Post)) {
+            return;
+        }
+
+        $userId = $postMedia->mediaable->user_id;
+
+        try {
+            event(new MediaUpdatedEvent($postMedia->refresh(), $userId));
+        }
+        catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     private function ensureThumbnail($postMedia, string $videoLocalPath, string $targetDisk): void
