@@ -61,6 +61,11 @@ jobs:
           npm run build
           rm -f public/hot
 
+      - name: PHP syntax and route preflight
+        run: |
+          find app bootstrap config database routes public -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+          php artisan route:list --no-ansi >/dev/null
+
       - name: Run database migrations
         run: php artisan migrate --force
 

@@ -45,6 +45,11 @@ else
 	echo "Skipping asset build."
 fi
 
+echo "Running PHP syntax and route preflight..."
+find app bootstrap config database routes public -type f -name '*.php' -print0 \
+	| xargs -0 -n1 php -l >/dev/null
+php artisan route:list --no-ansi >/dev/null
+
 echo "Running Laravel deployment tasks..."
 if [ "$RUN_MIGRATIONS" = "1" ]; then
 	php artisan migrate --force

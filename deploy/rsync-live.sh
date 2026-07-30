@@ -7,11 +7,21 @@ LIVE_USER="${LIVE_USER:-zulors}"
 LIVE_PORT="${LIVE_PORT:-22}"
 LIVE_PATH="${LIVE_PATH:-/var/www/zulors/data/www/zulors.com}"
 LIVE_SSH_KEY="${LIVE_SSH_KEY:-$HOME/.ssh/zulors_live_deploy}"
+LIVE_URL="${LIVE_URL:-https://zulors.com}"
 
 if [ ! -f "$LIVE_SSH_KEY" ]; then
 	echo "Missing SSH key: $LIVE_SSH_KEY"
 	echo "Set LIVE_SSH_KEY or create the deploy key first."
 	exit 1
+fi
+
+echo "Running local deployment preflight..."
+git -C "$ROOT_DIR" diff --check
+if command -v php >/dev/null 2>&1; then
+	find "$ROOT_DIR/app" "$ROOT_DIR/bootstrap" "$ROOT_DIR/config" "$ROOT_DIR/database" "$ROOT_DIR/routes" "$ROOT_DIR/public" \
+		-type f -name '*.php' -print0 | xargs -0 -n1 php -l >/dev/null
+else
+	echo "PHP is not installed locally; remote PHP preflight remains mandatory."
 fi
 
 SSH_OPTS=(
@@ -46,6 +56,7 @@ RSYNC_EXCLUDES=(
 	--exclude='storage/framework/sessions/'
 	--exclude='storage/framework/views/'
 	--exclude='bootstrap/cache/*.php'
+	--exclude='deploy/backups/'
 	--exclude='.DS_Store'
 	--exclude='**/.DS_Store'
 )
@@ -78,12 +89,19 @@ ssh "${SSH_OPTS[@]}" "${LIVE_USER}@${LIVE_HOST}" "set -e && \
 	php artisan about --only=environment --no-ansi >/dev/null"
 
 echo "Promoting staged release to live..."
-ssh "${SSH_OPTS[@]}" "${LIVE_USER}@${LIVE_HOST}" "bash -s" -- "$LIVE_PATH" "$REMOTE_RELEASE" "$REMOTE_BACKUP" <<'REMOTE'
+ssh "${SSH_OPTS[@]}" "${LIVE_USER}@${LIVE_HOST}" "bash -s" -- "$LIVE_PATH" "$REMOTE_RELEASE" "$REMOTE_BACKUP" "$LIVE_URL" <<'REMOTE'
 set -euo pipefail
 
 LIVE_PATH="$1"
 REMOTE_RELEASE="$2"
 REMOTE_BACKUP="$3"
+LIVE_URL="$4"
+
+exec 9>"${LIVE_PATH}.deploy.lock"
+if ! flock -n 9; then
+	echo "Another live deployment is already running. Stopping safely."
+	exit 1
+fi
 
 rsync_excludes=(
 	--exclude='.env'
@@ -99,6 +117,7 @@ rsync_excludes=(
 	--exclude='storage/framework/sessions/'
 	--exclude='storage/framework/views/'
 	--exclude='bootstrap/cache/*.php'
+	--exclude='deploy/backups/'
 	--exclude='.DS_Store'
 	--exclude='**/.DS_Store'
 )
@@ -134,8 +153,10 @@ rsync -a --delete "${rsync_permissions[@]}" "${rsync_excludes[@]}" "$REMOTE_RELE
 
 cd "$LIVE_PATH"
 INSTALL_DEPS=0 BUILD_ASSETS=0 RUN_MIGRATIONS=0 bash deploy/live-deploy.sh
-curl -fsSI https://zulors.com/admin/login >/dev/null
-curl -fsSI https://zulors.com/auth/signup >/dev/null
+curl -fsSL --max-time 20 "$LIVE_URL/" -o /dev/null
+curl -fsSL --max-time 20 "$LIVE_URL/admin/login" -o /dev/null
+curl -fsSL --max-time 20 "$LIVE_URL/auth/login" -o /dev/null
+curl -fsSL --max-time 20 "$LIVE_URL/auth/signup" -o /dev/null
 
 trap - ERR
 
@@ -144,7 +165,9 @@ find "$(dirname "$LIVE_PATH")" -maxdepth 1 -type d -name "$(basename "$LIVE_PATH
 REMOTE
 
 echo "Checking live site..."
-curl -fsSI https://zulors.com/admin/login >/dev/null
-curl -fsSI https://zulors.com/auth/signup >/dev/null
+curl -fsSL --max-time 20 "$LIVE_URL/" -o /dev/null
+curl -fsSL --max-time 20 "$LIVE_URL/admin/login" -o /dev/null
+curl -fsSL --max-time 20 "$LIVE_URL/auth/login" -o /dev/null
+curl -fsSL --max-time 20 "$LIVE_URL/auth/signup" -o /dev/null
 
-echo "Live deploy OK: https://zulors.com"
+echo "Live deploy OK: $LIVE_URL"
