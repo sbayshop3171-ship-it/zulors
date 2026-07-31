@@ -25,7 +25,7 @@ class BulkTestAccountEngagementPublisherTest extends TestCase
 			$this->createUser("bulk-test-{$number}", "bulk-test-{$number}@gmail.test");
 		}
 
-		$post = $this->createPost($this->createUser('bulk-author', 'bulk-author@example.com'), 'A practical technology update');
+		$post = $this->createPost($this->createUser('bulk-author', 'bulk-author@gmail.test'), 'A practical technology update');
 		$publisher = app(BulkTestAccountEngagementPublisher::class);
 		$preview = $publisher->preview('bulk-quota-test', 0, 1, 4, 4, 3, 3);
 		$summary = $publisher->publish('bulk-quota-test', $preview['users'], $preview['posts'], $preview['targets']);
@@ -49,7 +49,7 @@ class BulkTestAccountEngagementPublisherTest extends TestCase
 			$this->createUser("bulk-repeat-{$number}", "bulk-repeat-{$number}@gmail.test");
 		}
 
-		$this->createPost($this->createUser('repeat-author', 'repeat-author@example.com'), 'A repeatable business update');
+		$this->createPost($this->createUser('repeat-author', 'repeat-author@gmail.test'), 'A repeatable business update');
 		$publisher = app(BulkTestAccountEngagementPublisher::class);
 		$preview = $publisher->preview('bulk-repeat-test', 0, 1, 4, 4, 3, 3);
 		$publisher->publish('bulk-repeat-test', $preview['users'], $preview['posts'], $preview['targets']);
@@ -67,7 +67,7 @@ class BulkTestAccountEngagementPublisherTest extends TestCase
 		foreach (range(1, 4) as $number) {
 			$this->createUser("bulk-command-{$number}", "bulk-command-{$number}@gmail.test");
 		}
-		$this->createPost($this->createUser('command-author', 'command-author@example.com'), 'A command engagement update');
+		$this->createPost($this->createUser('command-author', 'command-author@gmail.test'), 'A command engagement update');
 
 		$this->artisan('test-content:bulk-engage --campaign=bulk-command-test --posts=1 --reaction-min=3 --reaction-max=3 --comment-min=2 --comment-max=2 --dry-run')
 			->expectsOutput('Active posts in this batch: 1')
@@ -85,6 +85,23 @@ class BulkTestAccountEngagementPublisherTest extends TestCase
 
 		$this->assertDatabaseCount('comments', 2);
 		$this->assertSame(3, (int) Reaction::query()->sum('reactions_count'));
+	}
+
+	public function test_it_scopes_posts_to_test_authors_by_default(): void
+	{
+		foreach (range(1, 5) as $number) {
+			$this->createUser("bulk-scope-{$number}", "bulk-scope-{$number}@gmail.test");
+		}
+
+		$testAuthor = $this->createUser('test-author', 'test-author@gmail.test');
+		$realAuthor = $this->createUser('real-author', 'real-author@example.com');
+		$testPost = $this->createPost($testAuthor, 'A marketplace-ready update');
+		$this->createPost($realAuthor, 'A real user post that should be skipped');
+
+		$publisher = app(BulkTestAccountEngagementPublisher::class);
+		$preview = $publisher->preview('bulk-scope-test', 0, 10, 3, 3, 2, 2);
+
+		$this->assertSame([$testPost->id], $preview['posts']->modelKeys());
 	}
 
 	private function createPost(User $user, string $title): Post

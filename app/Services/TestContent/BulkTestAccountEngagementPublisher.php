@@ -42,9 +42,10 @@ class BulkTestAccountEngagementPublisher
 		int $reactionMax,
 		int $commentMin,
 		int $commentMax,
+		bool $testPostsOnly = true,
 	): array {
 		$users = $this->testUserIds();
-		$posts = $this->activePostsAfter($afterId, $postLimit);
+		$posts = $this->activePostsAfter($afterId, $postLimit, $testPostsOnly);
 		$targets = [];
 
 		foreach ($posts as $post) {
@@ -356,11 +357,15 @@ class BulkTestAccountEngagementPublisher
 	}
 
 	/** @return Collection<int, Post> */
-	private function activePostsAfter(int $afterId, int $postLimit): Collection
+	private function activePostsAfter(int $afterId, int $postLimit, bool $testPostsOnly = true): Collection
 	{
 		return Post::query()
 			->active()
 			->where('id', '>', $afterId)
+			->when(
+				$testPostsOnly,
+				fn ($query) => $query->whereHas('user', fn ($userQuery) => $userQuery->whereRaw('LOWER(email) LIKE ?', ['%.test'])),
+			)
 			->orderBy('id')
 			->limit($postLimit)
 			->get();

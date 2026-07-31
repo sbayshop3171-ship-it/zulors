@@ -13,6 +13,7 @@ class BulkEngageTestAccountContent extends Command
 		{--after-id=0 : Only process active posts with an id greater than this value}
 		{--posts=25 : Number of active posts to process, unless --all is supplied}
 		{--all : Process every remaining active post in controlled batches}
+		{--include-non-test-posts : Also process active posts authored by non-.test accounts}
 		{--reaction-min=1000 : Minimum unique .test reactions per post}
 		{--reaction-max=2000 : Maximum unique .test reactions per post}
 		{--comment-min=80 : Minimum unique .test comments per post}
@@ -31,6 +32,7 @@ class BulkEngageTestAccountContent extends Command
 		$reactionMax = max(0, (int) $this->option('reaction-max'));
 		$commentMin = max(0, (int) $this->option('comment-min'));
 		$commentMax = max(0, (int) $this->option('comment-max'));
+		$testPostsOnly = ! (bool) $this->option('include-non-test-posts');
 
 		if ($campaign === '' || $reactionMin > $reactionMax || $commentMin > $commentMax) {
 			$this->error('Campaign and target ranges must be valid.');
@@ -46,6 +48,7 @@ class BulkEngageTestAccountContent extends Command
 			$reactionMax,
 			$commentMin,
 			$commentMax,
+			$testPostsOnly,
 		);
 		$users = $preview['users'];
 		$posts = $preview['posts'];
@@ -55,6 +58,7 @@ class BulkEngageTestAccountContent extends Command
 
 		$this->info("Campaign: {$campaign}");
 		$this->line('Eligible active .test accounts: '.count($users));
+		$this->line('Post scope: '.($testPostsOnly ? 'active .test-authored posts only' : 'all active posts'));
 		$this->line("Active posts in this batch: {$posts->count()}");
 		$this->line("Planned unique reactions: {$plannedReactions}");
 		$this->line("Planned unique comments: {$plannedComments}");
@@ -106,6 +110,7 @@ class BulkEngageTestAccountContent extends Command
 				$commentMax,
 				$preview,
 				(bool) $this->option('all'),
+				$testPostsOnly,
 			);
 		} finally {
 			$lock->release();
@@ -137,6 +142,7 @@ class BulkEngageTestAccountContent extends Command
 		int $commentMax,
 		array $firstPreview,
 		bool $all,
+		bool $testPostsOnly,
 	): array {
 		$summary = [
 			'posts' => 0,
@@ -179,7 +185,7 @@ class BulkEngageTestAccountContent extends Command
 			$lastPost = $posts->last();
 			$afterId = $lastPost?->id ?? $afterId;
 			$preview = $all
-				? $publisher->preview($campaign, $afterId, $postLimit, $reactionMin, $reactionMax, $commentMin, $commentMax)
+				? $publisher->preview($campaign, $afterId, $postLimit, $reactionMin, $reactionMax, $commentMin, $commentMax, $testPostsOnly)
 				: ['posts' => collect()];
 		} while ($all && $preview['posts']->isNotEmpty());
 
