@@ -19,6 +19,12 @@ function useDeletePost() {
 				}).delete('post/delete').then(() => {
 					colibriEventBus.emit('timeline:post-delete-confirmed', postId);
 				}).catch((error) => {
+					if(isMissingPostDelete(error)) {
+						colibriEventBus.emit('timeline:post-delete-confirmed', postId);
+
+						return false;
+					}
+
 					console.error('Unable to delete post', error);
 
 					if (typeof rollback === 'function') {
@@ -53,6 +59,13 @@ function optimisticallyDeletePost(postData, callback = null) {
 	}
 
 	return null;
+}
+
+function isMissingPostDelete(error) {
+	const status = Number(error?.response?.status || 0);
+	const message = String(error?.response?.data?.message || '');
+
+	return status === 404 && message.includes('No query results for model [App\\Models\\Post]');
 }
 
 export { useDeletePost };

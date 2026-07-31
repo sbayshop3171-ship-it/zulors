@@ -374,7 +374,13 @@ class PostController extends Controller
     {
         $postId = $request->integer('id');
 
-        $postData = Post::findOrFail($postId);
+        $postData = Post::find($postId);
+
+        if(! $postData) {
+            return $this->responseSuccess([
+                'data' => null
+            ]);
+        }
 
         $this->authorize('delete', $postData);
 
