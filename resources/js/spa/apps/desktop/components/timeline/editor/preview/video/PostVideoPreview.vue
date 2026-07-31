@@ -1,6 +1,7 @@
 <template>
 	<div
 		v-bind:class="frameWidthClass"
+		v-bind:style="frameStyle"
 	class="bg-black border border-bord-card flex justify-center rounded-2xl overflow-hidden relative">
 		<template v-if="mediaItem.deleted">
 			<MediaBlurOverlay></MediaBlurOverlay>
@@ -12,7 +13,7 @@
 			</div>
 		</template>
 
-		<div class="w-full">
+		<div class="size-full">
 			<video
 				v-on:loadedmetadata="captureVideoMetadata"
 				controls
@@ -20,7 +21,7 @@
 				preload="metadata"
 				v-bind:poster="mediaItem.thumbnail_url"
 				v-bind:src="videoUrl"
-			class="block w-full h-auto"></video>
+			class="w-full h-full object-cover"></video>
 		</div>
 
 		<div v-if="mediaDuration" class="pointer-events-none absolute left-4 top-4 rounded-full bg-black/60 px-2.5 py-1">
@@ -31,7 +32,7 @@
 
 <script>
 	import { defineComponent, computed } from 'vue';
-	import { applyVideoPresentationMetadata, buildVideoPresentationMetadata, isVideoPortrait } from '@/kernel/services/media/video-metadata.js';
+	import { applyVideoPresentationMetadata, buildVideoPresentationMetadata, isVideoPortrait, videoFrameAspectStyle } from '@/kernel/services/media/video-metadata.js';
 
 	import MediaBlurOverlay from '@D/components/timeline/editor/animations/MediaBlurOverlay.vue';
 	import MediaDeleteButton from '@D/components/timeline/editor/buttons/MediaDeleteButton.vue';
@@ -58,7 +59,10 @@
 					return props.mediaItem.metadata?.duration || null;
 				}),
 				frameWidthClass: computed(() => {
-					return isVideoPortrait(props.mediaItem.metadata) ? 'w-72' : 'w-full';
+					return 'w-full';
+				}),
+				frameStyle: computed(() => {
+					return videoFrameAspectStyle(props.mediaItem.metadata, isVideoPortrait(props.mediaItem.metadata));
 				}),
 				captureVideoMetadata: (event) => {
 					const videoElement = event.currentTarget;

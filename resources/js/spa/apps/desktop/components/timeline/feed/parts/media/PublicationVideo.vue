@@ -109,7 +109,7 @@
 			});
 
 			const mediaFrameClass = computed(() => {
-				return isPortrait.value ? 'w-72' : 'w-full';
+				return 'w-full';
 			});
 
 			return {

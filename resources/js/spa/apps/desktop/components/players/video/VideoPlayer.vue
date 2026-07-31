@@ -1,8 +1,10 @@
 <template>
-	<div class="relative flex justify-center cursor-pointer group">
+	<div
+		v-bind:style="playerFrameStyle"
+	class="relative flex w-full justify-center cursor-pointer group bg-black overflow-hidden">
 		<video
 			v-on:click="togglePlay"
-			class="block w-full h-auto"
+			class="size-full object-cover"
 			ref="videoPlayerRef"
 			v-bind:poster="thumbnailUrl"
 			preload="metadata"
@@ -57,9 +59,10 @@
 </template>
 
 <script>
-	import { defineComponent, watch, reactive, onMounted, onUnmounted } from 'vue';
+	import { defineComponent, computed, watch, reactive, onMounted, onUnmounted } from 'vue';
 	import { useIntersectionObserver } from '@/kernel/vue/composables/inter-obs/index.js';
 	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
+	import { buildVideoPresentationMetadata, videoFrameAspectStyle } from '@/kernel/services/media/video-metadata.js';
 
 	import PrimaryIconButton from '@D/components/inter-ui/buttons/PrimaryIconButton.vue';
 	import VideoDurationTime from '@/kernel/vue/components/media/video/VideoDurationTime.vue';
@@ -114,10 +117,19 @@
 				watchMsSinceFlush: 0,
 				totalWatchMs: 0,
 				lastPlaybackTime: 0,
+				presentationMetadata: {},
 				loopCount: 0,
 				sessionId: `video-${Date.now()}-${Math.random().toString(36).slice(2)}`,
 				telemetryTimer: null
 			});
+			const playerFrameStyle = computed(() => {
+				return videoFrameAspectStyle({
+					...(props.metadata || {}),
+					...(state.presentationMetadata || {}),
+					aspect_ratio: state.presentationMetadata?.aspect_ratio || props.aspectRatio || props.metadata?.aspect_ratio
+				}, props.isPortrait);
+			});
+
 			function startProgressUpdater() {
                 function updateProgress() {
 					if(! videoPlayerRef.value) {
@@ -160,10 +172,25 @@
 
 			const handleVideoReady = () => {
 				state.isLoaded = true;
+				updatePresentationMetadata();
 
 				if(isIntersecting.value) {
 					playVideo();
 				}
+			};
+
+			const updatePresentationMetadata = () => {
+				const videoElement = videoPlayerRef.value;
+
+				if(! videoElement?.videoWidth || ! videoElement?.videoHeight) {
+					return;
+				}
+
+				state.presentationMetadata = buildVideoPresentationMetadata(
+					videoElement.videoWidth,
+					videoElement.videoHeight,
+					videoElement.duration
+				);
 			};
 
 			onMounted(() => {
@@ -354,6 +381,7 @@
 				return {
 				videoPlayerRef: videoPlayerRef,
 				state: state,
+				playerFrameStyle: playerFrameStyle,
 				toggleMute: toggleMute,
                 toggleFullscreen: toggleFullscreen,
                 togglePIP: togglePIP,
