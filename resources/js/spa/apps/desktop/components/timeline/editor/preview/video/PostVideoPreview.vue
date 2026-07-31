@@ -21,7 +21,7 @@
 				preload="metadata"
 				v-bind:poster="mediaItem.thumbnail_url"
 				v-bind:src="videoUrl"
-			class="w-full h-full object-contain"></video>
+			class="w-full h-full object-cover"></video>
 		</div>
 
 		<div v-if="mediaDuration" class="pointer-events-none absolute left-4 top-4 rounded-full bg-black/60 px-2.5 py-1">
@@ -59,7 +59,7 @@
 					return props.mediaItem.metadata?.duration || null;
 				}),
 				frameWidthClass: computed(() => {
-					return isVideoPortrait(props.mediaItem.metadata) ? 'w-full max-w-[348px] mx-auto' : 'w-full';
+					return 'w-full';
 				}),
 				frameStyle: computed(() => {
 					return videoFrameAspectStyle(props.mediaItem.metadata, isVideoPortrait(props.mediaItem.metadata));

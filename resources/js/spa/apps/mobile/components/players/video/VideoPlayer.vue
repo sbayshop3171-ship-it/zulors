@@ -4,7 +4,7 @@
 	class="relative flex w-full justify-center cursor-pointer bg-black overflow-hidden">
 		<video
 			v-on:click="togglePlay"
-			class="size-full object-contain"
+			class="size-full object-cover"
 			ref="videoPlayerRef"
 			webkit-playsinline
 			playsinline

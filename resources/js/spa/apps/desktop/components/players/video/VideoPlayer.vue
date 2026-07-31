@@ -4,7 +4,7 @@
 	class="relative flex w-full justify-center cursor-pointer group bg-black overflow-hidden">
 		<video
 			v-on:click="togglePlay"
-			class="size-full object-contain"
+			class="size-full object-cover"
 			ref="videoPlayerRef"
 			v-bind:poster="thumbnailUrl"
 			preload="metadata"

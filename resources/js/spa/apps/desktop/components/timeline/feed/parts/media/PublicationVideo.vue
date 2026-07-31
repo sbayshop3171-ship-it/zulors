@@ -109,7 +109,7 @@
 			});
 
 			const mediaFrameClass = computed(() => {
-				return isPortrait.value ? 'w-full max-w-[348px] mx-auto' : 'w-full';
+				return 'w-full';
 			});
 
 			return {
