@@ -41,6 +41,11 @@
                             </div>
                         </div>
                     </div>
+                    <div v-else-if="state.isLoadingContent">
+                        <div class="flex justify-center py-24">
+                            <div class="colibri-primary-animation"></div>
+                        </div>
+                    </div>
                     <div v-else>
                         <div class="block py-72">
                             <p class="text-lab-sc text-par-s text-center">
@@ -82,6 +87,8 @@
     import HomeHeader from '@D/views/home/parts/HomeHeader.vue';
     import FeedUpdate from '@D/components/timeline/update/FeedUpdate.vue';
 
+    const maxRouteLoaderMs = 900;
+
     export default defineComponent({
         setup: function() {
             const state = reactive({
@@ -96,6 +103,7 @@
 
             let updateIntervalId = null;
             let realtimeChannel = null;
+            let routeLoaderTimer = null;
             const { postDeleter } = useDeletePost();
             const timelineStore = useTimelineStore();
             const pinsStore = usePinsStore();
@@ -156,6 +164,13 @@
 
                 state.isLoading = ! hasInstantPosts;
 
+                if(state.isLoading) {
+                    routeLoaderTimer = window.setTimeout(() => {
+                        state.isLoading = false;
+                        state.isLoadingContent = true;
+                    }, maxRouteLoaderMs);
+                }
+
                 pinsStore.fetchGlobalPins();
 
                 try {
@@ -168,7 +183,13 @@
                 } catch (error) {
                     console.log(error);
                 } finally {
+                    if(routeLoaderTimer) {
+                        window.clearTimeout(routeLoaderTimer);
+                        routeLoaderTimer = null;
+                    }
+
                     state.isLoading = false;
+                    state.isLoadingContent = false;
 
                     setupFeedUpdateInterval();
                     setupRealtimeFeedUpdates();
@@ -176,6 +197,10 @@
             });
 
             onUnmounted(() => {
+                if(routeLoaderTimer) {
+                    window.clearTimeout(routeLoaderTimer);
+                }
+
                 if(updateIntervalId) {
                     clearInterval(updateIntervalId);
                 }

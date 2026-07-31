@@ -32,6 +32,11 @@
 					</div>
 				</div>
 			</div>
+			<div v-else-if="state.isLoadingContent">
+				<div class="flex justify-center py-20">
+					<div class="colibri-primary-animation"></div>
+				</div>
+			</div>
 			<div v-else>
 				<div class="py-32">
 					<p class="text-lab-sc text-par-s text-center">
@@ -58,6 +63,8 @@
     import FollowRecommendation from '@M/components/recommend/follow/FollowRecommendation.vue';
     import FeedUpdate from '@M/components/timeline/update/FeedUpdate.vue';
 
+    const maxRouteLoaderMs = 900;
+
     export default defineComponent({
         setup: function() {
             const state = reactive({
@@ -72,6 +79,7 @@
 
             let updateIntervalId = null;
             let realtimeChannel = null;
+            let routeLoaderTimer = null;
 
             const { postDeleter } = useDeletePost();
 
@@ -129,6 +137,13 @@
 
                 state.isLoading = ! hasInstantPosts;
 
+                if(state.isLoading) {
+                    routeLoaderTimer = window.setTimeout(() => {
+                        state.isLoading = false;
+                        state.isLoadingContent = true;
+                    }, maxRouteLoaderMs);
+                }
+
                 try {
                     if(hasInstantPosts) {
                         timelineStore.refreshFirstPage();
@@ -139,7 +154,13 @@
                 } catch (error) {
                     console.log(error);
                 } finally {
+                    if(routeLoaderTimer) {
+                        window.clearTimeout(routeLoaderTimer);
+                        routeLoaderTimer = null;
+                    }
+
                     state.isLoading = false;
+                    state.isLoadingContent = false;
 
                     setupFeedUpdateInterval();
                     setupRealtimeFeedUpdates();
@@ -147,6 +168,10 @@
             });
 
             onUnmounted(() => {
+                if(routeLoaderTimer) {
+                    window.clearTimeout(routeLoaderTimer);
+                }
+
                 if(updateIntervalId) {
                     clearInterval(updateIntervalId);
                 }

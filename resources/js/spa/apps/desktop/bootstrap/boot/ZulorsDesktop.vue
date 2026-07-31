@@ -34,6 +34,8 @@
     
     import ApplicationMainLayout from '@D/layouts/ApplicationMainLayout.vue';
     import NetworkStatusBar from '@D/components/layout/parts/network/NetworkStatusBar.vue';
+
+    const maxBootScreenMs = 900;
     
     export default defineComponent({
         setup: function(_, context) {
@@ -43,6 +45,8 @@
             const appStore = useAppStore();
             const authStore = useAuthStore();
             let realtimeChannel = null;
+            let appShellReady = false;
+            let bootDeadlineTimer = null;
 
             const layoutType = computed(() => {
                 return route.meta.layout;
@@ -92,28 +96,62 @@
                 }
             };
 
+            const revealAppShell = () => {
+                if(appShellReady) {
+                    return;
+                }
+
+                appShellReady = true;
+                appLoading.value = false;
+
+                setupInteractionListeners();
+                setupRealtimePostUpdates();
+            };
+
+            const finishBootstrap = async (isBootstrapped) => {
+                if(bootDeadlineTimer) {
+                    window.clearTimeout(bootDeadlineTimer);
+                    bootDeadlineTimer = null;
+                }
+
+                if (! isBootstrapped) {
+                    revealAppShell();
+                    return;
+                }
+
+                if(route.meta.auth && ! authStore.authCheck) {
+                    window.location.href = embedder('routes.user_auth_index');
+                    return;
+                }
+
+                revealAppShell();
+                setupRealtimePostUpdates();
+            };
+
             onMounted(async () => {
+                appStore.hydrateCachedBootstrap();
+
+                if(authStore.authCheck) {
+                    revealAppShell();
+                }
+
+                bootDeadlineTimer = window.setTimeout(() => {
+                    revealAppShell();
+                }, maxBootScreenMs);
+
                 try {
                     const isBootstrapped = await appStore.bootstrapApplication();
 
-                    if (! isBootstrapped) {
-                        appLoading.value = false;
-                        return;
-                    }
-
-                    if(route.meta.auth && ! authStore.authCheck) {
-                        window.location.href = embedder('routes.user_auth_index');
-                        return;
-                    }
-
-                    appLoading.value = false;
-
-                    setupInteractionListeners();
-                    setupRealtimePostUpdates();
+                    await finishBootstrap(isBootstrapped);
                 } catch (error) {
+                    if(bootDeadlineTimer) {
+                        window.clearTimeout(bootDeadlineTimer);
+                        bootDeadlineTimer = null;
+                    }
+
                     console.error('Failed to bootstrap desktop application', error);
 
-                    appLoading.value = false;
+                    revealAppShell();
 
                     if (router.currentRoute.value.name !== 'bootstrap_error') {
                         await router.push({ name: 'bootstrap_error' });
@@ -122,6 +160,10 @@
             });
 
             onUnmounted(() => {
+                if(bootDeadlineTimer) {
+                    window.clearTimeout(bootDeadlineTimer);
+                }
+
                 removeInteractionListeners();
 
                 if(realtimeChannel) {
