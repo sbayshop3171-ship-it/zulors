@@ -140,7 +140,7 @@
                 progressLabel: progressLabel,
                 progressWidth: progressWidth,
                 frameWidthClass: computed(() => {
-                    return 'w-full';
+                    return props.isPortrait ? 'w-72' : 'w-full';
                 }),
                 frameStyle: computed(() => {
                     return videoFrameAspectStyle({

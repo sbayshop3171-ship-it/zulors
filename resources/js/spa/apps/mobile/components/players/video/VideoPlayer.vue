@@ -1,10 +1,8 @@
 <template>
-	<div
-		v-bind:style="playerFrameStyle"
-	class="relative flex w-full justify-center cursor-pointer bg-black overflow-hidden">
+	<div class="relative flex justify-center cursor-pointer">
 		<video
 			v-on:click="togglePlay"
-			class="size-full object-cover"
+			class="block w-full h-auto"
 			ref="videoPlayerRef"
 			webkit-playsinline
 			playsinline
@@ -53,10 +51,9 @@
 </template>
 
 <script>
-	import { defineComponent, computed, watch, reactive, onMounted, onUnmounted } from 'vue';
+	import { defineComponent, watch, reactive, onMounted, onUnmounted } from 'vue';
 	import { useIntersectionObserver } from '@/kernel/vue/composables/inter-obs/index.js';
 	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
-	import { buildVideoPresentationMetadata, videoFrameAspectStyle } from '@/kernel/services/media/video-metadata.js';
 
 	import PrimaryIconButton from '@M/components/inter-ui/buttons/PrimaryIconButton.vue';
 	import VideoDurationTime from '@/kernel/vue/components/media/video/VideoDurationTime.vue';
@@ -111,19 +108,10 @@
 				watchMsSinceFlush: 0,
 				totalWatchMs: 0,
 				lastPlaybackTime: 0,
-				presentationMetadata: {},
 				loopCount: 0,
 				sessionId: `video-${Date.now()}-${Math.random().toString(36).slice(2)}`,
 				telemetryTimer: null
 			});
-			const playerFrameStyle = computed(() => {
-				return videoFrameAspectStyle({
-					...(props.metadata || {}),
-					...(state.presentationMetadata || {}),
-					aspect_ratio: state.presentationMetadata?.aspect_ratio || props.aspectRatio || props.metadata?.aspect_ratio
-				}, props.isPortrait);
-			});
-
 			function startProgressUpdater() {
                 function updateProgress() {
 					if(! videoPlayerRef.value) {
@@ -166,25 +154,10 @@
 
 			const handleVideoReady = () => {
 				state.isLoaded = true;
-				updatePresentationMetadata();
 
 				if(isIntersecting.value) {
 					playVideo();
 				}
-			};
-
-			const updatePresentationMetadata = () => {
-				const videoElement = videoPlayerRef.value;
-
-				if(! videoElement?.videoWidth || ! videoElement?.videoHeight) {
-					return;
-				}
-
-				state.presentationMetadata = buildVideoPresentationMetadata(
-					videoElement.videoWidth,
-					videoElement.videoHeight,
-					videoElement.duration
-				);
 			};
 
 			onMounted(() => {
@@ -364,10 +337,9 @@
             };
 
 				return {
-					videoPlayerRef: videoPlayerRef,
-					state: state,
-					playerFrameStyle: playerFrameStyle,
-					toggleMute: toggleMute,
+				videoPlayerRef: videoPlayerRef,
+				state: state,
+				toggleMute: toggleMute,
 				toggleFullscreen: toggleFullscreen,
                 seekVideo: seekVideo,
 				togglePlay: () => {
