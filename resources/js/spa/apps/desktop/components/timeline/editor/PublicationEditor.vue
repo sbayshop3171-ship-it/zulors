@@ -227,6 +227,7 @@
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
     import { imagePasteHandler } from '@/kernel/events/image-paste/index.js';
+    import { applyVideoPresentationMetadata, readVideoFileMetadata } from '@/kernel/services/media/video-metadata.js';
     import { useCheatSheet } from '@D/core/composables/cheat-sheet/index.js';
     import { useInputHandlers } from '@/kernel/vue/composables/input/index.js';
     import { useAuthStore } from '@D/store/auth/auth.store.js';
@@ -892,6 +893,7 @@
 
                 const localPreview = createLocalMediaPreview(mediaFile, 'video');
                 let uploadData = null;
+                let presentationMetadata = {};
 
                 if(localPreview) {
                     clearLocalMediaPreviews();
@@ -900,12 +902,20 @@
 
                 try {
                     state.postMediaUploadProgress = 5;
+                    presentationMetadata = await readVideoFileMetadata(mediaFile);
+
+                    if(localPreview) {
+                        applyVideoPresentationMetadata(localPreview, presentationMetadata);
+                    }
 
                     const response = await colibriAPI().postEditor().with({
                         name: mediaFile.name || 'video',
                         size: mediaFile.size,
                         mime: mediaFile.type || 'video/mp4',
-                        extension: getFileExtension(mediaFile)
+                        extension: getFileExtension(mediaFile),
+                        width: presentationMetadata.dimensions?.width || null,
+                        height: presentationMetadata.dimensions?.height || null,
+                        duration_seconds: presentationMetadata.duration_seconds || null
                     }).sendTo('media/video/direct/create');
 
                     uploadData = getUploadResponseData(response);

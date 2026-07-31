@@ -1,6 +1,6 @@
 <template>
     <div
-        v-bind:class="frameClass"
+        v-bind:style="frameStyle"
     class="w-full bg-fill-pr overflow-hidden relative">
         <img v-if="mediaItem.thumbnail_url" v-bind:src="mediaItem.thumbnail_url" class="size-full object-cover" alt="Video thumbnail">
         <div v-else class="size-full flex-center bg-fill-tr text-lab-sc">
@@ -28,6 +28,7 @@
     import { useTimelineStore } from '@M/store/timeline/timeline.store.js';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
     import { MediaStatusUtils } from '@/kernel/enums/post/media.status.js';
+    import { videoFrameAspectStyle } from '@/kernel/services/media/video-metadata.js';
     import BRD from '@/kernel/websockets/brd/index.js';
 
     export default defineComponent({
@@ -39,6 +40,10 @@
             isPortrait: {
                 type: Boolean,
                 default: false
+            },
+            aspectRatio: {
+                type: [Number, String],
+                default: null
             }
         },
         setup: function(props) {
@@ -129,8 +134,11 @@
                 progress: progress,
                 progressLabel: progressLabel,
                 progressWidth: progressWidth,
-                frameClass: computed(() => {
-                    return props.isPortrait ? 'aspect-[9/16]' : 'aspect-video';
+                frameStyle: computed(() => {
+                    return videoFrameAspectStyle({
+                        ...(mediaItem.value?.metadata || {}),
+                        aspect_ratio: props.aspectRatio || mediaItem.value?.metadata?.aspect_ratio
+                    }, props.isPortrait);
                 })
             }
         }

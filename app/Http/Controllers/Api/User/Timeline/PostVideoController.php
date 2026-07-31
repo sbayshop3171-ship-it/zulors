@@ -84,8 +84,6 @@ class PostVideoController extends Controller
 
                 $videoThumbnailPath = $this->videoThumbnailService->generateThumbnail($videoData['video_path']);
 
-                $isPortrait = $this->isVideoPortrait($videoThumbnailPath);
-
                 $imageData = $this->imageUploadService
                     ->load($videoThumbnailPath)
                     ->setNamespace(Filesystem::mediaNamespace('posts/video_thumbnails'))
@@ -107,7 +105,10 @@ class PostVideoController extends Controller
                     'thumbnail_disk' => $imageData['disk'],
                     'metadata' => [
                         'duration' => $videoData['duration'],
-                        'is_portrait' => $isPortrait
+                        'duration_seconds' => $videoData['seconds'],
+                        'dimensions' => $videoData['dimensions'],
+                        'aspect_ratio' => $videoData['aspect_ratio'],
+                        'is_portrait' => $videoData['is_portrait']
                     ]
                 ]);
 
@@ -145,24 +146,6 @@ class PostVideoController extends Controller
                 ]
             ]);
         }
-    }
-
-    private function isVideoPortrait(string $videoPath)
-    {
-        try {
-            list($width, $height) = $this->getVideoDimensions($videoPath);
-
-            return $width < $height;
-        } catch (Exception $e) {
-            return false;
-        }
-    }
-
-    private function getVideoDimensions(string $videoPath)
-    {
-        list($width, $height) = getimagesize($videoPath);
-
-        return [$width, $height];
     }
 
     private function resetDraftPostTypeAfterFailedAttachment(bool $wasChangedToVideo): void

@@ -1,6 +1,6 @@
 <template>
 	<div
-		v-bind:class="playerFrameClass"
+		v-bind:style="playerFrameStyle"
 	class="relative flex w-full justify-center cursor-pointer group bg-black overflow-hidden">
 		<video
 			v-on:click="togglePlay"
@@ -62,6 +62,7 @@
 	import { defineComponent, computed, watch, reactive, onMounted, onUnmounted } from 'vue';
 	import { useIntersectionObserver } from '@/kernel/vue/composables/inter-obs/index.js';
 	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
+	import { buildVideoPresentationMetadata, videoFrameAspectStyle } from '@/kernel/services/media/video-metadata.js';
 
 	import PrimaryIconButton from '@D/components/inter-ui/buttons/PrimaryIconButton.vue';
 	import VideoDurationTime from '@/kernel/vue/components/media/video/VideoDurationTime.vue';
@@ -74,7 +75,7 @@
 			},
 			duration: {
 				type: Object,
-				required: true
+				default: () => ({})
 			},
 			thumbnailUrl: {
 				type: String,
@@ -83,6 +84,14 @@
 			isPortrait: {
 				type: Boolean,
 				default: false
+			},
+			aspectRatio: {
+				type: [Number, String],
+				default: null
+			},
+			metadata: {
+				type: Object,
+				default: () => ({})
 			},
 			postId: {
 				type: [Number, String],
@@ -108,12 +117,17 @@
 				watchMsSinceFlush: 0,
 				totalWatchMs: 0,
 				lastPlaybackTime: 0,
+				presentationMetadata: {},
 				loopCount: 0,
 				sessionId: `video-${Date.now()}-${Math.random().toString(36).slice(2)}`,
 				telemetryTimer: null
 			});
-			const playerFrameClass = computed(() => {
-				return props.isPortrait ? 'aspect-[9/16]' : 'aspect-video';
+			const playerFrameStyle = computed(() => {
+				return videoFrameAspectStyle({
+					...(props.metadata || {}),
+					...(state.presentationMetadata || {}),
+					aspect_ratio: state.presentationMetadata?.aspect_ratio || props.aspectRatio || props.metadata?.aspect_ratio
+				}, props.isPortrait);
 			});
 
 			function startProgressUpdater() {
@@ -158,10 +172,25 @@
 
 			const handleVideoReady = () => {
 				state.isLoaded = true;
+				updatePresentationMetadata();
 
 				if(isIntersecting.value) {
 					playVideo();
 				}
+			};
+
+			const updatePresentationMetadata = () => {
+				const videoElement = videoPlayerRef.value;
+
+				if(! videoElement?.videoWidth || ! videoElement?.videoHeight) {
+					return;
+				}
+
+				state.presentationMetadata = buildVideoPresentationMetadata(
+					videoElement.videoWidth,
+					videoElement.videoHeight,
+					videoElement.duration
+				);
 			};
 
 			onMounted(() => {
@@ -331,12 +360,12 @@
                 }
             };
 
-            const seekVideo = (event) => {
-                const progressBar = event.currentTarget;
-                const rect = progressBar.getBoundingClientRect();
-                const clickPosition = (event.clientX - rect.left);
-                const percentage = (clickPosition / rect.width);
-                const newTime = (props.duration.seconds * percentage);
+	            const seekVideo = (event) => {
+	                const progressBar = event.currentTarget;
+	                const rect = progressBar.getBoundingClientRect();
+	                const clickPosition = (event.clientX - rect.left);
+	                const percentage = (clickPosition / rect.width);
+	                const newTime = (videoDurationSeconds() * percentage);
 
 				if(! videoPlayerRef.value) {
 					return false;
@@ -349,11 +378,11 @@
                 }
             };
 
-			return {
-				videoPlayerRef: videoPlayerRef,
-				state: state,
-				playerFrameClass: playerFrameClass,
-				toggleMute: toggleMute,
+				return {
+					videoPlayerRef: videoPlayerRef,
+					state: state,
+					playerFrameStyle: playerFrameStyle,
+					toggleMute: toggleMute,
                 toggleFullscreen: toggleFullscreen,
                 togglePIP: togglePIP,
                 seekVideo: seekVideo,

@@ -87,12 +87,16 @@ class VideoUploadService extends AbstractUploadService
             }
 
             $videoOriginalDuration = $this->getVideoDuration($videoTempPath);
+            $videoDimensions = $this->getVideoDimensions($videoTempPath);
 
             return [
                 'disk' => $this->storageDisk,
                 'video_path' => $videoTempPath,
                 'duration' => parse_duration(intval($videoOriginalDuration)),
-                'seconds' => intval($videoOriginalDuration)
+                'seconds' => intval($videoOriginalDuration),
+                'dimensions' => $videoDimensions,
+                'aspect_ratio' => $this->aspectRatio($videoDimensions),
+                'is_portrait' => $this->isPortrait($videoDimensions),
             ];
         }
 
@@ -131,6 +135,40 @@ class VideoUploadService extends AbstractUploadService
         }
     }
 
+    public function getVideoDimensions(string $videoLocalPath): array
+    {
+        $retries = 5;
+
+        try {
+            return retry($retries, function() use ($videoLocalPath) {
+                $videoLocalAbsolutePath = is_file($videoLocalPath)
+                    ? $videoLocalPath
+                    : storage_local_path($videoLocalPath);
+
+                if(! file_exists($videoLocalAbsolutePath)) {
+                    $this->makeFFMpegException("The video file does not exist at location: {$videoLocalAbsolutePath}");
+                }
+
+                $stream = $this->getFFProbe()->streams($videoLocalAbsolutePath)->videos()->first();
+
+                if(empty($stream)) {
+                    return [
+                        'width' => 0,
+                        'height' => 0,
+                    ];
+                }
+
+                return [
+                    'width' => max(0, (int) $stream->get('width')),
+                    'height' => max(0, (int) $stream->get('height')),
+                ];
+            }, 1000);
+        }
+        catch (Exception $e) {
+            $this->makeFFMpegException("FFprobe failed to get video dimensions after {$retries} attempts. {$e->getMessage()}");
+        }
+    }
+
     public function generateVideoTemporaryFilePath($videoExtension = null)
     {
         $uuid = Str::uuid();
@@ -150,5 +188,21 @@ class VideoUploadService extends AbstractUploadService
         }
 
         return $options;
+    }
+
+    private function aspectRatio(array $dimensions): ?float
+    {
+        $width = (int) ($dimensions['width'] ?? 0);
+        $height = (int) ($dimensions['height'] ?? 0);
+
+        return ($width > 0 && $height > 0) ? round($width / $height, 6) : null;
+    }
+
+    private function isPortrait(array $dimensions): bool
+    {
+        $width = (int) ($dimensions['width'] ?? 0);
+        $height = (int) ($dimensions['height'] ?? 0);
+
+        return $width > 0 && $height > 0 && $width < $height;
     }
 }

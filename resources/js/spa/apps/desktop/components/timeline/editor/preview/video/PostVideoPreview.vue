@@ -1,5 +1,8 @@
 <template>
-	<div class="bg-black border border-bord-card flex justify-center rounded-2xl max-h-[620px] overflow-hidden relative">
+	<div
+		v-bind:class="frameWidthClass"
+		v-bind:style="frameStyle"
+	class="bg-black border border-bord-card flex justify-center rounded-2xl overflow-hidden relative">
 		<template v-if="mediaItem.deleted">
 			<MediaBlurOverlay></MediaBlurOverlay>
 		</template>
@@ -10,8 +13,9 @@
 			</div>
 		</template>
 
-		<div class="w-full">
+		<div class="size-full">
 			<video
+				v-on:loadedmetadata="captureVideoMetadata"
 				controls
 				playsinline
 				preload="metadata"
@@ -28,6 +32,7 @@
 
 <script>
 	import { defineComponent, computed } from 'vue';
+	import { applyVideoPresentationMetadata, buildVideoPresentationMetadata, isVideoPortrait, videoFrameAspectStyle } from '@/kernel/services/media/video-metadata.js';
 
 	import MediaBlurOverlay from '@D/components/timeline/editor/animations/MediaBlurOverlay.vue';
 	import MediaDeleteButton from '@D/components/timeline/editor/buttons/MediaDeleteButton.vue';
@@ -53,6 +58,21 @@
 				mediaDuration: computed(() => {
 					return props.mediaItem.metadata?.duration || null;
 				}),
+				frameWidthClass: computed(() => {
+					return isVideoPortrait(props.mediaItem.metadata) ? 'w-full max-w-[348px] mx-auto' : 'w-full';
+				}),
+				frameStyle: computed(() => {
+					return videoFrameAspectStyle(props.mediaItem.metadata, isVideoPortrait(props.mediaItem.metadata));
+				}),
+				captureVideoMetadata: (event) => {
+					const videoElement = event.currentTarget;
+
+					applyVideoPresentationMetadata(props.mediaItem, buildVideoPresentationMetadata(
+						videoElement.videoWidth,
+						videoElement.videoHeight,
+						videoElement.duration
+					));
+				},
 				canDelete: computed(() => {
 					return props.canDelete;
 				})

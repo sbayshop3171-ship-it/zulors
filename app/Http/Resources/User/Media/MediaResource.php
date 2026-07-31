@@ -36,6 +36,9 @@ class MediaResource extends JsonResource
             if($this->type->isVideo()) {
                 $metadata = Arr::only($metadata, [
                     'duration',
+                    'duration_seconds',
+                    'dimensions',
+                    'aspect_ratio',
                     'is_portrait',
                     'provider',
                     'cloudflare_uid',

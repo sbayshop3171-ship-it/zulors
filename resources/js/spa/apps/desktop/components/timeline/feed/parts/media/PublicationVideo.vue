@@ -3,9 +3,10 @@
 		<PublicationVideoProcessing
 			v-if="!canPlayImmediately"
 			v-bind:mediaItem="mediaItem"
-			v-bind:isPortrait="isPortrait"></PublicationVideoProcessing>
+			v-bind:isPortrait="isPortrait"
+			v-bind:aspectRatio="mediaAspectRatio"></PublicationVideoProcessing>
 		<div v-else
-			v-bind:class="[isPortrait ? 'w-72' : 'w-full']"
+			v-bind:class="mediaFrameClass"
 		class="bg-fill-pr block border border-bord-card rounded-xl overflow-hidden">
 			<VideoPlayer
 				v-bind:postId="mediaItem.mediaable_id"
@@ -13,6 +14,8 @@
 				v-bind:thumbnailUrl="mediaItem.thumbnail_url"
 				v-bind:duration="mediaItem.metadata.duration"
 				v-bind:isPortrait="isPortrait"
+				v-bind:metadata="mediaItem.metadata"
+				v-bind:aspectRatio="mediaAspectRatio"
 			v-bind:videoUrl="mediaItem.preview_url || mediaItem.source_url"></VideoPlayer>
 		</div>
 	</div>
@@ -24,6 +27,7 @@
 	import { useAuthStore } from '@D/store/auth/auth.store.js';
 	import { MediaStatusUtils } from '@/kernel/enums/post/media.status.js';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
+	import { isVideoPortrait, normalizeVideoAspectRatio } from '@/kernel/services/media/video-metadata.js';
 	import BRD from '@/kernel/websockets/brd/index.js';
 
 	import VideoPlayer from '@D/components/players/video/VideoPlayer.vue';
@@ -96,13 +100,25 @@
 				colibriEventBus.off('timeline:media-updated', syncMediaEvent);
 			});
 
+			const isPortrait = computed(() => {
+				return isVideoPortrait(mediaItem.value.metadata, Boolean(mediaItem.value.metadata?.is_portrait));
+			});
+
+			const mediaAspectRatio = computed(() => {
+				return normalizeVideoAspectRatio(mediaItem.value.metadata, isPortrait.value);
+			});
+
+			const mediaFrameClass = computed(() => {
+				return isPortrait.value ? 'w-full max-w-[348px] mx-auto' : 'w-full';
+			});
+
 			return {
 				mediaItem: mediaItem,
 				canPlayImmediately: canPlayImmediately,
 				MediaStatusUtils: MediaStatusUtils,
-				isPortrait: computed(() => {
-					return Boolean(mediaItem.value.metadata?.is_portrait);
-				})
+				isPortrait: isPortrait,
+				mediaAspectRatio: mediaAspectRatio,
+				mediaFrameClass: mediaFrameClass
 			};
 		},
 		components: {

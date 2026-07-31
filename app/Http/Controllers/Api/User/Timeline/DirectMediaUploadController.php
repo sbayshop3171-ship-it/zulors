@@ -34,7 +34,11 @@ class DirectMediaUploadController extends Controller
             'size' => ['nullable', 'integer', 'min:1'],
             'mime' => ['nullable', 'string', 'max:120'],
             'extension' => ['nullable', 'string', 'max:16'],
+            'width' => ['nullable', 'integer', 'min:1', 'max:20000'],
+            'height' => ['nullable', 'integer', 'min:1', 'max:20000'],
+            'duration_seconds' => ['nullable', 'numeric', 'min:0', 'max:86400'],
         ]);
+        $presentationMetadata = $this->videoPresentationMetadata($request);
 
         if(! $r2DirectUploadService->isConfigured() && ! $cloudflareStreamService->isConfigured()) {
             return $this->responseSuccess([
@@ -85,7 +89,7 @@ class DirectMediaUploadController extends Controller
                     'extension' => $request->input('extension', 'mp4'),
                     'mime' => $request->input('mime', 'video/mp4'),
                     'size' => $request->integer('size', 0),
-                    'metadata' => [
+                    'metadata' => array_merge($presentationMetadata, [
                         'provider' => $uploadData['provider'],
                         'temp_disk' => $uploadData['disk'],
                         'upload_disk' => $uploadData['upload_disk'] ?? $uploadData['disk'],
@@ -102,7 +106,7 @@ class DirectMediaUploadController extends Controller
                         'processing_progress' => 0,
                         'processing_state' => 'waiting_for_upload',
                         'original_name' => (string) $request->input('name'),
-                    ]
+                    ])
                 ]);
 
                 return $this->responseSuccess([
@@ -143,7 +147,7 @@ class DirectMediaUploadController extends Controller
                 'size' => $request->integer('size', 0),
                 'thumbnail_path' => $uploadData['playback']['thumbnail'] ?? null,
                 'thumbnail_disk' => 'cloudflare_stream',
-                'metadata' => [
+                'metadata' => array_merge($presentationMetadata, [
                     'provider' => 'cloudflare_stream',
                     'cloudflare_uid' => $uploadData['uid'],
                     'upload_state' => 'waiting_for_upload',
@@ -153,7 +157,7 @@ class DirectMediaUploadController extends Controller
                     'processing_state' => 'waiting_for_upload',
                     'playback' => $uploadData['playback'],
                     'original_name' => (string) $request->input('name'),
-                ]
+                ])
             ]);
 
             return $this->responseSuccess([
@@ -677,6 +681,32 @@ class DirectMediaUploadController extends Controller
                 'etag' => $etag,
             ]
         ]);
+    }
+
+    private function videoPresentationMetadata(Request $request): array
+    {
+        $width = $request->integer('width', 0);
+        $height = $request->integer('height', 0);
+        $durationSeconds = (float) $request->input('duration_seconds', 0);
+        $metadata = [];
+
+        if($width > 0 && $height > 0) {
+            $metadata['dimensions'] = [
+                'width' => $width,
+                'height' => $height,
+            ];
+            $metadata['aspect_ratio'] = round($width / $height, 6);
+            $metadata['is_portrait'] = $width < $height;
+        }
+
+        if($durationSeconds > 0) {
+            $seconds = (int) round($durationSeconds);
+
+            $metadata['duration_seconds'] = $seconds;
+            $metadata['duration'] = parse_duration($seconds);
+        }
+
+        return $metadata;
     }
 
     private function openRawRequestStream(Request $request): ?array

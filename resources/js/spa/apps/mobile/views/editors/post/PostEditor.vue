@@ -84,6 +84,7 @@
 	import { useRouter } from 'vue-router';
 	import { useInputHandlers } from '@/kernel/vue/composables/input/index.js';
 	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
+	import { applyVideoPresentationMetadata, readVideoFileMetadata } from '@/kernel/services/media/video-metadata.js';
 	import { usePostEditorStore } from '@M/store/timeline/editor.store.js';
 	import { useAuthStore } from '@M/store/auth/auth.store.js';
 		import { PostTypeUtils, PostType } from '@/kernel/enums/post/post.type.js';
@@ -676,10 +677,16 @@
 
 				const localPreview = shouldCreatePreview ? createLocalMediaPreview(mediaFile, type) : null;
 
-				if (localPreview) {
-					clearLocalMediaPreviews();
-					state.localMediaPreviews.push(localPreview);
-				}
+					if (localPreview) {
+						clearLocalMediaPreviews();
+						state.localMediaPreviews.push(localPreview);
+
+						if(type === 'video') {
+							readVideoFileMetadata(mediaFile).then((metadata) => {
+								applyVideoPresentationMetadata(localPreview, metadata);
+							});
+						}
+					}
 
                 const formData = new FormData();
                 formData.append(type, mediaFile);
@@ -733,6 +740,7 @@
 
 				const localPreview = createLocalMediaPreview(mediaFile, 'video');
 				let uploadData = null;
+				let presentationMetadata = {};
 
 				if(localPreview) {
 					clearLocalMediaPreviews();
@@ -741,12 +749,20 @@
 
 				try {
 					state.uploadProgress = 5;
+					presentationMetadata = await readVideoFileMetadata(mediaFile);
+
+					if(localPreview) {
+						applyVideoPresentationMetadata(localPreview, presentationMetadata);
+					}
 
 					const response = await colibriAPI().postEditor().with({
 						name: mediaFile.name || 'video',
 						size: mediaFile.size,
 						mime: mediaFile.type || 'video/mp4',
-						extension: getFileExtension(mediaFile)
+						extension: getFileExtension(mediaFile),
+						width: presentationMetadata.dimensions?.width || null,
+						height: presentationMetadata.dimensions?.height || null,
+						duration_seconds: presentationMetadata.duration_seconds || null
 					}).sendTo('media/video/direct/create');
 
 					uploadData = getUploadResponseData(response);

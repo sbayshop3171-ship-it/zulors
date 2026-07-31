@@ -100,12 +100,20 @@ class TimelineDataIntegrityTest extends TestCase
                 'size' => 1024,
                 'mime' => 'video/mp4',
                 'extension' => 'mp4',
+                'width' => 1080,
+                'height' => 1920,
+                'duration_seconds' => 28,
             ])
             ->assertOk()
             ->assertJsonPath('data.direct_upload', true)
             ->assertJsonPath('data.upload_stall_timeout_ms', 300000)
             ->assertJsonPath('data.raw_fallback_max_bytes', 8388608)
             ->assertJsonPath('data.part_fallback_max_bytes', 16777216)
+            ->assertJsonPath('data.media.metadata.dimensions.width', 1080)
+            ->assertJsonPath('data.media.metadata.dimensions.height', 1920)
+            ->assertJsonPath('data.media.metadata.aspect_ratio', 0.5625)
+            ->assertJsonPath('data.media.metadata.is_portrait', true)
+            ->assertJsonPath('data.media.metadata.duration_seconds', 28)
             ->assertJsonPath('data.media.type', MediaKind::VIDEO->value);
 
         $this->assertDatabaseHas('posts', [

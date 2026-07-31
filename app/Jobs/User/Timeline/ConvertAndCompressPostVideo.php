@@ -140,6 +140,7 @@ class ConvertAndCompressPostVideo implements ShouldQueue
 
             if(file_exists($videoNewAbsLocalPath)) {
                 $targetDisk = $this->targetStorageDisk($postMedia);
+                $videoPresentationMetadata = $this->videoPresentationMetadata($videoUploadService, $videoNewAbsLocalPath);
 
                 $this->updateProcessingProgress($postMedia, 88, 'thumbnailing');
 
@@ -167,7 +168,7 @@ class ConvertAndCompressPostVideo implements ShouldQueue
                 $postMedia->extension = $videoUploadService->videoDefaultExtension;
                 $postMedia->mime = 'video/mp4';
                 $postMedia->size = $videoData['video_size'] ?? filesize($videoNewAbsLocalPath);
-                $postMedia->metadata = array_merge($metadata, [
+                $postMedia->metadata = array_merge($metadata, $videoPresentationMetadata, [
                     'provider' => data_get($metadata, 'provider') === 'r2_temp' ? 'r2' : data_get($metadata, 'provider'),
                     'processed_at' => now()->toIso8601String(),
                     'processing_progress' => 100,
@@ -373,6 +374,8 @@ class ConvertAndCompressPostVideo implements ShouldQueue
             Log::warning('Video thumbnail fallback skipped. Error: ' . $thumbnailException->getMessage());
         }
 
+        $videoPresentationMetadata = $this->videoPresentationMetadata($videoUploadService, storage_local_path($videoTempOldPath));
+
         $videoData = $videoUploadService
             ->setStorageDisk($targetDisk)
             ->setNamespace(Filesystem::mediaNamespace('posts/videos'))
@@ -389,7 +392,7 @@ class ConvertAndCompressPostVideo implements ShouldQueue
         $postMedia->extension = $videoUploadService->videoDefaultExtension;
         $postMedia->mime = 'video/mp4';
         $postMedia->size = $videoData['video_size'] ?? 0;
-        $postMedia->metadata = array_merge($metadata, [
+        $postMedia->metadata = array_merge($metadata, $videoPresentationMetadata, [
             'provider' => 'r2',
             'processed_at' => now()->toIso8601String(),
             'processing_progress' => 100,
@@ -517,7 +520,7 @@ class ConvertAndCompressPostVideo implements ShouldQueue
             ->upload();
 
         $metadata = $postMedia->metadata ?? [];
-        $metadata['is_portrait'] = $this->isImagePortrait($thumbnailLocalPath);
+        $metadata = array_merge($metadata, $this->imagePresentationMetadata($thumbnailLocalPath));
 
         $postMedia->thumbnail_path = $imageData['image_path'];
         $postMedia->thumbnail_size = $imageData['image_size'];
@@ -548,15 +551,51 @@ class ConvertAndCompressPostVideo implements ShouldQueue
         return max(0, min(100, (int) round((1 - ($newSize / $oldSize)) * 100)));
     }
 
-    private function isImagePortrait(string $imagePath): bool
+    private function videoPresentationMetadata(VideoUploadService $videoUploadService, string $videoLocalPath): array
+    {
+        try {
+            return $this->presentationMetadataFromDimensions(
+                $videoUploadService->getVideoDimensions($videoLocalPath)
+            );
+        }
+        catch (\Throwable $e) {
+            Log::warning('Video dimensions metadata skipped. Error: ' . $e->getMessage());
+
+            return [];
+        }
+    }
+
+    private function imagePresentationMetadata(string $imagePath): array
     {
         $dimensions = getimagesize($imagePath);
 
         if(empty($dimensions)) {
-            return false;
+            return [];
         }
 
-        return $dimensions[0] < $dimensions[1];
+        return $this->presentationMetadataFromDimensions([
+            'width' => (int) $dimensions[0],
+            'height' => (int) $dimensions[1],
+        ]);
+    }
+
+    private function presentationMetadataFromDimensions(array $dimensions): array
+    {
+        $width = (int) ($dimensions['width'] ?? 0);
+        $height = (int) ($dimensions['height'] ?? 0);
+
+        if($width < 1 || $height < 1) {
+            return [];
+        }
+
+        return [
+            'dimensions' => [
+                'width' => $width,
+                'height' => $height,
+            ],
+            'aspect_ratio' => round($width / $height, 6),
+            'is_portrait' => $width < $height,
+        ];
     }
 
     private function makeEven(int $value): int
