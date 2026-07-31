@@ -102,9 +102,6 @@
     import { useAuthStore } from '@D/store/auth/auth.store.js';
     import { useNotificationsStore } from '@D/store/notifications/notifications.store.js';
     import { useInboxStore } from '@D/store/chats/inbox.store.js';
-    import { useTimelineStore } from '@D/store/timeline/timeline.store.js';
-    import { useExplorePostsStore } from '@D/store/explore/posts.store.js';
-    import { useExplorePeopleStore } from '@D/store/explore/people.store.js';
     import useToastNotificationStore from '@D/store/toast/toast.store.js';
     import { colibriSounds } from '@/kernel/services/sounds/index.js';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
@@ -117,9 +114,6 @@
             const authStore = useAuthStore();
             const notificationsStore = useNotificationsStore();
             const inboxStore = useInboxStore();
-            const timelineStore = useTimelineStore();
-            const explorePostsStore = useExplorePostsStore();
-            const explorePeopleStore = useExplorePeopleStore();
             const toastStore = useToastNotificationStore();
             let isListening = false;
             let unreadRefreshTimer = null;
@@ -224,10 +218,6 @@
                     if(document.visibilityState === 'hidden') {
                         return;
                     }
-
-                    timelineStore.initialLoad();
-                    explorePostsStore.warmFirstPage();
-                    explorePeopleStore.warmFirstPage();
 
                     import('@D/views/home/HomeIndex.vue');
                     import('@D/views/explore/children/posts/ExplorePosts.vue');

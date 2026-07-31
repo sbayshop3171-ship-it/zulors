@@ -50,6 +50,18 @@
         z-index: 1000;
         min-width: 0;
         background: var(--color-bg-pr, {{ $bootBackgroundColor }});
+        pointer-events: none;
+    }
+
+    .zulors-boot-shell--desktop.zulors-route-loader {
+        left: var(--spacing-page-offset, 340px);
+        width: calc(100% - var(--spacing-page-offset, 340px));
+    }
+
+    .zulors-boot-shell--mobile.zulors-route-loader {
+        top: 56px;
+        bottom: calc(56px + env(safe-area-inset-bottom));
+        min-height: 0;
     }
 
     .zulors-boot-logo {

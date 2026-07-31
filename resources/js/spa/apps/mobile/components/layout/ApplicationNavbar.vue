@@ -64,9 +64,6 @@
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { useMenu } from '@/kernel/vue/composables/menu/index.js';
 	import { useInboxStore } from '@M/store/chats/inbox.store.js';
-	import { useTimelineStore } from '@M/store/timeline/timeline.store.js';
-	import { useExplorePostsStore } from '@M/store/explore/posts.store.js';
-	import { useExplorePeopleStore } from '@M/store/explore/people.store.js';
 	import useToastNotificationStore from '@M/store/toast/toast.store.js';
 	import { colibriSounds } from '@/kernel/services/sounds/index.js';
 	import BRD from '@/kernel/websockets/brd/index.js';
@@ -83,9 +80,6 @@
 		setup: function() {
 			const authStore = useAuthStore();
 			const inboxStore = useInboxStore();
-			const timelineStore = useTimelineStore();
-			const explorePostsStore = useExplorePostsStore();
-			const explorePeopleStore = useExplorePeopleStore();
 			const toastStore = useToastNotificationStore();
 			const state = reactive({
 				mainMenu: useMenu()
@@ -183,10 +177,6 @@
 					if(document.visibilityState === 'hidden') {
 						return;
 					}
-
-					timelineStore.initialLoad();
-					explorePostsStore.warmFirstPage();
-					explorePeopleStore.warmFirstPage();
 
 					import('@M/views/home/HomeIndex.vue');
 					import('@M/views/explore/children/posts/ExplorePosts.vue');

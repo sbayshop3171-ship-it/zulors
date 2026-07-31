@@ -1,4 +1,7 @@
 const prefetchedUrls = new Set();
+let queuedPosts = [];
+let queuedLimit = 0;
+let prefetchHandle = null;
 
 function canPrefetch() {
     return typeof window !== 'undefined' && typeof document !== 'undefined';
@@ -60,16 +63,46 @@ function prefetchTimelineMedia(posts = [], limit = 8) {
         return;
     }
 
-    const state = {
-        count: 0,
-        limit: limit
+    queuedPosts = queuedPosts.concat(posts.slice(0, Math.max(limit * 3, limit)));
+    queuedLimit = Math.max(queuedLimit, limit);
+
+    if(prefetchHandle) {
+        return;
+    }
+
+    const runPrefetch = () => {
+        prefetchHandle = null;
+
+        if(document.visibilityState === 'hidden') {
+            queuedPosts = [];
+            queuedLimit = 0;
+
+            return;
+        }
+
+        const postsBatch = queuedPosts.splice(0);
+        const limitBatch = queuedLimit || limit;
+
+        queuedLimit = 0;
+
+        const state = {
+            count: 0,
+            limit: limitBatch
+        };
+
+        postsBatch.some((postData) => {
+            prefetchPostMedia(postData, state);
+
+            return state.count >= state.limit;
+        });
     };
 
-    posts.some((postData) => {
-        prefetchPostMedia(postData, state);
-
-        return state.count >= state.limit;
-    });
+    if('requestIdleCallback' in window) {
+        prefetchHandle = window.requestIdleCallback(runPrefetch, { timeout: 2500 });
+    }
+    else {
+        prefetchHandle = window.setTimeout(runPrefetch, 1200);
+    }
 }
 
 export { prefetchTimelineMedia };
