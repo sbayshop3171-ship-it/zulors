@@ -1000,16 +1000,6 @@
                     state.directVideoUploadReady = false;
                     markDirectUploadFailed(uploadData);
 
-                    try {
-                        await postEditorStore.fetchDraftPost({
-                            preserveContent: true
-                        });
-                        clearLocalMediaPreviews();
-                    }
-                    catch (draftError) {
-                        // Keep the local preview visible when the recovery request also fails.
-                    }
-
                     toastError(error.response?.data?.message || error.message || 'Upload failed');
                 }
 

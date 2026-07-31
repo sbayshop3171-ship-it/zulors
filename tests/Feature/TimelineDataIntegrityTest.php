@@ -132,7 +132,90 @@ class TimelineDataIntegrityTest extends TestCase
         ]);
     }
 
-    public function test_r2_direct_upload_part_fallback_defaults_to_multipart_part_size(): void
+    public function test_failed_direct_video_draft_is_cleared_before_retrying_upload(): void
+    {
+        $author = $this->createUser('failed-video-draft-retry-author');
+
+        $draft = $this->createPost($author, 'Keep this retry caption', null, [
+            'status' => PostStatus::DRAFT,
+            'type' => PostType::VIDEO,
+        ]);
+
+        $failedMedia = $draft->media()->create([
+            'source_path' => 'uploads/posts/videos/failed-direct.mp4',
+            'type' => MediaKind::VIDEO,
+            'status' => MediaStatus::FAILED,
+            'disk' => 'r2_final',
+            'extension' => 'mp4',
+            'mime' => 'video/mp4',
+            'size' => 1024,
+            'metadata' => [
+                'provider' => 'r2_direct',
+                'upload_state' => 'failed',
+                'upload_progress' => 40,
+                'processing_state' => 'failed',
+            ],
+        ]);
+
+        app()->instance(R2DirectUploadService::class, new class extends R2DirectUploadService {
+            public function isConfigured(): bool
+            {
+                return true;
+            }
+
+            public function createVideoUpload(array $fileData = []): array
+            {
+                return [
+                    'provider' => 'r2_direct',
+                    'uid' => 'uploads/posts/videos/retry-direct.mp4',
+                    'path' => 'uploads/posts/videos/retry-direct.mp4',
+                    'disk' => 'r2_final',
+                    'final_disk' => 'r2_final',
+                    'upload_url' => 'https://uploads.example.test/retry-direct.mp4',
+                    'upload_method' => 'PUT',
+                    'upload_type' => 'raw',
+                    'upload_headers' => [],
+                    'upload_concurrency' => 4,
+                    'upload_stall_timeout_ms' => 300000,
+                    'raw_fallback_max_bytes' => 0,
+                    'part_fallback_max_bytes' => 0,
+                    'expires_at' => now()->addMinutes(30)->toIso8601String(),
+                ];
+            }
+        });
+
+        $this->actingAs($author)
+            ->withoutMiddleware()
+            ->postJson('/api/post/editor/media/video/direct/create', [
+                'name' => 'retry.mp4',
+                'size' => 4096,
+                'mime' => 'video/mp4',
+                'extension' => 'mp4',
+                'duration_seconds' => 15,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.direct_upload', true)
+            ->assertJsonPath('data.part_fallback_max_bytes', 0);
+
+        $this->assertDatabaseMissing('media', [
+            'id' => $failedMedia->id,
+        ]);
+
+        $draft->refresh();
+
+        $this->assertSame('Keep this retry caption', $draft->content);
+        $this->assertSame(PostType::VIDEO, $draft->type);
+        $this->assertSame(1, $draft->media()->count());
+
+        $this->assertDatabaseHas('media', [
+            'mediaable_id' => $draft->id,
+            'type' => MediaKind::VIDEO->value,
+            'status' => MediaStatus::PROCESSING->value,
+            'source_path' => 'uploads/posts/videos/retry-direct.mp4',
+        ]);
+    }
+
+    public function test_r2_direct_upload_part_fallback_can_be_disabled(): void
     {
         config()->set('media.cloudflare.r2.multipart_part_size_mb', 16);
         config()->set('media.cloudflare.r2.part_fallback_max_mb', 0);
@@ -140,7 +223,13 @@ class TimelineDataIntegrityTest extends TestCase
         $method = new \ReflectionMethod(R2DirectUploadService::class, 'partFallbackMaxBytes');
         $method->setAccessible(true);
 
-        $this->assertSame(16 * 1024 * 1024, $method->invoke(new R2DirectUploadService()));
+        $service = new R2DirectUploadService();
+
+        $this->assertSame(0, $method->invoke($service));
+
+        config()->set('media.cloudflare.r2.part_fallback_max_mb', 12);
+
+        $this->assertSame(12 * 1024 * 1024, $method->invoke($service));
     }
 
     public function test_storage_metrics_normalize_string_and_blank_media_sizes(): void

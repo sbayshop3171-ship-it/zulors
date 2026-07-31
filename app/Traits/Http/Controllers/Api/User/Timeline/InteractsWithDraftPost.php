@@ -2,6 +2,7 @@
 
 namespace App\Traits\Http\Controllers\Api\User\Timeline;
 
+use App\Enums\Media\MediaType;
 use App\Enums\Post\PostType;
 use App\Enums\Post\PostStatus;
 
@@ -40,5 +41,35 @@ trait InteractsWithDraftPost
 
         $this->draftPost->type = PostType::TEXT;
         $this->draftPost->save();
+    }
+
+    private function resetFailedDirectVideoDraftPost(): void
+    {
+        if(! $this->draftPost?->exists || ! $this->draftPost->type->isVideo()) {
+            return;
+        }
+
+        $failedDirectMedia = $this->draftPost->media()
+            ->where('type', MediaType::VIDEO->value)
+            ->get()
+            ->filter(function ($mediaItem) {
+                $metadata = $mediaItem->metadata ?? [];
+
+                return in_array(data_get($metadata, 'provider'), ['r2_temp', 'r2_direct', 'cloudflare_stream'], true)
+                    && data_get($metadata, 'upload_state') === 'failed';
+            });
+
+        if($failedDirectMedia->isEmpty()) {
+            return;
+        }
+
+        $failedDirectMedia->each(function ($mediaItem) {
+            $mediaItem->delete();
+        });
+
+        if(! $this->draftPost->media()->exists() && ! $this->draftPost->poll()->exists()) {
+            $this->draftPost->type = PostType::TEXT;
+            $this->draftPost->save();
+        }
     }
 }

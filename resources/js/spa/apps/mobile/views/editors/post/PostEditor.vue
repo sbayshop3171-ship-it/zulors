@@ -843,13 +843,6 @@
 					state.directVideoUploadReady = false;
 					markDirectUploadFailed(uploadData);
 
-					try {
-						await refreshDraftAfterActiveUpload();
-					}
-					catch (draftError) {
-						// Keep the local preview visible when the recovery request also fails.
-					}
-
 					validatePost(error.response?.data?.message || error.message || 'Upload failed');
 				}
 

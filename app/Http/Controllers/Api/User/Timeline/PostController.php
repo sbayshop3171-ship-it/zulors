@@ -318,6 +318,7 @@ class PostController extends Controller
     private function initializePostAndValidateData(Request $request)
     {
         $this->fetchOrInitializeDraftPost();
+        $this->resetFailedDirectVideoDraftPost();
 
         $this->validatePostData([
             'content' => $request->get('content', null)

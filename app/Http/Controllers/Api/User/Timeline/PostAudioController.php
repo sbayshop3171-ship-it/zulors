@@ -51,6 +51,7 @@ class PostAudioController extends Controller
         ]);
 
         $this->fetchOrInitializeDraftPost();
+        $this->resetFailedDirectVideoDraftPost();
         $this->resetEmptyAttachmentDraftPost();
 
         if($this->draftPost->type->isTextified()) {
