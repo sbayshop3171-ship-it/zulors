@@ -650,7 +650,13 @@ class R2DirectUploadService
 
     private function uploadStallTimeoutMs(): int
     {
-        return max(15, (int) config('media.cloudflare.r2.upload_stall_timeout_seconds', 180)) * 1000;
+        $timeoutSeconds = (int) config('media.cloudflare.r2.upload_stall_timeout_seconds', 0);
+
+        if($timeoutSeconds <= 0) {
+            return 0;
+        }
+
+        return max(15, $timeoutSeconds) * 1000;
     }
 
     private function rawFallbackMaxBytes(): int

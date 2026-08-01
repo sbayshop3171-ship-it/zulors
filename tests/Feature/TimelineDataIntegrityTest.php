@@ -232,6 +232,26 @@ class TimelineDataIntegrityTest extends TestCase
         $this->assertSame(12 * 1024 * 1024, $method->invoke($service));
     }
 
+    public function test_r2_direct_upload_stall_timeout_can_be_disabled(): void
+    {
+        config()->set('media.cloudflare.r2.upload_stall_timeout_seconds', 0);
+
+        $method = new \ReflectionMethod(R2DirectUploadService::class, 'uploadStallTimeoutMs');
+        $method->setAccessible(true);
+
+        $service = new R2DirectUploadService();
+
+        $this->assertSame(0, $method->invoke($service));
+
+        config()->set('media.cloudflare.r2.upload_stall_timeout_seconds', 10);
+
+        $this->assertSame(15 * 1000, $method->invoke($service));
+
+        config()->set('media.cloudflare.r2.upload_stall_timeout_seconds', 45);
+
+        $this->assertSame(45 * 1000, $method->invoke($service));
+    }
+
     public function test_storage_metrics_normalize_string_and_blank_media_sizes(): void
     {
         $service = app(StorageMetricsService::class)->setDisk('public');

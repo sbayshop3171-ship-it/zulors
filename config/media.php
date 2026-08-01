@@ -29,7 +29,7 @@ return [
             'multipart_threshold_mb' => (int) env('R2_DIRECT_UPLOAD_MULTIPART_THRESHOLD_MB', 16),
             'multipart_part_size_mb' => (int) env('R2_DIRECT_UPLOAD_MULTIPART_PART_SIZE_MB', 16),
             'upload_concurrency' => (int) env('R2_DIRECT_UPLOAD_CONCURRENCY', 4),
-            'upload_stall_timeout_seconds' => (int) env('R2_DIRECT_UPLOAD_STALL_TIMEOUT_SECONDS', 300),
+            'upload_stall_timeout_seconds' => (int) env('R2_DIRECT_UPLOAD_STALL_TIMEOUT_SECONDS', 0),
             'raw_fallback_max_mb' => (int) env('R2_DIRECT_UPLOAD_RAW_FALLBACK_MAX_MB', 8),
             'part_fallback_max_mb' => (int) env(
                 'R2_DIRECT_UPLOAD_PART_FALLBACK_MAX_MB',
