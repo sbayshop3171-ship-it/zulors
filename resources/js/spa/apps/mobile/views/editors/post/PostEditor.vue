@@ -228,7 +228,7 @@
 				return String(etag || '').trim();
 			}
 
-			const defaultDirectUploadStallTimeoutMs = 300 * 1000;
+			const defaultDirectUploadStallTimeoutMs = 0;
 			const defaultDirectUploadFirstProgressTimeoutMs = 0;
 			const defaultRawFallbackMaxBytes = 8 * 1024 * 1024;
 
@@ -302,8 +302,9 @@
 			const uploadDirectRequest = (requestMethod, uploadUrl, uploadHeaders, payload, onProgress, options = {}) => {
 				return new Promise((resolve, reject) => {
 					const request = new XMLHttpRequest();
-					const stallTimeoutMs = Number(options.stallTimeoutMs || defaultDirectUploadStallTimeoutMs);
-					const firstProgressTimeoutMs = Number(options.firstProgressTimeoutMs || defaultDirectUploadFirstProgressTimeoutMs);
+					const stallTimeoutMs = Number(options.stallTimeoutMs ?? defaultDirectUploadStallTimeoutMs);
+					const firstProgressTimeoutMs = Number(options.firstProgressTimeoutMs ?? defaultDirectUploadFirstProgressTimeoutMs);
+					const uploadTotalBytes = Math.max(0, Number(options.totalBytes || 0));
 					let settled = false;
 					let stallTimerId = null;
 					let firstProgressTimerId = null;
@@ -400,13 +401,19 @@
 
 						resetStallTimer();
 
-						if(event.lengthComputable && typeof onProgress === 'function') {
-							onProgress(event.loaded, event.total);
+						const progressTotal = event.lengthComputable ? event.total : uploadTotalBytes;
+
+						if(progressTotal > 0 && typeof onProgress === 'function') {
+							onProgress(event.loaded, progressTotal);
 						}
 					};
 
 					request.onload = () => {
 						if(request.status >= 200 && request.status < 300) {
+							if(uploadTotalBytes > 0 && typeof onProgress === 'function') {
+								onProgress(uploadTotalBytes, uploadTotalBytes);
+							}
+
 							finishRequest({
 								etag: normalizePartETag(request.getResponseHeader('ETag'))
 							});
@@ -533,7 +540,9 @@
 								const uploadTotal = Math.max(1, total || mediaFile.size);
 								onProgress(Math.round((loaded / uploadTotal) * 100));
 							}, {
-								stallTimeoutMs: uploadData.upload_stall_timeout_ms || defaultDirectUploadStallTimeoutMs,
+								requestTimeoutMs: 60 * 60 * 1000,
+								totalBytes: mediaFile.size,
+								stallTimeoutMs: defaultDirectUploadStallTimeoutMs,
 								firstProgressTimeoutMs: defaultDirectUploadFirstProgressTimeoutMs
 							});
 						}
@@ -545,7 +554,9 @@
 							const uploadTotal = Math.max(1, total || mediaFile.size);
 							onProgress(Math.round((loaded / uploadTotal) * 100));
 						}, {
-							stallTimeoutMs: uploadData.upload_stall_timeout_ms || defaultDirectUploadStallTimeoutMs,
+							requestTimeoutMs: 60 * 60 * 1000,
+							totalBytes: mediaFile.size,
+							stallTimeoutMs: defaultDirectUploadStallTimeoutMs,
 							firstProgressTimeoutMs: defaultDirectUploadFirstProgressTimeoutMs
 						});
 					}, 5);
@@ -613,13 +624,14 @@
 
 					if(! shouldBypassDirectUpload) {
 						result = await retryDirectUpload(() => {
-							return uploadDirectRequest(part.upload_method || 'PUT', part.upload_url, part.upload_headers || {}, partBlob, (loaded) => {
-								updateMultipartProgress(part.part_number, loaded, partBlob.size);
-							}, {
-								requestTimeoutMs: 30 * 60 * 1000,
-								stallTimeoutMs: uploadData.upload_stall_timeout_ms || defaultDirectUploadStallTimeoutMs,
-								firstProgressTimeoutMs: defaultDirectUploadFirstProgressTimeoutMs
-							});
+								return uploadDirectRequest(part.upload_method || 'PUT', part.upload_url, part.upload_headers || {}, partBlob, (loaded) => {
+									updateMultipartProgress(part.part_number, loaded, partBlob.size);
+								}, {
+									requestTimeoutMs: 60 * 60 * 1000,
+									totalBytes: partBlob.size,
+									stallTimeoutMs: defaultDirectUploadStallTimeoutMs,
+									firstProgressTimeoutMs: defaultDirectUploadFirstProgressTimeoutMs
+								});
 						}, 5).catch((error) => {
 							if(error?.skipDirectUploadRetry) {
 								shouldBypassDirectUpload = true;
