@@ -18,12 +18,12 @@
 
         <div class="mt-5 rounded-xl bg-fill-tr p-4 text-par-s text-lab-pr">
             <div class="grid gap-2">
-                <div><strong>{{ __('admin/info.smtp_solutions.values.transport') }}:</strong> smtp</div>
+                <div><strong>{{ __('admin/info.smtp_solutions.values.transport') }}:</strong> Brevo API</div>
+                <div><strong>{{ __('admin/config.form.brevo_api_key') }}:</strong> xkeysib-...</div>
+                <div><strong>{{ __('admin/info.smtp_solutions.values.transport') }} SMTP fallback:</strong> smtp</div>
                 <div><strong>{{ __('admin/info.smtp_solutions.values.host') }}:</strong> smtp-relay.brevo.com</div>
                 <div><strong>{{ __('admin/info.smtp_solutions.values.port') }}:</strong> 587</div>
                 <div><strong>{{ __('admin/info.smtp_solutions.values.encryption') }}:</strong> tls</div>
-                <div><strong>{{ __('admin/info.smtp_solutions.values.username') }}:</strong> {{ __('admin/info.smtp_solutions.values.username_value') }}</div>
-                <div><strong>{{ __('admin/info.smtp_solutions.values.password') }}:</strong> {{ __('admin/info.smtp_solutions.values.password_value') }}</div>
                 <div><strong>{{ __('admin/info.smtp_solutions.values.from_address') }}:</strong> noreply@zulors.com</div>
             </div>
         </div>

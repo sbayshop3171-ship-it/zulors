@@ -16,6 +16,7 @@ class MailSettings extends Settings
     public string $from_address;
     public string $from_name;
     public string $local_domain;
+    public string $brevo_api_key;
 
     public static function group(): string
     {

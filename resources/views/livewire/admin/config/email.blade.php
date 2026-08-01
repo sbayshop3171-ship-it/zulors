@@ -19,7 +19,28 @@
             wire:click="applyBrevoPreset"
             btnText="{{ __('admin/config.form.apply_brevo_preset') }}">
         </x-ui.buttons.pill>
+        <x-ui.buttons.pill
+            size="sm"
+            type="button"
+            variant="outline"
+            wire:click="applyBrevoApiPreset"
+            btnText="{{ __('admin/config.form.apply_brevo_api_preset') }}">
+        </x-ui.buttons.pill>
     </div>
+    @if(($formData['transport'] ?? 'smtp') === 'brevo_api')
+        <x-form.group>
+            <x-form.text-input
+                :isPassword="true"
+                labelText="{{ __('admin/config.form.brevo_api_key') }}"
+                type="password"
+                wire:model="formData.brevo_api_key"
+                name="formData.brevo_api_key">
+                <x-slot:feedbackInfo>
+                    {{ __('admin/config.form.brevo_api_key_helper') }}
+                </x-slot:feedbackInfo>
+            </x-form.text-input>
+        </x-form.group>
+    @endif
     <x-form.group>
         <x-form.text-input
             labelText="{{ __('admin/config.form.host') }}"

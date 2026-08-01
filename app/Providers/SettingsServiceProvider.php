@@ -87,6 +87,9 @@ class SettingsServiceProvider extends ServiceProvider
             'mail.mailers.smtp.from_address' => $mailSettings->from_address,
             'mail.mailers.smtp.from_name' => $mailSettings->from_name,
             'mail.mailers.smtp.local_domain' => $mailSettings->local_domain,
+            'mail.mailers.brevo_api.transport' => 'brevo_api',
+            'mail.mailers.brevo_api.key' => $mailSettings->brevo_api_key,
+            'mail.mailers.brevo_api.timeout' => $mailSettings->timeout,
             'mail.from.address' => $mailSettings->from_address,
             'mail.from.name' => $mailSettings->from_name,
         ]);

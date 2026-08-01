@@ -3,8 +3,10 @@
 namespace App\Providers;
 
 use App\Data\DataCapsule;
+use App\Mail\Transport\BrevoApiTransport;
 use App\Services\Filesystem\RoundRobin\RoundRobinService;
 use App\Support\Languages;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 use Livewire\Livewire;
@@ -32,6 +34,13 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         bcscale(2);
+
+        Mail::extend('brevo_api', function (array $config) {
+            return new BrevoApiTransport(
+                (string) ($config['key'] ?? ''),
+                (int) ($config['timeout'] ?? 60)
+            );
+        });
 
         View::composer('*', function($view) {
             $view->with('localeName', (new Languages())->getLocaleName());

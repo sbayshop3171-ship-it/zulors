@@ -63,11 +63,11 @@ return [
 		'line_two' => 'You may delete an entire chat if necessary.',
 	],
 	'smtp_solutions' => [
-		'title' => 'Recommended free setup: Brevo SMTP',
-		'brevo_intro' => 'Use Brevo for outgoing OTP, signup verification, password reset, and notification email. Keep Cloudflare Email Routing only for receiving/forwarding mail.',
+		'title' => 'Recommended free setup: Brevo API or SMTP',
+		'brevo_intro' => 'Use Brevo for outgoing OTP, signup verification, password reset, and notification email. Brevo API avoids SMTP IP allowlisting; keep Cloudflare Email Routing only for receiving/forwarding mail.',
 		'step_domain' => '1. In Brevo, add and authenticate <strong>zulors.com</strong> under sender/domain settings.',
 		'step_dns' => '2. Copy Brevo SPF/DKIM/DMARC DNS records into Cloudflare DNS, then wait until Brevo marks the domain authenticated.',
-		'step_smtp_key' => '3. In Brevo, open SMTP/API settings and generate an <strong>SMTP key</strong>. Paste the SMTP login as Username and the SMTP key as Password.',
+		'step_smtp_key' => '3. For API mode, create a Brevo <strong>API key</strong> and paste it into the Brevo API key field. For SMTP mode, generate an SMTP key and paste the SMTP login/key as Username/Password.',
 		'step_sender' => '4. Verify a sender such as <strong>noreply@zulors.com</strong> or <strong>support@zulors.com</strong> before sending live mail.',
 		'step_test' => '5. Save these settings, then open the Email (SMTP) Testing tab and send a test email to Gmail/Outlook.',
         'values' => [
