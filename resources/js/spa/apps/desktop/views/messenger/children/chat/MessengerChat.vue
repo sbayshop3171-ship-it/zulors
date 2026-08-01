@@ -1,47 +1,49 @@
 <template>
     <div class="relative">
         <div class="flex h-screen">
-            <div class="flex flex-1 h-full flex-col overflow-hidden">
+            <div class="flex flex-1 min-h-0 h-full flex-col overflow-hidden">
                 <div class="border-b border-bord-card shrink-0">
                     <ChatHeaderSkeleton v-if="state.isLoading"></ChatHeaderSkeleton>
                     <ChatHeader v-else v-bind:typingUser="state.typing"></ChatHeader>
                 </div>
-                <div ref="chatContainerBlock" class="flex-1 overflow-x-hidden overflow-y-auto py-4">
-                    <div class="border-b border-bord-card py-8">
-                        <ChatOverviewSkeleton v-if="state.isLoading"></ChatOverviewSkeleton>
-                        <ChatOverview v-else></ChatOverview>
-                    </div>
-                    <div class="pb-4 pt-2">
-                        <div v-if="state.isLoading" class="flex flex-col gap-4 opacity-70">
-                            <ChatMessageSkeleton v-for="i in 3"></ChatMessageSkeleton>
+                <div ref="chatContainerBlock" class="flex-1 min-h-0 overflow-x-hidden overflow-y-auto">
+                    <div class="flex min-h-full flex-col py-4">
+                        <div class="shrink-0 border-b border-bord-card py-8">
+                            <ChatOverviewSkeleton v-if="state.isLoading"></ChatOverviewSkeleton>
+                            <ChatOverview v-else></ChatOverview>
                         </div>
-                        <div v-else>
-                            <template v-if="chatMessages.length">
-                                <div v-for="(messageData, messageIndex) in chatMessages" class="block">
-                                    <div v-if="showDateSeparator(messageIndex)" class="py-4">
-                                        <p class="text-par-n font-semibold text-lab-pr3 text-center">
-                                            {{ messageData.date.date }}
+                        <div class="mt-auto pb-4 pt-2">
+                            <div v-if="state.isLoading" class="flex flex-col gap-4 opacity-70">
+                                <ChatMessageSkeleton v-for="i in 3"></ChatMessageSkeleton>
+                            </div>
+                            <div v-else>
+                                <template v-if="chatMessages.length">
+                                    <div v-for="(messageData, messageIndex) in chatMessages" class="block">
+                                        <div v-if="showDateSeparator(messageIndex)" class="py-4">
+                                            <p class="text-par-n font-semibold text-lab-pr3 text-center">
+                                                {{ messageData.date.date }}
+                                            </p>
+                                        </div>
+
+                                        <ChatMessage
+                                            v-on:delete="handleMessageDelete"
+                                            v-on:reply="handleMessageReply"
+                                            v-on:copy="handleMessageCopy"
+                                            v-bind:isCompacted="isCompacted(messageIndex)"
+                                        v-bind:messageData="messageData"
+                                        v-bind:key="messageData.id"></ChatMessage>
+                                    </div>
+                                </template>
+                                <template v-else>
+                                    <div class="py-12 text-center">
+                                        <p class="text-par-s text-lab-sc">
+                                            {{  $t('chat.no_messages_found') }}
                                         </p>
                                     </div>
+                                </template>
 
-                                    <ChatMessage
-                                        v-on:delete="handleMessageDelete"
-                                        v-on:reply="handleMessageReply"
-                                        v-on:copy="handleMessageCopy"
-                                        v-bind:isCompacted="isCompacted(messageIndex)"
-                                    v-bind:messageData="messageData"
-                                    v-bind:key="messageData.id"></ChatMessage>
-                                </div>
-                            </template>
-                            <template v-else>
-                                <div class="py-12 text-center">
-                                    <p class="text-par-s text-lab-sc">
-                                        {{  $t('chat.no_messages_found') }}
-                                    </p>
-                                </div>
-                            </template>
-
-                            <ChatMessageTyping v-if="isTyping" v-bind:typingUser="state.typing"></ChatMessageTyping>
+                                <ChatMessageTyping v-if="isTyping" v-bind:typingUser="state.typing"></ChatMessageTyping>
+                            </div>
                         </div>
                     </div>
                 </div>
