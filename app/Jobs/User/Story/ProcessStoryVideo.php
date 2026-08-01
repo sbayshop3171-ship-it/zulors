@@ -32,10 +32,18 @@ class ProcessStoryVideo implements ShouldQueue
 
     public function handle(): void
     {
+        $frameMedia = null;
+
         try {
             $videoUploadService = app(VideoUploadService::class);
             $fileDeleteService = app(FileDeleteService::class);
             $frameMedia = $this->frameData->media->first();
+
+            if(empty($frameMedia)) {
+                throw new Exception('Story video media was not found.');
+            }
+
+            $this->updateProcessingProgress($frameMedia, 5, 'processing');
 
             $videoTempOldPath = $frameMedia->source_path;
 
@@ -60,6 +68,18 @@ class ProcessStoryVideo implements ShouldQueue
                     '-movflags',
                     '+faststart',
                 ]);
+
+            $lastProgress = 5;
+
+            $format->on('progress', function($video, $format, $percentage) use ($frameMedia, &$lastProgress) {
+                $progress = max(10, min(90, (int) floor(10 + ($percentage * 0.8))));
+
+                if($progress >= ($lastProgress + 5) || $progress >= 90) {
+                    $lastProgress = $progress;
+                    $this->updateProcessingProgress($frameMedia, $progress, 'processing');
+                }
+            });
+
             $video = $ffmpeg->open($videoOldAbsLocalPath);
 
             $video->filters()->clip(TimeCode::fromSeconds($clipStartSeconds), TimeCode::fromSeconds($clipDurationSeconds));
@@ -71,6 +91,7 @@ class ProcessStoryVideo implements ShouldQueue
             })->synchronize();
 
             $video->save($format, $videoNewAbsLocalPath);
+            $this->updateProcessingProgress($frameMedia, 92, 'uploading');
 
             if(file_exists($videoNewAbsLocalPath)) {
                 $videoData = $videoUploadService
@@ -78,8 +99,15 @@ class ProcessStoryVideo implements ShouldQueue
                     ->setNamespace(Filesystem::mediaNamespace('stories/videos'))
                     ->upload($videoNewAbsLocalPath);
 
+                $metadata = $frameMedia->metadata ?? [];
+                $metadata['processing_progress'] = 100;
+                $metadata['processing_state'] = 'processed';
+                $metadata['processing_updated_at'] = now()->toIso8601String();
+                $metadata['processed_at'] = now()->toIso8601String();
+
                 $frameMedia->source_path = $videoData['video_path'];
                 $frameMedia->status = MediaStatus::PROCESSED;
+                $frameMedia->metadata = $metadata;
                 $frameMedia->save();
 
                 $this->frameData->duration_seconds = $clipDurationSeconds;
@@ -93,6 +121,8 @@ class ProcessStoryVideo implements ShouldQueue
         }
 
         catch (Exception $e) {
+            $this->updateProcessingProgress($frameMedia, 100, 'failed');
+
             Log::error('Story video processing failed after 5 attempts. Error: ' . $e->getMessage());
 
             $this->fail();
@@ -115,5 +145,38 @@ class ProcessStoryVideo implements ShouldQueue
         $storedDuration = (int) data_get($this->frameData->meta, 'video.duration_seconds', $this->frameData->duration_seconds);
 
         return max(1, min($configuredClipSize, $storedDuration ?: $configuredClipSize));
+    }
+
+    private function updateProcessingProgress($frameMedia, int $progress, string $state): void
+    {
+        if(empty($frameMedia)) {
+            return;
+        }
+
+        $metadata = $frameMedia->metadata ?? [];
+        $progress = max(0, min(100, $progress));
+
+        if($state !== 'failed') {
+            $progress = max((int) data_get($metadata, 'processing_progress', 0), $progress);
+        }
+
+        $metadata['processing_progress'] = $progress;
+        $metadata['processing_state'] = $state;
+        $metadata['processing_updated_at'] = now()->toIso8601String();
+
+        if(blank(data_get($metadata, 'processing_started_at'))) {
+            $metadata['processing_started_at'] = now()->toIso8601String();
+        }
+
+        if($state === 'failed') {
+            $metadata['processing_error'] = 'Story video processing failed.';
+            $frameMedia->status = MediaStatus::FAILED;
+        }
+        elseif(! $frameMedia->status->isProcessed()) {
+            $frameMedia->status = MediaStatus::PROCESSING;
+        }
+
+        $frameMedia->metadata = $metadata;
+        $frameMedia->save();
     }
 }

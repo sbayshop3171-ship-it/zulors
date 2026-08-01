@@ -16,8 +16,19 @@ const useStoriesStore = defineStore('stories_store', {
             stories: [] 
 		}
 	},
+    getters: {
+        hasProcessingStories: (state) => {
+            return state.storiesFeed.some((storyItem) => {
+                return storyItem.status === 'processing';
+            });
+        }
+    },
     actions: {
         prependFeedItem: function(storyData) {
+            if(! storyData) {
+                return;
+            }
+
             const storyIndex = this.storiesFeed.findIndex((storyItem) => {
                 return storyItem.story_uuid === storyData.story_uuid;
             });
@@ -27,6 +38,7 @@ const useStoriesStore = defineStore('stories_store', {
             }
 
             this.storiesFeed.unshift(storyData);
+            writeCache(getStoriesFeedCacheKey(), this.storiesFeed);
         },
         fetchStoriesFeed: async function() {
             const state = this;
@@ -34,6 +46,8 @@ const useStoriesStore = defineStore('stories_store', {
             await colibriAPI().stories().getFrom('feed').then((response) => {
                 state.storiesFeed = response.data.data;
                 writeCache(getStoriesFeedCacheKey(), state.storiesFeed);
+
+                return state.storiesFeed;
             }).catch((error) => {
                 if(error.response) {
                     throw new Error(error.response.data.message);

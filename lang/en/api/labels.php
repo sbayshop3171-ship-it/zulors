@@ -102,6 +102,7 @@ return [
 	'no_skip_it' => 'No, skip it for now',
 	'upload_avatar' => 'Upload avatar',
 	'uploading' => 'Uploading',
+	'processing' => 'Processing',
 	'live_stream' => 'Live stream',
 	'translate_to' => 'Translate to {language_name}',
 	'translating' => 'Translating...',

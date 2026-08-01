@@ -16,11 +16,36 @@ const useStoriesStore = defineStore('mobile_stories_store', {
             stories: []
 		}
 	},
+    getters: {
+        hasProcessingStories: (state) => {
+            return state.storiesFeed.some((storyItem) => {
+                return storyItem.status === 'processing';
+            });
+        }
+    },
     actions: {
+        prependFeedItem: function(storyData) {
+            if(! storyData) {
+                return;
+            }
+
+            const storyIndex = this.storiesFeed.findIndex((storyItem) => {
+                return storyItem.story_uuid === storyData.story_uuid;
+            });
+
+            if(storyIndex !== -1) {
+                this.storiesFeed.splice(storyIndex, 1);
+            }
+
+            this.storiesFeed.unshift(storyData);
+            writeCache(getStoriesFeedCacheKey(), this.storiesFeed);
+        },
         fetchStoriesFeed: async function() {
             await colibriAPI().stories().getFrom('feed').then((response) => {
                 this.storiesFeed = response.data.data;
                 writeCache(getStoriesFeedCacheKey(), this.storiesFeed);
+
+                return this.storiesFeed;
             }).catch((error) => {
                 if(error.response) {
                     throw new Error(error.response.data.message);

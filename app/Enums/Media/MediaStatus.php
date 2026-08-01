@@ -31,6 +31,11 @@ enum MediaStatus:string
     {
         return $this == self::PROCESSING;
     }
+
+    public function isFailed():bool
+    {
+        return $this == self::FAILED;
+    }
     
     
 }

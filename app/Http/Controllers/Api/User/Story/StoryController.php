@@ -17,12 +17,13 @@ namespace App\Http\Controllers\Api\User\Story;
 
 use App\Actions\Story\DeleteStoryFrameAction;
 use App\Database\Configs\Table;
+use App\Enums\Media\MediaStatus;
 use App\Enums\Story\StoryStatus;
 use App\Events\User\Story\StoryCreatedEvent;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\User\Story\FeedCollection;
+use App\Http\Resources\User\Story\FeedResource;
 use App\Http\Resources\User\Story\StoryCollection;
-use App\Http\Resources\User\Story\StoryResource;
 use App\Http\Resources\User\Story\ViewCollection;
 use App\Models\Story;
 use App\Models\StoryFrame;
@@ -65,9 +66,18 @@ class StoryController extends Controller
 
     public function getFeed(Request $request)
     {
-        $storiesFeed = Story::active()->with([
+        $storiesFeed = Story::query()->where(function($query) {
+            $query->whereHas('frames', function($hasQuery) {
+                $hasQuery->where('expires_at', '>', now())->where('status', StoryStatus::ACTIVE);
+            })->orWhere(function($ownerQuery) {
+                $ownerQuery->where('user_id', me()->id)->whereHas('frames', function($hasQuery) {
+                    $hasQuery->where('expires_at', '>', now())->where('status', StoryStatus::PROCESSING);
+                });
+            });
+        })->with([
             'user:id,avatar,first_name,last_name',
-            'frames.views'
+            'frames.views',
+            'frames.media'
         ])->whereNotIn('user_id', function($query) {
             $query->select('blocked_id')->from(Table::BLOCKS)->where('blocker_id', me()->id);
         })->whereNotIn('user_id', function($query) {
@@ -113,18 +123,30 @@ class StoryController extends Controller
 
             $this->draftStoryFrame->update($updateData);
 
-            event(new StoryCreatedEvent($this->draftStoryFrame));
-
-            if(empty($isVideo)) {
-                $myStory = me()->story()->withRelations()->first();
-
-                return $this->responseSuccess([
-                    'data' => StoryResource::make($myStory)
+            if($isVideo) {
+                $storyMedia->status = MediaStatus::PROCESSING;
+                $storyMedia->metadata = array_merge($storyMedia->metadata ?? [], [
+                    'upload_progress' => 100,
+                    'upload_state' => 'uploaded',
+                    'upload_completed_at' => now()->toIso8601String(),
+                    'processing_progress' => 1,
+                    'processing_state' => 'queued',
+                    'processing_dispatched_at' => now()->toIso8601String(),
+                    'processing_updated_at' => now()->toIso8601String()
                 ]);
+                $storyMedia->save();
             }
 
+            event(new StoryCreatedEvent($this->draftStoryFrame));
+
+            $myStory = $this->draftStoryFrame->story()->with([
+                'user:id,avatar,first_name,last_name',
+                'frames.views',
+                'frames.media'
+            ])->first();
+
             return $this->responseSuccess([
-                'data' => null
+                'data' => FeedResource::make($myStory)
             ]);
         }
     }
