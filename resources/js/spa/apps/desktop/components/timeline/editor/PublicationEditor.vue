@@ -444,36 +444,6 @@
                 });
             }
 
-            const markDirectUploadFailed = (uploadData) => {
-                if(! uploadData?.media?.id || ! uploadData?.uid) {
-                    return;
-                }
-
-                const failedAt = new Date().toISOString();
-                const failedProgress = normalizeUploadProgress(uploadData.media.metadata?.upload_progress || 0);
-
-                syncUploadMedia(uploadData, {
-                    ...uploadData.media,
-                    status: 'failed',
-                    metadata: {
-                        ...(uploadData.media.metadata || {}),
-                        upload_state: 'failed',
-                        upload_progress: failedProgress,
-                        upload_progress_updated_at: failedAt,
-                        upload_failed_at: failedAt,
-                        processing_state: 'failed',
-                        processing_updated_at: failedAt
-                    }
-                });
-
-                colibriAPI().postEditor().with({
-                    media_id: uploadData.media.id,
-                    uid: uploadData.uid,
-                    upload_progress: failedProgress,
-                    upload_state: 'failed'
-                }).sendTo('media/video/direct/progress').catch(() => {});
-            }
-
             const uploadDirectRequest = (requestMethod, uploadUrl, uploadHeaders, payload, onProgress, options = {}) => {
                 return new Promise((resolve, reject) => {
                     const request = new XMLHttpRequest();
@@ -1011,9 +981,8 @@
 
                 catch (error) {
                     state.directVideoUploadReady = false;
-                    markDirectUploadFailed(uploadData);
 
-                    toastError(error.response?.data?.message || error.message || 'Upload failed');
+                    toastError(error.response?.data?.message || error.message || 'Video upload could not finish. Please retry.');
                 }
 
                 finally {

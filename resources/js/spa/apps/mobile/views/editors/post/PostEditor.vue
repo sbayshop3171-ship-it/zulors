@@ -269,36 +269,6 @@
 				});
 			}
 
-			const markDirectUploadFailed = (uploadData) => {
-				if(! uploadData?.media?.id || ! uploadData?.uid) {
-					return;
-				}
-
-				const failedAt = new Date().toISOString();
-				const failedProgress = normalizeUploadProgress(uploadData.media.metadata?.upload_progress || 0);
-
-				syncUploadMedia(uploadData, {
-					...uploadData.media,
-					status: 'failed',
-					metadata: {
-						...(uploadData.media.metadata || {}),
-						upload_state: 'failed',
-						upload_progress: failedProgress,
-						upload_progress_updated_at: failedAt,
-						upload_failed_at: failedAt,
-						processing_state: 'failed',
-						processing_updated_at: failedAt
-					}
-				});
-
-				colibriAPI().postEditor().with({
-					media_id: uploadData.media.id,
-					uid: uploadData.uid,
-					upload_progress: failedProgress,
-					upload_state: 'failed'
-				}).sendTo('media/video/direct/progress').catch(() => {});
-			}
-
 			const uploadDirectRequest = (requestMethod, uploadUrl, uploadHeaders, payload, onProgress, options = {}) => {
 				return new Promise((resolve, reject) => {
 					const request = new XMLHttpRequest();
@@ -624,14 +594,14 @@
 
 					if(! shouldBypassDirectUpload) {
 						result = await retryDirectUpload(() => {
-								return uploadDirectRequest(part.upload_method || 'PUT', part.upload_url, part.upload_headers || {}, partBlob, (loaded) => {
-									updateMultipartProgress(part.part_number, loaded, partBlob.size);
-								}, {
-									requestTimeoutMs: 60 * 60 * 1000,
-									totalBytes: partBlob.size,
-									stallTimeoutMs: defaultDirectUploadStallTimeoutMs,
-									firstProgressTimeoutMs: defaultDirectUploadFirstProgressTimeoutMs
-								});
+							return uploadDirectRequest(part.upload_method || 'PUT', part.upload_url, part.upload_headers || {}, partBlob, (loaded) => {
+								updateMultipartProgress(part.part_number, loaded, partBlob.size);
+							}, {
+								requestTimeoutMs: 60 * 60 * 1000,
+								totalBytes: partBlob.size,
+								stallTimeoutMs: defaultDirectUploadStallTimeoutMs,
+								firstProgressTimeoutMs: defaultDirectUploadFirstProgressTimeoutMs
+							});
 						}, 5).catch((error) => {
 							if(error?.skipDirectUploadRetry) {
 								shouldBypassDirectUpload = true;
@@ -792,14 +762,14 @@
 						return await uploadMediaLocally(mediaFile, 'video', false);
 					}
 
-						syncUploadMedia(uploadData, uploadData.media);
+					syncUploadMedia(uploadData, uploadData.media);
 
-						const reportUploadProgress = createDirectUploadProgressReporter(uploadData);
-						reportUploadProgress(0, {
-							force: true
-						});
+					const reportUploadProgress = createDirectUploadProgressReporter(uploadData);
+					reportUploadProgress(0, {
+						force: true
+					});
 
-						let completedParts = [];
+					let completedParts = [];
 
 					if(isMultipartUpload) {
 						completedParts = await uploadMultipartFileToDirectUrl(uploadData, mediaFile, (progress) => {
@@ -809,22 +779,22 @@
 					}
 
 					else {
-                        await uploadFileToDirectUrl(uploadData, mediaFile, (progress) => {
-                            state.uploadProgress = normalizeUploadProgress(progress);
-                            reportUploadProgress(progress);
-                        });
+						await uploadFileToDirectUrl(uploadData, mediaFile, (progress) => {
+							state.uploadProgress = normalizeUploadProgress(progress);
+							reportUploadProgress(progress);
+						});
 					}
 
-                        state.uploadProgress = 100;
-						reportUploadProgress(100, {
-							force: true
-						});
+					state.uploadProgress = 100;
+					reportUploadProgress(100, {
+						force: true
+					});
 
-						const completionData = {
+					const completionData = {
 						media_id: uploadData.media?.id,
 						uid: uploadData.uid,
 						upload_id: uploadData.upload_id,
-						parts: completedParts
+						parts: completedParts || []
 					};
 
 					let completionError = null;
@@ -858,9 +828,8 @@
 
 				catch (error) {
 					state.directVideoUploadReady = false;
-					markDirectUploadFailed(uploadData);
 
-					validatePost(error.response?.data?.message || error.message || 'Upload failed');
+					validatePost(error.response?.data?.message || error.message || 'Video upload could not finish. Please retry.');
 				}
 
 				finally {

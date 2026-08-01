@@ -49,21 +49,21 @@ trait InteractsWithDraftPost
             return;
         }
 
-        $failedDirectMedia = $this->draftPost->media()
+        $staleDirectMedia = $this->draftPost->media()
             ->where('type', MediaType::VIDEO->value)
             ->get()
             ->filter(function ($mediaItem) {
                 $metadata = $mediaItem->metadata ?? [];
 
                 return in_array(data_get($metadata, 'provider'), ['r2_temp', 'r2_direct', 'cloudflare_stream'], true)
-                    && data_get($metadata, 'upload_state') === 'failed';
+                    && data_get($metadata, 'upload_state') !== 'uploaded';
             });
 
-        if($failedDirectMedia->isEmpty()) {
+        if($staleDirectMedia->isEmpty()) {
             return;
         }
 
-        $failedDirectMedia->each(function ($mediaItem) {
+        $staleDirectMedia->each(function ($mediaItem) {
             $mediaItem->delete();
         });
 

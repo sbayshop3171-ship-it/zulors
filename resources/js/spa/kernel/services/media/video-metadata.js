@@ -1,5 +1,5 @@
-const MIN_VIDEO_RATIO = 0.35;
-const MAX_VIDEO_RATIO = 2.4;
+const MIN_VIDEO_RATIO = 4 / 5;
+const MAX_VIDEO_RATIO = 16 / 9;
 
 const positiveNumber = (value) => {
     const numberValue = Number(value || 0);
