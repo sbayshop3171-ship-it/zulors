@@ -74,6 +74,7 @@ class JobController extends Controller
     
         if(empty($jobData)) {
             me()->jobListings()->create([
+                'currency' => $this->defaultCurrency(),
                 'status' => JobStatus::DRAFT
             ]);
 
@@ -83,6 +84,11 @@ class JobController extends Controller
         else {
             return $jobData;
         }
+    }
+
+    private function defaultCurrency(): string
+    {
+        return config('app.default_currency') ?: 'USD';
     }
 
     public function destroy($jobId)

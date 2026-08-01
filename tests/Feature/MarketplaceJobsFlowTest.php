@@ -104,6 +104,42 @@ class MarketplaceJobsFlowTest extends TestCase
         ]);
     }
 
+    public function test_business_market_create_initializes_a_draft_product_with_currency(): void
+    {
+        config(['app.default_currency' => 'BDT']);
+
+        $owner = $this->createUser(username: 'market-draft-owner', email: 'market-draft-owner@example.com');
+
+        $this->actingAs($owner)
+            ->withoutMiddleware()
+            ->get(route('business.market.create'))
+            ->assertOk();
+
+        $this->assertDatabaseHas('products', [
+            'user_id' => $owner->id,
+            'status' => ProductStatus::DRAFT->value,
+            'currency' => 'BDT',
+        ]);
+    }
+
+    public function test_business_jobs_create_initializes_a_draft_job_with_currency(): void
+    {
+        config(['app.default_currency' => 'BDT']);
+
+        $owner = $this->createUser(username: 'job-draft-owner', email: 'job-draft-owner@example.com');
+
+        $this->actingAs($owner)
+            ->withoutMiddleware()
+            ->get(route('business.jobs.create'))
+            ->assertOk();
+
+        $this->assertDatabaseHas('job_listings', [
+            'user_id' => $owner->id,
+            'status' => JobStatus::DRAFT->value,
+            'currency' => 'BDT',
+        ]);
+    }
+
     private function createUser(
         UserRole $role = UserRole::USER,
         string $username = 'test-user',

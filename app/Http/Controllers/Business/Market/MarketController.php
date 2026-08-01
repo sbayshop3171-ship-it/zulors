@@ -84,6 +84,7 @@ class MarketController extends Controller
     
         if(empty($productData)) {
             me()->products()->create([
+                'currency' => $this->defaultCurrency(),
                 'status' => ProductStatus::DRAFT
             ]);
 
@@ -93,6 +94,11 @@ class MarketController extends Controller
         else {
             return $productData;
         }
+    }
+
+    private function defaultCurrency(): string
+    {
+        return config('app.default_currency') ?: 'USD';
     }
 
     public function unpublish($productId)
