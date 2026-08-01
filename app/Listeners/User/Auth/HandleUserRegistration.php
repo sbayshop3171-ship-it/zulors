@@ -15,6 +15,7 @@ class HandleUserRegistration
     {
         Mail::to($event->data['email'])->queue(new VerifyEmailMail([
             'link' => $event->data['link'],
+            'code' => $event->data['code'] ?? null,
             'title' => __('auth.hi_there')
         ]));
     }

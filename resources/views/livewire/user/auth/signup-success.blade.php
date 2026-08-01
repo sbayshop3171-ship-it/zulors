@@ -1,5 +1,5 @@
 <div>
-    <form method="POST" wire:submit.prevent="submitForm">
+    <form method="POST" wire:submit.prevent="verifyOtp">
         <div class="mb-16">
             <div class="mb-4">
                 <x-auth.parts.form-header title="{{ __('auth.signup_success_message.title') }}">
@@ -16,10 +16,27 @@
         </div>
 
         <div class="block">
+            <div class="mb-3">
+                <x-form.text-input
+                    name="otpCode"
+                    inputType="text"
+                    labelText="{{ __('auth.otp_code') }}"
+                    wire:model.trim="otpCode"
+                    inputmode="numeric"
+                    pattern="[0-9]*"
+                    maxlength="4"
+                    autocomplete="one-time-code"
+                    classes="text-center font-semibold"
+                    placeholder="{{ __('auth.otp_code_placeholder') }}"></x-form.text-input>
+                <x-form.helper-text>
+                    {{ __('auth.otp_code_helper') }}
+                </x-form.helper-text>
+            </div>
+
             @if($emailResent)
                 <div class="mb-2">
                     <x-form.helper-text type="success">
-                        {{ __('auth.resend_link_success') }} &check;
+                        {{ __('auth.resend_otp_success') }} &check;
                     </x-form.helper-text>
                 </div>
             @else
@@ -30,7 +47,8 @@
                 </div>
             @endif
             <div class="mb-6">
-                <x-ui.buttons.pill width="w-full" wire:loading.attr="disabled" type="submit" btnText="{{ __('auth.resend_link') }}"></x-ui.buttons.pill>
+                <x-ui.buttons.pill width="w-full" wire:loading.attr="disabled" type="submit" btnText="{{ __('auth.verify_otp') }}"></x-ui.buttons.pill>
+                <x-ui.buttons.pill width="w-full" wire:click="resendOtp" wire:loading.attr="disabled" type="button" variant="link" btnText="{{ __('auth.resend_otp') }}"></x-ui.buttons.pill>
 
                 @error('resend-timeout')
                     <x-form.valerr>

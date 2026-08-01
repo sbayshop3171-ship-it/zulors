@@ -53,14 +53,19 @@ class Signup extends Component
 
         $emailToken = Str::uuid();
 
+        EmailConfirmation::where('email', $this->emailAddress)->delete();
+
         $emailConfirmation = EmailConfirmation::create([
             'email' => $this->emailAddress,
-            'token' => $emailToken
+            'token' => $emailToken,
+            'code' => EmailConfirmation::generateOtpCode(),
+            'code_expires_at' => now()->addMinutes(10),
         ]);
 
         event(new UserRegisteredEvent([
             'email' => $this->emailAddress,
-            'link' => route('user.auth.confirm-signup', ['token' => $emailToken])
+            'link' => route('user.auth.confirm-signup', ['token' => $emailToken]),
+            'code' => $emailConfirmation->code,
         ]));
 
         // Check if registration verification is enabled

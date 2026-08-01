@@ -7,16 +7,21 @@
 
     <x-emails.spacer space="24"></x-emails.spacer>
     <x-emails.par>
-        We’re excited to have you on board. Before you get started, we just need to verify your email address to ensure we have the right contact details for you.
+        We’re excited to have you on board. Before you get started, enter this 4-digit code to verify your email address.
     </x-emails.par>
     <x-emails.spacer space="32"></x-emails.spacer>
 
     <x-emails.par>
         <b>
-            Please click the link below to verify your email:
+            Your verification code:
         </b>
-        
-        <x-emails.link link="{{ $data['link'] }}"></x-emails.link>
+    </x-emails.par>
+    <x-emails.par>
+        <x-emails.code>{{ $data['code'] ?? '' }}</x-emails.code>
+    </x-emails.par>
+    <x-emails.spacer space="12"></x-emails.spacer>
+    <x-emails.par>
+        This code expires in 10 minutes.
     </x-emails.par>
     <x-emails.spacer space="32"></x-emails.spacer>
     <x-emails.par>
