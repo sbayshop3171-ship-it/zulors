@@ -9,6 +9,21 @@ use Livewire\Component;
 
 class Email extends Component
 {
+    public array $transportOptions = [
+        [
+            'key' => 'smtp',
+            'value' => 'SMTP',
+        ],
+        [
+            'key' => 'log',
+            'value' => 'Log only',
+        ],
+        [
+            'key' => 'mail',
+            'value' => 'PHP mail',
+        ],
+    ];
+
     public array $formData = [];
 
     public function mount()
@@ -70,6 +85,29 @@ class Email extends Component
         $mailSettings->save();
 
         return redirect()->with('flashMessage', (new Flash(content: __('admin/flash.config.settings_success')))->get())->route('admin.config.email');
+    }
+
+    public function applyBrevoPreset(): void
+    {
+        $appDomain = parse_url(config('app.url'), PHP_URL_HOST) ?: $this->formData['local_domain'];
+        $fromAddress = (string) ($this->formData['from_address'] ?? '');
+
+        if (empty($fromAddress) || str_ends_with($fromAddress, '@example.com')) {
+            $fromAddress = "noreply@{$appDomain}";
+        }
+
+        $this->formData = array_merge($this->formData, [
+            'transport' => 'smtp',
+            'host' => 'smtp-relay.brevo.com',
+            'port' => 587,
+            'timeout' => 60,
+            'encryption' => 'tls',
+            'local_domain' => $appDomain,
+            'username' => ($this->formData['username'] ?? '') === 'username' ? '' : $this->formData['username'],
+            'password' => ($this->formData['password'] ?? '') === 'password' ? '' : $this->formData['password'],
+            'from_address' => $fromAddress,
+            'from_name' => $this->formData['from_name'] ?: config('app.name'),
+        ]);
     }
 
     public function render()

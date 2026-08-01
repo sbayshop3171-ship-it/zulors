@@ -66,6 +66,7 @@ return [
         'app_locale_helper' => 'Default locale of your project for all users.',
         'email_transport' => 'Email transport',
         'email_transport_helper' => 'E-Mail SMTP transport. :app_name supports only SMTP transport.',
+        'apply_brevo_preset' => 'Use Brevo SMTP preset',
         'host' => 'Server (Host)',
         'host_helper' => 'Mail server host address. If you use a local mail server, use localhost.',
         'port' => 'Port',

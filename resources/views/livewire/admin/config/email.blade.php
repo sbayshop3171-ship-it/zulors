@@ -1,17 +1,25 @@
 <form wire:submit.prevent="submitForm" enctype="multipart/form-data">
     @csrf
     <x-form.group>
-        <x-form.text-input
+        <x-form.select
             labelText="{{ __('admin/config.form.email_transport') }}"
-            type="text"
-            readonly
+            :options="$transportOptions"
             wire:model="formData.transport"
             name="formData.transport">
             <x-slot:feedbackInfo>
                 {{ __('admin/config.form.email_transport_helper', ['app_name' => config('app.name')]) }}
             </x-slot:feedbackInfo>
-        </x-form.text-input>
+        </x-form.select>
     </x-form.group>
+    <div class="mb-6">
+        <x-ui.buttons.pill
+            size="sm"
+            type="button"
+            variant="outline"
+            wire:click="applyBrevoPreset"
+            btnText="{{ __('admin/config.form.apply_brevo_preset') }}">
+        </x-ui.buttons.pill>
+    </div>
     <x-form.group>
         <x-form.text-input
             labelText="{{ __('admin/config.form.host') }}"
