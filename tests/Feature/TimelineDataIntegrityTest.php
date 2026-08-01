@@ -300,6 +300,52 @@ class TimelineDataIntegrityTest extends TestCase
         Event::assertDispatched(MediaUpdatedEvent::class);
     }
 
+    public function test_failed_direct_video_draft_returns_video_error_when_publishing_without_text(): void
+    {
+        $author = $this->createUser('failed-direct-video-publish-author');
+        $draft = $this->createPost($author, '', null, [
+            'status' => PostStatus::DRAFT,
+            'type' => PostType::VIDEO,
+        ]);
+
+        $media = $draft->media()->create([
+            'source_path' => 'uploads/posts/videos/failed-direct-publish.mp4',
+            'type' => MediaKind::VIDEO,
+            'status' => MediaStatus::FAILED,
+            'disk' => 'r2_final',
+            'extension' => 'mp4',
+            'mime' => 'video/mp4',
+            'size' => 1024,
+            'metadata' => [
+                'provider' => 'r2_direct',
+                'upload_state' => 'failed',
+                'upload_progress' => 90,
+                'processing_state' => 'failed',
+            ],
+        ]);
+
+        $this->actingAs($author)
+            ->withoutMiddleware()
+            ->postJson('/api/post/editor/create', [
+                'content' => '',
+            ])
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'Video upload failed. Please remove it and try again.')
+            ->assertJsonPath('errors.video.0', 'Video upload failed. Please remove it and try again.');
+
+        $this->assertDatabaseHas('posts', [
+            'id' => $draft->id,
+            'status' => PostStatus::DRAFT->value,
+            'type' => PostType::VIDEO->value,
+        ]);
+
+        $this->assertDatabaseHas('media', [
+            'id' => $media->id,
+            'mediaable_id' => $draft->id,
+            'status' => MediaStatus::FAILED->value,
+        ]);
+    }
+
     public function test_direct_r2_uploaded_video_is_published_without_waiting_for_transcode(): void
     {
         $author = $this->createUser('direct-r2-fast-publish-author');
@@ -365,6 +411,97 @@ class TimelineDataIntegrityTest extends TestCase
         Event::assertDispatched(MediaUpdatedEvent::class);
         Event::assertDispatched(MediaProcessedEvent::class);
         Event::assertDispatched(PublicTimelinePostCreatedEvent::class);
+    }
+
+    public function test_direct_r2_multipart_completion_accepts_missing_browser_etags(): void
+    {
+        config([
+            'filesystems.disks.r2_final' => [
+                'driver' => 'local',
+                'root' => storage_path('framework/testing/direct-multipart-media'),
+                'url' => '/storage/direct-multipart-media',
+                'throw' => false,
+            ],
+        ]);
+
+        $author = $this->createUser('direct-multipart-empty-etag-author');
+        $post = $this->createPost($author, '', null, [
+            'status' => PostStatus::DRAFT,
+            'type' => PostType::VIDEO,
+        ]);
+
+        $media = $post->media()->create([
+            'source_path' => 'uploads/posts/videos/direct-multipart.mp4',
+            'type' => MediaKind::VIDEO,
+            'status' => MediaStatus::PROCESSING,
+            'disk' => 'r2_final',
+            'extension' => 'mp4',
+            'mime' => 'video/mp4',
+            'size' => 32 * 1024 * 1024,
+            'metadata' => [
+                'provider' => 'r2_direct',
+                'upload_type' => 'multipart',
+                'upload_state' => 'uploading',
+                'upload_progress' => 100,
+                'upload_id' => 'multipart-upload-id',
+                'parts_count' => 2,
+                'processing_state' => 'waiting_for_upload',
+                'processing_progress' => 0,
+                'upload_disk' => 'r2_final',
+                'final_disk' => 'r2_final',
+            ],
+        ]);
+
+        $service = new class extends R2DirectUploadService {
+            public int $expectedParts = 0;
+            public array $receivedParts = [];
+
+            public function isConfigured(): bool
+            {
+                return true;
+            }
+
+            public function finalDisk(): string
+            {
+                return 'r2_final';
+            }
+
+            public function uploaded(string $path, ?string $disk = null): bool
+            {
+                return true;
+            }
+
+            public function completeMultipartUpload(string $path, string $uploadId, array $parts, ?string $disk = null, int $expectedParts = 0): void
+            {
+                $this->receivedParts = $parts;
+                $this->expectedParts = $expectedParts;
+            }
+        };
+
+        app()->instance(R2DirectUploadService::class, $service);
+
+        $this->actingAs($author)
+            ->withoutMiddleware()
+            ->postJson('/api/post/editor/media/video/direct/complete', [
+                'media_id' => $media->id,
+                'uid' => $media->source_path,
+                'upload_id' => 'multipart-upload-id',
+                'parts' => [
+                    [
+                        'part_number' => 1,
+                        'etag' => '',
+                    ],
+                    [
+                        'part_number' => 2,
+                    ],
+                ],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.media.status', MediaStatus::PROCESSED->value)
+            ->assertJsonPath('data.media.metadata.upload_state', 'uploaded');
+
+        $this->assertSame(2, $service->expectedParts);
+        $this->assertCount(2, $service->receivedParts);
     }
 
     public function test_final_bucket_direct_video_upload_is_published_without_copying_the_video_again(): void

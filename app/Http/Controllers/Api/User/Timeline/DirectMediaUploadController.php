@@ -263,7 +263,7 @@ class DirectMediaUploadController extends Controller
             'upload_id' => ['nullable', 'string', 'max:2048'],
             'parts' => ['nullable', 'array'],
             'parts.*.part_number' => ['required_with:parts', 'integer', 'min:1', 'max:10000'],
-            'parts.*.etag' => ['required_with:parts', 'string', 'max:255'],
+            'parts.*.etag' => ['nullable', 'string', 'max:255'],
         ]);
 
         $media = Media::query()->find($request->integer('media_id'));
@@ -315,18 +315,21 @@ class DirectMediaUploadController extends Controller
                         $media->source_path,
                         $uploadId,
                         $request->array('parts'),
-                        $media->disk
+                        $media->disk,
+                        (int) data_get($metadata, 'parts_count', 0)
                     );
                 }
                 catch (Exception $e) {
-                    return $this->responseValidationError([
-                        'message' => $e->getMessage(),
-                        'errors' => [
-                            'video' => [
-                                $e->getMessage()
+                    if(! $r2DirectUploadService->uploaded($media->source_path, $media->disk)) {
+                        return $this->responseValidationError([
+                            'message' => $e->getMessage(),
+                            'errors' => [
+                                'video' => [
+                                    $e->getMessage()
+                                ]
                             ]
-                        ]
-                    ]);
+                        ]);
+                    }
                 }
             }
 

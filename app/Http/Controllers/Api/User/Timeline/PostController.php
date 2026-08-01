@@ -288,9 +288,26 @@ class PostController extends Controller
             ->first();
 
         if($videoMedia) {
+            $uploadProvider = data_get($videoMedia->metadata, 'provider');
+            $uploadState = data_get($videoMedia->metadata, 'upload_state');
+
             if(
-                in_array(data_get($videoMedia->metadata, 'provider'), ['r2_temp', 'r2_direct'], true) &&
-                data_get($videoMedia->metadata, 'upload_state') !== 'uploaded'
+                in_array($uploadProvider, ['r2_temp', 'r2_direct'], true) &&
+                $uploadState === 'failed'
+            ) {
+                return $this->responseValidationError([
+                    'message' => 'Video upload failed. Please remove it and try again.',
+                    'errors' => [
+                        'video' => [
+                            'Video upload failed. Please remove it and try again.'
+                        ]
+                    ]
+                ]);
+            }
+
+            if(
+                in_array($uploadProvider, ['r2_temp', 'r2_direct'], true) &&
+                $uploadState !== 'uploaded'
             ) {
                 return $this->responseValidationError([
                     'message' => 'Please wait until the video upload reaches 100%.',
@@ -318,7 +335,6 @@ class PostController extends Controller
     private function initializePostAndValidateData(Request $request)
     {
         $this->fetchOrInitializeDraftPost();
-        $this->resetFailedDirectVideoDraftPost();
 
         $this->validatePostData([
             'content' => $request->get('content', null)

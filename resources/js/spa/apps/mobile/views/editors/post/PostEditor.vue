@@ -629,7 +629,7 @@
 						});
 					}
 
-					if(! result?.etag && partFallbackMaxBytes > 0 && partBlob.size <= partFallbackMaxBytes) {
+					if(! result && partFallbackMaxBytes > 0 && partBlob.size <= partFallbackMaxBytes) {
 						loadedParts.set(part.part_number, 0);
 
 						result = await retryDirectUpload(() => {
@@ -639,7 +639,11 @@
 						}, 2);
 					}
 
-					if(! result?.etag) {
+					if(result) {
+						updateMultipartProgress(part.part_number, partBlob.size, partBlob.size);
+					}
+
+					if(! result) {
 						throw new Error('Direct video upload was interrupted. Please retry so the video can upload through the fast path.');
 					}
 
@@ -648,7 +652,7 @@
 
 					completedParts.push({
 						part_number: part.part_number,
-						etag: result.etag
+						etag: result.etag || ''
 					});
 
 					onProgress(Math.round((uploadedBytes / mediaFile.size) * 100));

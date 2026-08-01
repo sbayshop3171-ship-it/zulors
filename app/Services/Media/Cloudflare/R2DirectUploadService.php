@@ -144,31 +144,29 @@ class R2DirectUploadService
         ];
     }
 
-    public function completeMultipartUpload(string $path, string $uploadId, array $parts, ?string $disk = null): void
+    public function completeMultipartUpload(string $path, string $uploadId, array $parts, ?string $disk = null, int $expectedParts = 0): void
     {
         if(! $this->isConfigured()) {
             throw new Exception('Cloudflare R2 direct upload is not configured.');
         }
 
-        $normalizedParts = collect($parts)
-            ->map(function(array $part) {
-                return [
-                    'PartNumber' => (int) ($part['part_number'] ?? $part['PartNumber'] ?? 0),
-                    'ETag' => (string) ($part['etag'] ?? $part['ETag'] ?? ''),
-                ];
-            })
-            ->filter(function(array $part) {
-                return $part['PartNumber'] > 0 && filled($part['ETag']);
-            })
-            ->sortBy('PartNumber')
-            ->values()
-            ->all();
+        $uploadDisk = $disk ?: $this->tempDisk();
+        $normalizedParts = $this->normalizeMultipartUploadParts($parts);
 
-        if(empty($normalizedParts)) {
-            throw new Exception('No multipart upload parts were provided.');
+        if($expectedParts > 0 && count($normalizedParts) < $expectedParts) {
+            $normalizedParts = $this->mergeMultipartUploadParts(
+                $normalizedParts,
+                $this->listMultipartUploadParts($path, $uploadId, $uploadDisk)
+            );
         }
 
-        $uploadDisk = $disk ?: $this->tempDisk();
+        if(empty($normalizedParts)) {
+            throw new Exception('No uploaded video parts were found on R2. Please retry the video upload.');
+        }
+
+        if($expectedParts > 0 && count($normalizedParts) < $expectedParts) {
+            throw new Exception("Only ".count($normalizedParts)." of {$expectedParts} video parts reached R2. Please retry the video upload.");
+        }
 
         $this->s3Client($uploadDisk)->completeMultipartUpload([
             'Bucket' => $this->bucket($uploadDisk),
@@ -178,6 +176,54 @@ class R2DirectUploadService
                 'Parts' => $normalizedParts,
             ],
         ]);
+    }
+
+    public function listMultipartUploadParts(string $path, string $uploadId, ?string $disk = null): array
+    {
+        if(! $this->isConfigured()) {
+            throw new Exception('Cloudflare R2 direct upload is not configured.');
+        }
+
+        if(blank($path) || blank($uploadId)) {
+            throw new Exception('Invalid multipart upload session.');
+        }
+
+        $uploadDisk = $disk ?: $this->tempDisk();
+        $client = $this->s3Client($uploadDisk);
+        $bucket = $this->bucket($uploadDisk);
+        $listedParts = [];
+        $partNumberMarker = null;
+
+        do {
+            $options = [
+                'Bucket' => $bucket,
+                'Key' => $path,
+                'UploadId' => $uploadId,
+            ];
+
+            if($partNumberMarker) {
+                $options['PartNumberMarker'] = $partNumberMarker;
+            }
+
+            $result = $client->listParts($options);
+
+            foreach(($result->get('Parts') ?: []) as $part) {
+                $partNumber = (int) ($part['PartNumber'] ?? 0);
+                $etag = (string) ($part['ETag'] ?? '');
+
+                if($partNumber > 0 && filled($etag)) {
+                    $listedParts[] = [
+                        'PartNumber' => $partNumber,
+                        'ETag' => $etag,
+                    ];
+                }
+            }
+
+            $partNumberMarker = $result->get('NextPartNumberMarker');
+        }
+        while((bool) $result->get('IsTruncated') && $partNumberMarker);
+
+        return $this->normalizeMultipartUploadParts($listedParts);
     }
 
     public function uploadRawObject(string $path, mixed $body, string $contentType = 'video/mp4', ?string $disk = null): void
@@ -464,6 +510,44 @@ class R2DirectUploadService
 
             throw $exception;
         }
+    }
+
+    private function normalizeMultipartUploadParts(array $parts): array
+    {
+        return collect($parts)
+            ->map(function(array $part) {
+                return [
+                    'PartNumber' => (int) ($part['part_number'] ?? $part['PartNumber'] ?? 0),
+                    'ETag' => (string) ($part['etag'] ?? $part['ETag'] ?? ''),
+                ];
+            })
+            ->filter(function(array $part) {
+                return $part['PartNumber'] > 0 && filled($part['ETag']);
+            })
+            ->sortBy('PartNumber')
+            ->values()
+            ->all();
+    }
+
+    private function mergeMultipartUploadParts(array $providedParts, array $listedParts): array
+    {
+        $partsByNumber = [];
+
+        foreach(array_merge($listedParts, $providedParts) as $part) {
+            $partNumber = (int) ($part['PartNumber'] ?? 0);
+            $etag = (string) ($part['ETag'] ?? '');
+
+            if($partNumber > 0 && filled($etag)) {
+                $partsByNumber[$partNumber] = [
+                    'PartNumber' => $partNumber,
+                    'ETag' => $etag,
+                ];
+            }
+        }
+
+        ksort($partsByNumber);
+
+        return array_values($partsByNumber);
     }
 
     private function cleanExtension(string $extension): string
