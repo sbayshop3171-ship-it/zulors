@@ -3,6 +3,7 @@
 namespace App\Console\Commands\TestContent;
 
 use App\Services\TestContent\BulkTestAccountEngagementPublisher;
+use App\Enums\Post\PostType;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 
@@ -10,9 +11,11 @@ class BulkEngageTestAccountContent extends Command
 {
 	protected $signature = 'test-content:bulk-engage
 		{--campaign=full-test-engagement-v1 : Stable campaign key used to resume without duplicate comments}
+		{--users=0 : Limit active .test accounts used; 0 means all eligible accounts}
 		{--after-id=0 : Only process active posts with an id greater than this value}
 		{--posts=25 : Number of active posts to process, unless --all is supplied}
 		{--all : Process every remaining active post in controlled batches}
+		{--type=any : Limit targeted posts by type. Supported: any, text, image, video, audio, document, poll, gif}
 		{--include-non-test-posts : Also process active posts authored by non-.test accounts}
 		{--reaction-min=1000 : Minimum unique .test reactions per post}
 		{--reaction-max=2000 : Maximum unique .test reactions per post}
@@ -26,12 +29,14 @@ class BulkEngageTestAccountContent extends Command
 	public function handle(BulkTestAccountEngagementPublisher $publisher): int
 	{
 		$campaign = trim((string) $this->option('campaign'));
+		$userLimit = max(0, (int) $this->option('users'));
 		$afterId = max(0, (int) $this->option('after-id'));
 		$postLimit = max(1, (int) $this->option('posts'));
 		$reactionMin = max(0, (int) $this->option('reaction-min'));
 		$reactionMax = max(0, (int) $this->option('reaction-max'));
 		$commentMin = max(0, (int) $this->option('comment-min'));
 		$commentMax = max(0, (int) $this->option('comment-max'));
+		$postType = $this->postTypeOption((string) $this->option('type'));
 		$testPostsOnly = ! (bool) $this->option('include-non-test-posts');
 
 		if ($campaign === '' || $reactionMin > $reactionMax || $commentMin > $commentMax) {
@@ -40,8 +45,15 @@ class BulkEngageTestAccountContent extends Command
 			return self::FAILURE;
 		}
 
+		if ($postType === false) {
+			$this->error('Post type must be one of: any, text, image, video, audio, document, poll, gif.');
+
+			return self::FAILURE;
+		}
+
 		$preview = $publisher->preview(
 			$campaign,
+			$userLimit,
 			$afterId,
 			$postLimit,
 			$reactionMin,
@@ -49,6 +61,7 @@ class BulkEngageTestAccountContent extends Command
 			$commentMin,
 			$commentMax,
 			$testPostsOnly,
+			$postType,
 		);
 		$users = $preview['users'];
 		$posts = $preview['posts'];
@@ -59,6 +72,7 @@ class BulkEngageTestAccountContent extends Command
 		$this->info("Campaign: {$campaign}");
 		$this->line('Eligible active .test accounts: '.count($users));
 		$this->line('Post scope: '.($testPostsOnly ? 'active .test-authored posts only' : 'all active posts'));
+		$this->line('Post type: '.($postType?->value ?? 'any'));
 		$this->line("Active posts in this batch: {$posts->count()}");
 		$this->line("Planned unique reactions: {$plannedReactions}");
 		$this->line("Planned unique comments: {$plannedComments}");
@@ -102,6 +116,7 @@ class BulkEngageTestAccountContent extends Command
 			$summary = $this->publishBatches(
 				$publisher,
 				$campaign,
+				$userLimit,
 				$afterId,
 				$postLimit,
 				$reactionMin,
@@ -111,6 +126,7 @@ class BulkEngageTestAccountContent extends Command
 				$preview,
 				(bool) $this->option('all'),
 				$testPostsOnly,
+				$postType,
 			);
 		} finally {
 			$lock->release();
@@ -134,6 +150,7 @@ class BulkEngageTestAccountContent extends Command
 	private function publishBatches(
 		BulkTestAccountEngagementPublisher $publisher,
 		string $campaign,
+		int $userLimit,
 		int $afterId,
 		int $postLimit,
 		int $reactionMin,
@@ -143,6 +160,7 @@ class BulkEngageTestAccountContent extends Command
 		array $firstPreview,
 		bool $all,
 		bool $testPostsOnly,
+		?PostType $postType,
 	): array {
 		$summary = [
 			'posts' => 0,
@@ -185,10 +203,21 @@ class BulkEngageTestAccountContent extends Command
 			$lastPost = $posts->last();
 			$afterId = $lastPost?->id ?? $afterId;
 			$preview = $all
-				? $publisher->preview($campaign, $afterId, $postLimit, $reactionMin, $reactionMax, $commentMin, $commentMax, $testPostsOnly)
+				? $publisher->preview($campaign, $userLimit, $afterId, $postLimit, $reactionMin, $reactionMax, $commentMin, $commentMax, $testPostsOnly, $postType)
 				: ['posts' => collect()];
 		} while ($all && $preview['posts']->isNotEmpty());
 
 		return $summary;
+	}
+
+	private function postTypeOption(string $type): PostType|false|null
+	{
+		$type = trim(strtolower($type));
+
+		if ($type === '' || $type === 'any') {
+			return null;
+		}
+
+		return PostType::tryFrom($type) ?: false;
 	}
 }

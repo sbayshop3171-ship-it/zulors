@@ -4,6 +4,7 @@ namespace App\Services\TestContent;
 
 use App\Database\Configs\Table;
 use App\Enums\Post\PostStatus;
+use App\Enums\Post\PostType;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\Reaction;
@@ -36,6 +37,7 @@ class BulkTestAccountEngagementPublisher
 	 */
 	public function preview(
 		string $campaignKey,
+		int $userLimit,
 		int $afterId,
 		int $postLimit,
 		int $reactionMin,
@@ -43,9 +45,10 @@ class BulkTestAccountEngagementPublisher
 		int $commentMin,
 		int $commentMax,
 		bool $testPostsOnly = true,
+		?PostType $postType = null,
 	): array {
-		$users = $this->testUserIds();
-		$posts = $this->activePostsAfter($afterId, $postLimit, $testPostsOnly);
+		$users = $this->testUserIds($userLimit);
+		$posts = $this->activePostsAfter($afterId, $postLimit, $testPostsOnly, $postType);
 		$targets = [];
 
 		foreach ($posts as $post) {
@@ -345,23 +348,30 @@ class BulkTestAccountEngagementPublisher
 	}
 
 	/** @return array<int, int> */
-	private function testUserIds(): array
+	private function testUserIds(int $limit = 0): array
 	{
 		return User::query()
 			->active()
 			->whereRaw('LOWER(email) LIKE ?', ['%.test'])
 			->orderBy('id')
+			->when($limit > 0, fn ($query) => $query->limit($limit))
 			->pluck('id')
 			->map(fn ($id) => (int) $id)
 			->all();
 	}
 
 	/** @return Collection<int, Post> */
-	private function activePostsAfter(int $afterId, int $postLimit, bool $testPostsOnly = true): Collection
+	private function activePostsAfter(
+		int $afterId,
+		int $postLimit,
+		bool $testPostsOnly = true,
+		?PostType $postType = null,
+	): Collection
 	{
 		return Post::query()
 			->active()
 			->where('id', '>', $afterId)
+			->when($postType !== null, fn ($query) => $query->where('type', $postType))
 			->when(
 				$testPostsOnly,
 				fn ($query) => $query->whereHas('user', fn ($userQuery) => $userQuery->whereRaw('LOWER(email) LIKE ?', ['%.test'])),
