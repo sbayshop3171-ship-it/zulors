@@ -366,6 +366,56 @@ class TimelineDataIntegrityTest extends TestCase
         ]);
     }
 
+    public function test_direct_video_post_can_be_published_while_upload_is_still_running(): void
+    {
+        $author = $this->createUser('direct-video-background-upload-author');
+        $draft = $this->createPost($author, 'Background upload caption', null, [
+            'status' => PostStatus::DRAFT,
+            'type' => PostType::VIDEO,
+        ]);
+
+        $draft->media()->create([
+            'source_path' => 'uploads/posts/videos/background-upload.mp4',
+            'type' => MediaKind::VIDEO,
+            'status' => MediaStatus::PROCESSING,
+            'disk' => 'r2_final',
+            'extension' => 'mp4',
+            'mime' => 'video/mp4',
+            'size' => 128 * 1024 * 1024,
+            'metadata' => [
+                'provider' => 'r2_direct',
+                'upload_type' => 'multipart',
+                'upload_state' => 'uploading',
+                'upload_progress' => 35,
+                'processing_state' => 'waiting_for_upload',
+                'processing_progress' => 0,
+                'upload_disk' => 'r2_final',
+                'final_disk' => 'r2_final',
+            ],
+        ]);
+
+        $this->actingAs($author)
+            ->withoutMiddleware()
+            ->postJson('/api/post/editor/create', [
+                'content' => 'Background upload caption',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.status', PostStatus::PROCESSING_VIDEO->value)
+            ->assertJsonPath('data.relations.media.0.metadata.upload_state', 'uploading');
+
+        $this->assertDatabaseHas('posts', [
+            'id' => $draft->id,
+            'user_id' => $author->id,
+            'status' => PostStatus::PROCESSING_VIDEO->value,
+            'type' => PostType::VIDEO->value,
+        ]);
+
+        $this->assertDatabaseHas('users', [
+            'id' => $author->id,
+            'publications_count' => 1,
+        ]);
+    }
+
     public function test_direct_r2_uploaded_video_is_published_without_waiting_for_transcode(): void
     {
         $author = $this->createUser('direct-r2-fast-publish-author');

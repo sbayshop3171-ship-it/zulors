@@ -307,7 +307,8 @@ class PostController extends Controller
 
             if(
                 in_array($uploadProvider, ['r2_temp', 'r2_direct'], true) &&
-                $uploadState !== 'uploaded'
+                $uploadState !== 'uploaded' &&
+                ! in_array($uploadState, ['waiting_for_upload', 'uploading'], true)
             ) {
                 return $this->responseValidationError([
                     'message' => 'Please wait until the video upload reaches 100%.',

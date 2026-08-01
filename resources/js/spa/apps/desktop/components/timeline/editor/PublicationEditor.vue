@@ -454,6 +454,20 @@
                     let stallTimerId = null;
                     let firstProgressTimerId = null;
                     let hasUploadProgressStarted = false;
+                    let lastUploadedBytes = 0;
+                    let lastUploadTotalBytes = uploadTotalBytes;
+
+                    const createUploadError = (message, options = {}) => {
+                        const error = new Error(message);
+                        const totalBytes = Math.max(0, Number(lastUploadTotalBytes || uploadTotalBytes || 0));
+
+                        error.uploadLoadedBytes = Math.max(0, Number(lastUploadedBytes || 0));
+                        error.uploadTotalBytes = totalBytes;
+                        error.uploadReachedTarget = totalBytes > 0 && error.uploadLoadedBytes >= totalBytes;
+                        error.canVerifyWithServer = error.uploadReachedTarget && options.canVerifyWithServer !== false;
+
+                        return error;
+                    }
 
                     const clearUploadTimers = () => {
                         if(stallTimerId) {
@@ -505,7 +519,7 @@
                         }
 
                         stallTimerId = setTimeout(() => {
-                            failRequest(new Error('Direct upload stalled. Retrying...'));
+                            failRequest(createUploadError('Direct upload stalled. Retrying...'));
                         }, stallTimeoutMs);
                     }
 
@@ -516,7 +530,9 @@
 
                         firstProgressTimerId = setTimeout(() => {
                             if(! hasUploadProgressStarted) {
-                                const error = new Error('Direct upload did not start. Retrying through app...');
+                                const error = createUploadError('Direct upload did not start. Retrying through app...', {
+                                    canVerifyWithServer: false
+                                });
                                 error.skipDirectUploadRetry = true;
 
                                 failRequest(error);
@@ -535,6 +551,11 @@
                     });
 
                     request.upload.onprogress = (event) => {
+                        const progressTotal = event.lengthComputable ? event.total : uploadTotalBytes;
+
+                        lastUploadedBytes = Math.max(lastUploadedBytes, Number(event.loaded || 0));
+                        lastUploadTotalBytes = Math.max(lastUploadTotalBytes, Number(progressTotal || 0));
+
                         if(Number(event.loaded || 0) > 0) {
                             hasUploadProgressStarted = true;
 
@@ -545,8 +566,6 @@
                         }
 
                         resetStallTimer();
-
-                        const progressTotal = event.lengthComputable ? event.total : uploadTotalBytes;
 
                         if(progressTotal > 0 && typeof onProgress === 'function') {
                             onProgress(event.loaded, progressTotal);
@@ -565,20 +584,22 @@
                         }
 
                         else {
-                            failRequest(new Error(`Direct upload failed with status ${request.status}`));
+                            failRequest(createUploadError(`Direct upload failed with status ${request.status}`, {
+                                canVerifyWithServer: false
+                            }));
                         }
                     };
 
                     request.onerror = () => {
-                        failRequest(new Error('Direct upload failed'));
+                        failRequest(createUploadError('Direct upload failed'));
                     };
 
                     request.ontimeout = () => {
-                        failRequest(new Error('Direct upload timed out'));
+                        failRequest(createUploadError('Direct upload timed out'));
                     };
 
                     request.onabort = () => {
-                        failRequest(new Error('Direct upload was cancelled'));
+                        failRequest(createUploadError('Direct upload was cancelled'));
                     };
 
                     resetStallTimer();
@@ -658,6 +679,21 @@
                 };
             }
 
+            const reportDirectUploadFailure = (uploadData, progress = 0) => {
+                if(! uploadData?.media?.id || ! uploadData?.uid) {
+                    return Promise.resolve();
+                }
+
+                return colibriAPI().postEditor().with({
+                    media_id: uploadData.media.id,
+                    uid: uploadData.uid,
+                    upload_progress: normalizeUploadProgress(progress),
+                    upload_state: 'failed'
+                }).sendTo('media/video/direct/progress').then((response) => {
+                    syncUploadMedia(uploadData, getUploadResponseData(response).media);
+                }).catch(() => {});
+            }
+
             const uploadRawFileViaApp = (uploadData, mediaFile, onProgress) => {
                 return colibriAPI().postEditor().with(mediaFile).params({
                     media_id: uploadData.media?.id,
@@ -711,6 +747,12 @@
                     const uploadType = uploadData.upload_type || 'form';
                     const rawFallbackMaxBytes = Number(uploadData.raw_fallback_max_bytes || defaultRawFallbackMaxBytes);
 
+                    if((uploadType === 'raw' || requestMethod === 'PUT') && error?.canVerifyWithServer) {
+                        return {
+                            etag: ''
+                        };
+                    }
+
                     if((uploadType === 'raw' || requestMethod === 'PUT') && mediaFile.size <= rawFallbackMaxBytes) {
                         return uploadRawFileViaApp(uploadData, mediaFile, (loaded, total) => {
                             const uploadTotal = Math.max(1, total || mediaFile.size);
@@ -743,7 +785,7 @@
                 const parts = Array.isArray(uploadData.parts) ? uploadData.parts : [];
                 const completedParts = [];
                 const loadedParts = new Map();
-                const uploadConcurrency = Math.min(4, Math.max(1, Number(uploadData.upload_concurrency || 4)));
+                const uploadConcurrency = Math.min(8, Math.max(1, Number(uploadData.upload_concurrency || 4)));
                 const partFallbackMaxBytes = Math.max(0, Number(uploadData.part_fallback_max_bytes || 0));
                 let uploadedBytes = 0;
                 let nextPartIndex = 0;
@@ -766,10 +808,13 @@
                     const partBlob = mediaFile.slice(partStart, partEnd);
 
                     let result = null;
+                    let directUploadError = null;
+                    let directLoadedBytes = 0;
 
                     if(! shouldBypassDirectUpload) {
                         result = await retryDirectUpload(() => {
                             return uploadDirectRequest(part.upload_method || 'PUT', part.upload_url, part.upload_headers || {}, partBlob, (loaded) => {
+                                directLoadedBytes = Math.max(directLoadedBytes, Number(loaded || 0));
                                 updateMultipartProgress(part.part_number, loaded, partBlob.size);
                             }, {
                                 requestTimeoutMs: 60 * 60 * 1000,
@@ -778,6 +823,8 @@
                                 firstProgressTimeoutMs: defaultDirectUploadFirstProgressTimeoutMs
                             });
                         }, 5).catch((error) => {
+                            directUploadError = error;
+
                             if(error?.skipDirectUploadRetry) {
                                 shouldBypassDirectUpload = true;
                             }
@@ -800,8 +847,14 @@
                         updateMultipartProgress(part.part_number, partBlob.size, partBlob.size);
                     }
                     else {
-                        // Let the server verify R2 parts before failing. Browsers can lose
-                        // the final upload response even after R2 has accepted the chunk.
+                        const directUploadLikelyReachedR2 = Boolean(directUploadError?.canVerifyWithServer) || directLoadedBytes >= partBlob.size;
+
+                        if(! directUploadLikelyReachedR2) {
+                            throw directUploadError || new Error('Direct video upload was interrupted. Please retry so the video can upload through the fast path.');
+                        }
+
+                        // Let the server verify R2 parts when browsers lose the final
+                        // response after the chunk already reached R2.
                         updateMultipartProgress(part.part_number, partBlob.size, partBlob.size);
                     }
 
@@ -912,6 +965,7 @@
                     }
 
                     syncUploadMedia(uploadData, uploadData.media);
+                    state.directVideoUploadReady = true;
 
                     const reportUploadProgress = createDirectUploadProgressReporter(uploadData);
                     reportUploadProgress(0, {
@@ -981,6 +1035,8 @@
 
                 catch (error) {
                     state.directVideoUploadReady = false;
+
+                    await reportDirectUploadFailure(uploadData, state.postMediaUploadProgress);
 
                     toastError(error.response?.data?.message || error.message || 'Video upload could not finish. Please retry.');
                 }
