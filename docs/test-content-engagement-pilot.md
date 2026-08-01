@@ -10,10 +10,36 @@ This runbook is for the safe pilot of bulk reactions/comments using only active 
 - Does not use the normal controller notification flow
 - Re-running the same campaign does not create duplicate comments or duplicate reactions from the same test account on the same post
 
-## Pilot scope
+## Two pilot types
 
-- Accounts: first eligible active `.test` accounts from the deterministic pool
-- Posts: first 10 active `.test`-authored posts after `after-id`
+### Logic pilot
+
+Use this first when we only want to validate:
+
+- `.test`-only account scoping
+- `.test`-authored post scoping
+- duplicate safety on rerun
+- context-aware comment generation
+
+Scope:
+
+- Accounts: first `25` eligible active `.test` accounts
+- Posts: first `10` active `.test`-authored posts after `after-id`
+- Reactions per post: random deterministic range `10-25`
+- Comments per post: random deterministic range `10-25`
+
+Why this exists:
+
+- a 25-account pilot cannot physically create `200-1000` unique reactions on the same post if each account may react only once per post
+
+### Volume pilot
+
+Use this only after the logic pilot is clean.
+
+Scope:
+
+- Accounts: all eligible active `.test` accounts, or at least `200`
+- Posts: first `10` active `.test`-authored posts after `after-id`
 - Reactions per post: random deterministic range `200-1000`
 - Comments per post: random deterministic range `10-80`
 
@@ -36,16 +62,17 @@ echo 'active_test_posts='.\$activeTestPosts.PHP_EOL;
 "
 ```
 
-## 2. Dry run
+## 2. Logic pilot dry run
 
 ```bash
 php artisan test-content:bulk-engage \
-  --campaign=pilot-test-engagement-v1 \
+  --campaign=pilot-test-engagement-logic-v1 \
+  --users=25 \
   --posts=10 \
-  --reaction-min=200 \
-  --reaction-max=1000 \
+  --reaction-min=10 \
+  --reaction-max=25 \
   --comment-min=10 \
-  --comment-max=80 \
+  --comment-max=25 \
   --dry-run
 ```
 
@@ -56,16 +83,23 @@ Expected:
 - `Active posts in this batch: 10`
 - Planned reaction/comment totals
 
-## 3. Pilot write
+Or use the helper script:
+
+```bash
+bash scripts/run-test-engagement-pilot.sh logic
+```
+
+## 3. Logic pilot write
 
 ```bash
 php artisan test-content:bulk-engage \
-  --campaign=pilot-test-engagement-v1 \
+  --campaign=pilot-test-engagement-logic-v1 \
+  --users=25 \
   --posts=10 \
-  --reaction-min=200 \
-  --reaction-max=1000 \
+  --reaction-min=10 \
+  --reaction-max=25 \
   --comment-min=10 \
-  --comment-max=80 \
+  --comment-max=25 \
   --confirm=FULL_TEST_ENGAGEMENTS
 ```
 
@@ -77,18 +111,25 @@ Capture the final summary:
 - `Already present`
 - `Failed posts`
 
-## 4. Duplicate check
+Or use the helper script:
+
+```bash
+bash scripts/run-test-engagement-pilot.sh logic --write
+```
+
+## 4. Logic pilot duplicate check
 
 Run the exact same command a second time:
 
 ```bash
 php artisan test-content:bulk-engage \
-  --campaign=pilot-test-engagement-v1 \
+  --campaign=pilot-test-engagement-logic-v1 \
+  --users=25 \
   --posts=10 \
-  --reaction-min=200 \
-  --reaction-max=1000 \
+  --reaction-min=10 \
+  --reaction-max=25 \
   --comment-min=10 \
-  --comment-max=80 \
+  --comment-max=25 \
   --confirm=FULL_TEST_ENGAGEMENTS
 ```
 
@@ -104,7 +145,7 @@ That confirms the campaign is resume-safe and duplicate-safe.
 
 ```bash
 php artisan tinker --execute="
-\$campaign = 'pilot-test-engagement-v1';
+\$campaign = 'pilot-test-engagement-logic-v1';
 
 \$nonTestCommentAuthors = \App\Models\TestContentEngagement::query()
     ->where('campaign_key', \$campaign)
@@ -124,7 +165,7 @@ Expected:
 
 ```bash
 php artisan tinker --execute="
-\$campaign = 'pilot-test-engagement-v1';
+\$campaign = 'pilot-test-engagement-logic-v1';
 
 \$nonTestAuthoredPostsTouched = \App\Models\TestContentEngagement::query()
     ->where('campaign_key', \$campaign)
@@ -146,7 +187,7 @@ Expected:
 
 ```bash
 php artisan tinker --execute="
-\$campaign = 'pilot-test-engagement-v1';
+\$campaign = 'pilot-test-engagement-logic-v1';
 
 \$commentRows = \App\Models\TestContentEngagement::query()
     ->where('campaign_key', \$campaign)
@@ -166,6 +207,20 @@ echo 'comment_rows='.\$commentRows.PHP_EOL;
 echo 'distinct_users='.\$distinctUsers.PHP_EOL;
 echo 'distinct_posts='.\$distinctPosts.PHP_EOL;
 "
+```
+
+## 8. Volume pilot
+
+Only run this after the logic pilot is clean and only when at least `200` active `.test` accounts are available.
+
+```bash
+bash scripts/run-test-engagement-pilot.sh volume
+```
+
+Then, if the dry run looks correct:
+
+```bash
+bash scripts/run-test-engagement-pilot.sh volume --write
 ```
 
 ## Success criteria
