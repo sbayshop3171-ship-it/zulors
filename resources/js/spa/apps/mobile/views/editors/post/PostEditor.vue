@@ -642,9 +642,10 @@
 					if(result) {
 						updateMultipartProgress(part.part_number, partBlob.size, partBlob.size);
 					}
-
-					if(! result) {
-						throw new Error('Direct video upload was interrupted. Please retry so the video can upload through the fast path.');
+					else {
+						// Let the server verify R2 parts before failing. Browsers can lose
+						// the final upload response even after R2 has accepted the chunk.
+						updateMultipartProgress(part.part_number, partBlob.size, partBlob.size);
 					}
 
 					uploadedBytes += partBlob.size;
@@ -652,7 +653,7 @@
 
 					completedParts.push({
 						part_number: part.part_number,
-						etag: result.etag || ''
+						etag: result?.etag || ''
 					});
 
 					onProgress(Math.round((uploadedBytes / mediaFile.size) * 100));

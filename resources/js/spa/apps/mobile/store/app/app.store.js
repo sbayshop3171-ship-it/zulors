@@ -16,6 +16,18 @@ const wait = (timeout) => {
 const refreshApplication = () => {
     const refreshUrl = new URL(window.location.href);
 
+    try {
+        const appBaseUrl = new URL(resolveAppBaseUrl(), refreshUrl.origin);
+
+        if(appBaseUrl.origin !== refreshUrl.origin) {
+            refreshUrl.protocol = appBaseUrl.protocol;
+            refreshUrl.host = appBaseUrl.host;
+        }
+    }
+    catch (error) {
+        //
+    }
+
     refreshUrl.searchParams.set('bootstrap_refresh', Date.now().toString());
 
     window.location.replace(refreshUrl.toString());
