@@ -3,10 +3,10 @@
 return [
     'greeting' => 'Hello, :user_name! 👋',
     'title' => [
-        'confirm_email' => 'Please Confirm Your Email for :app_name Account',
+        'confirm_email' => 'Your :app_name verification code',
         'confirmation_code' => 'Confirmation code for :app_name account',
     ],
-    'post_scriptum' => 'You\'re receiving this newsletter because you\'re a valued member of the :app_name platform community.',
+    'post_scriptum' => 'You\'re receiving this email because this address is connected to :app_name account activity.',
     'regards' => 'Best regards',
     'team_caption' => 'The :app_name Team.',
     'keep_best_experience' => 'Keep making the most of your :app_name experience.',

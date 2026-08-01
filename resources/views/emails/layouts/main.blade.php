@@ -56,7 +56,9 @@
                     <table class="email-container" cellpadding="0" cellspacing="0" style="background-color: white; overflow: hidden;">
                         <tr>
                             <td style="padding: 16px 20px;">
-                                <img src="{{ $logotypeUrl }}" alt="Logo" style="display: block; max-height: 26px; margin: 0 auto;">
+                                <div style="font-size: 18px; line-height: 24px; font-weight: 700; color: #111111; text-align: center;">
+                                    {{ config('app.name') }}
+                                </div>
                             </td>
                         </tr>
                         <tr>
