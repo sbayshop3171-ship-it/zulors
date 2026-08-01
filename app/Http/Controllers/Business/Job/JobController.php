@@ -20,6 +20,7 @@ use Illuminate\Http\Request;
 use App\Support\Views\Flash;
 use App\Http\Controllers\Controller;
 use App\Actions\JobListing\DeleteJobAction;
+use App\Services\Currency\Fiat\FiatCurrencyService;
 
 class JobController extends Controller
 {
@@ -88,7 +89,7 @@ class JobController extends Controller
 
     private function defaultCurrency(): string
     {
-        return config('app.default_currency') ?: 'USD';
+        return app(FiatCurrencyService::class)->getDefaultCurrencyCodeForUser(me());
     }
 
     public function destroy($jobId)

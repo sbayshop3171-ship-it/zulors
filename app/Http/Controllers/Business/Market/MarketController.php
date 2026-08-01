@@ -20,6 +20,7 @@ use App\Support\Views\Flash;
 use App\Enums\Product\ProductStatus;
 use App\Http\Controllers\Controller;
 use App\Actions\Product\DeleteProductAction;
+use App\Services\Currency\Fiat\FiatCurrencyService;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 
 class MarketController extends Controller
@@ -98,7 +99,7 @@ class MarketController extends Controller
 
     private function defaultCurrency(): string
     {
-        return config('app.default_currency') ?: 'USD';
+        return app(FiatCurrencyService::class)->getDefaultCurrencyCodeForUser(me());
     }
 
     public function unpublish($productId)

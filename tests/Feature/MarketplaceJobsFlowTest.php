@@ -21,6 +21,7 @@ use Illuminate\Support\Facades\Notification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use App\Notifications\User\Job\JobApprovedNotification;
 use App\Notifications\User\Job\JobRejectedNotification;
+use App\Services\Currency\Fiat\FiatCurrencyService;
 
 class MarketplaceJobsFlowTest extends TestCase
 {
@@ -140,12 +141,69 @@ class MarketplaceJobsFlowTest extends TestCase
         ]);
     }
 
+    public function test_bangladesh_business_user_gets_bdt_as_default_market_currency(): void
+    {
+        config(['app.default_currency' => 'USD']);
+
+        $owner = $this->createUser(
+            username: 'bd-market-owner',
+            email: 'bd-market-owner@example.com',
+            country: 'BD'
+        );
+        $owner->businessAccount()->create([
+            'name' => $owner->name,
+            'billing_address' => [],
+        ]);
+
+        $this->actingAs($owner)
+            ->withoutMiddleware()
+            ->get(route('business.market.create'))
+            ->assertOk();
+
+        $this->assertDatabaseHas('products', [
+            'user_id' => $owner->id,
+            'status' => ProductStatus::DRAFT->value,
+            'currency' => 'BDT',
+        ]);
+    }
+
+    public function test_bangladesh_business_user_gets_bdt_as_default_job_currency(): void
+    {
+        config(['app.default_currency' => 'USD']);
+
+        $owner = $this->createUser(
+            username: 'bd-job-owner',
+            email: 'bd-job-owner@example.com',
+            country: 'BD'
+        );
+
+        $this->actingAs($owner)
+            ->withoutMiddleware()
+            ->get(route('business.jobs.create'))
+            ->assertOk();
+
+        $this->assertDatabaseHas('job_listings', [
+            'user_id' => $owner->id,
+            'status' => JobStatus::DRAFT->value,
+            'currency' => 'BDT',
+        ]);
+    }
+
+    public function test_supported_currency_options_include_codes_and_symbols(): void
+    {
+        $currencyOptions = app(FiatCurrencyService::class)->getPairedCurrencies();
+
+        $this->assertTrue($currencyOptions->contains(fn ($currency) => $currency['key'] === 'BDT'));
+        $this->assertTrue($currencyOptions->contains(fn ($currency) => $currency['value'] === 'BDT - Bangladeshi taka (৳)'));
+    }
+
     private function createUser(
         UserRole $role = UserRole::USER,
         string $username = 'test-user',
         string $email = 'test-user@example.com',
         UserType $type = UserType::AUTHOR,
-        UserStatus $status = UserStatus::ACTIVE
+        UserStatus $status = UserStatus::ACTIVE,
+        ?string $country = null
     ): User {
         return User::query()->create([
             'first_name' => 'Test',
@@ -156,7 +214,7 @@ class MarketplaceJobsFlowTest extends TestCase
             'phone' => '',
             'website' => '',
             'bio' => '',
-            'country' => null,
+            'country' => $country,
             'city' => null,
             'birth_day' => null,
             'birth_month' => null,

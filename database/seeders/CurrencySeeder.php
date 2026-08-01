@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\Currency;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Schema;
 
 class CurrencySeeder extends Seeder
@@ -16,15 +17,19 @@ class CurrencySeeder extends Seeder
 
         Currency::query()->truncate();
 
-        foreach ($currencies as $currency) {    
+        foreach ($currencies as $index => $currency) {
             Currency::create([
                 'alpha_3_code' => $currency['code'],
                 'name' => $currency['name'],
                 'symbol' => $currency['symbol'],
                 'symbol_native' => $currency['symbol'],
-                'status' => true
+                'status' => $currency['status'] ?? true,
+                'is_default' => $currency['code'] === config('app.default_currency'),
+                'order' => $currency['order'] ?? ($index + 1),
             ]);
         }
+
+        Cache::forget('world_currencies');
 
         Schema::enableForeignKeyConstraints();
     }
