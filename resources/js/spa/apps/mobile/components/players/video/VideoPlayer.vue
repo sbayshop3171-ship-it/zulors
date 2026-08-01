@@ -1,7 +1,7 @@
 <template>
 	<div
 		v-bind:style="playerFrameStyle"
-	class="relative flex w-full justify-center cursor-pointer bg-black overflow-hidden">
+	class="relative flex w-full justify-center cursor-pointer group bg-black overflow-hidden">
 		<video
 			v-on:click="togglePlay"
 			class="size-full object-cover"
@@ -17,14 +17,45 @@
 		</video>
 
 		<div class="from-black/60 to-transparent bg-linear-to-t absolute bottom-0 left-0 right-0 px-2 pb-2 pt-6">
-            <div v-on:click="seekVideo" class="h-4 cursor-pointer flex-1 mx-2 flex items-center">
-                <div class="h-[2px] bg-white/50 rounded-full w-full overflow-hidden">
-                    <span class="h-full block max-w-full bg-white transition-width ease-in-out" v-bind:style="{width: `${state.progressBar}%`}"></span>
+            <div
+				role="slider"
+				tabindex="0"
+				aria-label="Video progress"
+				aria-valuemin="0"
+				v-bind:aria-valuemax="Math.round(state.durationSeconds)"
+				v-bind:aria-valuenow="Math.round(scrubberDisplayTime)"
+				v-bind:aria-valuetext="scrubberAriaValue"
+				v-on:pointerdown.stop.prevent="startScrubbing"
+				v-on:pointermove="previewScrubbing"
+				v-on:pointerleave="clearScrubPreview"
+				v-on:pointerup.stop.prevent="endScrubbing"
+				v-on:pointercancel.stop.prevent="endScrubbing"
+				v-on:lostpointercapture="endScrubbing"
+				v-on:keydown="handleScrubberKeydown"
+				v-on:click.stop.prevent="noop"
+			class="group/scrubber relative h-7 cursor-pointer flex-1 mx-2 flex items-center touch-none select-none">
+				<span
+					v-if="state.showScrubPreview"
+					class="pointer-events-none absolute bottom-6 -translate-x-1/2 rounded bg-black/85 px-1.5 py-1 text-[11px] font-medium leading-none text-white shadow"
+				v-bind:style="{ left: `${state.previewPosition}%` }">{{ scrubberPreviewLabel }}</span>
+                <div
+					class="relative h-0.5 bg-white/45 rounded-full w-full overflow-hidden transition-all duration-150 group-hover/scrubber:h-1"
+				v-bind:class="{ 'h-1': state.isScrubbing }">
+					<span class="absolute inset-y-0 left-0 block max-w-full bg-white/25" v-bind:style="{width: `${state.bufferedBar}%`}"></span>
+                    <span
+						class="absolute inset-y-0 left-0 block max-w-full bg-white"
+						v-bind:class="state.isScrubbing ? '' : 'transition-width ease-in-out'"
+					v-bind:style="{width: `${displayProgress}%`}"></span>
                 </div>
+				<span
+					aria-hidden="true"
+					class="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow transition-all duration-150"
+					v-bind:class="state.isScrubbing ? 'size-3 opacity-100' : 'size-2 opacity-0 group-hover/scrubber:size-3 group-hover/scrubber:opacity-100'"
+				v-bind:style="{ left: `${displayProgress}%` }"></span>
             </div>
 			<div class="flex items-center gap-2">
 				<div class="ml-2 inline-flex items-center gap-2 flex-1">
-					<VideoDurationTime v-if="state.isPlaying" v-bind:videoDuration="$filters.secondsToDuration(state.playbackTime)"></VideoDurationTime>
+					<VideoDurationTime v-if="state.isPlaying || state.isScrubbing" v-bind:videoDuration="$filters.secondsToDuration(state.playbackTime)"></VideoDurationTime>
 					<VideoDurationTime v-else v-bind:videoDuration="duration"></VideoDurationTime>
 				</div>
                 <PrimaryIconButton
@@ -106,7 +137,15 @@
 				isLoaded: false,
 				isPlaying: false,
 				progressBar: 0,
+				bufferedBar: 0,
 				playbackTime: 0,
+				durationSeconds: 0,
+				isScrubbing: false,
+				scrubTime: 0,
+				previewTime: 0,
+				previewPosition: 0,
+				showScrubPreview: false,
+				wasPlayingBeforeScrub: false,
 				watchStartedAt: null,
 				watchMsSinceFlush: 0,
 				totalWatchMs: 0,
@@ -116,6 +155,12 @@
 				sessionId: `video-${Date.now()}-${Math.random().toString(36).slice(2)}`,
 				telemetryTimer: null
 			});
+
+			let progressTimer = null;
+			let activeScrubPointerId = null;
+			let lastScrubSeekedAt = 0;
+			const scrubSeekIntervalMs = 90;
+
 			const playerFrameStyle = computed(() => {
 				return videoFrameAspectStyle({
 					...(props.metadata || {}),
@@ -124,36 +169,105 @@
 				}, props.isPortrait);
 			});
 
+			const displayProgress = computed(() => {
+				const durationSeconds = videoDurationSeconds();
+				const displayTime = state.isScrubbing ? state.scrubTime : state.playbackTime;
+
+				return durationSeconds ? clamp((displayTime / durationSeconds) * 100, 0, 100) : 0;
+			});
+
+			const scrubberDisplayTime = computed(() => {
+				return state.isScrubbing ? state.scrubTime : state.playbackTime;
+			});
+
+			const scrubberPreviewLabel = computed(() => {
+				return formatDurationText(state.previewTime);
+			});
+
+			const scrubberAriaValue = computed(() => {
+				return formatDurationText(scrubberDisplayTime.value);
+			});
+
 			function startProgressUpdater() {
+				stopProgressUpdater();
+
                 function updateProgress() {
-					if(! videoPlayerRef.value) {
+					if(! videoPlayerRef.value || state.isScrubbing) {
 						return false;
 					}
 
-                    const currentTime = videoPlayerRef.value.currentTime;
-                    const duration = videoPlayerRef.value.duration;
+					syncProgressFromVideo();
 
-                    state.progressBar = duration ? Math.round((currentTime / duration) * 100) : 0;
-                    state.playbackTime = Math.round(currentTime);
-
-					if(duration && state.lastPlaybackTime > 1 && currentTime < (state.lastPlaybackTime - 0.75)) {
-						state.loopCount += 1;
-						flushVideoTelemetry('video_loop');
-					}
-
-					state.lastPlaybackTime = currentTime;
-
-                    if (state.isPlaying) {
-                        window.colibriVideoTimer = requestAnimationFrame(updateProgress);
+                    if(state.isPlaying) {
+                        progressTimer = requestAnimationFrame(updateProgress);
                     }
                 }
 
-                window.colibriVideoTimer = requestAnimationFrame(updateProgress);
+                progressTimer = requestAnimationFrame(updateProgress);
             }
 
             function stopProgressUpdater() {
-                cancelAnimationFrame(window.colibriVideoTimer);
+				if(progressTimer) {
+					cancelAnimationFrame(progressTimer);
+					progressTimer = null;
+				}
             }
+
+			function clamp(value, min, max) {
+				return Math.min(Math.max(value, min), max);
+			}
+
+			function formatDurationText(seconds) {
+				const safeSeconds = Math.max(0, Math.floor(Number(seconds) || 0));
+				const hours = Math.floor(safeSeconds / 3600);
+				const minutes = Math.floor((safeSeconds % 3600) / 60);
+				const remainingSeconds = safeSeconds % 60;
+				const minuteLabel = minutes.toString().padStart(2, '0');
+				const secondLabel = remainingSeconds.toString().padStart(2, '0');
+
+				if(hours) {
+					return `${hours.toString().padStart(2, '0')}:${minuteLabel}:${secondLabel}`;
+				}
+
+				return `${minuteLabel}:${secondLabel}`;
+			}
+
+			function syncBufferedProgress() {
+				const videoElement = videoPlayerRef.value;
+				const durationSeconds = videoDurationSeconds();
+
+				if(! videoElement || ! durationSeconds || ! videoElement.buffered?.length) {
+					state.bufferedBar = 0;
+					return false;
+				}
+
+				const bufferedEnd = videoElement.buffered.end(videoElement.buffered.length - 1);
+
+				state.bufferedBar = clamp((bufferedEnd / durationSeconds) * 100, 0, 100);
+			}
+
+			function syncProgressFromVideo() {
+				const videoElement = videoPlayerRef.value;
+
+				if(! videoElement) {
+					return false;
+				}
+
+				const currentTime = videoElement.currentTime || 0;
+				const durationSeconds = videoDurationSeconds();
+
+				state.durationSeconds = durationSeconds;
+				state.progressBar = durationSeconds ? clamp((currentTime / durationSeconds) * 100, 0, 100) : 0;
+				state.playbackTime = currentTime;
+				syncBufferedProgress();
+
+				if(durationSeconds && state.lastPlaybackTime > 1 && currentTime < (state.lastPlaybackTime - 0.75)) {
+					state.loopCount += 1;
+					flushVideoTelemetry('video_loop');
+				}
+
+				state.lastPlaybackTime = currentTime;
+			}
 
 			watch(isIntersecting, (newVal) => {
 				if(newVal && state.isLoaded) {
@@ -167,6 +281,7 @@
 			const handleVideoReady = () => {
 				state.isLoaded = true;
 				updatePresentationMetadata();
+				syncProgressFromVideo();
 
 				if(isIntersecting.value) {
 					playVideo();
@@ -197,6 +312,8 @@
 				if(videoPlayerRef.value) {
 					videoPlayerRef.value.addEventListener('loadedmetadata', handleVideoReady);
 					videoPlayerRef.value.addEventListener('canplay', handleVideoReady);
+					videoPlayerRef.value.addEventListener('durationchange', handleVideoReady);
+					videoPlayerRef.value.addEventListener('progress', syncBufferedProgress);
 				}
 			});
 
@@ -204,9 +321,13 @@
 				if(videoPlayerRef.value) {
 					videoPlayerRef.value.removeEventListener('loadedmetadata', handleVideoReady);
 					videoPlayerRef.value.removeEventListener('canplay', handleVideoReady);
+					videoPlayerRef.value.removeEventListener('durationchange', handleVideoReady);
+					videoPlayerRef.value.removeEventListener('progress', syncBufferedProgress);
 					flushVideoTelemetry('video_watch');
 					pauseVideo();
 				}
+
+				stopProgressUpdater();
 			});
 
 			const setMuted = () => {
@@ -218,7 +339,7 @@
 			}
 
 			const playVideo = () => {
-				if(state.isLoaded && videoPlayerRef.value) {
+				if(state.isLoaded && videoPlayerRef.value && ! state.isScrubbing) {
 					videoPlayerRef.value.play().then(() => {
 						setMuted();
 						state.isPlaying = true;
@@ -226,6 +347,10 @@
 						startProgressUpdater();
 						startTelemetryTimer();
 					}).catch((error) => {
+						state.isPlaying = false;
+						stopProgressUpdater();
+						stopTelemetryTimer();
+
 						if(error.name === 'NotAllowedError') {
 							console.info('Cannot play video because user has not interacted with the page yet');
 						}
@@ -261,7 +386,15 @@
 			};
 
 			const videoDurationSeconds = () => {
-				return Number(props.duration?.seconds || videoPlayerRef.value?.duration || 0);
+				const videoDuration = Number(videoPlayerRef.value?.duration || 0);
+
+				if(Number.isFinite(videoDuration) && videoDuration > 0) {
+					return videoDuration;
+				}
+
+				const propDuration = Number(props.duration?.seconds || 0);
+
+				return Number.isFinite(propDuration) && propDuration > 0 ? propDuration : 0;
 			};
 
 			const flushVideoTelemetry = (eventType = 'video_watch') => {
@@ -345,31 +478,214 @@
                 }
             };
 
-	            const seekVideo = (event) => {
-	                const progressBar = event.currentTarget;
-	                const rect = progressBar.getBoundingClientRect();
-	                const clickPosition = (event.clientX - rect.left);
-	                const percentage = (clickPosition / rect.width);
-	                const newTime = (videoDurationSeconds() * percentage);
+			const scrubPositionFromPointer = (event) => {
+				const scrubber = event.currentTarget;
+				const durationSeconds = videoDurationSeconds();
 
+				if(! scrubber || ! durationSeconds) {
+					return null;
+				}
+
+				const rect = scrubber.getBoundingClientRect();
+
+				if(! rect.width) {
+					return null;
+				}
+
+				const percentage = clamp((event.clientX - rect.left) / rect.width, 0, 1);
+
+				return {
+					percentage: percentage,
+					time: durationSeconds * percentage,
+					position: clamp(percentage * 100, 4, 96)
+				};
+			};
+
+			const updateScrubState = (scrubPosition) => {
+				const durationSeconds = videoDurationSeconds();
+
+				if(! scrubPosition || ! durationSeconds) {
+					return false;
+				}
+
+				state.durationSeconds = durationSeconds;
+				state.scrubTime = scrubPosition.time;
+				state.previewTime = scrubPosition.time;
+				state.previewPosition = scrubPosition.position;
+				state.showScrubPreview = true;
+				state.progressBar = clamp((scrubPosition.time / durationSeconds) * 100, 0, 100);
+				state.playbackTime = scrubPosition.time;
+				state.lastPlaybackTime = scrubPosition.time;
+			};
+
+			const syncScrubFrame = (time, force = false) => {
 				if(! videoPlayerRef.value) {
 					return false;
 				}
 
-				videoPlayerRef.value.currentTime = newTime;
+				const now = window.performance?.now ? window.performance.now() : Date.now();
 
-                if(! state.isPlaying) {
-                    playVideo();
-                }
-            };
+				if(force || (now - lastScrubSeekedAt) >= scrubSeekIntervalMs) {
+					videoPlayerRef.value.currentTime = time;
+					lastScrubSeekedAt = now;
+				}
+			};
+
+			const startScrubbing = (event) => {
+				if(event.button !== undefined && event.button !== 0) {
+					return false;
+				}
+
+				const scrubPosition = scrubPositionFromPointer(event);
+
+				if(! scrubPosition || ! videoPlayerRef.value) {
+					return false;
+				}
+
+				activeScrubPointerId = event.pointerId;
+				state.wasPlayingBeforeScrub = ! videoPlayerRef.value.paused;
+				state.isScrubbing = true;
+
+				if(state.wasPlayingBeforeScrub) {
+					collectWatchTime();
+					videoPlayerRef.value.pause();
+					stopProgressUpdater();
+					stopTelemetryTimer();
+				}
+
+				try {
+					event.currentTarget.setPointerCapture(event.pointerId);
+				}
+				catch (error) {}
+
+				updateScrubState(scrubPosition);
+				syncScrubFrame(scrubPosition.time, true);
+			};
+
+			const previewScrubbing = (event) => {
+				if(state.isScrubbing && event.pointerId === activeScrubPointerId) {
+					const scrubPosition = scrubPositionFromPointer(event);
+
+					if(scrubPosition) {
+						updateScrubState(scrubPosition);
+						syncScrubFrame(scrubPosition.time);
+					}
+				}
+				else if(event.pointerType === 'mouse') {
+					const scrubPosition = scrubPositionFromPointer(event);
+
+					if(scrubPosition) {
+						state.previewTime = scrubPosition.time;
+						state.previewPosition = scrubPosition.position;
+						state.showScrubPreview = true;
+					}
+				}
+			};
+
+			const endScrubbing = (event) => {
+				if(! state.isScrubbing || event.pointerId !== activeScrubPointerId) {
+					return false;
+				}
+
+				const scrubPosition = scrubPositionFromPointer(event);
+
+				if(scrubPosition) {
+					updateScrubState(scrubPosition);
+					syncScrubFrame(scrubPosition.time, true);
+				}
+
+				try {
+					event.currentTarget.releasePointerCapture(event.pointerId);
+				}
+				catch (error) {}
+
+				const shouldResume = state.wasPlayingBeforeScrub && isIntersecting.value;
+
+				activeScrubPointerId = null;
+				state.isScrubbing = false;
+				state.wasPlayingBeforeScrub = false;
+				state.showScrubPreview = false;
+
+				if(shouldResume) {
+					playVideo();
+				}
+				else {
+					state.isPlaying = false;
+					stopProgressUpdater();
+					stopTelemetryTimer();
+				}
+			};
+
+			const clearScrubPreview = () => {
+				if(! state.isScrubbing) {
+					state.showScrubPreview = false;
+				}
+			};
+
+			const seekBy = (seconds) => {
+				const durationSeconds = videoDurationSeconds();
+
+				if(! durationSeconds || ! videoPlayerRef.value) {
+					return false;
+				}
+
+				const nextTime = clamp((videoPlayerRef.value.currentTime || 0) + seconds, 0, durationSeconds);
+				const nextPercentage = nextTime / durationSeconds;
+
+				updateScrubState({
+					time: nextTime,
+					percentage: nextPercentage,
+					position: clamp(nextPercentage * 100, 4, 96)
+				});
+
+				syncScrubFrame(nextTime, true);
+				state.showScrubPreview = false;
+			};
+
+			const handleScrubberKeydown = (event) => {
+				const handledKeys = ['ArrowLeft', 'ArrowDown', 'ArrowRight', 'ArrowUp', 'Home', 'End'];
+
+				if(! handledKeys.includes(event.key)) {
+					return false;
+				}
+
+				event.preventDefault();
+				event.stopPropagation();
+
+				const stepSeconds = event.shiftKey ? 10 : 5;
+
+				if(event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+					seekBy(-stepSeconds);
+				}
+				else if(event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+					seekBy(stepSeconds);
+				}
+				else if(event.key === 'Home') {
+					seekBy(-videoDurationSeconds());
+				}
+				else if(event.key === 'End') {
+					seekBy(videoDurationSeconds());
+				}
+			};
+
+			const noop = () => {};
 
 				return {
 				videoPlayerRef: videoPlayerRef,
 				state: state,
 				playerFrameStyle: playerFrameStyle,
+				displayProgress: displayProgress,
+				scrubberDisplayTime: scrubberDisplayTime,
+				scrubberPreviewLabel: scrubberPreviewLabel,
+				scrubberAriaValue: scrubberAriaValue,
 				toggleMute: toggleMute,
 				toggleFullscreen: toggleFullscreen,
-                seekVideo: seekVideo,
+                startScrubbing: startScrubbing,
+                previewScrubbing: previewScrubbing,
+                endScrubbing: endScrubbing,
+                clearScrubPreview: clearScrubPreview,
+                handleScrubberKeydown: handleScrubberKeydown,
+				noop: noop,
 				togglePlay: () => {
 					if(state.isLoaded) {
 						if(state.isPlaying) {
