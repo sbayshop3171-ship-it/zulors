@@ -62,7 +62,9 @@ class StoryMediaController extends Controller
         }
 
         $request->validate([
-            'media_file' => ['required', 'file']
+            'media_file' => ['required', 'file'],
+            'clip_start_seconds' => ['nullable', 'numeric', 'min:0', 'max:86400'],
+            'clip_duration_seconds' => ['nullable', 'numeric', 'min:1', 'max:' . config('story.video_clip_size')],
         ]);
 
         $mediaFile = $request->file('media_file');
@@ -77,7 +79,7 @@ class StoryMediaController extends Controller
         else {
             $this->validateStoryVideo($mediaFile);
 
-            return $this->uploadStoryVideo($mediaFile);
+            return $this->uploadStoryVideo($request, $mediaFile);
         }
     }
 
@@ -174,7 +176,7 @@ class StoryMediaController extends Controller
         }
     }
 
-    private function uploadStoryVideo(UploadedFile $mediaFile)
+    private function uploadStoryVideo(Request $request, UploadedFile $mediaFile)
     {
         try {
             $videoUploadService = app(VideoUploadService::class);
@@ -188,7 +190,10 @@ class StoryMediaController extends Controller
                 ->setStorageDisk($videoStorageDisk)
                 ->tempSaveLocally($mediaFile);
 
-            $videoThumbnailPath = $videoThumbnailService->generateThumbnail($videoData['video_path']);
+            $clipData = $this->getStoryVideoClipData($request, (int) $videoData['seconds']);
+            $videoThumbnailPath = $videoThumbnailService
+                ->setSecondsOffset($clipData['start_seconds'])
+                ->generateThumbnail($videoData['video_path']);
 
             $imageData = $imageUploadService
                 ->load($videoThumbnailPath)
@@ -213,10 +218,27 @@ class StoryMediaController extends Controller
                 'size' => $mediaFile->getSize(),
                 'thumbnail_size' => $imageData['image_size'],
                 'thumbnail_disk' => $imageData['disk'],
-                'lqip_base64' => $thumbnailLQIPBase64
+                'lqip_base64' => $thumbnailLQIPBase64,
+                'metadata' => [
+                    'duration_seconds' => $clipData['duration_seconds'],
+                    'original_duration_seconds' => $clipData['original_duration_seconds'],
+                    'clip_start_seconds' => $clipData['start_seconds'],
+                    'clip_end_seconds' => $clipData['end_seconds'],
+                    'dimensions' => $videoData['dimensions'] ?? [],
+                    'aspect_ratio' => $videoData['aspect_ratio'] ?? null,
+                    'is_portrait' => $videoData['is_portrait'] ?? false,
+                ]
             ]);
 
-            $this->draftStoryFrame->duration_seconds = $videoData['seconds'];
+            $this->draftStoryFrame->duration_seconds = $clipData['duration_seconds'];
+            $this->draftStoryFrame->meta = array_merge($this->draftStoryFrame->meta ?? [], [
+                'video' => [
+                    'duration_seconds' => $clipData['duration_seconds'],
+                    'original_duration_seconds' => $clipData['original_duration_seconds'],
+                    'clip_start_seconds' => $clipData['start_seconds'],
+                    'clip_end_seconds' => $clipData['end_seconds'],
+                ]
+            ]);
             $this->draftStoryFrame->save();
 
             $this->draftStoryFrame->story->update([
@@ -232,7 +254,10 @@ class StoryMediaController extends Controller
                 'data' => [
                     'type' => 'video',
                     'source_url' => storage_url($imageData['image_path'], $videoStorageDisk),
-                    'duration' => parse_duration(config('story.video_clip_size'))
+                    'duration' => parse_duration($clipData['duration_seconds']),
+                    'duration_seconds' => $clipData['duration_seconds'],
+                    'clip_start_seconds' => $clipData['start_seconds'],
+                    'clip_end_seconds' => $clipData['end_seconds']
                 ]
             ]);
         } catch (Exception $e) {
@@ -250,5 +275,30 @@ class StoryMediaController extends Controller
     private function canAddStoryFrame()
     {
         return $this->draftStoryFrame->story->activeFramesCount() < config('story.max_frames_per_story');
+    }
+
+    private function getStoryVideoClipData(Request $request, int $originalDurationSeconds): array
+    {
+        $maxClipSeconds = max(1, (int) config('story.video_clip_size'));
+        $originalDurationSeconds = max(0, $originalDurationSeconds);
+        $requestedStart = max(0, (float) $request->input('clip_start_seconds', 0));
+        $requestedDuration = max(1, (float) $request->input('clip_duration_seconds', $maxClipSeconds));
+        $clipDurationSeconds = min($maxClipSeconds, (int) ceil($requestedDuration));
+
+        if($originalDurationSeconds > 0) {
+            $maxStart = max(0, $originalDurationSeconds - min($clipDurationSeconds, $originalDurationSeconds));
+            $clipStartSeconds = min((int) floor($requestedStart), $maxStart);
+            $clipDurationSeconds = min($clipDurationSeconds, max(1, $originalDurationSeconds - $clipStartSeconds));
+        }
+        else {
+            $clipStartSeconds = 0;
+        }
+
+        return [
+            'original_duration_seconds' => $originalDurationSeconds,
+            'start_seconds' => $clipStartSeconds,
+            'duration_seconds' => $clipDurationSeconds,
+            'end_seconds' => $clipStartSeconds + $clipDurationSeconds,
+        ];
     }
 }

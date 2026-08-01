@@ -20,6 +20,42 @@
 								</div>
 							</div>
 						</template>
+						<template v-else-if="state.videoClipCandidate">
+							<div class="bg-black h-full rounded-md overflow-hidden flex flex-col">
+								<video
+									ref="videoClipPreview"
+									v-bind:src="state.videoClipCandidate.objectUrl"
+									v-on:loadedmetadata="syncClipPreview"
+									class="flex-1 min-h-0 w-full object-contain"
+									muted
+									playsinline
+									controls
+								></video>
+								<div class="shrink-0 bg-black px-4 py-4">
+									<div class="flex items-center text-white text-par-s">
+										<span>{{ formatClipTime(state.videoClipCandidate.clipStartSeconds) }} - {{ formatClipTime(state.videoClipCandidate.clipStartSeconds + state.videoClipCandidate.clipDurationSeconds) }}</span>
+										<span class="ml-auto">{{ formatClipTime(state.videoClipCandidate.durationSeconds) }}</span>
+									</div>
+									<input
+										v-model.number="state.videoClipCandidate.clipStartSeconds"
+										v-on:input="syncClipPreview"
+										type="range"
+										min="0"
+										v-bind:max="state.videoClipCandidate.maxStartSeconds"
+										step="1"
+										class="block w-full mt-3 accent-brand-900"
+									>
+									<div class="flex items-center justify-end gap-3 mt-4">
+										<button v-on:click="cancelVideoClip" type="button" class="text-par-s text-white/80 hover:text-white">
+											{{ $t('labels.cancel') }}
+										</button>
+										<button v-on:click="confirmVideoClip" type="button" class="h-9 px-4 rounded-sm bg-brand-900 text-white text-par-s font-medium">
+											Next
+										</button>
+									</div>
+								</div>
+							</div>
+						</template>
 						<template v-else-if="state.isUploading">
 							<div class="shadow-xs popup-background-tr rounded-md p-2 h-full">
 								<div class="flex flex-col justify-center h-full border border-dashed border-edge-pr rounded-md smoothing">
@@ -91,11 +127,12 @@
 </template>
 
 <script>
-	import { defineComponent, reactive, ref, computed, defineAsyncComponent } from 'vue';
+	import { defineComponent, reactive, ref, computed, defineAsyncComponent, nextTick, onUnmounted } from 'vue';
 	
 	import { useInputHandlers } from '@/kernel/vue/composables/input/index.js';
 	import { useStoriesEditorStore } from '@D/store/stories/editor.store.js';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
+	import { getStoryVideoClipCandidate, storyClipUploadOptions, formatStoryClipTime } from '@/kernel/services/media/story-video-clip.js';
 
 	import PrimaryTextButton from '@D/components/inter-ui/buttons/PrimaryTextButton.vue';
 	import PrimaryIconButton from '@D/components/inter-ui/buttons/PrimaryIconButton.vue';
@@ -109,29 +146,69 @@
 			const storiesEditorStore = useStoriesEditorStore();
 			const stroyMediaFileInput = ref(null);
 			const storyTextInputField = ref(null);
+			const videoClipPreview = ref(null);
 			const state = reactive({
 				isEmojisPickerOpen: false,
 				isSubmitting: false,
-				isUploading: false
+				isUploading: false,
+				videoClipCandidate: null
 			});
 
 			const { autoResize, insertSymbolAtCaret, matchMention, completeText } = useInputHandlers();
 			const storyData = ref(storiesEditorStore.storyData);
 
-			const handleMediaUpload = async (file) => {
+			const clearVideoClipCandidate = () => {
+				if(state.videoClipCandidate?.objectUrl) {
+					URL.revokeObjectURL(state.videoClipCandidate.objectUrl);
+				}
+
+				state.videoClipCandidate = null;
+			};
+
+			const syncClipPreview = () => {
+				if(videoClipPreview.value && state.videoClipCandidate) {
+					videoClipPreview.value.currentTime = Number(state.videoClipCandidate.clipStartSeconds || 0);
+				}
+			};
+
+			const uploadSelectedMedia = async (file, options = {}) => {
 				try {
 					state.isUploading = true;
-					await storiesEditorStore.uploadMedia(file);
+					await storiesEditorStore.uploadMedia(file, options);
 					state.isUploading = false;
 				} catch (e) {
 					state.isUploading = false;
 
 					toastError(e.message);
 				}
-			}
+			};
+
+			const handleMediaUpload = async (file) => {
+				if(! file) {
+					return;
+				}
+
+				const clipCandidate = await getStoryVideoClipCandidate(file);
+
+				if(clipCandidate?.requiresTrim) {
+					clearVideoClipCandidate();
+					state.videoClipCandidate = clipCandidate;
+
+					nextTick(syncClipPreview);
+
+					return;
+				}
+
+				await uploadSelectedMedia(file, storyClipUploadOptions(clipCandidate));
+			};
+
+			onUnmounted(() => {
+				clearVideoClipCandidate();
+			});
 
 			return {
 				state: state,
+				videoClipPreview: videoClipPreview,
 				storyMedia: computed(() => {
 					return storiesEditorStore.storyMedia;
 				}),
@@ -147,6 +224,22 @@
 				storyData: storyData,
 				stroyMediaFileInput: stroyMediaFileInput,
 				storyTextInputField: storyTextInputField,
+				formatClipTime: formatStoryClipTime,
+				syncClipPreview: syncClipPreview,
+				cancelVideoClip: () => {
+					clearVideoClipCandidate();
+				},
+				confirmVideoClip: async () => {
+					const clipCandidate = state.videoClipCandidate;
+
+					if(clipCandidate) {
+						const mediaFile = clipCandidate.file;
+						const uploadOptions = storyClipUploadOptions(clipCandidate);
+
+						clearVideoClipCandidate();
+						await uploadSelectedMedia(mediaFile, uploadOptions);
+					}
+				},
 				insertStoryEmoji: (emojiSymbol) => {
 					storyData.value.content = insertSymbolAtCaret(storyTextInputField.value, emojiSymbol);
                     storyTextInputField.value.focus();
@@ -160,6 +253,7 @@
 						toastSuccess(__t('toast.story.story_published'));
 
 						storiesEditorStore.resetEditor();
+						clearVideoClipCandidate();
 						storiesEditorStore.closeEditor();
 					} catch (e) {
 						state.isSubmitting = false;
@@ -178,7 +272,8 @@
 				},
 				handleMediaUpload: handleMediaUpload,
 				handleMediaSelect: async (event) => {
-					handleMediaUpload(event.target.files[0]);
+					await handleMediaUpload(event.target.files[0]);
+					event.target.value = '';
 				},
 				textInputHandler: () => {
 					autoResize(storyTextInputField.value);

@@ -37,6 +37,9 @@ class MediaResource extends JsonResource
                 $metadata = Arr::only($metadata, [
                     'duration',
                     'duration_seconds',
+                    'original_duration_seconds',
+                    'clip_start_seconds',
+                    'clip_end_seconds',
                     'dimensions',
                     'aspect_ratio',
                     'is_portrait',

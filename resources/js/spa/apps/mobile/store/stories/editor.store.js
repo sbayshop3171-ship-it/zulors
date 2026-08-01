@@ -6,6 +6,7 @@ const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 	state: function() {
 		return {
 			uploadProgress: 0,
+			videoClipCandidate: null,
 			storyMedia: null,
 			storyData: {
 				content: ''
@@ -19,11 +20,23 @@ const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 	},
 	actions: {
 		resetEditor: function() {
+			this.clearVideoClipCandidate();
 			this.uploadProgress = 0;
 			this.storyMedia = null;
 			this.storyData = {
 				content: ''
 			}
+		},
+		setVideoClipCandidate: function(clipCandidate) {
+			this.clearVideoClipCandidate();
+			this.videoClipCandidate = clipCandidate;
+		},
+		clearVideoClipCandidate: function() {
+			if(this.videoClipCandidate?.objectUrl) {
+				URL.revokeObjectURL(this.videoClipCandidate.objectUrl);
+			}
+
+			this.videoClipCandidate = null;
 		},
 		publishStory: async function() {
 			const storiesStore = useStoriesStore();
@@ -41,10 +54,18 @@ const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 				});
 			}
 		},
-		uploadMedia: async function(mediaFile) {
+		uploadMedia: async function(mediaFile, options = {}) {
 			const formData = new FormData();
 
 			formData.append('media_file', mediaFile);
+
+			if(options.clip_start_seconds !== undefined) {
+				formData.append('clip_start_seconds', options.clip_start_seconds);
+			}
+
+			if(options.clip_duration_seconds !== undefined) {
+				formData.append('clip_duration_seconds', options.clip_duration_seconds);
+			}
 			
 			await colibriAPI().storyEditor().with(formData).withHeaders({
 				'Content-Type': 'multipart/form-data'
@@ -52,6 +73,7 @@ const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 				this.uploadProgress = Math.round((progressEvent.loaded / progressEvent.total) * 100);
 			}).sendTo('media/upload').then((response) => {
 				this.storyMedia = response.data.data;
+				this.clearVideoClipCandidate();
 				this.uploadProgress = 0;
 			}).catch((error) => {
 				if(error.response) {

@@ -44,7 +44,8 @@ return [
                 'mp4',
                 'avi',
                 'mpeg',
-                'mov'
+                'mov',
+                'webm'
             ]),
 			'mimetypes' => join(',', [
                 'video/mp4',

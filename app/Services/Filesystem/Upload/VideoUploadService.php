@@ -80,6 +80,8 @@ class VideoUploadService extends AbstractUploadService
         $videoTempPath = null;
 
         try {
+            $this->ensureLocalTemporaryDirectory();
+
             $videoTempPath = Storage::disk('local')->putFile($this->videoTemporaryLocation, $videoFile);
 
             if (! $videoTempPath) {
@@ -171,9 +173,28 @@ class VideoUploadService extends AbstractUploadService
 
     public function generateVideoTemporaryFilePath($videoExtension = null)
     {
+        $this->ensureLocalTemporaryDirectory();
+
         $uuid = Str::uuid();
 
         return "$this->videoTemporaryLocation/{$uuid}.{$videoExtension}";
+    }
+
+    private function ensureLocalTemporaryDirectory(): void
+    {
+        $directory = storage_local_path($this->videoTemporaryLocation);
+
+        if(! is_dir($directory)) {
+            @mkdir($directory, 0775, true);
+        }
+
+        if(is_dir($directory) && ! is_writable($directory)) {
+            @chmod($directory, 0775);
+        }
+
+        if(! is_dir($directory) || ! is_writable($directory)) {
+            $this->makeUploadException("Video temporary directory is not writable: {$directory}");
+        }
     }
 
     private function getUploadOptions(): array

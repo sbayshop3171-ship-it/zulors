@@ -15,6 +15,7 @@
 	import { defineComponent, ref, computed, reactive, onMounted, onUnmounted } from 'vue';
 	import { useRouter } from 'vue-router';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
+	import { getStoryVideoClipCandidate, storyClipUploadOptions } from '@/kernel/services/media/story-video-clip.js';
 
 	import { useStoriesEditorStore } from '@M/store/stories/editor.store.js';
 
@@ -29,9 +30,22 @@
 			const stroyMediaFileInput = ref(null);
 
 			const handleMediaUpload = async (file) => {
+				if(! file) {
+					return;
+				}
+
 				try {
+					const clipCandidate = await getStoryVideoClipCandidate(file);
+
+					if(clipCandidate?.requiresTrim) {
+						storiesEditorStore.setVideoClipCandidate(clipCandidate);
+						router.push({ name: 'story_editor' });
+
+						return;
+					}
+
 					state.isUploading = true;
-					await storiesEditorStore.uploadMedia(file);
+					await storiesEditorStore.uploadMedia(file, storyClipUploadOptions(clipCandidate));
 
 					router.push({ name: 'story_editor' });
 					state.isUploading = false;
@@ -62,7 +76,8 @@
 				}),
 				handleMediaUpload: handleMediaUpload,
 				handleMediaSelect: async (event) => {
-					handleMediaUpload(event.target.files[0]);
+					await handleMediaUpload(event.target.files[0]);
+					event.target.value = '';
 				},
 			};
 		}

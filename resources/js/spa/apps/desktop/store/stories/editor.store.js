@@ -52,11 +52,19 @@ const useStoriesEditorStore = defineStore('stories_editor_store', {
 				});
 			}
 		},
-		uploadMedia: async function(mediaFile) {
+		uploadMedia: async function(mediaFile, options = {}) {
 			const formData = new FormData();
 			const state = this;
 
 			formData.append('media_file', mediaFile);
+
+			if(options.clip_start_seconds !== undefined) {
+				formData.append('clip_start_seconds', options.clip_start_seconds);
+			}
+
+			if(options.clip_duration_seconds !== undefined) {
+				formData.append('clip_duration_seconds', options.clip_duration_seconds);
+			}
 			
 			await colibriAPI().storyEditor().with(formData).withHeaders({
 				'Content-Type': 'multipart/form-data'

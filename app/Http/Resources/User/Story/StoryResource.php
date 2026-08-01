@@ -41,7 +41,7 @@ class StoryResource extends JsonResource
                         'type' => $frameItem->type->value,
                         'content' => $frameItem->content,
                         'media' => $this->getStoryMedia($frameItem),
-                        'meta' => $frameItem->metadata,
+                        'meta' => $frameItem->meta,
                         'duration_seconds' => $frameItem->duration_seconds,
                         'views_count' => [
                             'raw' => $frameItem->views_count,

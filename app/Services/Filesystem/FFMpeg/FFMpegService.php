@@ -100,7 +100,11 @@ class FFMpegService
         $fallbackDirectory = storage_path('app/tmp/ffmpeg');
 
         if(! is_dir($fallbackDirectory)) {
-            mkdir($fallbackDirectory, 0755, true);
+            @mkdir($fallbackDirectory, 0775, true);
+        }
+
+        if(is_dir($fallbackDirectory) && ! is_writable($fallbackDirectory)) {
+            @chmod($fallbackDirectory, 0775);
         }
 
         return $fallbackDirectory;

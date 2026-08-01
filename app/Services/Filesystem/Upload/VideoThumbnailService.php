@@ -52,10 +52,9 @@ class VideoThumbnailService extends AbstractFFMpegService
         try {
             return retry($retries, function() use ($videoLocalPath) {
                 $tempThumbnailPath = storage_local_path($this->generateImageTemporaryFilePath('jpeg'));
+                $tempThumbnailDirname = dirname($tempThumbnailPath);
 
-                if (! is_writable(dirname($tempThumbnailPath))) {
-                    $tempThumbnailDirname = dirname($tempThumbnailPath);
-
+                if(! $this->ensureWritableDirectory($tempThumbnailDirname)) {
                     $this->makeFFMpegException("FFMpeg temporary thumbnail directory is not writable: {$tempThumbnailDirname}");
                 }
 
@@ -80,5 +79,18 @@ class VideoThumbnailService extends AbstractFFMpegService
         $uuid = Str::uuid();
 
         return "$this->imageTemporaryLocation/{$uuid}.{$imageExtension}";
+    }
+
+    private function ensureWritableDirectory(string $directory): bool
+    {
+        if(! is_dir($directory)) {
+            @mkdir($directory, 0775, true);
+        }
+
+        if(is_dir($directory) && ! is_writable($directory)) {
+            @chmod($directory, 0775);
+        }
+
+        return is_dir($directory) && is_writable($directory);
     }
 }

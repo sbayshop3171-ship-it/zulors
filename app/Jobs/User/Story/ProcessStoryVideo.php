@@ -43,6 +43,8 @@ class ProcessStoryVideo implements ShouldQueue
 
             $videoOldAbsLocalPath = storage_local_path($videoTempOldPath);
             $videoNewAbsLocalPath = storage_local_path($videoTempNewPath);
+            $clipStartSeconds = $this->clipStartSeconds();
+            $clipDurationSeconds = $this->clipDurationSeconds();
 
             $ffmpeg = $videoUploadService->getFFMpeg();
             $format = (new X264())
@@ -60,7 +62,7 @@ class ProcessStoryVideo implements ShouldQueue
                 ]);
             $video = $ffmpeg->open($videoOldAbsLocalPath);
 
-            $video->filters()->clip(TimeCode::fromSeconds(0), TimeCode::fromSeconds(config('story.video_clip_size')));
+            $video->filters()->clip(TimeCode::fromSeconds($clipStartSeconds), TimeCode::fromSeconds($clipDurationSeconds));
 
             $video->filters()->resize(new Dimension(1080, 1920), ResizeFilter::RESIZEMODE_INSET)->synchronize();
 
@@ -80,7 +82,7 @@ class ProcessStoryVideo implements ShouldQueue
                 $frameMedia->status = MediaStatus::PROCESSED;
                 $frameMedia->save();
 
-                $this->frameData->duration_seconds = (intval($this->frameData->duration_seconds) > config('story.video_clip_size')) ? config('story.video_clip_size') : intval($this->frameData->duration_seconds);
+                $this->frameData->duration_seconds = $clipDurationSeconds;
                 $this->frameData->status = StoryStatus::ACTIVE;
 
                 $this->frameData->save();
@@ -100,5 +102,18 @@ class ProcessStoryVideo implements ShouldQueue
     public function tries(): int
     {
         return 5;
+    }
+
+    private function clipStartSeconds(): int
+    {
+        return max(0, (int) data_get($this->frameData->meta, 'video.clip_start_seconds', 0));
+    }
+
+    private function clipDurationSeconds(): int
+    {
+        $configuredClipSize = max(1, (int) config('story.video_clip_size'));
+        $storedDuration = (int) data_get($this->frameData->meta, 'video.duration_seconds', $this->frameData->duration_seconds);
+
+        return max(1, min($configuredClipSize, $storedDuration ?: $configuredClipSize));
     }
 }
