@@ -25,6 +25,9 @@ normalize_permissions() {
 }
 
 mkdir -p bootstrap/cache storage/frontend storage/framework/cache storage/framework/sessions storage/framework/views storage/logs
+if [ ! -s storage/frontend/build.num ]; then
+	date +%s > storage/frontend/build.num
+fi
 normalize_permissions
 
 if [ "$INSTALL_DEPS" = "1" ]; then

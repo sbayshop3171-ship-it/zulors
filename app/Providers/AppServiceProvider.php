@@ -45,7 +45,17 @@ class AppServiceProvider extends ServiceProvider
         View::composer('*', function($view) {
             $view->with('localeName', (new Languages())->getLocaleName());
             $view->with('buildNumber', cache()->rememberForever('frontend_build_number', function() {
-                return file_get_contents(storage_path('frontend/build.num')) ?? random_int(1, 1000000);
+                $buildNumberPath = storage_path('frontend/build.num');
+
+                if(is_file($buildNumberPath)) {
+                    $buildNumber = trim((string) file_get_contents($buildNumberPath));
+
+                    if($buildNumber !== '') {
+                        return $buildNumber;
+                    }
+                }
+
+                return (string) random_int(1, 1000000);
             }));
         });
 
