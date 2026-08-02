@@ -9,10 +9,34 @@ const getStoriesFeedCacheKey = function() {
     return `colibri.desktop.stories.feed.v1.${authStore.userData?.id || 'guest'}`;
 };
 
+const storyVisibleInFeed = function(storyItem) {
+    return ! (storyItem?.status === 'processing' && storyItem?.progress?.stage === 'failed');
+};
+
+const frameVisibleInStory = function(frameItem) {
+    const isFailed = frameItem?.progress?.stage === 'failed' || frameItem?.media?.status === 'failed';
+
+    return ! (frameItem?.status === 'processing' && isFailed);
+};
+
+const visibleStories = function(stories) {
+    return stories.map((storyItem) => {
+        return {
+            ...storyItem,
+            relations: {
+                ...storyItem.relations,
+                frames: (storyItem.relations?.frames || []).filter(frameVisibleInStory)
+            }
+        };
+    }).filter((storyItem) => {
+        return storyItem.relations.frames.length > 0;
+    });
+};
+
 const useStoriesStore = defineStore('stories_store', {
     state: function() {
 		return {
-			storiesFeed: readCache(getStoriesFeedCacheKey(), []),
+			storiesFeed: readCache(getStoriesFeedCacheKey(), []).filter(storyVisibleInFeed),
             stories: [] 
 		}
 	},
@@ -26,6 +50,12 @@ const useStoriesStore = defineStore('stories_store', {
     actions: {
         prependFeedItem: function(storyData) {
             if(! storyData) {
+                return;
+            }
+
+            if(! storyVisibleInFeed(storyData)) {
+                this.removeFeedItem(storyData.story_uuid);
+
                 return;
             }
 
@@ -51,7 +81,7 @@ const useStoriesStore = defineStore('stories_store', {
             const state = this;
 
             await colibriAPI().stories().getFrom('feed').then((response) => {
-                state.storiesFeed = response.data.data;
+                state.storiesFeed = response.data.data.filter(storyVisibleInFeed);
                 writeCache(getStoriesFeedCacheKey(), state.storiesFeed);
 
                 return state.storiesFeed;
@@ -65,7 +95,7 @@ const useStoriesStore = defineStore('stories_store', {
             const state = this;
 
             await colibriAPI().stories().getFrom(`stories/${storyUUID}`).then((response) => {
-                state.stories = response.data.data;
+                state.stories = visibleStories(response.data.data);
             }).catch((error) => {
                 if(error.response) {
                     throw new Error(error.response.data.message);

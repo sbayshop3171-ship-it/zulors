@@ -3,13 +3,13 @@
         <img v-if="posterUrl" v-bind:src="posterUrl" class="absolute inset-0 size-full object-cover opacity-45 blur-sm scale-105" alt="Video thumbnail">
         <div class="absolute inset-0 bg-black/55"></div>
         <div class="relative z-10 w-full max-w-[260px] px-6 text-center text-white">
-            <div class="mx-auto mb-5 size-20 rounded-full border-2 border-white/25 bg-white/10 inline-flex-center">
-                <span class="text-par-xl font-semibold leading-none">{{ progress }}%</span>
+            <div class="mx-auto mb-5 size-20 rounded-full border-2 bg-white/10 inline-flex-center" v-bind:class="isFailed ? 'border-red-500/70' : 'border-white/25'">
+                <span class="text-par-xl font-semibold leading-none">{{ progressLabel }}</span>
             </div>
             <h3 class="text-par-l font-semibold">
                 {{ stageLabel }}
             </h3>
-            <div class="mt-4 h-1.5 overflow-hidden rounded-full bg-white/20">
+            <div v-if="! isFailed" class="mt-4 h-1.5 overflow-hidden rounded-full bg-white/20">
                 <span class="block h-full rounded-full bg-white transition-width ease-in-out" v-bind:style="{ width: `${progress}%` }"></span>
             </div>
         </div>
@@ -31,8 +31,16 @@
                 return Math.max(1, Math.min(100, Number(props.frameData.progress?.display || props.frameData.progress?.overall || 1)));
             });
 
+            const isFailed = computed(() => {
+                return props.frameData.progress?.stage === 'failed' || props.frameData.media?.status === 'failed';
+            });
+
             return {
                 progress: progress,
+                isFailed: isFailed,
+                progressLabel: computed(() => {
+                    return isFailed.value ? '!' : `${progress.value}%`;
+                }),
                 posterUrl: computed(() => {
                     return props.frameData.media?.thumbnail_url || props.frameData.media?.preview_url || props.frameData.media?.source_url || props.frameData.media?.lqip_base64;
                 }),

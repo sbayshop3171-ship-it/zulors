@@ -30,7 +30,10 @@ class StoryFrameProgress
         $overallProgress = $uploadProgress < 100 ? $uploadProgress : $processingProgress;
         $displayProgress = max(1, min(100, $overallProgress));
 
-        if(! $isFailed && ! $isProcessed) {
+        if($isFailed) {
+            $displayProgress = min(99, $displayProgress);
+        }
+        elseif(! $isProcessed) {
             $displayProgress = min(99, $displayProgress);
         }
 

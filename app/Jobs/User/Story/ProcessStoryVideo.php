@@ -141,7 +141,9 @@ class ProcessStoryVideo implements ShouldQueue
         }
 
         catch (Exception $e) {
-            $this->updateProcessingProgress($frameMedia, 100, 'failed');
+            $failedProgress = max(1, min(99, (int) data_get($frameMedia?->metadata, 'processing_progress', 1)));
+
+            $this->updateProcessingProgress($frameMedia, $failedProgress, 'failed');
 
             Log::error('Story video processing failed after 5 attempts. Error: ' . $e->getMessage());
 

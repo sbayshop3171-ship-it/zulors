@@ -226,7 +226,7 @@ class StoryController extends Controller
                 $hasQuery->where('expires_at', '>', now())->where('status', StoryStatus::ACTIVE);
             })->orWhere(function($ownerQuery) {
                 $ownerQuery->where('user_id', me()->id)->whereHas('frames', function($hasQuery) {
-                    $hasQuery->where('expires_at', '>', now())->where('status', StoryStatus::PROCESSING);
+                    $this->applyVisibleProcessingFrameQuery($hasQuery);
                 });
             });
         })->whereNotIn('user_id', function($query) {
@@ -245,6 +245,8 @@ class StoryController extends Controller
                     $frameQuery->where('status', StoryStatus::ACTIVE)->orWhere(function($processingQuery) {
                         $processingQuery->where('status', StoryStatus::PROCESSING)->whereHas('story', function($storyQuery) {
                             $storyQuery->where('user_id', me()->id);
+                        })->whereHas('media', function($mediaQuery) {
+                            $this->applyProcessableStoryMediaQuery($mediaQuery);
                         });
                     });
                 });
@@ -252,5 +254,23 @@ class StoryController extends Controller
             'frames.views',
             'frames.media'
         ];
+    }
+
+    private function applyVisibleProcessingFrameQuery($query): void
+    {
+        $query->where('expires_at', '>', now())
+            ->where('status', StoryStatus::PROCESSING)
+            ->whereHas('media', function($mediaQuery) {
+                $this->applyProcessableStoryMediaQuery($mediaQuery);
+            });
+    }
+
+    private function applyProcessableStoryMediaQuery($query): void
+    {
+        $query->where('status', '!=', MediaStatus::FAILED)
+            ->where(function($metadataQuery) {
+                $metadataQuery->whereNull('metadata->processing_state')
+                    ->orWhere('metadata->processing_state', '!=', 'failed');
+            });
     }
 }

@@ -15,6 +15,7 @@
 
 namespace App\Http\Resources\User\Story;
 
+use App\Enums\Media\MediaStatus;
 use App\Enums\Story\StoryStatus;
 use App\Support\Story\StoryFrameProgress;
 use Illuminate\Http\Request;
@@ -57,7 +58,9 @@ class FeedResource extends JsonResource
     private function getProcessingFrame()
     {
         return $this->frames->filter(function($frame) {
-            return $frame->status->isProcessing() && $this->isFrameUnexpired($frame);
+            return $frame->status->isProcessing()
+                && $this->isFrameUnexpired($frame)
+                && $this->isFrameProcessable($frame);
         })->sortByDesc('id')->first();
     }
 
@@ -73,10 +76,20 @@ class FeedResource extends JsonResource
                 'upload' => 100,
                 'processing' => 100,
                 'overall' => 100,
-                'state' => 'processed'
+                'display' => 100,
+                'state' => 'processed',
+                'stage' => 'ready'
             ];
         }
 
         return StoryFrameProgress::make($processingFrame);
+    }
+
+    private function isFrameProcessable($frame): bool
+    {
+        return $frame->media->every(function($media) {
+            return $media->status !== MediaStatus::FAILED
+                && data_get($media->metadata, 'processing_state') !== 'failed';
+        });
     }
 }

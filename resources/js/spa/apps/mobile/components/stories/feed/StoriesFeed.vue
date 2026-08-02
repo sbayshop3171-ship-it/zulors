@@ -29,11 +29,11 @@
                                     <img class="size-full object-cover inline-block bg-fill-pr" v-bind:src="storyData.relations.user.avatar_url" alt="Image">
                                 </div>
                                 <div v-if="isStoryProcessing(storyData)" class="absolute inset-[3px] rounded-full bg-black/60 inline-flex-center flex-col">
-                                    <span class="text-white text-cap-l font-semibold leading-none">{{ storyProgress(storyData) }}%</span>
+                                    <span class="text-white text-cap-l font-semibold leading-none">{{ storyProgressText(storyData) }}</span>
                                     <span class="mt-0.5 max-w-[62px] truncate text-[9px] leading-none text-white/85">{{ storyStageLabel(storyData) }}</span>
                                 </div>
                                 <div v-if="isStoryProcessing(storyData)" class="absolute -bottom-1 left-1/2 -translate-x-1/2 h-1 w-12 rounded-full bg-fill-tr overflow-hidden border border-white/70">
-                                    <span class="block h-full bg-brand-900 transition-width ease-in-out" v-bind:style="{ width: `${storyProgress(storyData)}%` }"></span>
+                                    <span class="block h-full transition-width ease-in-out" v-bind:class="storyProgressBarClasses(storyData)" v-bind:style="{ width: storyProgressBarWidth(storyData) }"></span>
                                 </div>
                             </div>
                             <div class="text-par-s text-lab-pr text-center whitespace-nowrap overflow-hidden text-ellipsis">
@@ -48,11 +48,11 @@
                                     <img class="size-full object-cover inline-block bg-fill-pr" v-bind:src="storyData.relations.user.avatar_url" alt="Image">
                                 </div>
                                 <div class="absolute inset-[3px] rounded-full bg-black/60 inline-flex-center flex-col">
-                                    <span class="text-white text-cap-l font-semibold leading-none">{{ storyProgress(storyData) }}%</span>
+                                    <span class="text-white text-cap-l font-semibold leading-none">{{ storyProgressText(storyData) }}</span>
                                     <span class="mt-0.5 max-w-[62px] truncate text-[9px] leading-none text-white/85">{{ storyStageLabel(storyData) }}</span>
                                 </div>
                                 <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 h-1 w-12 rounded-full bg-fill-tr overflow-hidden border border-white/70">
-                                    <span class="block h-full bg-brand-900 transition-width ease-in-out" v-bind:style="{ width: `${storyProgress(storyData)}%` }"></span>
+                                    <span class="block h-full transition-width ease-in-out" v-bind:class="storyProgressBarClasses(storyData)" v-bind:style="{ width: storyProgressBarWidth(storyData) }"></span>
                                 </div>
                             </div>
                             <div class="text-par-s text-lab-pr text-center whitespace-nowrap overflow-hidden text-ellipsis">
@@ -145,6 +145,10 @@
                 return storyData.status === 'processing';
             };
 
+            const isStoryFailed = (storyData) => {
+                return storyData.progress?.stage === 'failed';
+            };
+
             const storyProgress = (storyData) => {
                 return Math.max(1, Math.min(100, Number(storyData.progress?.display || storyData.progress?.overall || storyData.progress?.processing || 1)));
             };
@@ -171,11 +175,24 @@
                 userData: userData,
                 isStoryProcessing: isStoryProcessing,
                 storyProgress: storyProgress,
+                storyProgressText: (storyData) => {
+                    return isStoryFailed(storyData) ? '!' : `${storyProgress(storyData)}%`;
+                },
+                storyProgressBarClasses: (storyData) => {
+                    return isStoryFailed(storyData) ? 'bg-red-500' : 'bg-brand-900';
+                },
+                storyProgressBarWidth: (storyData) => {
+                    return isStoryFailed(storyData) ? '100%' : `${storyProgress(storyData)}%`;
+                },
                 storyStageLabel: storyStageLabel,
                 storyCanOpen: (storyData) => {
-                    return storyData.can_open !== false;
+                    return storyData.can_open !== false && ! isStoryFailed(storyData);
                 },
                 storyBorderClasses: (storyData) => {
+                    if(isStoryFailed(storyData)) {
+                        return 'border-red-500';
+                    }
+
                     if(isStoryProcessing(storyData)) {
                         return 'border-brand-900';
                     }
