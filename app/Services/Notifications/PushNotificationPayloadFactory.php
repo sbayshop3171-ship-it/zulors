@@ -24,23 +24,16 @@ class PushNotificationPayloadFactory
         $body = (string) ($customPayload['body'] ?? $this->body($notifiable, $data, $type));
 
         return [
-            'notification' => [
+            'data' => $this->stringData(array_merge([
                 'title' => Str::limit($title, 80),
                 'body' => Str::limit($body, 180),
-            ],
-            'data' => $this->stringData(array_merge([
                 'type' => $type,
                 'url' => $url,
                 'source' => 'push',
+                'channel_id' => $customPayload['channel_id'] ?? $this->channelId($type),
             ], Arr::get($customPayload, 'data', []))),
             'android' => [
                 'priority' => 'high',
-                'notification' => [
-                    'channel_id' => 'zulors_default',
-                    'sound' => 'default',
-                    'click_action' => 'OPEN_ZULORS_NOTIFICATION',
-                    'color' => '#111111',
-                ],
             ],
         ];
     }
@@ -109,6 +102,19 @@ class PushNotificationPayloadFactory
         }
 
         return url($path);
+    }
+
+    private function channelId(string $type): string
+    {
+        if(Str::startsWith($type, 'chat.')) {
+            return 'zulors_messages';
+        }
+
+        if(Str::startsWith($type, ['important.', 'wallet.'])) {
+            return 'zulors_system';
+        }
+
+        return 'zulors_activity';
     }
 
     private function stringData(array $data): array

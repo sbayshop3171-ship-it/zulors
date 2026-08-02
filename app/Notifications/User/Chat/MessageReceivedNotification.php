@@ -50,9 +50,14 @@ class MessageReceivedNotification extends Notification
             'body' => filled($text) ? Str::limit($text, 140) : __('notifications.chat.message_received', locale: $notifiable->language),
             'url' => url($chatId ? "/messenger/c/{$chatId}" : '/messenger'),
             'type' => $this->notificationType,
+            'channel_id' => 'zulors_messages',
             'data' => [
                 'chat_id' => $chatId,
                 'message_id' => $this->messageData?->id,
+                'sender_id' => $sender?->id,
+                'sender_name' => $sender?->name,
+                'sender_username' => $sender?->username,
+                'sender_avatar_url' => $sender?->avatar_url,
             ],
         ];
     }
