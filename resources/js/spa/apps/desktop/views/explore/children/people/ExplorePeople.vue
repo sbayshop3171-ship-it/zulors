@@ -3,14 +3,7 @@
 		<template v-slot:content>
 			<TimelineContainer>
 				<div class="sticky top-0 popup-background-tr z-10">
-					<ContentTabs v-bind:cols="2">
-						<TabsLink v-bind:link="{ name: 'explore_posts' }">
-							{{ $t('labels.explore') }}
-						</TabsLink>
-						<TabsLink v-bind:link="{ name: 'explore_people' }">
-							{{ $t('labels.people') }}
-						</TabsLink>
-					</ContentTabs>
+					<ExploreTabs></ExploreTabs>
 					<Border></Border>
 
 					<div class="p-4">
@@ -58,8 +51,7 @@
 	import FluidEmptyState from '@D/components/page-states/empty/FluidEmptyState.vue';
 	import SearchBar from '@D/components/general/search/SearchBar.vue';
 	import InfinityScrollContentLoader from '@D/components/loaders/InfinityScrollContentLoader.vue';
-	import ContentTabs from '@D/components/general/tabs/content/ContentTabs.vue';
-    import TabsLink from '@D/components/general/tabs/content/parts/TabsLink.vue';
+	import ExploreTabs from '@D/views/explore/parts/ExploreTabs.vue';
 
 	export default defineComponent({
 		setup: function() {
@@ -152,8 +144,7 @@
 			FluidEmptyState: FluidEmptyState,
 			PeopleListItemSkeleton: PeopleListItemSkeleton,
 			InfinityScrollContentLoader: InfinityScrollContentLoader,
-			ContentTabs: ContentTabs,
-			TabsLink: TabsLink
+			ExploreTabs: ExploreTabs
 		}
 	});
 </script>

@@ -64,7 +64,11 @@
                             <PublicationGif v-on:click="lightboxImages" v-bind:postMedia="postMedia"></PublicationGif>
                         </template>
                         <template v-else-if="PostTypeUtils.isVideo(postData.type)">
-                            <PublicationVideo v-bind:postMedia="postMedia" v-bind:key="postData.id"></PublicationVideo>
+                            <PublicationVideo
+                                v-bind:postMedia="postMedia"
+                                v-bind:openReelsOnTap="true"
+                                v-on:open-reels="openReelsViewer"
+                            v-bind:key="postData.id"></PublicationVideo>
                         </template>
                         <template v-else-if="PostTypeUtils.isDocument(postData.type)">
                             <PublicationDocument v-bind:postMedia="postMedia"></PublicationDocument>
@@ -205,7 +209,7 @@
 
 <script>
     import { defineComponent, defineAsyncComponent, reactive, computed, ref } from 'vue';
-    import { useRoute } from 'vue-router';
+    import { useRoute, useRouter } from 'vue-router';
     import { PostTypeUtils } from '@/kernel/enums/post/post.type.js';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
@@ -262,6 +266,7 @@
         },
         setup: function(props) {
             const route = useRoute();
+            const router = useRouter();
             const state = reactive({
                 isMenuOpen: false,
                 isReactionPickerOpen: false,
@@ -317,6 +322,18 @@
                 postData: postData,
                 publicationRootRef: publicationRootRef,
                 state: state,
+                openReelsViewer: () => {
+                    if(! postData.value?.hash_id) {
+                        return;
+                    }
+
+                    router.push({
+                        name: 'explore_reels',
+                        params: {
+                            hash_id: postData.value.hash_id
+                        }
+                    });
+                },
                 isSensitive: computed(() => {
                     return postData.value.meta.is_sensitive;
                 }),

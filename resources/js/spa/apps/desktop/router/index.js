@@ -429,6 +429,14 @@ const Router = createRouter({
                     name: 'explore_posts'
                 },
                 {
+                    path: 'reels/:hash_id?',
+                    component: function() {
+                        return import('@D/views/explore/children/reels/ExploreReels.vue');
+                    },
+                    name: 'explore_reels',
+                    props: true
+                },
+                {
                     path: 'people',
                     component: function() {
                         return import('@D/views/explore/children/people/ExplorePeople.vue');

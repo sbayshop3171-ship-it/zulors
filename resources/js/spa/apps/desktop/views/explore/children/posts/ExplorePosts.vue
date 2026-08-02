@@ -2,14 +2,7 @@
     <SidedContentLayout>
         <template v-slot:content>
             <TimelineContainer>
-                <ContentTabs v-bind:cols="2">
-                    <TabsLink v-bind:link="{ name: 'explore_posts' }">
-                        {{ $t('labels.explore') }}
-                    </TabsLink>
-                    <TabsLink v-bind:link="{ name: 'explore_people' }">
-                        {{ $t('labels.people') }}
-                    </TabsLink>
-                </ContentTabs>
+                <ExploreTabs></ExploreTabs>
                 <Border></Border>
 
                 <div class="p-4">
@@ -67,11 +60,10 @@
     import TimelinePublication from '@D/components/timeline/feed/TimelinePublication.vue';
     import TimelinePublicationSkeleton from '@D/components/timeline/feed/TimelinePublicationSkeleton.vue';
     import FluidEmptyState from '@D/components/page-states/empty/FluidEmptyState.vue';
-    import ContentTabs from '@D/components/general/tabs/content/ContentTabs.vue';
-    import TabsLink from '@D/components/general/tabs/content/parts/TabsLink.vue';
     import ScrollTopButton from '@D/components/inter-ui/buttons/ScrollTopButton.vue';
     import FeedUpdate from '@D/components/timeline/update/FeedUpdate.vue';
     import SearchBar from '@D/components/general/search/SearchBar.vue';
+    import ExploreTabs from '@D/views/explore/parts/ExploreTabs.vue';
 
     export default defineComponent({
         setup: function() {
@@ -221,11 +213,10 @@
             TimelinePublication: TimelinePublication,
             FluidEmptyState: FluidEmptyState,
             TimelinePublicationSkeleton: TimelinePublicationSkeleton,
-            ContentTabs: ContentTabs,
-            TabsLink: TabsLink,
             ScrollTopButton: ScrollTopButton,
             FeedUpdate: FeedUpdate,
-            SearchBar: SearchBar
+            SearchBar: SearchBar,
+            ExploreTabs: ExploreTabs
         }
     });
 </script>

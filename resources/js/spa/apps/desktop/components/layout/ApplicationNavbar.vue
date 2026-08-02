@@ -221,6 +221,7 @@
 
                     import('@D/views/home/HomeIndex.vue');
                     import('@D/views/explore/children/posts/ExplorePosts.vue');
+                    import('@D/views/explore/children/reels/ExploreReels.vue');
                     import('@D/views/explore/children/people/ExplorePeople.vue');
                 };
 
