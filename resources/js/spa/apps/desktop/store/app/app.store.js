@@ -108,6 +108,13 @@ const useAppStore = defineStore('app', {
                         continue;
                     }
 
+                    if (isTemporaryServerError && this.appData?.auth?.user) {
+                        sessionStorage.removeItem('bootstrap-reload-attempted');
+                        sessionStorage.removeItem('bootstrap-hard-reload-attempted');
+
+                        return true;
+                    }
+
                     if (isRecoverableLoadError && ! sessionStorage.getItem('bootstrap-reload-attempted')) {
                         sessionStorage.setItem('bootstrap-reload-attempted', 'true');
                         window.location.reload();

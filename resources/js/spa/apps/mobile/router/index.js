@@ -492,7 +492,7 @@ const Router = createRouter({
             }
         },
         {
-            path: '/:pathMatch(.*)*',
+            path: '/not-found',
             name: 'error_404',
             component: function() {
                 return import('@M/views/errors/err404/Error404.vue');
@@ -500,6 +500,12 @@ const Router = createRouter({
 			meta: {
                 layout: Layouts.FLAT,
                 auth: true
+            }
+        },
+        {
+            path: '/:pathMatch(.*)*',
+            redirect: {
+                name: 'home_index'
             }
         },
 	]

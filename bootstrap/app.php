@@ -16,6 +16,8 @@
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Exceptions\ThrottleRequestsException;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 return Application::configure(basePath: dirname(__DIR__))->withRouting(
@@ -75,5 +77,22 @@ return Application::configure(basePath: dirname(__DIR__))->withRouting(
             $middleware->group('admin-area', ['web', 'admin']);
 
         })->withExceptions(function (Exceptions $exceptions) {
+            $exceptions->shouldRenderJsonWhen(function (Request $request, Throwable $exception) {
+                return $request->is('api/*') || $request->expectsJson();
+            });
+
+            $exceptions->render(function (ThrottleRequestsException $exception, Request $request) {
+                if(! $request->is('api/*') && ! $request->expectsJson()) {
+                    return null;
+                }
+
+                $headers = $exception->getHeaders();
+
+                return response()->json([
+                    'message' => 'Please wait a moment and try again.',
+                    'code' => 'rate_limited',
+                    'retry_after' => (int) ($headers['Retry-After'] ?? 0),
+                ], 429)->withHeaders($headers);
+            });
 
         })->create();

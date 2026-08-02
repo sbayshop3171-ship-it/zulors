@@ -1,4 +1,5 @@
 import Axios from 'axios';
+import { normalizeRateLimitError } from '@/kernel/services/errors/index.js';
 
 
 const configuredBaseURL = import.meta.env.VITE_API_BASE_URL;
@@ -76,6 +77,8 @@ const refreshCsrfCookie = (() => {
 })();
 
 const normalizeExpiredSessionError = (error) => {
+    error = normalizeRateLimitError(error);
+
     if(error?.response?.status === 401 && error.response.data) {
         error.response.data.message = 'Your session expired. Please refresh the page and sign in again.';
     }

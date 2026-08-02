@@ -18,9 +18,11 @@ import '@/kernel/websockets/index.js';
 import '@D/core/global/global.js';
 
 import { toastSuccess, toastError } from '@D/core/services/toasts/index.js';
+import { installFriendlyAlertGuard } from '@/kernel/services/errors/index.js';
 
 window.toastSuccess = toastSuccess;
 window.toastError = toastError;
+installFriendlyAlertGuard(toastError);
 
 window.HIDE_AUTHOR_ATTRIBUTION = import.meta.env.VITE_HIDE_AUTHOR_ATTRIBUTION;
 
