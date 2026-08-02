@@ -52,10 +52,17 @@ html {
 }
 
 .mobile-safe-header__wordmark {
-    max-width: min(42vw, 9rem);
+    max-width: min(34vw, 8rem);
     overflow: hidden;
     text-align: center;
-    transform: translateY(2px);
+    transform: translate(3.5rem, 2px);
+}
+
+@media (max-width: 340px) {
+    .mobile-safe-header__wordmark {
+        max-width: min(32vw, 7rem);
+        transform: translate(2.75rem, 2px);
+    }
 }
 
 .mobile-safe-action {
