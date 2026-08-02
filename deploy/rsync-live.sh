@@ -67,6 +67,8 @@ RSYNC_EXCLUDES=(
 )
 
 RSYNC_PERMISSIONS=(
+	--no-owner
+	--no-group
 	--no-perms
 	--delay-updates
 	--chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r
@@ -128,6 +130,8 @@ rsync_excludes=(
 )
 
 rsync_permissions=(
+	--no-owner
+	--no-group
 	--no-perms
 	--delay-updates
 	--chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r
