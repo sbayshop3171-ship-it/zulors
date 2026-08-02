@@ -13,12 +13,13 @@
 
         <template v-if="playerState.isInitialized">
             <div class="h-full w-full cursor-pointer relative" v-on:click="toggleStory">
-                <StoryVideo v-if="isVideo" v-bind:frameData="playerState.frameData" v-bind:key="playerState.frameData.id"></StoryVideo>
+                <StoryProcessing v-if="isFrameProcessing" v-bind:frameData="playerState.frameData" v-bind:key="playerState.frameData.id"></StoryProcessing>
+                <StoryVideo v-else-if="isVideo" v-bind:frameData="playerState.frameData" v-bind:key="playerState.frameData.id"></StoryVideo>
                 <StoryImage v-else v-bind:frameData="playerState.frameData" v-bind:key="playerState.frameData.id"></StoryImage>
             </div>
         </template>
 
-        <div v-if="playerState.isInitialized" class="absolute bottom-0 left-0 right-0 z-10 text-white pt-8 pb-4 from-black/60 to-transparent bg-gradient-to-t">
+        <div v-if="playerState.isInitialized && ! isFrameProcessing" class="absolute bottom-0 left-0 right-0 z-10 text-white pt-8 pb-4 from-black/60 to-transparent bg-gradient-to-t">
             <StoryContent></StoryContent>
             <StoryViews v-if="playerState.isOwner"></StoryViews>
         </div>
@@ -31,6 +32,7 @@
     import { defineComponent, onMounted, ref, provide, reactive, onUnmounted, onBeforeUnmount, computed } from 'vue';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
     
+    import StoryProcessing from '@M/views/stories/parts/media/StoryProcessing.vue';
     import StoryVideo from '@M/views/stories/parts/media/StoryVideo.vue';
     import StoryImage from '@M/views/stories/parts/media/StoryImage.vue';
     import StoryViews from '@M/views/stories/parts/footer/StoryViews.vue';
@@ -72,9 +74,9 @@
                     frameItem.playable = {
                         playing: false,
                         played: false,
-                        progress: 0,
+                        progress: isProcessingFrame(frameItem) ? processingFrameProgress(frameItem) : 0,
                         leftDuration: 0,
-                        duration: frameItem.duration_seconds
+                        duration: isProcessingFrame(frameItem) ? 1 : frameItem.duration_seconds
                     }
 
                     return frameItem;
@@ -101,7 +103,7 @@
             });
 
             const viewStory = () => {
-                if(! playerState.isOwner) {
+                if(! playerState.isOwner && ! isProcessingFrame(playerState.frameData)) {
                     context.emit('view', playerState.frameData.id);
                 }
             }
@@ -225,6 +227,14 @@
                 playerState.isPaused = true;
             }
 
+            const isProcessingFrame = (frameItem) => {
+                return frameItem?.status === 'processing' || frameItem?.media?.status === 'processing';
+            };
+
+            const processingFrameProgress = (frameItem) => {
+                return Math.max(1, Math.min(100, Number(frameItem?.progress?.display || frameItem?.progress?.overall || 1)));
+            };
+
             return {
                 storyData: storyData,
                 playerState: playerState,
@@ -233,6 +243,10 @@
                 pauseStory: pauseStory,
                 playStory: playStory,
                 toggleStory: () => {
+                    if(isProcessingFrame(playerState.frameData)) {
+                        return;
+                    }
+
                     if(playerState.isPaused) {
                         playStory();
                     }
@@ -253,6 +267,9 @@
 
                     return false;
                 }),
+                isFrameProcessing: computed(() => {
+                    return isProcessingFrame(playerState.frameData);
+                }),
                 hasPrevItems: computed(() => {
                     if(playerState.frameIndex > 0) {
                         return true;
@@ -265,6 +282,7 @@
         components: {
             StoryPlayback: StoryPlayback,
             StoryHeader: StoryHeader,
+            StoryProcessing: StoryProcessing,
             StoryVideo: StoryVideo,
             StoryImage: StoryImage,
             StoryViews: StoryViews,

@@ -15,8 +15,8 @@
 			</div>
 		</div>
 		<div class="inline-flex gap-1 items-center">
-			<PrimaryIconButton v-if="playerState.isPaused" v-on:click="play" iconName="play" iconSize="5" buttonColor="text-gray-300" hoverText="text-white" hoverBg="hover:bg-white/20"></PrimaryIconButton>
-			<template v-if="isVideo">
+			<PrimaryIconButton v-if="playerState.isPaused && ! isFrameProcessing" v-on:click="play" iconName="play" iconSize="5" buttonColor="text-gray-300" hoverText="text-white" hoverBg="hover:bg-white/20"></PrimaryIconButton>
+			<template v-if="isVideo && ! isFrameProcessing">
 				<PrimaryIconButton v-if="state.isMuted" v-on:click="toggleVideosVolume" iconName="volume-x" iconSize="5" buttonColor="text-gray-300" hoverText="text-white" hoverBg="hover:bg-white/20"></PrimaryIconButton>
 				<PrimaryIconButton v-else v-on:click="toggleVideosVolume" iconName="volume-max" iconSize="5" buttonColor="text-gray-300" hoverText="text-white" hoverBg="hover:bg-white/20"></PrimaryIconButton>
 			</template>
@@ -86,6 +86,9 @@
 
                     return false;
                 }),
+				isFrameProcessing: computed(() => {
+					return playerState.frameData?.status === 'processing' || playerState.frameData?.media?.status === 'processing';
+				}),
 				pause: pause,
 				play: play,
 				toggleVideosVolume: () => {

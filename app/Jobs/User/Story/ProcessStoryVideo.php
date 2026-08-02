@@ -23,6 +23,7 @@ class ProcessStoryVideo implements ShouldQueue
 
     private $frameData;
 
+    public $deleteWhenMissingModels = true;
     public $timeout = (60 * 30); // 30 minutes
 
     public function __construct(StoryFrame $frameData)
@@ -37,6 +38,12 @@ class ProcessStoryVideo implements ShouldQueue
         try {
             $videoUploadService = app(VideoUploadService::class);
             $fileDeleteService = app(FileDeleteService::class);
+            $this->frameData = StoryFrame::with('media')->find($this->frameData->id);
+
+            if(empty($this->frameData)) {
+                return;
+            }
+
             $frameMedia = $this->frameData->media->first();
 
             if(empty($frameMedia)) {
@@ -93,11 +100,24 @@ class ProcessStoryVideo implements ShouldQueue
             $video->save($format, $videoNewAbsLocalPath);
             $this->updateProcessingProgress($frameMedia, 92, 'uploading');
 
+            if(! $this->storyFrameStillExists($frameMedia)) {
+                $fileDeleteService->setStorageDisk('local')->deleteFile($videoTempNewPath);
+
+                return;
+            }
+
             if(file_exists($videoNewAbsLocalPath)) {
                 $videoData = $videoUploadService
                     ->setStorageDisk($frameMedia->disk)
                     ->setNamespace(Filesystem::mediaNamespace('stories/videos'))
                     ->upload($videoNewAbsLocalPath);
+
+                if(! $this->storyFrameStillExists($frameMedia)) {
+                    $fileDeleteService->setStorageDisk($frameMedia->disk)->deleteFile($videoData['video_path']);
+                    $fileDeleteService->setStorageDisk('local')->deleteFile($videoTempNewPath);
+
+                    return;
+                }
 
                 $metadata = $frameMedia->metadata ?? [];
                 $metadata['processing_progress'] = 100;
@@ -149,7 +169,7 @@ class ProcessStoryVideo implements ShouldQueue
 
     private function updateProcessingProgress($frameMedia, int $progress, string $state): void
     {
-        if(empty($frameMedia)) {
+        if(empty($frameMedia) || ! $this->storyFrameStillExists($frameMedia)) {
             return;
         }
 
@@ -178,5 +198,18 @@ class ProcessStoryVideo implements ShouldQueue
 
         $frameMedia->metadata = $metadata;
         $frameMedia->save();
+    }
+
+    private function storyFrameStillExists($frameMedia = null): bool
+    {
+        if(empty($this->frameData) || ! StoryFrame::whereKey($this->frameData->id)->exists()) {
+            return false;
+        }
+
+        if(! empty($frameMedia) && ! $frameMedia->newQuery()->whereKey($frameMedia->id)->exists()) {
+            return false;
+        }
+
+        return true;
     }
 }

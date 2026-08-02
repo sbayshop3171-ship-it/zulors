@@ -49,10 +49,10 @@ class StoryController extends Controller
     public function getStories(Request $request, string $storyId)
     {
         if(Str::isUuid($storyId)) {
-            $storyData = Story::active()->where('story_uuid', $storyId)->withRelations()->first();
+            $storyData = $this->visibleStoriesQuery()->where('story_uuid', $storyId)->with($this->storyViewerRelations())->first();
 
             if($storyData) {
-                $otherRelevantStories = Story::active()->whereNot('story_uuid', $storyId)->withRelations()->get();
+                $otherRelevantStories = $this->visibleStoriesQuery()->whereNot('story_uuid', $storyId)->with($this->storyViewerRelations())->get();
                 $stories = $otherRelevantStories->prepend($storyData);
 
                 return $this->responseSuccess([
@@ -66,23 +66,11 @@ class StoryController extends Controller
 
     public function getFeed(Request $request)
     {
-        $storiesFeed = Story::query()->where(function($query) {
-            $query->whereHas('frames', function($hasQuery) {
-                $hasQuery->where('expires_at', '>', now())->where('status', StoryStatus::ACTIVE);
-            })->orWhere(function($ownerQuery) {
-                $ownerQuery->where('user_id', me()->id)->whereHas('frames', function($hasQuery) {
-                    $hasQuery->where('expires_at', '>', now())->where('status', StoryStatus::PROCESSING);
-                });
-            });
-        })->with([
+        $storiesFeed = $this->visibleStoriesQuery()->with([
             'user:id,avatar,first_name,last_name',
             'frames.views',
             'frames.media'
-        ])->whereNotIn('user_id', function($query) {
-            $query->select('blocked_id')->from(Table::BLOCKS)->where('blocker_id', me()->id);
-        })->whereNotIn('user_id', function($query) {
-            $query->select('blocker_id')->from(Table::BLOCKS)->where('blocked_id', me()->id);
-        })->latest('updated_at')->get();
+        ])->latest('updated_at')->get();
 
         return $this->responseSuccess([
             'data' => FeedCollection::make($storiesFeed)
@@ -187,14 +175,24 @@ class StoryController extends Controller
             $frameData = StoryFrame::where('id', $storyFrameId)->with('story')->first();
 
             try {
-                $this->authorize('delete', $frameData);
-
-                if($frameData) {
-                    (new DeleteStoryFrameAction($frameData))->execute();
+                if(empty($frameData)) {
+                    return $this->responseResourceNotFoundError('StoryFrame', $storyFrameId);
                 }
 
+                $this->authorize('delete', $frameData);
+
+                $storyId = $frameData->story_id;
+
+                (new DeleteStoryFrameAction($frameData))->execute();
+
+                $updatedStory = $this->visibleStoriesQuery()->where('id', $storyId)->with([
+                    'user:id,avatar,first_name,last_name',
+                    'frames.views',
+                    'frames.media'
+                ])->first();
+
                 return $this->responseSuccess([
-                    'data' => null
+                    'data' => $updatedStory ? FeedResource::make($updatedStory) : null
                 ]);
             } catch (Throwable $th) {
                 return $this->responseResourceNotFoundError('StoryFrame', $storyFrameId);
@@ -219,5 +217,40 @@ class StoryController extends Controller
         }
 
         return $this->responseResourceNotFoundError('StoryFrame', $frameId);
+    }
+
+    private function visibleStoriesQuery()
+    {
+        return Story::query()->where(function($query) {
+            $query->whereHas('frames', function($hasQuery) {
+                $hasQuery->where('expires_at', '>', now())->where('status', StoryStatus::ACTIVE);
+            })->orWhere(function($ownerQuery) {
+                $ownerQuery->where('user_id', me()->id)->whereHas('frames', function($hasQuery) {
+                    $hasQuery->where('expires_at', '>', now())->where('status', StoryStatus::PROCESSING);
+                });
+            });
+        })->whereNotIn('user_id', function($query) {
+            $query->select('blocked_id')->from(Table::BLOCKS)->where('blocker_id', me()->id);
+        })->whereNotIn('user_id', function($query) {
+            $query->select('blocker_id')->from(Table::BLOCKS)->where('blocked_id', me()->id);
+        });
+    }
+
+    private function storyViewerRelations(): array
+    {
+        return [
+            'user:id,avatar,first_name,last_name,username,verified',
+            'frames' => function($withQuery) {
+                $withQuery->where('expires_at', '>', now())->where(function($frameQuery) {
+                    $frameQuery->where('status', StoryStatus::ACTIVE)->orWhere(function($processingQuery) {
+                        $processingQuery->where('status', StoryStatus::PROCESSING)->whereHas('story', function($storyQuery) {
+                            $storyQuery->where('user_id', me()->id);
+                        });
+                    });
+                });
+            },
+            'frames.views',
+            'frames.media'
+        ];
     }
 }

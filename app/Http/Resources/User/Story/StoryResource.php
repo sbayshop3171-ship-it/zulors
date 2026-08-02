@@ -15,6 +15,7 @@
 
 namespace App\Http\Resources\User\Story;
 
+use App\Support\Story\StoryFrameProgress;
 use Illuminate\Http\Request;
 use App\Http\Resources\User\Media\MediaResource;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -39,9 +40,11 @@ class StoryResource extends JsonResource
                     return [
                         'id' => $frameItem->id,
                         'type' => $frameItem->type->value,
+                        'status' => $frameItem->status->value,
                         'content' => $frameItem->content,
                         'media' => $this->getStoryMedia($frameItem),
                         'meta' => $frameItem->meta,
+                        'progress' => StoryFrameProgress::make($frameItem),
                         'duration_seconds' => $frameItem->duration_seconds,
                         'views_count' => [
                             'raw' => $frameItem->views_count,

@@ -19,7 +19,7 @@ const useStoriesStore = defineStore('mobile_stories_store', {
     getters: {
         hasProcessingStories: (state) => {
             return state.storiesFeed.some((storyItem) => {
-                return storyItem.status === 'processing';
+                return storyItem.status === 'processing' && ! ['failed', 'ready'].includes(storyItem.progress?.stage);
             });
         }
     },
@@ -38,6 +38,13 @@ const useStoriesStore = defineStore('mobile_stories_store', {
             }
 
             this.storiesFeed.unshift(storyData);
+            writeCache(getStoriesFeedCacheKey(), this.storiesFeed);
+        },
+        removeFeedItem: function(storyUUID) {
+            this.storiesFeed = this.storiesFeed.filter((storyItem) => {
+                return storyItem.story_uuid !== storyUUID;
+            });
+
             writeCache(getStoriesFeedCacheKey(), this.storiesFeed);
         },
         fetchStoriesFeed: async function() {
@@ -60,22 +67,26 @@ const useStoriesStore = defineStore('mobile_stories_store', {
                     return storyItem.story_uuid === storyUUID;
                 });
 
-                const frameIndex = storyData.relations.frames.findIndex((frameItem) => {
-                    return frameItem.id === frameId;
-                });
-
-                storyData.relations.frames.splice(frameIndex, 1);
-
-                this.stories = this.stories.filter((storyItem) => {
-                    return storyItem.relations.frames.length > 0;
-                });
-
-                // Remove deleted story from storiesFeed if present
-                this.storiesFeed = this.storiesFeed.filter((feedItem) => {
-                    return this.stories.some((storyItem) => {
-                        return storyItem.story_uuid === feedItem.story_uuid;
+                if(storyData) {
+                    const frameIndex = storyData.relations.frames.findIndex((frameItem) => {
+                        return frameItem.id === frameId;
                     });
-                });
+
+                    if(frameIndex !== -1) {
+                        storyData.relations.frames.splice(frameIndex, 1);
+                    }
+
+                    this.stories = this.stories.filter((storyItem) => {
+                        return storyItem.relations.frames.length > 0;
+                    });
+                }
+
+                if(response.data.data) {
+                    this.prependFeedItem(response.data.data);
+                }
+                else {
+                    this.removeFeedItem(storyUUID);
+                }
             }).catch((error) => {
                 if(error.response) {
                     throw new Error(error.response.data.message);

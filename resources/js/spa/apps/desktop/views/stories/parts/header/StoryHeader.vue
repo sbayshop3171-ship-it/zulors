@@ -14,10 +14,12 @@
 			</div>
 		</div>
 		<div class="ml-4 inline-flex gap-1 items-center">
-			<PrimaryIconButton v-if="playerState.isPaused" v-on:click="play" iconName="play" iconSize="5" buttonColor="text-gray-300" hoverText="text-white" hoverBg="hover:bg-white/20"></PrimaryIconButton>
-			<PrimaryIconButton v-else v-on:click="pause" iconName="pause" buttonColor="text-gray-300" hoverText="text-white" hoverBg="hover:bg-white/20"></PrimaryIconButton>
+			<template v-if="! isFrameProcessing">
+				<PrimaryIconButton v-if="playerState.isPaused" v-on:click="play" iconName="play" iconSize="5" buttonColor="text-gray-300" hoverText="text-white" hoverBg="hover:bg-white/20"></PrimaryIconButton>
+				<PrimaryIconButton v-else v-on:click="pause" iconName="pause" buttonColor="text-gray-300" hoverText="text-white" hoverBg="hover:bg-white/20"></PrimaryIconButton>
+			</template>
 
-			<template v-if="isVideo">
+			<template v-if="isVideo && ! isFrameProcessing">
 				<PrimaryIconButton v-if="state.isMuted" v-on:click="toggleVideosVolume" iconName="volume-x" iconSize="5" buttonColor="text-gray-300" hoverText="text-white" hoverBg="hover:bg-white/20"></PrimaryIconButton>
 				<PrimaryIconButton v-else v-on:click="toggleVideosVolume" iconName="volume-max" iconSize="5" buttonColor="text-gray-300" hoverText="text-white" hoverBg="hover:bg-white/20"></PrimaryIconButton>
 			</template>
@@ -81,6 +83,9 @@
 
                     return false;
                 }),
+				isFrameProcessing: computed(() => {
+					return playerState.frameData?.status === 'processing' || playerState.frameData?.media?.status === 'processing';
+				}),
 				play: play,
 				pause: pause,
 				toggleVideosVolume: () => {

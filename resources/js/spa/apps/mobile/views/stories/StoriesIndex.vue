@@ -5,7 +5,7 @@
                 <StoryPlayer v-if="activeSlideIndex == idx"
 					v-bind:storyItem="storyItem"
                     v-on:view="handleStoryView"
-                    v-bind:key="`${storyItem.story_uuid}-${storyItem.relations.frames.length}`"
+                    v-bind:key="storyPlayerKey(storyItem)"
                 v-on:finish="handleStoryFinish"></StoryPlayer>
 
 				<div v-else class="w-full h-full"></div>
@@ -41,18 +41,79 @@
             });
 
             var storiesSwiper;
+            let processingPollTimer = null;
 
             const currentStory = computed(() => {
                 return stories.value[activeSlideIndex.value];
             });
 
             const handleStoryDelete = async (frameId) => {
+                if(! currentStory.value) {
+                    return;
+                }
+
                 await storiesStore.deleteStory(currentStory.value.story_uuid, frameId);
 
                 if(! stories.value.length) {
                     closeStories();
                 }
             }
+
+            const storyHasProcessingFrames = (storyItem) => {
+                return storyItem?.relations?.frames?.some((frameItem) => {
+                    const isProcessing = frameItem.status === 'processing' || frameItem.media?.status === 'processing';
+
+                    return isProcessing && ! ['failed', 'ready'].includes(frameItem.progress?.stage);
+                });
+            };
+
+            const stopProcessingPoll = () => {
+                if(processingPollTimer) {
+                    clearInterval(processingPollTimer);
+                    processingPollTimer = null;
+                }
+            };
+
+            const refreshCurrentStory = async () => {
+                if(! currentStory.value) {
+                    stopProcessingPoll();
+                    closeStories();
+
+                    return;
+                }
+
+                try {
+                    await storiesStore.fetchStory(currentStory.value.story_uuid);
+                } catch (error) {
+                    stopProcessingPoll();
+                    closeStories();
+
+                    return;
+                }
+
+                if(activeSlideIndex.value >= stories.value.length) {
+                    activeSlideIndex.value = Math.max(0, stories.value.length - 1);
+                }
+
+                if(! stories.value.length) {
+                    stopProcessingPoll();
+                    closeStories();
+
+                    return;
+                }
+
+                if(! stories.value.some(storyHasProcessingFrames)) {
+                    stopProcessingPoll();
+                }
+            };
+
+            const startProcessingPoll = () => {
+                if(processingPollTimer) {
+                    return;
+                }
+
+                processingPollTimer = setInterval(refreshCurrentStory, 3000);
+            };
 
             onMounted(async () => {
                 try {
@@ -61,6 +122,12 @@
                     alert(error.message);    
 
 					closeStories();
+
+                    return;
+                }
+
+                if(stories.value.some(storyHasProcessingFrames)) {
+                    startProcessingPoll();
                 }
 
                 storiesSwiper = document.querySelector('swiper-container');
@@ -86,6 +153,7 @@
             onUnmounted(() => {
                 colibriEventBus.off('story:delete', handleStoryDelete);
 				colibriEventBus.off('story:leave', closeStories);
+                stopProcessingPoll();
             });
 
             const closeStories = () => {
@@ -109,6 +177,13 @@
                 },
                 slideToStory: (storyIndex) => {
                     storiesSwiper.swiper.slideTo(storyIndex);
+                },
+                storyPlayerKey: (storyItem) => {
+                    const framesKey = storyItem.relations.frames.map((frameItem) => {
+                        return `${frameItem.id}:${frameItem.status}:${frameItem.progress?.display || 0}`;
+                    }).join('|');
+
+                    return `${storyItem.story_uuid}:${framesKey}`;
                 },
                 closeStories: closeStories,
                 handleStoryFinish: () => {

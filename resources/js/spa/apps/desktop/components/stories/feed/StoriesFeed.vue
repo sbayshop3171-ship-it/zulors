@@ -26,8 +26,9 @@
                             <div class="rounded-full size-full overflow-hidden">
                                 <img class="size-full inline-block bg-fill-pr" v-bind:src="storyData.relations.user.avatar_url" alt="Image">
                             </div>
-                            <div v-if="isStoryProcessing(storyData)" class="absolute inset-[3px] rounded-full bg-black/50 inline-flex-center">
-                                <span class="text-white text-cap-l font-semibold">{{ storyProgress(storyData) }}%</span>
+                            <div v-if="isStoryProcessing(storyData)" class="absolute inset-[3px] rounded-full bg-black/60 inline-flex-center flex-col">
+                                <span class="text-white text-cap-l font-semibold leading-none">{{ storyProgress(storyData) }}%</span>
+                                <span class="mt-0.5 max-w-[58px] truncate text-[9px] leading-none text-white/85">{{ storyStageLabel(storyData) }}</span>
                             </div>
                             <div v-if="isStoryProcessing(storyData)" class="absolute -bottom-1 left-1/2 -translate-x-1/2 h-1 w-12 rounded-full bg-fill-tr overflow-hidden border border-white/70">
                                 <span class="block h-full bg-brand-900 transition-width ease-in-out" v-bind:style="{ width: `${storyProgress(storyData)}%` }"></span>
@@ -42,8 +43,9 @@
                             <div class="rounded-full size-full overflow-hidden">
                                 <img class="size-full inline-block bg-fill-pr" v-bind:src="storyData.relations.user.avatar_url" alt="Image">
                             </div>
-                            <div class="absolute inset-[3px] rounded-full bg-black/50 inline-flex-center">
-                                <span class="text-white text-cap-l font-semibold">{{ storyProgress(storyData) }}%</span>
+                            <div class="absolute inset-[3px] rounded-full bg-black/60 inline-flex-center flex-col">
+                                <span class="text-white text-cap-l font-semibold leading-none">{{ storyProgress(storyData) }}%</span>
+                                <span class="mt-0.5 max-w-[58px] truncate text-[9px] leading-none text-white/85">{{ storyStageLabel(storyData) }}</span>
                             </div>
                             <div class="absolute -bottom-1 left-1/2 -translate-x-1/2 h-1 w-12 rounded-full bg-fill-tr overflow-hidden border border-white/70">
                                 <span class="block h-full bg-brand-900 transition-width ease-in-out" v-bind:style="{ width: `${storyProgress(storyData)}%` }"></span>
@@ -140,7 +142,24 @@
             };
 
             const storyProgress = (storyData) => {
-                return Math.max(1, Math.min(100, Number(storyData.progress?.overall || storyData.progress?.processing || 1)));
+                return Math.max(1, Math.min(100, Number(storyData.progress?.display || storyData.progress?.overall || storyData.progress?.processing || 1)));
+            };
+
+            const storyStageLabel = (storyData) => {
+                switch(storyData.progress?.stage) {
+                    case 'uploading':
+                        return __t('labels.uploading');
+                    case 'uploaded':
+                        return __t('labels.story_uploaded_waiting');
+                    case 'finishing':
+                        return __t('labels.story_finishing_video');
+                    case 'failed':
+                        return __t('labels.story_failed_upload');
+                    case 'ready':
+                        return __t('labels.story_ready_soon');
+                    default:
+                        return __t('labels.story_processing_video');
+                }
             };
 
             return {
@@ -148,6 +167,7 @@
                 userData: userData,
                 isStoryProcessing: isStoryProcessing,
                 storyProgress: storyProgress,
+                storyStageLabel: storyStageLabel,
                 storyCanOpen: (storyData) => {
                     return storyData.can_open !== false;
                 },
@@ -160,7 +180,13 @@
                 },
                 storyLabel: (storyData) => {
                     if(isStoryProcessing(storyData)) {
-                        return `${__t('labels.processing')} ${storyProgress(storyData)}%`;
+                        const stageLabel = storyStageLabel(storyData);
+
+                        if(['uploaded', 'failed', 'ready'].includes(storyData.progress?.stage)) {
+                            return stageLabel;
+                        }
+
+                        return `${stageLabel} ${storyProgress(storyData)}%`;
                     }
 
                     return storyData.relations.user.name;

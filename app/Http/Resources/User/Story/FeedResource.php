@@ -16,6 +16,7 @@
 namespace App\Http\Resources\User\Story;
 
 use App\Enums\Story\StoryStatus;
+use App\Support\Story\StoryFrameProgress;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -33,7 +34,7 @@ class FeedResource extends JsonResource
             'story_uuid' => $this->story_uuid,
             'frame_id' => $processingFrame?->id,
             'status' => $processingFrame ? StoryStatus::PROCESSING->value : StoryStatus::ACTIVE->value,
-            'can_open' => $hasActiveFrame,
+            'can_open' => $hasActiveFrame || filled($processingFrame),
             'relations' => [
                 'user' => [
                     'name' => $this->user->name,
@@ -76,22 +77,6 @@ class FeedResource extends JsonResource
             ];
         }
 
-        $media = $processingFrame->media->first();
-        $metadata = $media?->metadata ?? [];
-        $uploadProgress = max(0, min(100, (int) data_get($metadata, 'upload_progress', 100)));
-        $processingProgress = max(1, min(99, (int) data_get($metadata, 'processing_progress', 1)));
-        $processingState = data_get($metadata, 'processing_state', 'queued');
-
-        if($media?->status?->isFailed()) {
-            $processingProgress = 100;
-            $processingState = 'failed';
-        }
-
-        return [
-            'upload' => $uploadProgress,
-            'processing' => $processingProgress,
-            'overall' => $uploadProgress < 100 ? $uploadProgress : $processingProgress,
-            'state' => $processingState
-        ];
+        return StoryFrameProgress::make($processingFrame);
     }
 }
