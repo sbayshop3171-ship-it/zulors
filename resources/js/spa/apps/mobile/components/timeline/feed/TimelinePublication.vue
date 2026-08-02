@@ -29,7 +29,10 @@
                         <PublicationGif v-bind:postMedia="postMedia"></PublicationGif>
                     </template>
                     <template v-else-if="PostTypeUtils.isVideo(postData.type)">
-                        <PublicationVideo v-bind:postMedia="postMedia"></PublicationVideo>
+                        <PublicationVideo
+                            v-bind:postMedia="postMedia"
+                            v-bind:openReelsOnTap="true"
+                        v-on:open-reels="openReelsViewer"></PublicationVideo>
                     </template>
                     <template v-else-if="PostTypeUtils.isAudio(postData.type)">
                         <PublicationAudio v-bind:postMedia="postMedia" v-bind:key="postData.id"></PublicationAudio>
@@ -149,6 +152,7 @@
 
 <script>
     import { defineComponent, defineAsyncComponent, reactive, computed, ref } from 'vue';
+    import { useRouter } from 'vue-router';
     import { PostTypeUtils } from '@/kernel/enums/post/post.type.js';
     import { PostStatusUtils } from '@/kernel/enums/post/post.status.js';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
@@ -210,6 +214,7 @@
         },
         emits: ['delete'],
         setup: function(props) {
+            const router = useRouter();
             const lightboxStore = useLightboxStore();
             const publicationRootRef = ref(null);
 
@@ -386,6 +391,18 @@
                     if(! isPendingPost.value) {
                         state.commentsMenu.open();
                     }
+                },
+                openReelsViewer: () => {
+                    if(isOptimisticPost.value || ! postData.value.hash_id) {
+                        return false;
+                    }
+
+                    router.push({
+                        name: 'explore_reels',
+                        params: {
+                            hash_id: postData.value.hash_id
+                        }
+                    });
                 },
                 copyLink: () => {
                     try {

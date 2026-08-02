@@ -4,14 +4,7 @@
 			<div class="px-4 pt-4">
 				<QuickSearch v-on:cancel="handleSearchCancel" v-model.lazy="peopleSearchQuery" v-bind:placeholder="$t('labels.search')"></QuickSearch>
 			</div>
-			<ContentTabs v-bind:cols="2">
-				<TabsLink v-bind:link="{ name: 'explore_posts' }">
-					{{ $t('labels.posts') }}
-				</TabsLink>
-				<TabsLink v-bind:link="{ name: 'explore_people' }">
-					{{ $t('labels.people') }}
-				</TabsLink>
-			</ContentTabs>
+			<ExploreTabs></ExploreTabs>
 			<Border></Border>
 		</div>
 		<template v-if="state.isLoading">
@@ -66,8 +59,7 @@
 	import PeopleListItemSkeleton from '@M/components/people/PeopleListItemSkeleton.vue';
 
 	import QuickSearch from '@M/components/general/search/QuickSearch.vue';
-	import ContentTabs from '@M/components/general/tabs/content/ContentTabs.vue';
-    import TabsLink from '@M/components/general/tabs/content/parts/TabsLink.vue';
+	import ExploreTabs from '@M/views/explore/parts/ExploreTabs.vue';
 	import AdCard from '@M/components/ads/AdCard.vue';
 
 	export default defineComponent({
@@ -160,8 +152,7 @@
 			PeopleListItem: PeopleListItem,
 			QuickSearch: QuickSearch,
 			PeopleListItemSkeleton: PeopleListItemSkeleton,
-			ContentTabs: ContentTabs,
-			TabsLink: TabsLink,
+			ExploreTabs: ExploreTabs,
 			AdCard: AdCard
 		}
 	});

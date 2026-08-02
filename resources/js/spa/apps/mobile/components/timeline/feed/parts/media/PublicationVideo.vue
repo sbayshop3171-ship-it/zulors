@@ -15,6 +15,8 @@
 				v-bind:isPortrait="isPortrait"
 				v-bind:metadata="mediaItem.metadata"
 				v-bind:aspectRatio="mediaAspectRatio"
+				v-bind:surfaceClickAction="openReelsOnTap ? 'emit' : 'toggle'"
+				v-on:surface-click="$emit('open-reels')"
 			v-bind:videoUrl="mediaItem.preview_url || mediaItem.source_url"></VideoPlayer>
 		</div>
 	</div>
@@ -32,11 +34,16 @@
 	import VideoPlayer from '@M/components/players/video/VideoPlayer.vue';
 
 	export default defineComponent({
+		emits: ['open-reels'],
 		props: {
 			postMedia: {
                 type: Object,
                 default: {}
-            }
+            },
+			openReelsOnTap: {
+				type: Boolean,
+				default: false
+			}
 		},
 		setup: function(props) {
 			const timelineStore = useTimelineStore();

@@ -128,6 +128,7 @@
                             }).delete('post/comment/delete').then((response) => {
 
 								timelineStore.updateCommentCount(postData.value.id, response.data.data.post.comments_count);
+								postData.value.comments_count = response.data.data.post.comments_count;
 
                                 let commentIndex = postComments.value.findIndex((item) => {
                                     return item.id == commentId;

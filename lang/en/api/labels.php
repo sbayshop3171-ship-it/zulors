@@ -5,6 +5,7 @@ return [
 	'home' => 'Home',
 	'group' => 'Group',
 	'explore' => 'Explore',
+	'reels' => 'Reels',
 	'last_seen_ago' => 'Last seen {time} ago',
 	'videos' => 'Videos',
 	'ad' => 'Ad',

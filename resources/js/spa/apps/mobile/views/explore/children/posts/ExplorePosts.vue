@@ -5,14 +5,7 @@
 			<div class="px-4 pt-4">
 				<QuickSearch v-on:cancel="handleSearchCancel" v-model.lazy="postSearchQuery" v-bind:placeholder="$t('labels.search')"></QuickSearch>
 			</div>
-			<ContentTabs v-bind:cols="2">
-				<TabsLink v-bind:link="{ name: 'explore_posts' }">
-					{{ $t('labels.explore') }}
-				</TabsLink>
-				<TabsLink v-bind:link="{ name: 'explore_people' }">
-					{{ $t('labels.people') }}
-				</TabsLink>
-			</ContentTabs>
+			<ExploreTabs></ExploreTabs>
 			<FeedUpdate v-if="newPosts.length" v-bind:posts="newPosts" v-on:click="applyNewPosts"></FeedUpdate>
 			<Border></Border>
 		</div>
@@ -66,8 +59,7 @@
     import TimelineContainer from '@M/components/timeline/feed/TimelineContainer.vue';
     import TimelinePublication from '@M/components/timeline/feed/TimelinePublication.vue';
     import TimelinePublicationSkeleton from '@M/components/timeline/feed/TimelinePublicationSkeleton.vue';
-    import ContentTabs from '@M/components/general/tabs/content/ContentTabs.vue';
-    import TabsLink from '@M/components/general/tabs/content/parts/TabsLink.vue';
+    import ExploreTabs from '@M/views/explore/parts/ExploreTabs.vue';
     import FeedUpdate from '@M/components/timeline/update/FeedUpdate.vue';
 	import AdCard from '@M/components/ads/AdCard.vue';
     import FollowRecommendation from '@M/components/recommend/follow/FollowRecommendation.vue';
@@ -229,8 +221,7 @@
             TimelineContainer: TimelineContainer,
             TimelinePublication: TimelinePublication,
             TimelinePublicationSkeleton: TimelinePublicationSkeleton,
-            ContentTabs: ContentTabs,
-            TabsLink: TabsLink,
+            ExploreTabs: ExploreTabs,
             FeedUpdate: FeedUpdate,
 			AdCard: AdCard,
 			Soundbar: Soundbar,

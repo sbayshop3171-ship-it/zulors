@@ -3,7 +3,7 @@
 		v-bind:style="playerFrameStyle"
 	class="relative flex w-full justify-center cursor-pointer group bg-black overflow-hidden">
 		<video
-			v-on:click="togglePlay"
+			v-on:click="handleVideoSurfaceClick"
 			class="size-full object-cover"
 			ref="videoPlayerRef"
 			webkit-playsinline
@@ -59,21 +59,21 @@
 					<VideoDurationTime v-else v-bind:videoDuration="duration"></VideoDurationTime>
 				</div>
                 <PrimaryIconButton
-					v-on:click="togglePlay"
+					v-on:click.stop="togglePlay"
 					v-bind:iconName="state.isPlaying ? 'pause' : 'play'"
                     iconType="solid"
 					buttonColor="text-white"
 					iconSize="icon-small"
 				hoverText="text-white/70 hover:text-white"></PrimaryIconButton>
 				<PrimaryIconButton
-					v-on:click="toggleFullscreen"
+					v-on:click.stop="toggleFullscreen"
 					iconName="maximize-02"
                     iconType="line"
 					buttonColor="text-white"
 					iconSize="icon-small"
 				hoverText="text-white/70 hover:text-white"></PrimaryIconButton>
 				<PrimaryIconButton
-					v-on:click="toggleMute"
+					v-on:click.stop="toggleMute"
 					v-bind:iconName="state.isMuted ? 'volume-x' : 'volume-max'"
 					buttonColor="text-white"
 					iconSize="icon-small"
@@ -93,6 +93,7 @@
 	import VideoDurationTime from '@/kernel/vue/components/media/video/VideoDurationTime.vue';
 
 	export default defineComponent({
+		emits: ['surface-click'],
 		props: {
 			videoUrl: {
 				type: String,
@@ -125,6 +126,10 @@
 			mediaId: {
 				type: [Number, String],
 				default: null
+			},
+			surfaceClickAction: {
+				type: String,
+				default: 'toggle'
 			}
 		},
 		setup: function(props, context) {
@@ -686,6 +691,22 @@
                 clearScrubPreview: clearScrubPreview,
                 handleScrubberKeydown: handleScrubberKeydown,
 				noop: noop,
+				handleVideoSurfaceClick: () => {
+					if(props.surfaceClickAction === 'emit') {
+						context.emit('surface-click');
+
+						return;
+					}
+
+					if(state.isLoaded) {
+						if(state.isPlaying) {
+							pauseVideo();
+						}
+						else {
+							playVideo();
+						}
+					}
+				},
 				togglePlay: () => {
 					if(state.isLoaded) {
 						if(state.isPlaying) {

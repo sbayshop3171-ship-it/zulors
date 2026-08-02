@@ -6,6 +6,7 @@ const fallbackMessages = {
         one_moment: 'Just a moment',
         home: 'Home',
         explore: 'Explore',
+        reels: 'Reels',
         notifications: 'Notifications',
         messages: 'Messages',
         marketplace: 'Marketplace',

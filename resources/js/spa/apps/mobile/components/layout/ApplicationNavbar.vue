@@ -180,6 +180,7 @@
 
 					import('@M/views/home/HomeIndex.vue');
 					import('@M/views/explore/children/posts/ExplorePosts.vue');
+					import('@M/views/explore/children/reels/ExploreReels.vue');
 					import('@M/views/explore/children/people/ExplorePeople.vue');
 				};
 
