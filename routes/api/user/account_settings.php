@@ -39,6 +39,8 @@ Route::get('/notifications/email/settings', [App\Http\Controllers\Api\User\Setti
 Route::put('/notifications/login/update', [App\Http\Controllers\Api\User\Settings\NotificationSettingsController::class, 'updateLoginNotification']);
 Route::put('/notification/push/update', [App\Http\Controllers\Api\User\Settings\NotificationSettingsController::class, 'updatePushSettings']);
 Route::put('/notification/email/update', [App\Http\Controllers\Api\User\Settings\NotificationSettingsController::class, 'updateEmailSettings']);
+Route::post('/devices/push-token', [App\Http\Controllers\Api\User\Device\PushTokenController::class, 'store']);
+Route::delete('/devices/push-token', [App\Http\Controllers\Api\User\Device\PushTokenController::class, 'destroy']);
 
 Route::get('/personal/settings', [App\Http\Controllers\Api\User\Settings\PersonalInfoSettingsController::class, 'getPersonalInfoSettings']);
 Route::get('/personal/birthdate', [App\Http\Controllers\Api\User\Settings\PersonalInfoSettingsController::class, 'getBirthdateSettings']);

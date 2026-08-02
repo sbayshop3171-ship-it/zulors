@@ -167,6 +167,11 @@ class User extends Authenticatable
         return $this->hasOne(UserNotificationSettings::class, 'user_id', 'id')->where('type', NotificationType::PUSH);
     }
 
+    public function pushTokens()
+    {
+        return $this->hasMany(UserPushToken::class, 'user_id', 'id');
+    }
+
     public function securitySettings()
     {
         return $this->hasOne(UserSecuritySettings::class, 'user_id', 'id');

@@ -73,6 +73,7 @@ class Table
     public const USER_PRIVACY_SETTINGS = 'user_privacy_settings';
     public const USER_PERMIT_SETTINGS = 'user_permit_settings';
     public const USER_NOTIFICATION_SETTINGS = 'user_notification_settings';
+    public const USER_PUSH_TOKENS = 'user_push_tokens';
     public const USER_SECURITY_SETTINGS = 'user_security_settings';
     public const GROUPS = 'groups';
     public const CHAT_INVITES = 'chat_invites';

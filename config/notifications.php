@@ -13,5 +13,10 @@ return [
 	],
 	'push' => [
 		'enabled' => env('NOTIFICATIONS_PUSH_ENABLED', false),
+		'firebase' => [
+			'project_id' => env('FIREBASE_PROJECT_ID'),
+			'credentials' => env('FIREBASE_CREDENTIALS', 'storage/app/private/firebase/service-account.json'),
+			'timeout' => (int) env('FIREBASE_HTTP_TIMEOUT', 10),
+		],
 	],
 ];

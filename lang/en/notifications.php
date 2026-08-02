@@ -11,6 +11,7 @@ return [
 		'comment_mentioned' => 'You were mentioned in a comment.',
 		'post_mentioned' => 'You were mentioned in a post.',
 		'story_mentioned' => 'You were mentioned in a story.',
+		'message_received' => 'New message.',
 		'account_linked' => 'Your accounts have been successfully linked.',
 		'deposit_success' => 'Your deposit has been successfully completed.',
 		'payment_received' => 'New payment received.',
@@ -42,5 +43,8 @@ return [
 	'wallet' => [
 		'deposit_success' => 'Your deposit has been successfully completed',
 		'payment_received' => 'has transferred you payment. +:amount',
-	]
+	],
+	'chat' => [
+		'message_received' => 'sent you a message',
+	],
 ];
