@@ -3,8 +3,7 @@
 namespace App\Livewire\User\Auth;
 
 use Livewire\Component;
-use Illuminate\Support\Facades\Mail;
-use App\Mail\User\Auth\VerifyEmailMail;
+use App\Jobs\User\Auth\SendSignupOtpEmail;
 
 class SignupSuccess extends Component
 {
@@ -69,11 +68,10 @@ class SignupSuccess extends Component
             if(empty($this->emailResendTimeout) || $this->emailResendTimeout <= now()) {
                 $this->confirmationData->refreshOtpCode();
 
-                Mail::to($this->confirmationData->email)->queue(new VerifyEmailMail([
-                    'link' => route('user.auth.confirm-signup', ['token' => $this->confirmationData->token]),
-                    'code' => $this->confirmationData->code,
-                    'title' => __('auth.hi_there')
-                ]));
+                SendSignupOtpEmail::dispatch(
+                    $this->confirmationData->id,
+                    $this->confirmationData->token
+                );
 
                 $this->emailResent = true;
 

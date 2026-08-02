@@ -64,8 +64,8 @@ class Signup extends Component
 
         event(new UserRegisteredEvent([
             'email' => $this->emailAddress,
-            'link' => route('user.auth.confirm-signup', ['token' => $emailToken]),
-            'code' => $emailConfirmation->code,
+            'confirmation_id' => $emailConfirmation->id,
+            'token' => $emailToken,
         ]));
 
         // Check if registration verification is enabled

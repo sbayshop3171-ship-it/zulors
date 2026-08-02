@@ -2,9 +2,8 @@
 
 namespace App\Listeners\User\Auth;
 
-use Illuminate\Support\Facades\Mail;
-use App\Mail\User\Auth\VerifyEmailMail;
 use App\Events\User\Auth\UserRegisteredEvent;
+use App\Jobs\User\Auth\SendSignupOtpEmail;
 
 class HandleUserRegistration
 {
@@ -13,10 +12,9 @@ class HandleUserRegistration
      */
     public function handle(UserRegisteredEvent $event): void
     {
-        Mail::to($event->data['email'])->queue(new VerifyEmailMail([
-            'link' => $event->data['link'],
-            'code' => $event->data['code'] ?? null,
-            'title' => __('auth.hi_there')
-        ]));
+        SendSignupOtpEmail::dispatch(
+            $event->data['confirmation_id'],
+            $event->data['token']
+        );
     }
 }
