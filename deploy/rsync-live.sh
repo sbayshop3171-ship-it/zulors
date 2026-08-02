@@ -70,6 +70,7 @@ RSYNC_PERMISSIONS=(
 	--no-owner
 	--no-group
 	--no-perms
+	--no-times
 	--delay-updates
 	--chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r
 )
@@ -133,12 +134,49 @@ rsync_permissions=(
 	--no-owner
 	--no-group
 	--no-perms
+	--no-times
 	--delay-updates
 	--chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r
 )
 
+deployment_down=0
+
+assert_deploy_target_writable() {
+	unwritable_dir="$(find "$LIVE_PATH" \
+		-path "$LIVE_PATH/storage/app" -prune -o \
+		-path "$LIVE_PATH/storage/logs" -prune -o \
+		-path "$LIVE_PATH/storage/framework/cache" -prune -o \
+		-path "$LIVE_PATH/storage/framework/sessions" -prune -o \
+		-path "$LIVE_PATH/storage/framework/views" -prune -o \
+		-type d ! -writable -print -quit)"
+
+	if [ -n "$unwritable_dir" ]; then
+		echo "Live deployment refused: deploy user cannot write to ${unwritable_dir}."
+		echo "Fix ownership of ${LIVE_PATH} before deploying again."
+		exit 1
+	fi
+
+	touch "$LIVE_PATH/.deploy-write-test"
+	rm -f "$LIVE_PATH/.deploy-write-test"
+}
+
+put_live_down() {
+	cd "$LIVE_PATH"
+	php artisan down --retry=30 --no-ansi
+	deployment_down=1
+}
+
+put_live_up() {
+	if [ "$deployment_down" = "1" ]; then
+		cd "$LIVE_PATH"
+		php artisan up --no-ansi || true
+		deployment_down=0
+	fi
+}
+
 restore_live() {
 	status=$?
+	set +e
 
 	echo "Promotion failed. Restoring previous live copy..."
 
@@ -148,6 +186,8 @@ restore_live() {
 		INSTALL_DEPS=0 BUILD_ASSETS=0 RUN_MIGRATIONS=0 bash deploy/live-deploy.sh || true
 	fi
 
+	put_live_up
+
 	exit "$status"
 }
 
@@ -155,15 +195,18 @@ trap restore_live ERR
 
 test -d "$LIVE_PATH"
 test -d "$REMOTE_RELEASE"
+assert_deploy_target_writable
 
 rm -rf "$REMOTE_BACKUP"
 mkdir -p "$REMOTE_BACKUP"
 rsync -a --delete "${rsync_permissions[@]}" "${rsync_excludes[@]}" "$LIVE_PATH/" "$REMOTE_BACKUP/"
 
+put_live_down
 rsync -a --delete "${rsync_permissions[@]}" "${rsync_excludes[@]}" "$REMOTE_RELEASE/" "$LIVE_PATH/"
 
 cd "$LIVE_PATH"
 INSTALL_DEPS=0 BUILD_ASSETS=0 RUN_MIGRATIONS=0 bash deploy/live-deploy.sh
+put_live_up
 curl -fsSL --max-time 20 "$LIVE_URL/" -o /dev/null
 curl -fsSL --max-time 20 "$LIVE_URL/admin/login" -o /dev/null
 curl -fsSL --max-time 20 "$LIVE_URL/auth/login" -o /dev/null
