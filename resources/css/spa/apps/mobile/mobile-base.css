@@ -11,7 +11,7 @@ html {
 :root {
     --mobile-safe-top: env(safe-area-inset-top, 0px);
     --mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
-    --mobile-header-cutout-padding: max(var(--mobile-safe-top), 1.5rem);
+    --mobile-header-cutout-padding: max(var(--mobile-safe-top), 3.25rem);
     --mobile-header-bar-height: 3.5rem;
     --mobile-navbar-height: 3.5rem;
 }
@@ -52,17 +52,10 @@ html {
 }
 
 .mobile-safe-header__wordmark {
-    max-width: min(34vw, 8rem);
+    max-width: min(42vw, 9rem);
     overflow: hidden;
     text-align: center;
-    transform: translate(3.5rem, 2px);
-}
-
-@media (max-width: 340px) {
-    .mobile-safe-header__wordmark {
-        max-width: min(32vw, 7rem);
-        transform: translate(2.75rem, 2px);
-    }
+    transform: translateY(2px);
 }
 
 .mobile-safe-action {
