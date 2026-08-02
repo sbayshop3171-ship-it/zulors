@@ -14,14 +14,17 @@
         @endforeach
 
         @if (count($activeSocialDrivers) > 4 && empty($showAllSocialOptions))
-            <button type="button" class="border border-edge-sc rounded-md w-full" wire:click="showAllSocialLoginOptions" wire:loading.attr="disabled">
-                <span class="flex w-full h-14 items-center justify-center gap-1">
+            <button type="button" class="border border-edge-sc rounded-md w-full cursor-pointer disabled:opacity-60 disabled:cursor-wait" wire:click="showAllSocialLoginOptions" wire:loading.attr="disabled" wire:target="showAllSocialLoginOptions">
+                <span class="flex w-full h-14 items-center justify-center gap-1" wire:loading.remove wire:target="showAllSocialLoginOptions">
                     <span class="text-center text-lab-pr2 text-par-m font-medium">
                         {{ __('auth.other_options') }}
                     </span>
                     <span class="size-icon text-lab-pr2">
                         <x-ui-icon name="chevron-down" type="solid"></x-ui-icon>
                     </span>
+                </span>
+                <span class="hidden w-full h-14 items-center justify-center" wire:loading.flex wire:target="showAllSocialLoginOptions" aria-hidden="true">
+                    <span class="inline-block colibri-primary-animation"></span>
                 </span>
             </button>
         @endif

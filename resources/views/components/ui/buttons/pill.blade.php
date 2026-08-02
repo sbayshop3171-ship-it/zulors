@@ -19,6 +19,37 @@
     ]
 ])
 
-<button class="{{ $width }} {{ $sizeOptions[$size] }} block {{ $variantOptions[$variant] }} smoothing rounded-full cursor-pointer disabled:opacity-60 disabled:cursor-wait" {{ $attributes }} type="{{ $type }}">
-    {{ $btnText }}
+@php
+    $wireClickTarget = $attributes->wire('click')->value();
+    $existingWireTarget = $attributes->wire('target')->value();
+    $wireLoadingTarget = $existingWireTarget ?: $wireClickTarget;
+    $hasWireLoadingAttribute = $attributes->whereStartsWith('wire:loading')->isNotEmpty();
+    $hasWireLoadingAttrAttribute = $attributes->whereStartsWith('wire:loading.attr')->isNotEmpty();
+    $hasLoadingFeedback = $hasWireLoadingAttribute || filled($wireClickTarget) || $type === 'submit';
+@endphp
+
+<button
+    class="{{ $width }} {{ $sizeOptions[$size] }} block {{ $variantOptions[$variant] }} smoothing rounded-full cursor-pointer disabled:opacity-60 disabled:cursor-wait"
+    @if($hasLoadingFeedback && ! $hasWireLoadingAttrAttribute) wire:loading.attr="disabled" @endif
+    @if($hasLoadingFeedback && $wireLoadingTarget && empty($existingWireTarget)) wire:target="{{ $wireLoadingTarget }}" @endif
+    {{ $attributes }}
+    type="{{ $type }}">
+    <span
+        class="inline-flex-center min-h-5 gap-2"
+        @if($hasLoadingFeedback) wire:loading.remove @endif
+        @if($hasLoadingFeedback && $wireLoadingTarget) wire:target="{{ $wireLoadingTarget }}" @endif>
+        {{ $btnText }}
+    </span>
+
+    @if($hasLoadingFeedback)
+        <span
+            class="hidden min-h-5 items-center justify-center gap-2"
+            wire:loading.flex
+            @if($wireLoadingTarget) wire:target="{{ $wireLoadingTarget }}" @endif
+            aria-hidden="true">
+            <span class="inline-block px-4">
+                <span class="inline-block colibri-primary-animation"></span>
+            </span>
+        </span>
+    @endif
 </button>
