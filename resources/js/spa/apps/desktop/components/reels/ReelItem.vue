@@ -1,6 +1,7 @@
 <template>
 	<section
 		class="reel-desktop-slide"
+		v-bind:class="slideOrientationClass"
 	>
 		<div class="reel-desktop-grid">
 			<div class="reel-info-desktop">
@@ -27,7 +28,11 @@
 				</div>
 			</div>
 
-			<div class="reel-stage">
+			<div
+				class="reel-stage"
+				v-bind:class="stageOrientationClass"
+				v-bind:style="stageStyle"
+			>
 				<ReelVideoPlayer
 					v-if="canPlayImmediately"
 					v-bind:mediaItem="mediaItem"
@@ -38,6 +43,7 @@
 					v-bind:feedSessionId="feedSessionId"
 					v-bind:position="position"
 					v-on:double-tap="handleDoubleTap"
+					v-on:presentation-metadata="handlePresentationMetadata"
 				></ReelVideoPlayer>
 
 				<div v-else class="absolute inset-0 bg-black inline-flex-center">
@@ -154,17 +160,30 @@
 </template>
 
 <script>
-	import { computed, defineComponent, defineAsyncComponent, reactive } from 'vue';
+	import { computed, defineComponent, defineAsyncComponent, onMounted, onUnmounted, reactive } from 'vue';
 	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { applyOptimisticReaction } from '@/kernel/services/reactions/optimistic.js';
 	import { MediaStatusUtils } from '@/kernel/enums/post/media.status.js';
+	import { normalizeVideoDimensions } from '@/kernel/services/media/video-metadata.js';
 
 	import ReelVideoPlayer from '@D/components/reels/ReelVideoPlayer.vue';
 	import SvgIcon from '@/kernel/vue/components/icons/SvgIcon.vue';
 	import VerificationBadge from '@/kernel/vue/components/general/badges/VerificationBadge.vue';
 
 	const defaultReactionId = '2764-fe0f';
+	const minReelAspectRatio = 9 / 16;
+	const maxReelAspectRatio = 16 / 9;
+
+	const clampAspectRatio = (ratio) => {
+		const numericRatio = Number(ratio || 0);
+
+		if(! Number.isFinite(numericRatio) || numericRatio <= 0) {
+			return minReelAspectRatio;
+		}
+
+		return Math.max(minReelAspectRatio, Math.min(maxReelAspectRatio, numericRatio));
+	};
 
 	export default defineComponent({
 		props: {
@@ -194,7 +213,10 @@
 				sensitiveRevealed: false,
 				showHeartBurst: false,
 				isShareOpen: false,
-				isMenuOpen: false
+				isMenuOpen: false,
+				presentationMetadata: {},
+				viewportWidth: typeof window !== 'undefined' ? window.innerWidth : 1440,
+				viewportHeight: typeof window !== 'undefined' ? window.innerHeight : 900
 			});
 
 			const postData = computed(() => {
@@ -226,6 +248,83 @@
 				const authorLabel = postUser.value.name || postUser.value.username || __t('labels.reels');
 
 				return timeLabel ? `${authorLabel} · ${timeLabel}` : authorLabel;
+			});
+
+			const mediaPresentationMetadata = computed(() => {
+				return {
+					...(mediaItem.value.metadata || {}),
+					...(state.presentationMetadata || {})
+				};
+			});
+
+			const mediaAspectRatio = computed(() => {
+				const metadata = mediaPresentationMetadata.value;
+				const dimensions = normalizeVideoDimensions(metadata);
+
+				if(dimensions?.aspect_ratio) {
+					return clampAspectRatio(dimensions.aspect_ratio);
+				}
+
+				return metadata?.is_portrait === false ? maxReelAspectRatio : minReelAspectRatio;
+			});
+
+			const stageOrientation = computed(() => {
+				const ratio = mediaAspectRatio.value;
+
+				if(ratio > 1.2) {
+					return 'landscape';
+				}
+
+				if(ratio >= 0.85) {
+					return 'square';
+				}
+
+				return 'portrait';
+			});
+
+			const stageStyle = computed(() => {
+				const ratio = mediaAspectRatio.value;
+				const viewportWidth = Math.max(320, Number(state.viewportWidth || 1440));
+				const viewportHeight = Math.max(420, Number(state.viewportHeight || 900));
+				const maxHeight = Math.max(280, Math.min(viewportHeight - 40, 900));
+				const orientation = stageOrientation.value;
+
+				let reserveWidth = 560;
+				let preferredWidth = 560;
+
+				if(orientation === 'landscape') {
+					reserveWidth = 320;
+					preferredWidth = 1188;
+				}
+				else if(orientation === 'square') {
+					reserveWidth = 460;
+					preferredWidth = 760;
+				}
+
+				if(viewportWidth < 1180) {
+					reserveWidth = 156;
+					preferredWidth = orientation === 'landscape' ? 920 : 640;
+				}
+
+				if(viewportWidth < 900) {
+					reserveWidth = 132;
+					preferredWidth = orientation === 'landscape' ? 760 : 560;
+				}
+
+				const maxWidth = Math.max(240, Math.min(preferredWidth, viewportWidth - reserveWidth));
+				let frameWidth = Math.min(maxWidth, maxHeight * ratio);
+				let frameHeight = frameWidth / ratio;
+
+				if(frameHeight > maxHeight) {
+					frameHeight = maxHeight;
+					frameWidth = frameHeight * ratio;
+				}
+
+				return {
+					width: `${Math.round(frameWidth)}px`,
+					height: `${Math.round(frameHeight)}px`,
+					aspectRatio: String(ratio)
+				};
 			});
 
 			const canPlayImmediately = computed(() => {
@@ -307,6 +406,20 @@
 				});
 			};
 
+			const refreshViewportSize = () => {
+				state.viewportWidth = window.innerWidth;
+				state.viewportHeight = window.innerHeight;
+			};
+
+			onMounted(() => {
+				refreshViewportSize();
+				window.addEventListener('resize', refreshViewportSize);
+			});
+
+			onUnmounted(() => {
+				window.removeEventListener('resize', refreshViewportSize);
+			});
+
 			return {
 				state: state,
 				postData: postData,
@@ -316,6 +429,13 @@
 				postContent: postContent,
 				postUserCaption: postUserCaption,
 				reelAudioLabel: reelAudioLabel,
+				stageStyle: stageStyle,
+				stageOrientationClass: computed(() => {
+					return `reel-stage--${stageOrientation.value}`;
+				}),
+				slideOrientationClass: computed(() => {
+					return `reel-desktop-slide--${stageOrientation.value}`;
+				}),
 				canPlayImmediately: canPlayImmediately,
 				isPlaybackBlocked: isPlaybackBlocked,
 				hasReacted: hasReacted,
@@ -337,6 +457,9 @@
 					if(! hasHeartReaction.value) {
 						addReaction(defaultReactionId);
 					}
+				},
+				handlePresentationMetadata: (metadata) => {
+					state.presentationMetadata = metadata || {};
 				},
 				toggleDefaultReaction: () => {
 					addReaction(defaultReactionId);
@@ -431,23 +554,25 @@
 
 	.reel-desktop-grid {
 		display: grid;
-		grid-template-columns: minmax(220px, 300px) auto 84px;
-		align-items: end;
+		grid-template-columns: minmax(220px, 300px) minmax(0, auto) 84px;
+		align-items: center;
 		justify-content: center;
 		column-gap: 20px;
-		width: min(1180px, calc(100vw - 176px));
-		height: min(calc(100dvh - 40px), 900px);
+		width: min(1260px, calc(100vw - 176px));
+		min-height: min(calc(100dvh - 40px), 900px);
 	}
 
 	.reel-info-desktop {
+		align-self: end;
 		min-width: 0;
 		padding-bottom: 8px;
 	}
 
 	.reel-stage {
 		position: relative;
-		height: 100%;
-		aspect-ratio: 9 / 16;
+		justify-self: center;
+		max-width: 100%;
+		max-height: min(calc(100dvh - 40px), 900px);
 		overflow: hidden;
 		border: 1px solid rgba(255, 255, 255, 0.2);
 		border-radius: 4px;
@@ -458,6 +583,7 @@
 	.reel-actions {
 		position: relative;
 		z-index: 20;
+		align-self: center;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
@@ -487,6 +613,20 @@
 
 	.reel-info-mobile {
 		display: none;
+	}
+
+	.reel-desktop-slide--landscape .reel-desktop-grid {
+		grid-template-columns: minmax(0, auto) 84px;
+		width: min(1320px, calc(100vw - 176px));
+	}
+
+	.reel-desktop-slide--landscape .reel-info-desktop {
+		display: none;
+	}
+
+	.reel-desktop-slide--landscape .reel-info-mobile,
+	.reel-desktop-slide--landscape .reel-info-gradient {
+		display: block;
 	}
 
 	.reel-heart-burst {
@@ -539,8 +679,6 @@
 		}
 
 		.reel-stage {
-			width: 100%;
-			height: auto;
 			max-height: calc(100dvh - 44px);
 		}
 	}

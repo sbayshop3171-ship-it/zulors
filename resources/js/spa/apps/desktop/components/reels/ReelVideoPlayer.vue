@@ -55,12 +55,13 @@
 <script>
 	import { computed, defineComponent, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
+	import { buildVideoPresentationMetadata } from '@/kernel/services/media/video-metadata.js';
 
 	import PrimaryIconButton from '@D/components/inter-ui/buttons/PrimaryIconButton.vue';
 	import SvgIcon from '@/kernel/vue/components/icons/SvgIcon.vue';
 
 	export default defineComponent({
-		emits: ['double-tap'],
+		emits: ['double-tap', 'presentation-metadata'],
 		props: {
 			mediaItem: {
 				type: Object,
@@ -107,6 +108,7 @@
 				lastPlaybackTime: 0,
 				loopCount: 0,
 				sessionId: `reel-video-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+				presentationSignature: '',
 				telemetryTimer: null
 			});
 
@@ -181,11 +183,36 @@
 
 			const handleVideoReady = () => {
 				state.isLoaded = true;
+				updatePresentationMetadata();
 				state.durationSeconds = videoDurationSeconds();
 				syncProgress();
 
 				if(props.active && ! props.blocked && ! state.manualPaused) {
 					playVideo();
+				}
+			};
+
+			const updatePresentationMetadata = () => {
+				const videoElement = videoPlayerRef.value;
+
+				if(! videoElement?.videoWidth || ! videoElement?.videoHeight) {
+					return;
+				}
+
+				const presentationMetadata = buildVideoPresentationMetadata(
+					videoElement.videoWidth,
+					videoElement.videoHeight,
+					videoElement.duration
+				);
+				const presentationSignature = [
+					presentationMetadata.dimensions?.width || 0,
+					presentationMetadata.dimensions?.height || 0,
+					presentationMetadata.duration_seconds || 0
+				].join(':');
+
+				if(presentationSignature !== state.presentationSignature) {
+					state.presentationSignature = presentationSignature;
+					context.emit('presentation-metadata', presentationMetadata);
 				}
 			};
 
@@ -364,6 +391,7 @@
 				state.watchMsSinceFlush = 0;
 				state.loopCount = 0;
 				state.lastPlaybackTime = 0;
+				state.presentationSignature = '';
 				state.sessionId = `reel-video-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 			});
 
