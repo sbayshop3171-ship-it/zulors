@@ -723,7 +723,7 @@
                             }, {
                                 requestTimeoutMs: 60 * 60 * 1000,
                                 totalBytes: mediaFile.size,
-                                stallTimeoutMs: defaultDirectUploadStallTimeoutMs,
+                                stallTimeoutMs: Number(uploadData.upload_stall_timeout_ms || defaultDirectUploadStallTimeoutMs),
                                 firstProgressTimeoutMs: defaultDirectUploadFirstProgressTimeoutMs
                             });
                         }
@@ -737,7 +737,7 @@
                         }, {
                             requestTimeoutMs: 60 * 60 * 1000,
                             totalBytes: mediaFile.size,
-                            stallTimeoutMs: defaultDirectUploadStallTimeoutMs,
+                            stallTimeoutMs: Number(uploadData.upload_stall_timeout_ms || defaultDirectUploadStallTimeoutMs),
                             firstProgressTimeoutMs: defaultDirectUploadFirstProgressTimeoutMs
                         });
                     }, 5);
@@ -819,7 +819,7 @@
                             }, {
                                 requestTimeoutMs: 60 * 60 * 1000,
                                 totalBytes: partBlob.size,
-                                stallTimeoutMs: defaultDirectUploadStallTimeoutMs,
+                                stallTimeoutMs: Number(uploadData.upload_stall_timeout_ms || defaultDirectUploadStallTimeoutMs),
                                 firstProgressTimeoutMs: defaultDirectUploadFirstProgressTimeoutMs
                             });
                         }, 5).catch((error) => {

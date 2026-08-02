@@ -311,7 +311,8 @@ class ConvertAndCompressPostVideo implements ShouldQueue
         $videoData = $r2DirectUploadService->publishUploadedVideo(
             $postMedia->source_path,
             $postMedia->extension ?: 'mp4',
-            $postMedia->mime ?: 'video/mp4'
+            $postMedia->mime ?: 'video/mp4',
+            $oldDisk
         );
 
         $metadata = $postMedia->metadata ?? [];

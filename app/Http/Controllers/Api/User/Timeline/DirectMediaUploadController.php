@@ -371,7 +371,8 @@ class DirectMediaUploadController extends Controller
                 $videoData = $r2DirectUploadService->publishUploadedVideo(
                     $oldPath,
                     $media->extension ?: 'mp4',
-                    $media->mime ?: 'video/mp4'
+                    $media->mime ?: 'video/mp4',
+                    $oldDisk
                 );
             }
             catch(Throwable $e) {

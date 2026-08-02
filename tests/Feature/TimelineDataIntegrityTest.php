@@ -252,6 +252,60 @@ class TimelineDataIntegrityTest extends TestCase
         $this->assertSame(45 * 1000, $method->invoke($service));
     }
 
+    public function test_r2_direct_final_upload_configuration_does_not_require_temp_bucket(): void
+    {
+        config()->set('media.cloudflare.r2.direct_upload_enabled', true);
+        config()->set('media.cloudflare.r2.direct_upload_disk', 'r2_final');
+        config()->set('media.cloudflare.r2.final_disk', 'r2_final');
+        config()->set('media.cloudflare.r2.temp_disk', 'r2_temp');
+
+        config()->set('filesystems.disks.r2_temp', [
+            'enabled' => false,
+            'bucket' => null,
+            'endpoint' => null,
+            'key' => null,
+            'secret' => null,
+        ]);
+        config()->set('filesystems.disks.r2_final', [
+            'enabled' => true,
+            'bucket' => 'media-final',
+            'endpoint' => 'https://account.r2.cloudflarestorage.com',
+            'key' => 'test-key',
+            'secret' => 'test-secret',
+        ]);
+
+        $this->assertTrue((new R2DirectUploadService())->isConfigured());
+    }
+
+    public function test_r2_direct_temp_upload_configuration_requires_temp_bucket(): void
+    {
+        config()->set('media.cloudflare.r2.direct_upload_enabled', true);
+        config()->set('media.cloudflare.r2.direct_upload_disk', 'r2_temp');
+        config()->set('media.cloudflare.r2.final_disk', 'r2_final');
+        config()->set('media.cloudflare.r2.temp_disk', 'r2_temp');
+
+        config()->set('filesystems.disks.r2_final', [
+            'enabled' => true,
+            'bucket' => 'media-final',
+            'endpoint' => 'https://account.r2.cloudflarestorage.com',
+            'key' => 'test-key',
+            'secret' => 'test-secret',
+        ]);
+        config()->set('filesystems.disks.r2_temp', [
+            'enabled' => false,
+            'bucket' => 'media-temp',
+            'endpoint' => 'https://account.r2.cloudflarestorage.com',
+            'key' => 'test-key',
+            'secret' => 'test-secret',
+        ]);
+
+        $this->assertFalse((new R2DirectUploadService())->isConfigured());
+
+        config()->set('filesystems.disks.r2_temp.enabled', true);
+
+        $this->assertTrue((new R2DirectUploadService())->isConfigured());
+    }
+
     public function test_storage_metrics_normalize_string_and_blank_media_sizes(): void
     {
         $service = app(StorageMetricsService::class)->setDisk('public');
@@ -448,7 +502,7 @@ class TimelineDataIntegrityTest extends TestCase
                 return true;
             }
 
-            public function publishUploadedVideo(string $tempPath, string $extension = 'mp4', string $contentType = 'video/mp4'): array
+            public function publishUploadedVideo(string $tempPath, string $extension = 'mp4', string $contentType = 'video/mp4', ?string $sourceDisk = null): array
             {
                 return [
                     'disk' => 'public',
@@ -627,7 +681,7 @@ class TimelineDataIntegrityTest extends TestCase
                 return true;
             }
 
-            public function publishUploadedVideo(string $tempPath, string $extension = 'mp4', string $contentType = 'video/mp4'): array
+            public function publishUploadedVideo(string $tempPath, string $extension = 'mp4', string $contentType = 'video/mp4', ?string $sourceDisk = null): array
             {
                 throw new \RuntimeException('Direct final uploads must not be copied during completion.');
             }

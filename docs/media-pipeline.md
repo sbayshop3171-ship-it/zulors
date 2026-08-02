@@ -2,7 +2,11 @@
 
 এই project এখন কম খরচের Cloudflare R2 media pipeline support করে:
 
-`Browser/Mobile -> R2 temp direct upload -> Laravel queue -> FFmpeg/WebP optimization -> R2 final -> Cloudflare CDN`
+Fast video uploads should use the direct-final path:
+
+`Browser/Mobile -> R2 final multipart upload -> Laravel finalize metadata -> Cloudflare CDN`
+
+The older temp-processing path is still supported when you explicitly set `R2_DIRECT_UPLOAD_DISK=r2_temp`, but it is slower because the server has to publish/copy the uploaded video after the browser transfer.
 
 ## Local Test
 
@@ -32,12 +36,12 @@
 
 ## Cloudflare R2 Setup
 
-Create two R2 buckets:
+Create one or two R2 buckets:
 
-- `media-temp`: private raw temporary uploads.
-- `media-final`: optimized final media.
+- `media-final`: public final media served through a Cloudflare cached custom domain. This is required.
+- `media-temp`: optional private raw temporary uploads only if you choose the slower temp-processing path.
 
-Add a lifecycle rule on `media-temp`:
+If you use a temp bucket, add a lifecycle rule on `media-temp`:
 
 - Delete objects under `tmp/direct/videos/` after `1-3 days`.
 
@@ -55,7 +59,7 @@ R2_PUBLIC_URL=https://media.yourdomain.com
 
 ## R2 CORS
 
-For the temp bucket, allow your app domains to upload with PUT:
+For the direct upload bucket, allow your app domains to upload with PUT:
 
 ```json
 [
@@ -77,13 +81,19 @@ R2_SECRET_ACCESS_KEY=...
 R2_ENDPOINT=https://ACCOUNT_ID.r2.cloudflarestorage.com
 R2_REGION=auto
 
-R2_TEMP_ENABLED=true
-R2_TEMP_BUCKET=media-temp
+# Optional. Only enable when using R2_DIRECT_UPLOAD_DISK=r2_temp.
+R2_TEMP_ENABLED=false
+R2_TEMP_BUCKET=
 R2_FINAL_ENABLED=true
 R2_FINAL_BUCKET=media-final
 R2_PUBLIC_URL=https://media.yourdomain.com
 
 R2_DIRECT_UPLOAD_ENABLED=true
+R2_DIRECT_UPLOAD_DISK=r2_final
+R2_DIRECT_UPLOAD_MULTIPART_THRESHOLD_MB=8
+R2_DIRECT_UPLOAD_MULTIPART_PART_SIZE_MB=8
+R2_DIRECT_UPLOAD_CONCURRENCY=8
+R2_DIRECT_UPLOAD_STALL_TIMEOUT_SECONDS=120
 R2_FINAL_ROUND_ROBIN=true
 
 QUEUE_CONNECTION=redis
@@ -122,8 +132,9 @@ Cron must run:
 
 ## Cost Control Rules
 
-- Final R2 bucket stores only optimized WebP images and H.264 MP4 videos.
-- Raw direct uploads stay in `media-temp` only temporarily.
+- Direct-final video uploads are published without an extra server-side copy.
+- Final R2 bucket stores public media behind a cached Cloudflare custom domain.
+- Raw direct uploads stay in `media-temp` only when `R2_DIRECT_UPLOAD_DISK=r2_temp`.
 - `media:cleanup-temp` removes old local/R2 temp files.
 - Final media uses `Cache-Control: public, max-age=31536000, immutable`.
 - `media.yourdomain.com` should be cached through Cloudflare Cache Rules.

@@ -16,17 +16,12 @@ class R2DirectUploadService
 
     public function isConfigured(): bool
     {
-        $tempDisk = $this->tempDisk();
         $finalDisk = $this->finalDisk();
+        $uploadDisk = $this->directUploadDisk();
 
         return (bool) config('media.cloudflare.r2.direct_upload_enabled')
-            && (bool) config("filesystems.disks.{$tempDisk}.enabled", false)
-            && (bool) config("filesystems.disks.{$finalDisk}.enabled", false)
-            && filled(config("filesystems.disks.{$tempDisk}.bucket"))
-            && filled(config("filesystems.disks.{$finalDisk}.bucket"))
-            && filled(config("filesystems.disks.{$tempDisk}.endpoint"))
-            && filled(config("filesystems.disks.{$tempDisk}.key"))
-            && filled(config("filesystems.disks.{$tempDisk}.secret"));
+            && $this->diskIsConfigured($finalDisk)
+            && $this->diskIsConfigured($uploadDisk);
     }
 
     public function createVideoUpload(array $fileData = []): array
@@ -79,7 +74,7 @@ class R2DirectUploadService
         ];
     }
 
-    public function publishUploadedVideo(string $tempPath, string $extension = 'mp4', string $contentType = 'video/mp4'): array
+    public function publishUploadedVideo(string $tempPath, string $extension = 'mp4', string $contentType = 'video/mp4', ?string $sourceDisk = null): array
     {
         if(! $this->isConfigured()) {
             throw new Exception('Cloudflare R2 direct upload is not configured.');
@@ -94,8 +89,9 @@ class R2DirectUploadService
         $finalDisk = $this->finalDisk();
         $finalClient = $this->s3Client($finalDisk);
 
-        $tempBucket = $this->bucket($this->tempDisk());
-        $tempClient = $this->s3Client($this->tempDisk());
+        $sourceDisk = $sourceDisk ?: $this->tempDisk();
+        $tempBucket = $this->bucket($sourceDisk);
+        $tempClient = $this->s3Client($sourceDisk);
         $sourceObject = $tempClient->headObject([
             'Bucket' => $tempBucket,
             'Key' => $tempPath,
@@ -324,7 +320,11 @@ class R2DirectUploadService
 
         $origins = $this->corsOrigins();
 
-        foreach(array_unique([$this->directUploadDisk(), $this->tempDisk()]) as $uploadDisk) {
+        foreach(array_unique([$this->directUploadDisk()]) as $uploadDisk) {
+            if(! $this->diskIsConfigured($uploadDisk)) {
+                continue;
+            }
+
             $cacheKey = 'r2-direct-upload-cors:'.sha1($uploadDisk.'|'.$this->bucket($uploadDisk).'|'.implode(',', $origins));
 
             if(Cache::get($cacheKey)) {
@@ -640,12 +640,12 @@ class R2DirectUploadService
 
     private function multipartPartSize(): int
     {
-        return max(5, (int) config('media.cloudflare.r2.multipart_part_size_mb', 64)) * 1024 * 1024;
+        return max(5, (int) config('media.cloudflare.r2.multipart_part_size_mb', 8)) * 1024 * 1024;
     }
 
     private function uploadConcurrency(): int
     {
-        return max(1, min(8, (int) config('media.cloudflare.r2.upload_concurrency', 8)));
+        return max(1, min(12, (int) config('media.cloudflare.r2.upload_concurrency', 8)));
     }
 
     private function uploadStallTimeoutMs(): int
@@ -694,6 +694,15 @@ class R2DirectUploadService
     private function bucket(string $disk): string
     {
         return (string) config("filesystems.disks.{$disk}.bucket");
+    }
+
+    private function diskIsConfigured(string $disk): bool
+    {
+        return (bool) config("filesystems.disks.{$disk}.enabled", false)
+            && filled(config("filesystems.disks.{$disk}.bucket"))
+            && filled(config("filesystems.disks.{$disk}.endpoint"))
+            && filled(config("filesystems.disks.{$disk}.key"))
+            && filled(config("filesystems.disks.{$disk}.secret"));
     }
 
     private function normalizeUploadHeaders(array $headers): array
