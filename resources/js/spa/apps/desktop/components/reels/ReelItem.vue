@@ -1,129 +1,154 @@
 <template>
 	<section
-		ref="reelRootRef"
-		class="relative h-[calc(100dvh-1px)] snap-start snap-always overflow-hidden bg-black text-white"
+		class="reel-desktop-slide"
 	>
-		<ReelVideoPlayer
-			v-if="canPlayImmediately"
-			v-bind:mediaItem="mediaItem"
-			v-bind:postData="postData"
-			v-bind:active="active"
-			v-bind:isNear="isNear"
-			v-bind:blocked="isPlaybackBlocked"
-			v-bind:feedSessionId="feedSessionId"
-			v-bind:position="position"
-			v-on:double-tap="handleDoubleTap"
-		></ReelVideoPlayer>
+		<div class="reel-desktop-grid">
+			<div class="reel-info-desktop">
+				<RouterLink v-bind:to="{ name: 'profile_index', params: { id: postUser.username } }" class="inline-flex max-w-full items-center gap-2.5">
+					<img v-bind:src="postUser.avatar_url" v-bind:alt="postUser.username" class="size-10 rounded-full border border-white/20 object-cover">
+					<div class="min-w-0 leading-4">
+						<div class="flex min-w-0 items-center gap-1">
+							<span class="truncate text-par-m font-bold text-white">
+								{{ postUser.username }}
+							</span>
+							<VerificationBadge v-if="postUser.verified" size="xs"></VerificationBadge>
+						</div>
+						<p v-if="postUserCaption" class="mt-0.5 truncate text-cap-l text-white/50">
+							{{ postUserCaption }}
+						</p>
+					</div>
+				</RouterLink>
 
-		<div v-else class="absolute inset-0 bg-black inline-flex-center">
-			<div class="max-w-64 px-6 text-center">
-				<div class="mx-auto mb-4 size-12 rounded-full bg-white/10 inline-flex-center text-white/80">
-					<SvgIcon name="video-recorder" type="line" classes="size-6"></SvgIcon>
+				<div v-if="postContent" class="mt-4 max-h-36 overflow-hidden text-par-s leading-5 text-white/90 content-text" v-html="$mdInline(postContent)"></div>
+
+				<div class="mt-4 flex max-w-full items-center gap-2 text-cap-l text-white/55">
+					<SvgIcon name="music-note-01" type="line" classes="size-4 shrink-0"></SvgIcon>
+					<span class="truncate">{{ reelAudioLabel }}</span>
 				</div>
-				<p class="text-par-s text-white/75">
-					{{ fallbackText }}
-				</p>
 			</div>
-		</div>
 
-		<button
-			v-if="isPlaybackBlocked"
-			type="button"
-			v-on:click.stop="revealSensitiveContent"
-			class="absolute inset-0 z-20 bg-black/75 backdrop-blur-xl flex flex-col px-10 py-10 text-white"
-		>
-			<div class="mt-auto mb-3 inline-flex justify-center text-white/90">
-				<SvgIcon name="eye-off" type="line" classes="size-11"></SvgIcon>
+			<div class="reel-stage">
+				<ReelVideoPlayer
+					v-if="canPlayImmediately"
+					v-bind:mediaItem="mediaItem"
+					v-bind:postData="postData"
+					v-bind:active="active"
+					v-bind:isNear="isNear"
+					v-bind:blocked="isPlaybackBlocked"
+					v-bind:feedSessionId="feedSessionId"
+					v-bind:position="position"
+					v-on:double-tap="handleDoubleTap"
+				></ReelVideoPlayer>
+
+				<div v-else class="absolute inset-0 bg-black inline-flex-center">
+					<div class="max-w-64 px-6 text-center">
+						<div class="mx-auto mb-4 size-12 rounded-full bg-white/10 inline-flex-center text-white/80">
+							<SvgIcon name="video-recorder" type="line" classes="size-6"></SvgIcon>
+						</div>
+						<p class="text-par-s text-white/75">
+							{{ fallbackText }}
+						</p>
+					</div>
+				</div>
+
+				<button
+					v-if="isPlaybackBlocked"
+					type="button"
+					v-on:click.stop="revealSensitiveContent"
+					class="absolute inset-0 z-20 bg-black/75 backdrop-blur-xl flex flex-col px-10 py-10 text-white"
+				>
+					<div class="mt-auto mb-3 inline-flex justify-center text-white/90">
+						<SvgIcon name="eye-off" type="line" classes="size-11"></SvgIcon>
+					</div>
+					<h3 class="text-par-l font-bold text-center">
+						{{ $t('labels.sensitive_content.title') }}
+					</h3>
+					<p class="text-par-s text-white/80 text-center mt-2">
+						{{ $t('labels.sensitive_content.description') }}
+					</p>
+					<div class="mt-auto border-t border-white/25 pt-4 text-cap-l font-semibold text-center">
+						{{ $t('labels.sensitive_content.button') }}
+					</div>
+				</button>
+
+				<div v-if="state.showHeartBurst" class="pointer-events-none absolute inset-0 z-30 inline-flex-center">
+					<SvgIcon name="heart-rounded" type="line" classes="reel-heart-burst text-white"></SvgIcon>
+				</div>
+
+				<div class="pointer-events-none absolute inset-x-0 bottom-0 z-10 hidden h-1/2 bg-gradient-to-t from-black/85 via-black/35 to-transparent reel-info-gradient"></div>
+
+				<div class="reel-info-mobile absolute left-5 right-5 bottom-7 z-20">
+					<RouterLink v-bind:to="{ name: 'profile_index', params: { id: postUser.username } }" class="inline-flex max-w-full items-center gap-2 mb-3">
+						<img v-bind:src="postUser.avatar_url" v-bind:alt="postUser.username" class="size-9 rounded-full border border-white/30 object-cover">
+						<span class="min-w-0 truncate text-par-m font-bold text-white">
+							{{ postUser.username }}
+						</span>
+						<VerificationBadge v-if="postUser.verified" size="xs"></VerificationBadge>
+					</RouterLink>
+
+					<div v-if="postContent" class="text-par-s leading-5 text-white/95 line-clamp-3 content-text" v-html="$mdInline(postContent)"></div>
+
+					<div class="mt-3 inline-flex max-w-full items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-cap-l text-white/80 backdrop-blur">
+						<SvgIcon name="music-note-01" type="line" classes="size-4 shrink-0"></SvgIcon>
+						<span class="truncate">{{ reelAudioLabel }}</span>
+					</div>
+				</div>
 			</div>
-			<h3 class="text-par-l font-bold text-center">
-				{{ $t('labels.sensitive_content.title') }}
-			</h3>
-			<p class="text-par-s text-white/80 text-center mt-2">
-				{{ $t('labels.sensitive_content.description') }}
-			</p>
-			<div class="mt-auto border-t border-white/25 pt-4 text-cap-l font-semibold text-center">
-				{{ $t('labels.sensitive_content.button') }}
+
+			<div class="reel-actions">
+				<button type="button" v-on:click.stop="toggleDefaultReaction" class="reel-action-button">
+					<SvgIcon name="heart-rounded" type="line" v-bind:classes="hasReacted ? 'size-8 text-red-900' : 'size-8 text-white'"></SvgIcon>
+					<span>{{ reactionCountLabel }}</span>
+				</button>
+
+				<RouterLink v-bind:to="{ name: 'publication_index', params: { hash_id: postData.hash_id }}" class="reel-action-button">
+					<SvgIcon name="message-circle-02" type="line" classes="size-8 text-white"></SvgIcon>
+					<span>{{ postData.comments_count.formatted || 0 }}</span>
+				</RouterLink>
+
+				<div class="relative">
+					<button type="button" v-on:click.stop="sharePost" class="reel-action-button">
+						<SvgIcon name="share-06" type="line" classes="size-8 text-white"></SvgIcon>
+						<span>{{ postData.shares_count.formatted || 0 }}</span>
+					</button>
+
+					<div v-if="state.isShareOpen" v-outside-click="closeShare" class="absolute bottom-0 left-16 z-40">
+						<PublicationShare v-bind:postLink="postLink"></PublicationShare>
+					</div>
+				</div>
+
+				<button type="button" v-on:click.stop="bookmarkPost" class="reel-action-button">
+					<SvgIcon v-bind:name="postData.meta.activity.bookmarked ? 'bookmark-minus' : 'bookmark'" type="line" classes="size-8 text-white"></SvgIcon>
+					<span>{{ postData.bookmarks_count.formatted || 0 }}</span>
+				</button>
+
+				<div class="relative">
+					<button type="button" v-on:click.stop="toggleMenu" class="reel-action-button">
+						<SvgIcon name="dots-horizontal" type="solid" classes="size-8 text-white"></SvgIcon>
+					</button>
+
+					<div v-if="state.isMenuOpen" v-outside-click="closeMenu" class="absolute bottom-0 left-16 z-40 w-56 overflow-hidden rounded-lg border border-white/10 bg-[#111417]/95 py-1 text-white shadow-xl backdrop-blur">
+						<RouterLink v-bind:to="{ name: 'publication_index', params: { hash_id: postData.hash_id }}" class="flex items-center gap-2 px-4 py-3 text-par-s hover:bg-white/10">
+							<SvgIcon name="arrow-up-right" type="line" classes="size-4"></SvgIcon>
+							{{ $t('dd.post.open_post') }}
+						</RouterLink>
+						<button type="button" v-on:click="copyLink" class="flex w-full items-center gap-2 px-4 py-3 text-left text-par-s hover:bg-white/10">
+							<SvgIcon name="copy-06" type="line" classes="size-4"></SvgIcon>
+							{{ $t('dd.post.copy_link') }}
+						</button>
+						<button v-if="postContent" type="button" v-on:click="copyContent" class="flex w-full items-center gap-2 px-4 py-3 text-left text-par-s hover:bg-white/10">
+							<SvgIcon name="type-01" type="line" classes="size-4"></SvgIcon>
+							{{ $t('dd.copy_text') }}
+						</button>
+						<button v-if="canReportPost" type="button" v-on:click="reportPost" class="flex w-full items-center gap-2 px-4 py-3 text-left text-par-s text-red-900 hover:bg-white/10">
+							<SvgIcon name="annotation-alert" type="line" classes="size-4"></SvgIcon>
+							{{ $t('dd.post.report_post') }}
+						</button>
+					</div>
+				</div>
+
+				<img v-bind:src="postUser.avatar_url" v-bind:alt="postUser.username" class="mt-1 size-8 rounded-md border border-white/20 object-cover">
 			</div>
-		</button>
-
-		<div v-if="state.showHeartBurst" class="pointer-events-none absolute inset-0 z-30 inline-flex-center">
-			<SvgIcon name="heart-rounded" type="line" classes="reel-heart-burst text-white"></SvgIcon>
-		</div>
-
-		<div class="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-1/2 bg-gradient-to-t from-black/85 via-black/35 to-transparent"></div>
-
-		<div class="absolute left-5 right-24 bottom-8 z-20">
-			<RouterLink v-bind:to="{ name: 'profile_index', params: { id: postUser.username } }" class="inline-flex max-w-full items-center gap-2 mb-3">
-				<img v-bind:src="postUser.avatar_url" v-bind:alt="postUser.username" class="size-10 rounded-full object-cover border border-white/30">
-				<span class="min-w-0 truncate text-par-m font-bold text-white">
-					{{ postUser.username }}
-				</span>
-				<VerificationBadge v-if="postUser.verified" size="xs"></VerificationBadge>
-			</RouterLink>
-
-			<div v-if="postContent" class="text-par-s leading-5 text-white/95 line-clamp-4 content-text" v-html="$mdInline(postContent)"></div>
-
-			<div class="mt-3 inline-flex max-w-full items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-cap-l text-white/80 backdrop-blur">
-				<SvgIcon name="music-note-01" type="line" classes="size-4 shrink-0"></SvgIcon>
-				<span class="truncate">{{ postUser.name }}</span>
-			</div>
-		</div>
-
-		<div class="absolute right-4 bottom-24 z-20 flex flex-col items-center gap-4">
-			<button type="button" v-on:click.stop="toggleDefaultReaction" class="inline-flex flex-col items-center gap-1 text-white">
-				<span v-bind:class="hasReacted ? 'text-red-900' : 'text-white'" class="size-12 rounded-full bg-black/30 backdrop-blur inline-flex-center">
-					<SvgIcon name="heart-rounded" type="line" classes="size-7"></SvgIcon>
-				</span>
-				<span class="text-cap-l font-semibold leading-none">{{ reactionCountLabel }}</span>
-			</button>
-
-			<RouterLink v-bind:to="{ name: 'publication_index', params: { hash_id: postData.hash_id }}" class="inline-flex flex-col items-center gap-1 text-white">
-				<span class="size-12 rounded-full bg-black/30 backdrop-blur inline-flex-center">
-					<SvgIcon name="message-circle-02" type="line" classes="size-7"></SvgIcon>
-				</span>
-				<span class="text-cap-l font-semibold leading-none">{{ postData.comments_count.formatted || 0 }}</span>
-			</RouterLink>
-
-			<button type="button" v-on:click.stop="sharePost" class="relative inline-flex flex-col items-center gap-1 text-white">
-				<span class="size-12 rounded-full bg-black/30 backdrop-blur inline-flex-center">
-					<SvgIcon name="share-06" type="line" classes="size-7"></SvgIcon>
-				</span>
-				<span class="text-cap-l font-semibold leading-none">{{ postData.shares_count.formatted || 0 }}</span>
-			</button>
-
-			<button type="button" v-on:click.stop="bookmarkPost" class="inline-flex flex-col items-center gap-1 text-white">
-				<span class="size-12 rounded-full bg-black/30 backdrop-blur inline-flex-center">
-					<SvgIcon v-bind:name="postData.meta.activity.bookmarked ? 'bookmark-minus' : 'bookmark'" type="line" classes="size-7"></SvgIcon>
-				</span>
-				<span class="text-cap-l font-semibold leading-none">{{ postData.bookmarks_count.formatted || 0 }}</span>
-			</button>
-
-			<button type="button" v-on:click.stop="toggleMenu" class="size-12 rounded-full bg-black/30 backdrop-blur inline-flex-center text-white">
-				<SvgIcon name="dots-horizontal" type="solid" classes="size-7"></SvgIcon>
-			</button>
-		</div>
-
-		<div v-if="state.isShareOpen" v-outside-click="closeShare" class="absolute right-20 bottom-36 z-40">
-			<PublicationShare v-bind:postLink="postLink"></PublicationShare>
-		</div>
-
-		<div v-if="state.isMenuOpen" v-outside-click="toggleMenu" class="absolute right-20 bottom-16 z-40 w-56 overflow-hidden rounded-lg border border-white/10 bg-black/90 py-1 text-white shadow-xl">
-			<RouterLink v-bind:to="{ name: 'publication_index', params: { hash_id: postData.hash_id }}" class="flex items-center gap-2 px-4 py-3 text-par-s hover:bg-white/10">
-				<SvgIcon name="arrow-up-right" type="line" classes="size-4"></SvgIcon>
-				{{ $t('dd.post.open_post') }}
-			</RouterLink>
-			<button type="button" v-on:click="copyLink" class="flex w-full items-center gap-2 px-4 py-3 text-left text-par-s hover:bg-white/10">
-				<SvgIcon name="copy-06" type="line" classes="size-4"></SvgIcon>
-				{{ $t('dd.post.copy_link') }}
-			</button>
-			<button v-if="postContent" type="button" v-on:click="copyContent" class="flex w-full items-center gap-2 px-4 py-3 text-left text-par-s hover:bg-white/10">
-				<SvgIcon name="type-01" type="line" classes="size-4"></SvgIcon>
-				{{ $t('dd.copy_text') }}
-			</button>
-			<button v-if="canReportPost" type="button" v-on:click="reportPost" class="flex w-full items-center gap-2 px-4 py-3 text-left text-par-s text-red-900 hover:bg-white/10">
-				<SvgIcon name="annotation-alert" type="line" classes="size-4"></SvgIcon>
-				{{ $t('dd.post.report_post') }}
-			</button>
 		</div>
 	</section>
 </template>
@@ -190,6 +215,17 @@
 
 			const postContent = computed(() => {
 				return postData.value.content || '';
+			});
+
+			const postUserCaption = computed(() => {
+				return postUser.value.caption || postData.value.date?.time_ago || '';
+			});
+
+			const reelAudioLabel = computed(() => {
+				const timeLabel = postData.value.date?.time_ago;
+				const authorLabel = postUser.value.name || postUser.value.username || __t('labels.reels');
+
+				return timeLabel ? `${authorLabel} · ${timeLabel}` : authorLabel;
 			});
 
 			const canPlayImmediately = computed(() => {
@@ -278,6 +314,8 @@
 				postUser: postUser,
 				postLink: postLink,
 				postContent: postContent,
+				postUserCaption: postUserCaption,
+				reelAudioLabel: reelAudioLabel,
 				canPlayImmediately: canPlayImmediately,
 				isPlaybackBlocked: isPlaybackBlocked,
 				hasReacted: hasReacted,
@@ -342,6 +380,9 @@
 				toggleMenu: () => {
 					state.isMenuOpen = ! state.isMenuOpen;
 				},
+				closeMenu: () => {
+					state.isMenuOpen = false;
+				},
 				copyLink: () => {
 					state.isMenuOpen = false;
 					navigator.clipboard.writeText(postLink.value).then(() => {
@@ -375,6 +416,79 @@
 </script>
 
 <style scoped>
+	.reel-desktop-slide {
+		position: relative;
+		display: flex;
+		min-height: 100dvh;
+		scroll-snap-align: start;
+		scroll-snap-stop: always;
+		align-items: center;
+		justify-content: center;
+		overflow: hidden;
+		padding: 20px 96px 20px 48px;
+		color: white;
+	}
+
+	.reel-desktop-grid {
+		display: grid;
+		grid-template-columns: minmax(220px, 300px) auto 84px;
+		align-items: end;
+		justify-content: center;
+		column-gap: 20px;
+		width: min(1180px, calc(100vw - 176px));
+		height: min(calc(100dvh - 40px), 900px);
+	}
+
+	.reel-info-desktop {
+		min-width: 0;
+		padding-bottom: 8px;
+	}
+
+	.reel-stage {
+		position: relative;
+		height: 100%;
+		aspect-ratio: 9 / 16;
+		overflow: hidden;
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		border-radius: 4px;
+		background: #000;
+		box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+	}
+
+	.reel-actions {
+		position: relative;
+		z-index: 20;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 18px;
+		padding-bottom: 8px;
+	}
+
+	.reel-action-button {
+		display: inline-flex;
+		min-width: 56px;
+		flex-direction: column;
+		align-items: center;
+		gap: 4px;
+		color: white;
+		font-size: 12px;
+		font-weight: 700;
+		line-height: 1;
+		text-align: center;
+		text-shadow: 0 1px 12px rgba(0, 0, 0, 0.6);
+		transition: opacity 150ms ease, transform 150ms ease;
+	}
+
+	.reel-action-button:hover {
+		opacity: 0.82;
+		transform: translateY(-1px);
+	}
+
+	.reel-info-mobile {
+		display: none;
+	}
+
 	.reel-heart-burst {
 		width: 6rem;
 		height: 6rem;
@@ -394,6 +508,40 @@
 		100% {
 			opacity: 0;
 			transform: scale(1.45);
+		}
+	}
+
+	@media (max-width: 1180px) {
+		.reel-desktop-grid {
+			grid-template-columns: minmax(0, auto) 78px;
+			width: min(720px, calc(100vw - 156px));
+		}
+
+		.reel-info-desktop {
+			display: none;
+		}
+
+		.reel-info-mobile,
+		.reel-info-gradient {
+			display: block;
+		}
+	}
+
+	@media (max-width: 900px) {
+		.reel-desktop-slide {
+			padding-inline: 64px;
+		}
+
+		.reel-desktop-grid {
+			grid-template-columns: minmax(0, 1fr) 68px;
+			width: 100%;
+			column-gap: 16px;
+		}
+
+		.reel-stage {
+			width: 100%;
+			height: auto;
+			max-height: calc(100dvh - 44px);
 		}
 	}
 </style>

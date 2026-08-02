@@ -1,64 +1,87 @@
 <template>
-	<SidedContentLayout>
-		<template v-slot:content>
-			<TimelineContainer>
-				<div class="relative overflow-hidden bg-black">
-					<div class="sticky top-0 z-30">
-						<ExploreTabs variant="dark"></ExploreTabs>
-					</div>
+	<div class="fixed inset-0 z-[900] overflow-hidden bg-[#05070a] text-white">
+		<div class="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,#05070a_0%,#101418_48%,#05070a_100%)]"></div>
 
-					<div
-						ref="scrollerRef"
-						v-on:scroll.passive="handleScroll"
-						class="-mt-12 h-[calc(100dvh-1px)] snap-y snap-mandatory overflow-y-auto overscroll-contain bg-black"
-					>
-						<div v-if="state.isLoading" class="h-[calc(100dvh-1px)] inline-flex-center text-white">
-							<div class="colibri-primary-animation"></div>
-						</div>
+		<div class="fixed left-6 top-5 z-[930] flex items-center gap-3">
+			<RouterLink v-bind:to="{ name: 'explore_posts' }" class="size-11 rounded-full bg-white/10 backdrop-blur inline-flex-center text-white transition hover:bg-white/15">
+				<SvgIcon name="arrow-left" type="solid" classes="size-6"></SvgIcon>
+			</RouterLink>
 
-						<template v-else-if="posts.length">
-							<ReelItem
-								v-for="(postData, index) in posts"
-								v-bind:key="postData.id"
-								v-bind:postData="postData"
-								v-bind:active="index === state.activeIndex"
-								v-bind:isNear="Math.abs(index - state.activeIndex) <= 1"
-								v-bind:position="index"
-								v-bind:feedSessionId="reelsStore.feedSessionId"
-							></ReelItem>
+			<div class="leading-none">
+				<p class="text-par-m font-bold text-white">{{ $t('labels.reels') }}</p>
+				<p class="mt-1 text-cap-l text-white/50">{{ $t('labels.explore') }}</p>
+			</div>
+		</div>
 
-							<div v-if="state.isLoadingMore" class="h-24 inline-flex-center bg-black text-white">
-								<div class="colibri-primary-animation"></div>
-							</div>
-						</template>
+		<button
+			type="button"
+			v-on:click="closeReels"
+			class="fixed right-8 top-7 z-[930] size-11 rounded-full text-white/85 inline-flex-center transition hover:bg-white/10 hover:text-white"
+		>
+			<SvgIcon name="x" type="solid" classes="size-8"></SvgIcon>
+		</button>
 
-						<div v-else class="h-[calc(100dvh-1px)] inline-flex-center bg-black px-10 text-center text-white/70">
-							<div>
-								<SvgIcon name="video-recorder" type="line" classes="size-12 mx-auto mb-4 text-white/45"></SvgIcon>
-								<p class="text-par-s">{{ $t('empty_state.empty') }}</p>
-							</div>
-						</div>
-					</div>
+		<div class="fixed right-7 top-1/2 z-[930] flex -translate-y-1/2 flex-col gap-4">
+			<button
+				type="button"
+				v-bind:disabled="! canGoPrevious"
+				v-on:click="goPrevious"
+				class="size-14 rounded-full bg-white/10 text-white backdrop-blur inline-flex-center transition hover:bg-white/15 disabled:cursor-default disabled:opacity-30"
+			>
+				<SvgIcon name="chevron-up" type="solid" classes="size-8"></SvgIcon>
+			</button>
+
+			<button
+				type="button"
+				v-bind:disabled="! canGoNext"
+				v-on:click="goNext"
+				class="size-14 rounded-full bg-white/10 text-white backdrop-blur inline-flex-center transition hover:bg-white/15 disabled:cursor-default disabled:opacity-30"
+			>
+				<SvgIcon name="chevron-down" type="solid" classes="size-8"></SvgIcon>
+			</button>
+		</div>
+
+		<div
+			ref="scrollerRef"
+			v-on:scroll.passive="handleScroll"
+			class="relative z-10 h-[100dvh] snap-y snap-mandatory overflow-y-auto overscroll-contain bg-transparent hidden-scroll"
+		>
+			<div v-if="state.isLoading" class="h-[100dvh] inline-flex-center text-white">
+				<div class="colibri-primary-animation"></div>
+			</div>
+
+			<template v-else-if="posts.length">
+				<ReelItem
+					v-for="(postData, index) in posts"
+					v-bind:key="postData.id"
+					v-bind:postData="postData"
+					v-bind:active="index === state.activeIndex"
+					v-bind:isNear="Math.abs(index - state.activeIndex) <= 1"
+					v-bind:position="index"
+					v-bind:feedSessionId="reelsStore.feedSessionId"
+				></ReelItem>
+
+				<div v-if="state.isLoadingMore" class="h-28 snap-start inline-flex-center bg-transparent text-white">
+					<div class="colibri-primary-animation"></div>
 				</div>
-			</TimelineContainer>
-		</template>
-		<template v-slot:sidebar>
-			<FollowRecommendationList></FollowRecommendationList>
-			<AdGridItem></AdGridItem>
-		</template>
-	</SidedContentLayout>
+			</template>
+
+			<div v-else class="h-[100dvh] inline-flex-center bg-transparent px-10 text-center text-white/70">
+				<div>
+					<SvgIcon name="video-recorder" type="line" classes="size-12 mx-auto mb-4 text-white/45"></SvgIcon>
+					<p class="text-par-s">{{ $t('empty_state.empty') }}</p>
+				</div>
+			</div>
+		</div>
+	</div>
 </template>
 
 <script>
-	import { computed, defineComponent, nextTick, onMounted, reactive, ref, watch } from 'vue';
+	import { computed, defineComponent, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
+	import { useRouter } from 'vue-router';
 	import { useExploreReelsStore } from '@D/store/explore/reels.store.js';
 
-	import SidedContentLayout from '@D/components/layout/SidedContentLayout.vue';
-	import TimelineContainer from '@D/components/layout/TimelineContainer.vue';
-	import FollowRecommendationList from '@D/components/recommend/follow/list/FollowRecommendationList.vue';
-	import AdGridItem from '@D/components/ads/AdGridItem.vue';
 	import ReelItem from '@D/components/reels/ReelItem.vue';
-	import ExploreTabs from '@D/views/explore/parts/ExploreTabs.vue';
 	import SvgIcon from '@/kernel/vue/components/icons/SvgIcon.vue';
 
 	export default defineComponent({
@@ -70,7 +93,10 @@
 		},
 		setup: function(props) {
 			const scrollerRef = ref(null);
+			const router = useRouter();
 			const reelsStore = useExploreReelsStore();
+			let previousBodyOverflow = '';
+			let previousHtmlOverflow = '';
 
 			const state = reactive({
 				isLoading: true,
@@ -83,6 +109,14 @@
 				return reelsStore.posts;
 			});
 
+			const canGoPrevious = computed(() => {
+				return state.activeIndex > 0;
+			});
+
+			const canGoNext = computed(() => {
+				return posts.value.length > (state.activeIndex + 1) || ! state.noMoreContent;
+			});
+
 			const updateActiveIndex = () => {
 				const scroller = scrollerRef.value;
 
@@ -91,6 +125,21 @@
 				}
 
 				state.activeIndex = Math.max(0, Math.min(posts.value.length - 1, Math.round(scroller.scrollTop / scroller.clientHeight)));
+			};
+
+			const scrollToIndex = (index) => {
+				const scroller = scrollerRef.value;
+
+				if(! scroller?.clientHeight || ! posts.value.length) {
+					return false;
+				}
+
+				const safeIndex = Math.max(0, Math.min(posts.value.length - 1, index));
+
+				scroller.scrollTo({
+					top: safeIndex * scroller.clientHeight,
+					behavior: 'smooth'
+				});
 			};
 
 			const maybeLoadMore = async () => {
@@ -118,9 +167,67 @@
 				}
 			};
 
+			const ensureNextPage = async () => {
+				if(posts.value.length > (state.activeIndex + 1) || state.noMoreContent || state.isLoadingMore) {
+					return;
+				}
+
+				await maybeLoadMore();
+			};
+
+			const goPrevious = () => {
+				scrollToIndex(state.activeIndex - 1);
+			};
+
+			const goNext = async () => {
+				if(posts.value.length <= (state.activeIndex + 1)) {
+					await ensureNextPage();
+				}
+
+				scrollToIndex(state.activeIndex + 1);
+			};
+
 			const handleScroll = () => {
 				updateActiveIndex();
 				maybeLoadMore();
+			};
+
+			const closeReels = () => {
+				if(window.history.state?.back) {
+					router.back();
+				}
+				else {
+					router.push({
+						name: 'explore_posts'
+					});
+				}
+			};
+
+			const handleKeydown = (event) => {
+				if(event.key === 'Escape') {
+					closeReels();
+				}
+				else if(event.key === 'ArrowUp') {
+					event.preventDefault();
+					goPrevious();
+				}
+				else if(event.key === 'ArrowDown') {
+					event.preventDefault();
+					goNext();
+				}
+			};
+
+			const lockPageScroll = () => {
+				previousBodyOverflow = document.body.style.overflow;
+				previousHtmlOverflow = document.documentElement.style.overflow;
+
+				document.body.style.overflow = 'hidden';
+				document.documentElement.style.overflow = 'hidden';
+			};
+
+			const unlockPageScroll = () => {
+				document.body.style.overflow = previousBodyOverflow;
+				document.documentElement.style.overflow = previousHtmlOverflow;
 			};
 
 			const loadInitial = async () => {
@@ -141,7 +248,16 @@
 				});
 			};
 
-			onMounted(loadInitial);
+			onMounted(() => {
+				lockPageScroll();
+				window.addEventListener('keydown', handleKeydown);
+				loadInitial();
+			});
+
+			onUnmounted(() => {
+				unlockPageScroll();
+				window.removeEventListener('keydown', handleKeydown);
+			});
 
 			watch(() => props.hash_id, () => {
 				loadInitial();
@@ -152,16 +268,16 @@
 				posts: posts,
 				scrollerRef: scrollerRef,
 				reelsStore: reelsStore,
-				handleScroll: handleScroll
+				handleScroll: handleScroll,
+				canGoPrevious: canGoPrevious,
+				canGoNext: canGoNext,
+				goPrevious: goPrevious,
+				goNext: goNext,
+				closeReels: closeReels
 			};
 		},
 		components: {
-			SidedContentLayout: SidedContentLayout,
-			TimelineContainer: TimelineContainer,
-			FollowRecommendationList: FollowRecommendationList,
-			AdGridItem: AdGridItem,
 			ReelItem: ReelItem,
-			ExploreTabs: ExploreTabs,
 			SvgIcon: SvgIcon
 		}
 	});
