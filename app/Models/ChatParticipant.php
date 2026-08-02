@@ -9,6 +9,7 @@ class ChatParticipant extends Model
 {
     public $casts = [
         'metadata' => 'array',
+        'notifications_muted_until' => 'datetime',
         'joined_at' => ModelTimestampCast::class
     ];
 

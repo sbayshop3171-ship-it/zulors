@@ -2,16 +2,23 @@
 
 namespace Tests\Feature;
 
+use App\Enums\Chat\ChatType;
 use App\Enums\User\UserRole;
 use App\Enums\User\UserStatus;
 use App\Enums\User\UserType;
+use App\Models\Chat;
+use App\Models\Message;
 use App\Models\User;
+use App\Models\UserNotificationSettings;
 use App\Models\UserPushToken;
+use App\Notifications\User\Chat\MessageReceivedNotification;
 use App\Services\Notifications\FirebaseCloudMessagingService;
+use App\Services\Notifications\NotificationActionTokenService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -139,6 +146,91 @@ class PushNotificationsTest extends TestCase
         $this->assertNotNull($pushToken->fresh()->revoked_at);
     }
 
+    public function test_signed_push_reply_action_creates_a_chat_message(): void
+    {
+        [$sender, $recipient, $chat] = $this->createDirectChat();
+        $token = app(NotificationActionTokenService::class)->make($recipient->id, $chat->chat_id, ['reply']);
+
+        $this->postJson('/api/push-actions/reply', [
+            'token' => $token,
+            'content' => 'Reply from shade',
+        ])->assertOk()
+            ->assertJsonPath('status', 'success')
+            ->assertJsonPath('data.message.content', 'Reply from shade');
+
+        $this->assertDatabaseHas('messages', [
+            'chat_id' => $chat->id,
+            'chat_uuid' => $chat->chat_id,
+            'user_id' => $recipient->id,
+            'content' => 'Reply from shade',
+        ]);
+
+        $this->assertSame(
+            Message::query()->latest('id')->value('id'),
+            $chat->participants()->where('user_id', $recipient->id)->value('last_read_message_id')
+        );
+    }
+
+    public function test_signed_push_read_and_mute_actions_update_chat_state(): void
+    {
+        [$sender, $recipient, $chat] = $this->createDirectChat();
+        $message = $chat->messages()->create([
+            'chat_uuid' => $chat->chat_id,
+            'user_id' => $sender->id,
+            'participant_id' => $chat->participants()->where('user_id', $sender->id)->value('id'),
+            'content' => 'Unread message',
+            'text_language' => 'en',
+        ]);
+
+        $readToken = app(NotificationActionTokenService::class)->make($recipient->id, $chat->chat_id, ['read'], $message->id);
+
+        $this->postJson('/api/push-actions/read', [
+            'token' => $readToken,
+        ])->assertOk()
+            ->assertJsonPath('data.status_updated', true);
+
+        $this->assertSame(
+            $message->id,
+            $chat->participants()->where('user_id', $recipient->id)->value('last_read_message_id')
+        );
+
+        $muteToken = app(NotificationActionTokenService::class)->make($recipient->id, $chat->chat_id, ['mute'], $message->id);
+
+        $this->postJson('/api/push-actions/mute-chat', [
+            'token' => $muteToken,
+            'duration_minutes' => 60,
+        ])->assertOk()
+            ->assertJsonPath('status', 'success');
+
+        $this->assertNotNull(
+            $chat->participants()->where('user_id', $recipient->id)->value('notifications_muted_until')
+        );
+    }
+
+    public function test_message_push_payload_honors_message_preview_privacy(): void
+    {
+        [$sender, $recipient, $chat] = $this->createDirectChat();
+        $this->createPushSettings($recipient, [
+            'direct_messages' => true,
+            'show_message_preview' => false,
+        ]);
+
+        $message = $chat->messages()->create([
+            'chat_uuid' => $chat->chat_id,
+            'user_id' => $sender->id,
+            'participant_id' => $chat->participants()->where('user_id', $sender->id)->value('id'),
+            'content' => 'Private preview text',
+            'text_language' => 'en',
+        ])->load(['chat', 'user']);
+
+        $payload = (new MessageReceivedNotification($message))->toPush($recipient);
+
+        $this->assertSame('zulors_messages', $payload['channel_id']);
+        $this->assertSame($chat->chat_id, $payload['data']['chat_id']);
+        $this->assertNotSame('Private preview text', $payload['body']);
+        $this->assertNotEmpty($payload['data']['action_token']);
+    }
+
     private function configureFirebaseCredentials(): void
     {
         $key = openssl_pkey_new([
@@ -180,6 +272,49 @@ class PushNotificationsTest extends TestCase
             'device_name' => 'Xiaomi test',
             'app_version' => '0.4.0-production',
         ]);
+    }
+
+    private function createPushSettings(User $user, array $attributes = []): UserNotificationSettings
+    {
+        return UserNotificationSettings::query()->create(array_merge([
+            'user_id' => $user->id,
+            'type' => 'push',
+            'direct_messages' => true,
+            'show_message_preview' => true,
+            'reactions' => true,
+            'comments' => true,
+            'shared_posts' => true,
+            'followers' => true,
+            'follow_request' => true,
+            'mentions' => true,
+        ], $attributes));
+    }
+
+    private function createDirectChat(): array
+    {
+        $sender = $this->createUser('chat-sender-' . Str::random(6));
+        $recipient = $this->createUser('chat-recipient-' . Str::random(6));
+        $chat = Chat::query()->create([
+            'chat_id' => (string) Str::uuid(),
+            'type' => ChatType::DIRECT,
+            'last_activity' => now(),
+        ]);
+
+        $chat->participants()->create([
+            'user_id' => $sender->id,
+            'last_read_message_id' => 0,
+            'metadata' => ['color' => '#111111'],
+            'joined_at' => now(),
+        ]);
+
+        $chat->participants()->create([
+            'user_id' => $recipient->id,
+            'last_read_message_id' => 0,
+            'metadata' => ['color' => '#4f46e5'],
+            'joined_at' => now(),
+        ]);
+
+        return [$sender, $recipient, $chat];
     }
 
     private function createUser(string $username): User

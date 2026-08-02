@@ -12,6 +12,7 @@ class UserNotificationSettings extends Model
     protected $casts = [
         'type' => NotificationType::class,
         'direct_messages' => 'boolean',
+        'show_message_preview' => 'boolean',
         'reactions' => 'boolean',
         'comments' => 'boolean',
         'shared_posts' => 'boolean',

@@ -90,6 +90,15 @@ class DatabaseSeeder extends Seeder
 
         $user->pushNotificationSettings()->firstOrCreate([
             'type' => 'push',
+        ], [
+            'direct_messages' => true,
+            'show_message_preview' => true,
+            'reactions' => true,
+            'comments' => true,
+            'shared_posts' => true,
+            'followers' => true,
+            'follow_request' => true,
+            'mentions' => true,
         ]);
 
         $user->securitySettings()->updateOrCreate([], [

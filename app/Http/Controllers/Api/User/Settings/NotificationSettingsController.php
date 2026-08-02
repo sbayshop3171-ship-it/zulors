@@ -36,6 +36,7 @@ class NotificationSettingsController extends Controller
         return $this->responseSuccess([
             'data' => [
                 'direct_messages' => $pushSettings->direct_messages,
+                'show_message_preview' => $pushSettings->show_message_preview,
                 'reactions' => $pushSettings->reactions,
                 'comments' => $pushSettings->comments,
                 'shared_posts' => $pushSettings->shared_posts,
@@ -85,6 +86,7 @@ class NotificationSettingsController extends Controller
         return [
             'comments' => $request->boolean('comments', false),
             'direct_messages' => $request->boolean('direct_messages', false),
+            'show_message_preview' => $request->boolean('show_message_preview', true),
             'follow_request' => $request->boolean('follow_request', false),
             'followers' => $request->boolean('followers', false),
             'mentions' => $request->boolean('mentions', false),

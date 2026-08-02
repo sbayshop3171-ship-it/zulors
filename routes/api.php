@@ -14,6 +14,7 @@
 */
 
 use App\Models\User;
+use App\Http\Controllers\Api\Push\PushActionController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
@@ -45,6 +46,12 @@ Route::post('/sanctum/token', function (Request $request) {
 Route::prefix('translations')->middleware([$readApiThrottle])->group(base_path('routes/api/translations.php'));
 
 Route::prefix('webhooks')->middleware(['throttle:120,1'])->group(base_path('routes/api/webhooks.php'));
+
+Route::prefix('push-actions')->middleware(['throttle:120,1'])->group(function () {
+    Route::post('/reply', [PushActionController::class, 'reply']);
+    Route::post('/read', [PushActionController::class, 'read']);
+    Route::post('/mute-chat', [PushActionController::class, 'muteChat']);
+});
 
 Route::prefix('bootstrap')->middleware(['auth:sanctum', $readApiThrottle])->group(base_path('routes/api/user/bootstrap.php'));
 
