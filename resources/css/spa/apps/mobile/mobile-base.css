@@ -8,6 +8,21 @@ html {
     font-kerning: normal;
 }
 
+:root {
+    --mobile-safe-top: env(safe-area-inset-top, 0px);
+    --mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
+    --mobile-header-cutout-padding: max(var(--mobile-safe-top), 1.5rem);
+    --mobile-header-bar-height: 3.5rem;
+    --mobile-navbar-height: 3.5rem;
+}
+
+@supports (padding-top: constant(safe-area-inset-top)) {
+    :root {
+        --mobile-safe-top: constant(safe-area-inset-top);
+        --mobile-safe-bottom: constant(safe-area-inset-bottom);
+    }
+}
+
 .svg-icon{
     stroke-width: 1.8;
 }
@@ -26,6 +41,44 @@ html {
 
 .popup-background-tr {
     @apply backdrop-blur-xs bg-bg-pr/95;
+}
+
+.mobile-safe-header {
+    padding-top: var(--mobile-header-cutout-padding);
+}
+
+.mobile-safe-header__bar {
+    height: var(--mobile-header-bar-height);
+}
+
+.mobile-safe-header__wordmark {
+    max-width: min(42vw, 9rem);
+    overflow: hidden;
+    text-align: center;
+    transform: translateY(2px);
+}
+
+.mobile-safe-action {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-app-content {
+    padding-bottom: calc(var(--mobile-navbar-height) + var(--mobile-safe-bottom));
+}
+
+.mobile-app-content--no-navbar {
+    padding-bottom: 0;
+}
+
+.mobile-safe-navbar {
+    padding-bottom: var(--mobile-safe-bottom);
+}
+
+.mobile-safe-navbar--standalone {
+    padding-bottom: max(var(--mobile-safe-bottom), 1.25rem);
 }
 
 .skeleton{

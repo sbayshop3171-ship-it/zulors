@@ -7,6 +7,7 @@
 	--spacing-small-avatar: 38px;
 	--spacing-x-small-avatar: 32px;
 	--spacing-2x-small-avatar: 24px;
+	--spacing-safe-top: env(safe-area-inset-top);
 	--spacing-safe-bottom: env(safe-area-inset-bottom);
 	
 	--spacing-half: 50%;

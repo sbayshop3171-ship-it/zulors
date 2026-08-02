@@ -1,7 +1,7 @@
 <template>
 	<ApplicationHeader v-if="! hideHeader"></ApplicationHeader>
 
-	<div class="pb-14">
+	<div class="mobile-app-content" v-bind:class="{ 'mobile-app-content--no-navbar': hideNavbar }">
 		<RouterView v-slot="{ Component, route }">
 			<component v-bind:is="Component" v-bind:key="route.fullPath"></component>
 		</RouterView>

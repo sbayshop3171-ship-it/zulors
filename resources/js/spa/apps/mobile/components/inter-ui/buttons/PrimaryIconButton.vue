@@ -1,7 +1,7 @@
 <template>
     <button type="button"
         v-bind:class="[hoverBg, buttonColor, hoverText, `size-${iconAreaSize}`]"
-    class="outline-hidden cursor-pointer inline-flex active:bg-fill-tr items-center justify-center rounded-full leading-zero disabled:opacity-70 disabled:cursor-default">
+    class="outline-hidden cursor-pointer inline-flex min-h-11 min-w-11 touch-manipulation select-none active:bg-fill-tr items-center justify-center rounded-full leading-zero disabled:opacity-70 disabled:cursor-default">
         <SvgIcon 
             v-bind:name="iconName"
             v-bind:type="iconType"

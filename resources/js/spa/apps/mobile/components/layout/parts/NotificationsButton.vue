@@ -1,7 +1,7 @@
 <template>
-	<div class="relative">
-		<PrimaryIconButton v-on:click="openNotificationsModal" buttonColor="text-lab-pr" iconName="bell-01" iconType="line"></PrimaryIconButton>
-		<span class="absolute -top-1.5 -right-0.5">
+	<div class="relative shrink-0">
+		<PrimaryIconButton v-on:click="openNotificationsModal" buttonColor="text-lab-pr" iconName="bell-01" iconType="line" iconAreaSize="11"></PrimaryIconButton>
+		<span class="pointer-events-none absolute top-0 right-0">
 			<BadgeCounter v-if="notificationsCount.raw" v-bind:count="notificationsCount.formatted"></BadgeCounter>
 		</span>
 	</div>
