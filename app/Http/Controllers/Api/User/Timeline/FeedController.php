@@ -50,6 +50,12 @@ class FeedController extends Controller
             }
         }
 
+        foreach(['session_id', 'refresh_reason', 'seed_hash_id'] as $filterKey) {
+            if(request()->has($filterKey) && empty($filter[$filterKey])) {
+                $filter[$filterKey] = request()->string($filterKey)->toString();
+            }
+        }
+
         $feedResult = app(FeedService::class)->getFeed($this->me, $filter);
         
         return $this->responseSuccess([

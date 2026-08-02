@@ -12,7 +12,14 @@
             <FeedUpdate v-if="timelineNewPosts.length" v-bind:posts="timelineNewPosts" v-on:click="applyTimelineUpdate"></FeedUpdate>
 			<div v-if="timelinePosts.length">
                 <template v-for="(postData, index) in timelinePosts" v-bind:key="postData.hash_id">
-                    <TimelinePublication v-bind:postData="postData" v-on:delete="handlePostDelete(postData)"></TimelinePublication>
+                    <TimelinePublication
+                        v-bind:postData="postData"
+                        v-bind:feedSessionId="timelineFeedSessionId"
+                        v-bind:feedType="timelineFeedType"
+                        v-bind:position="index + 1"
+                        v-bind:refreshReason="timelineRefreshReason"
+                        source="home"
+                    v-on:delete="handlePostDelete(postData)"></TimelinePublication>
                     
                     <!-- Show follow recommendation every 10 posts -->
                     <template v-if="(index + 1) % 35 === 0">
@@ -93,6 +100,18 @@
                 return timelineStore.posts;
             });
 
+            const timelineFeedSessionId = computed(() => {
+                return timelineStore.feedSessionId;
+            });
+
+            const timelineFeedType = computed(() => {
+                return timelineStore.feedType;
+            });
+
+            const timelineRefreshReason = computed(() => {
+                return timelineStore.refreshReason;
+            });
+
             const refreshLatestFeed = async () => {
                 if(state.isUpdating) {
                     return;
@@ -146,7 +165,9 @@
 
                 try {
                     if(hasInstantPosts) {
-                        timelineStore.refreshFirstPage();
+                        timelineStore.refreshFirstPage({
+                            refreshReason: 'resume'
+                        });
                     }
                     else {
                         await timelineStore.initialLoad();
@@ -214,6 +235,9 @@
 
             return {
                 timelinePosts: timelinePosts,
+                timelineFeedSessionId: timelineFeedSessionId,
+                timelineFeedType: timelineFeedType,
+                timelineRefreshReason: timelineRefreshReason,
                 state: state,
                 timelineNewPosts: timelineNewPosts,
                 handlePostDelete: (postData) => {

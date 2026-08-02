@@ -1,5 +1,5 @@
 <template>
-    <div class="relative border-b border-b-bord-tr last:border-none">
+    <div ref="publicationRootRef" class="relative border-b border-b-bord-tr last:border-none">
         <div class="absolute overflow-hidden top-4 left-4">
             <AvatarSmall v-bind:avatarSrc="postData.relations.user.avatar_url" ></AvatarSmall>
         </div>
@@ -212,6 +212,7 @@
     import { useLightboxStore } from '@D/store/lightbox/lightbox.store.js';
     import { colibriTranslator } from '@/kernel/services/translator/index.js';
     import { applyOptimisticReaction } from '@/kernel/services/reactions/optimistic.js';
+    import { useFeedPostTelemetry } from '@/kernel/vue/composables/feed-telemetry/index.js';
 
     import AvatarSmall from '@D/components/general/avatars/AvatarSmall.vue';
     import DropdownButton from '@D/components/general/dropdowns/parts/DropdownButton.vue';
@@ -237,6 +238,26 @@
             postData: {
                 type: Object,
                 default: {}
+            },
+            feedSessionId: {
+                type: String,
+                default: ''
+            },
+            feedType: {
+                type: String,
+                default: 'for_you'
+            },
+            position: {
+                type: Number,
+                default: 0
+            },
+            source: {
+                type: String,
+                default: 'timeline'
+            },
+            refreshReason: {
+                type: String,
+                default: ''
             }
         },
         setup: function(props) {
@@ -253,8 +274,19 @@
             const postData = computed(() => {
                 return props.postData;
             });
+            const publicationRootRef = ref(null);
 
             const lightboxStore = useLightboxStore();
+
+            useFeedPostTelemetry({
+                targetRef: publicationRootRef,
+                postData: postData,
+                feedSessionId: computed(() => props.feedSessionId),
+                feedType: computed(() => props.feedType),
+                position: computed(() => props.position),
+                source: computed(() => props.source),
+                refreshReason: computed(() => props.refreshReason)
+            });
 
             const openReactionsPicker = function() {
                 debounce(() => {
@@ -283,6 +315,7 @@
                 PostTypeUtils: PostTypeUtils,
                 closeReactionsPicker: closeReactionsPicker,
                 postData: postData,
+                publicationRootRef: publicationRootRef,
                 state: state,
                 isSensitive: computed(() => {
                     return postData.value.meta.is_sensitive;

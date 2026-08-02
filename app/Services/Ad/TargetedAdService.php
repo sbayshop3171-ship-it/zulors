@@ -126,11 +126,24 @@ class TargetedAdService
             ->all();
 
         $topicMatches = count(array_intersect($targetTopics, $userTopics));
-        $untargetedFallback = empty($targetTopics) ? 5 : 0;
+        $topicMatchRate = empty($targetTopics) ? 0 : ($topicMatches / max(1, count($targetTopics)));
+        $untargetedFallback = empty($targetTopics) ? 25 : 0;
+        $impression = $ad->impressions->first();
+        $viewerFrequency = (int) ($impression?->impressions_count ?? 0);
+        $clickThroughRate = ((int) $ad->views_count > 0)
+            ? ((int) $ad->clicks_count / max(1, (int) $ad->views_count))
+            : 0.0;
+        $qualityScore = min(250, ($clickThroughRate * 1000) + (log(((int) $ad->clicks_count) + 1) * 12));
+        $bidScore = (float) $ad->price_per_view * 1000;
+        $budgetScore = min(120, max(0, ((float) $ad->total_budget - (float) $ad->spent_budget)));
+        $frequencyPenalty = $viewerFrequency * 120;
 
-        return ($topicMatches * 1000)
+        return ($topicMatches * 420)
+            + ($topicMatchRate * 280)
             + $untargetedFallback
-            + ((float) $ad->price_per_view * 100)
-            + min(100, max(0, ((float) $ad->total_budget - (float) $ad->spent_budget)));
+            + $bidScore
+            + $budgetScore
+            + $qualityScore
+            - $frequencyPenalty;
     }
 }

@@ -1,5 +1,5 @@
 <template>
-    <div class="base-publication min-h-40 border-b border-b-bord-tr">
+    <div ref="publicationRootRef" class="base-publication min-h-40 border-b border-b-bord-tr">
         <div class="pt-4 max-w-full">
             <div class="flex overflow-hidden mb-2 px-4">
                 <div class="flex-1 pr-2">
@@ -157,6 +157,7 @@
     import { applyOptimisticReaction } from '@/kernel/services/reactions/optimistic.js';
     import { useLightboxStore } from '@M/store/lightbox/lightbox.store.js';
     import { useMenu } from '@/kernel/vue/composables/menu/index.js';
+    import { useFeedPostTelemetry } from '@/kernel/vue/composables/feed-telemetry/index.js';
 
 	// Mobile components
 	import PublicationHeader from '@M/components/timeline/feed/parts/PublicationHeader.vue';
@@ -185,11 +186,32 @@
             postData: {
                 type: Object,
                 default: {}
+            },
+            feedSessionId: {
+                type: String,
+                default: ''
+            },
+            feedType: {
+                type: String,
+                default: 'for_you'
+            },
+            position: {
+                type: Number,
+                default: 0
+            },
+            source: {
+                type: String,
+                default: 'timeline'
+            },
+            refreshReason: {
+                type: String,
+                default: ''
             }
         },
         emits: ['delete'],
         setup: function(props) {
             const lightboxStore = useLightboxStore();
+            const publicationRootRef = ref(null);
 
             const state = reactive({
                 shareMenu: useMenu(),
@@ -200,6 +222,16 @@
             
             const postData = computed(() => {
                 return props.postData;
+            });
+
+            useFeedPostTelemetry({
+                targetRef: publicationRootRef,
+                postData: postData,
+                feedSessionId: computed(() => props.feedSessionId),
+                feedType: computed(() => props.feedType),
+                position: computed(() => props.position),
+                source: computed(() => props.source),
+                refreshReason: computed(() => props.refreshReason)
             });
 
             const postLink = computed(() => {
@@ -222,6 +254,7 @@
                 postContent: postContent,
                 PostTypeUtils: PostTypeUtils,
                 postData: postData,
+                publicationRootRef: publicationRootRef,
                 state: state,
                 isPendingPost: isPendingPost,
                 isOptimisticPost: isOptimisticPost,

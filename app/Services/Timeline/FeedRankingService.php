@@ -20,13 +20,13 @@ class FeedRankingService
     ) {
     }
 
-    public function rank(User $user, Collection $candidates, string $type): Collection
+    public function rank(User $user, Collection $candidates, string $type, array $filter = []): Collection
     {
         if($candidates->isEmpty()) {
             return collect();
         }
 
-        $context = $this->buildContext($user, $candidates);
+        $context = $this->buildContext($user, $candidates, $filter);
 
         $ranked = $candidates
             ->map(function(Post $post) use ($user, $type, $context) {
@@ -48,6 +48,8 @@ class FeedRankingService
             'media_bonus' => $this->mediaBonus($post),
             'video_intelligence' => $this->videoIntelligenceScore($post),
             'interest' => $this->interestScore($post, $context),
+            'seen_penalty' => $this->seenPenalty($post, $context),
+            'session_jitter' => $this->sessionJitter($user, $post, $type, $context),
             'report_penalty' => -$this->reportPenalty($post),
             'safety_penalty' => -$this->safetyService->authorSafetyPenalty($post),
             'repetition_penalty' => 0.0,
@@ -64,11 +66,12 @@ class FeedRankingService
         ];
     }
 
-    private function buildContext(User $user, Collection $candidates): array
+    private function buildContext(User $user, Collection $candidates, array $filter): array
     {
         $candidateIds = $candidates->pluck('id')->all();
         $candidateAuthors = $candidates->pluck('user_id', 'id');
         $candidateTopics = $this->candidateTopics($candidates);
+        $sessionId = trim((string) data_get($filter, 'session_id', ''));
 
         $commentedPostIds = DB::table(Table::COMMENTS)
             ->where('user_id', $user->id)
@@ -108,7 +111,10 @@ class FeedRankingService
             ->pluck('following_id')
             ->all();
 
+        $seenAtByPost = $this->seenAtByPost($user, $candidateIds, $sessionId);
+
         return [
+            'session_id' => $sessionId,
             'commented_post_ids' => array_map('intval', $commentedPostIds),
             'bookmarked_post_ids' => array_map('intval', $bookmarkedPostIds),
             'reacted_post_ids' => array_map('intval', $reactedPostIds),
@@ -116,6 +122,7 @@ class FeedRankingService
             'interacted_author_ids' => array_map('intval', $interactedAuthorIds),
             'followed_author_ids' => array_map('intval', $followedAuthorIds),
             'interest_scores' => $this->userInterestService->scoresForTopics($user, $candidateTopics),
+            'seen_at_by_post' => $seenAtByPost,
         ];
     }
 
@@ -203,6 +210,39 @@ class FeedRankingService
         return max(-35, min(45, $score));
     }
 
+    private function seenPenalty(Post $post, array $context): float
+    {
+        $lastSeenAt = data_get($context['seen_at_by_post'], $post->id);
+
+        if(empty($lastSeenAt)) {
+            return 0.0;
+        }
+
+        $minutesSinceSeen = max(0, Carbon::parse($lastSeenAt)->diffInMinutes(now()));
+
+        return match(true) {
+            $minutesSinceSeen < 15 => -80.0,
+            $minutesSinceSeen < 360 => -55.0,
+            $minutesSinceSeen < 1440 => -35.0,
+            $minutesSinceSeen < 10080 => -18.0,
+            default => -6.0,
+        };
+    }
+
+    private function sessionJitter(User $user, Post $post, string $type, array $context): float
+    {
+        $sessionId = data_get($context, 'session_id');
+
+        if(empty($sessionId)) {
+            return 0.0;
+        }
+
+        $maxBoost = $type === FeedService::TYPE_FOLLOWING ? 2.0 : 6.0;
+        $hash = (int) sprintf('%u', crc32("{$user->id}:{$post->id}:{$sessionId}:{$type}"));
+
+        return round(($hash / 4294967295) * $maxBoost, 4);
+    }
+
     private function videoIntelligenceScore(Post $post): float
     {
         if(! $post->type->isVideo() || empty($post->videoMetric)) {
@@ -249,6 +289,23 @@ class FeedRankingService
 
     private function weightsForType(string $type): array
     {
+        if($type === FeedService::TYPE_REELS) {
+            return [
+                'freshness' => 0.9,
+                'engagement' => 0.9,
+                'relationship' => 0.65,
+                'author_quality' => 0.55,
+                'media_bonus' => 0.25,
+                'video_intelligence' => 1.45,
+                'interest' => 1.15,
+                'seen_penalty' => 1.0,
+                'session_jitter' => 1.0,
+                'report_penalty' => 1.0,
+                'safety_penalty' => 1.0,
+                'repetition_penalty' => 1.0,
+            ];
+        }
+
         if($type === FeedService::TYPE_FOLLOWING) {
             return [
                 'freshness' => 1.45,
@@ -258,6 +315,8 @@ class FeedRankingService
                 'media_bonus' => 0.2,
                 'video_intelligence' => 0.25,
                 'interest' => 0.25,
+                'seen_penalty' => 1.0,
+                'session_jitter' => 0.45,
                 'report_penalty' => 1.0,
                 'safety_penalty' => 1.0,
                 'repetition_penalty' => 1.0,
@@ -272,6 +331,8 @@ class FeedRankingService
             'media_bonus' => 0.7,
             'video_intelligence' => 0.9,
             'interest' => 1.0,
+            'seen_penalty' => 1.0,
+            'session_jitter' => 1.0,
             'report_penalty' => 1.0,
             'safety_penalty' => 1.0,
             'repetition_penalty' => 1.0,
@@ -319,5 +380,27 @@ class FeedRankingService
         }
 
         return $topics->pluck('topic')->all();
+    }
+
+    private function seenAtByPost(User $user, array $candidateIds, string $sessionId): array
+    {
+        if(empty($candidateIds)) {
+            return [];
+        }
+
+        return DB::table(Table::FEED_EVENTS)
+            ->select('post_id', DB::raw('MAX(created_at) as last_seen_at'))
+            ->where('user_id', $user->id)
+            ->whereIn('post_id', $candidateIds)
+            ->whereIn('event_type', FeedTelemetryService::SEEN_EVENT_TYPES)
+            ->when($sessionId !== '', function($query) use ($sessionId) {
+                $query->where(function($query) use ($sessionId) {
+                    $query->whereNull('session_id')
+                        ->orWhere('session_id', '!=', $sessionId);
+                });
+            })
+            ->groupBy('post_id')
+            ->pluck('last_seen_at', 'post_id')
+            ->all();
     }
 }

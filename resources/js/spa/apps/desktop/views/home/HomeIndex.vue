@@ -30,8 +30,13 @@
                     <FeedUpdate v-if="timelineNewPosts.length" v-bind:posts="timelineNewPosts" v-on:click="applyTimelineUpdate"></FeedUpdate>
                     <div v-if="timelinePosts.length">
                         <TimelinePublication
-                            v-for="postData in timelinePosts"
+                            v-for="(postData, index) in timelinePosts"
                             v-bind:postData="postData"
+                            v-bind:feedSessionId="timelineFeedSessionId"
+                            v-bind:feedType="timelineFeedType"
+                            v-bind:position="index + 1"
+                            v-bind:refreshReason="timelineRefreshReason"
+                            source="home"
                             v-on:delete="handlePostDelete(postData)"
                         v-bind:key="postData.hash_id"></TimelinePublication>
 
@@ -116,6 +121,18 @@
                 return timelineStore.posts;
             });
 
+            const timelineFeedSessionId = computed(() => {
+                return timelineStore.feedSessionId;
+            });
+
+            const timelineFeedType = computed(() => {
+                return timelineStore.feedType;
+            });
+
+            const timelineRefreshReason = computed(() => {
+                return timelineStore.refreshReason;
+            });
+
             const globalPinnedPosts = computed(() => {
                 return pinsStore.posts;
             });
@@ -175,7 +192,9 @@
 
                 try {
                     if(hasInstantPosts) {
-                        timelineStore.refreshFirstPage();
+                        timelineStore.refreshFirstPage({
+                            refreshReason: 'resume'
+                        });
                     }
                     else {
                         await timelineStore.initialLoad();
@@ -243,6 +262,9 @@
 
             return {
                 timelinePosts: timelinePosts,
+                timelineFeedSessionId: timelineFeedSessionId,
+                timelineFeedType: timelineFeedType,
+                timelineRefreshReason: timelineRefreshReason,
                 state: state,
                 timelineNewPosts: timelineNewPosts,
                 globalPinnedPosts: globalPinnedPosts,

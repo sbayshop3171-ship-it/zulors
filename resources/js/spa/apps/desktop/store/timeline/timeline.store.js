@@ -12,6 +12,10 @@ const getTimelineCacheKey = function() {
 
 const timelineCacheLimit = 30;
 
+const createFeedSessionId = function() {
+    return `feed-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+};
+
 const useTimelineStore = defineStore('timeline_store', {
     // This is used to tell the postDeleteListener to listen to this store
     // This is used only for timeline stores, on desktop and mobile with the same logic.
@@ -24,6 +28,9 @@ const useTimelineStore = defineStore('timeline_store', {
 		return {
 			posts: cachedPosts,
             update: [],
+            feedType: 'for_you',
+            feedSessionId: createFeedSessionId(),
+            refreshReason: 'initial',
 			filter: {
 				page: 1,
                 onset: null
@@ -42,7 +49,10 @@ const useTimelineStore = defineStore('timeline_store', {
 
             await colibriAPI().userTimeline().params({
                 filter: {
-                    onset: state.posts.at(0).id
+                    onset: state.posts.at(0).id,
+                    type: state.feedType,
+                    session_id: state.feedSessionId,
+                    refresh_reason: 'update'
                 }
             }).getFrom('feed').then((response) => {
                 state.update = response.data.data;
@@ -72,14 +82,21 @@ const useTimelineStore = defineStore('timeline_store', {
         },
         initialLoad: async function() {
             if (! this.posts.length) {
-                await this.refreshFirstPage();
+                await this.refreshFirstPage({
+                    refreshReason: 'initial'
+                });
             }
         },
-        refreshFirstPage: async function() {
+        refreshFirstPage: async function(options = {}) {
+            this.startFeedSession(options.refreshReason || 'refresh');
+
             return await colibriAPI().userTimeline().params({
                 filter: {
                     page: 1,
-                    onset: null
+                    onset: null,
+                    type: this.feedType,
+                    session_id: this.feedSessionId,
+                    refresh_reason: this.refreshReason
                 }
             }).getFrom('feed').then((response) => {
                 const posts = response.data.data;
@@ -87,6 +104,7 @@ const useTimelineStore = defineStore('timeline_store', {
                 prefetchTimelineMedia(posts);
 
                 this.filter.page = 1;
+                this.filter.onset = null;
                 this.posts = posts;
                 this.persistFirstPage();
 
@@ -104,7 +122,7 @@ const useTimelineStore = defineStore('timeline_store', {
         },
         load: async function() {
             return await colibriAPI().userTimeline().params({
-                filter: this.filter
+                filter: this.requestFilter()
             }).getFrom('feed');
         },
         appendPosts: function(posts) {
@@ -167,6 +185,18 @@ const useTimelineStore = defineStore('timeline_store', {
         },
         persistFirstPage: function() {
             writeCache(getTimelineCacheKey(), this.posts.slice(0, timelineCacheLimit));
+        },
+        startFeedSession: function(refreshReason = 'refresh') {
+            this.feedSessionId = createFeedSessionId();
+            this.refreshReason = refreshReason;
+        },
+        requestFilter: function() {
+            return {
+                ...this.filter,
+                type: this.feedType,
+                session_id: this.feedSessionId,
+                refresh_reason: this.refreshReason
+            };
         }
     }
 });
