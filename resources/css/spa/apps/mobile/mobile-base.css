@@ -11,9 +11,22 @@ html {
 :root {
     --mobile-safe-top: env(safe-area-inset-top, 0px);
     --mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
-    --mobile-header-cutout-padding: max(var(--mobile-safe-top), 3.25rem);
+    --mobile-statusbar-guard: clamp(0.625rem, 2.8vh, 1.625rem);
+    --mobile-header-cutout-padding: max(var(--mobile-safe-top), var(--mobile-statusbar-guard));
     --mobile-header-bar-height: 3.5rem;
     --mobile-navbar-height: 3.5rem;
+}
+
+@supports (height: 100svh) {
+    :root {
+        --mobile-statusbar-guard: clamp(0.625rem, 2.8svh, 1.625rem);
+    }
+}
+
+@media (display-mode: standalone), (display-mode: fullscreen) {
+    :root {
+        --mobile-statusbar-guard: clamp(0.875rem, 3.2svh, 1.875rem);
+    }
 }
 
 @supports (padding-top: constant(safe-area-inset-top)) {
