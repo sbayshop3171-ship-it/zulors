@@ -16,6 +16,10 @@ import globalProperties from '@/kernel/vue/plugins/global.properties.js';
 import globalHelpers from '@M/core/global/global.helpers.js';
 import LanguageMessages from '@/lang/index.js';
 
+if(/\bZulors(Android|Local)App\b/.test(navigator.userAgent)) {
+    document.documentElement.classList.add('zulors-android-app');
+}
+
 const Application = createApp(ZulorsMobile);
 
 Application.directive('outside-click', outsideClickDirective);
