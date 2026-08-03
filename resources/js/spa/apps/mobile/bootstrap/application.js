@@ -11,6 +11,7 @@ import { postDeleteListener } from '@/kernel/vue/plugins/pinia/post/delete-liste
 
 import ZulorsMobile from '@M/bootstrap/boot/ZulorsMobile.vue';
 import Router from '@M/router/index.js';
+import { installNativeBackBridge } from '@M/core/services/native-back/index.js';
 
 import globalProperties from '@/kernel/vue/plugins/global.properties.js';
 import globalHelpers from '@M/core/global/global.helpers.js';
@@ -93,6 +94,8 @@ Application.use(Router);
 Application.use(globalHelpers);
 Application.use(ZulorsI18n);
 Application.config.globalProperties.$t = translate;
+
+installNativeBackBridge(Router);
 
 Application.component('Border', defineAsyncComponent(() => {
     return import("@/kernel/vue/components/general/Border.vue");

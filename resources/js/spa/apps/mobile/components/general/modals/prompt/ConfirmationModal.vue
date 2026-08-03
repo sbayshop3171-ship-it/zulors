@@ -28,8 +28,9 @@
 </template>
 
 <script>
-	import { defineComponent, reactive, ref, onMounted } from 'vue';
+	import { defineComponent, reactive, ref, onMounted, onUnmounted } from 'vue';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
+	import { registerNativeBackHandler } from '@M/core/services/native-back/index.js';
 	
 	import ContentModal from '@M/components/general/modals/ContentModal.vue';
 
@@ -48,6 +49,7 @@
 				onCancel: null,
 				onConfirmSecondary: null
 			});
+			let unregisterNativeBackHandler = null;
 
 			const resetModalData = () => {
 				modalData.value = {
@@ -72,6 +74,13 @@
 				state.isSubmitting = false;
 				state.errorMessage = '';
 				resetCallbacks();
+			};
+
+			const cancel = () => {
+				const onCancel = modalCallbacks.onCancel;
+
+				closeModal();
+				onCancel?.();
 			};
 
 			onMounted(() => {
@@ -110,6 +119,24 @@
 
 					state.isModalOpen = true;
 				});
+
+				unregisterNativeBackHandler = registerNativeBackHandler(() => {
+					if(! state.isModalOpen) {
+						return false;
+					}
+
+					if(! state.isSubmitting) {
+						cancel();
+					}
+
+					return true;
+				});
+			});
+
+			onUnmounted(() => {
+				if(unregisterNativeBackHandler) {
+					unregisterNativeBackHandler();
+				}
 			});
 
 			return {
@@ -151,12 +178,7 @@
 						state.errorMessage = error?.response?.data?.message || 'Unable to complete this action. Please try again.';
 					}
 				},
-				cancel: function() {
-					const onCancel = modalCallbacks.onCancel;
-
-					closeModal();
-					onCancel?.();
-				},
+				cancel: cancel,
 				confirmSecondary: async function() {
 					if(state.isSubmitting) {
 						return;

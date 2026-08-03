@@ -17,17 +17,19 @@
 </template>
 
 <script>
-    import { defineComponent, computed, ref } from 'vue';
+    import { defineComponent, computed, ref, onMounted, onUnmounted } from 'vue';
     import { register  } from 'swiper/element/bundle';
 
     register();
 
     import { useLightboxStore } from '@M/store/lightbox/lightbox.store.js';
+    import { registerNativeBackHandler } from '@M/core/services/native-back/index.js';
 
     export default defineComponent({
         setup: function() {
             const lightboxStore = useLightboxStore();
             const currentImageNumber = ref(0);
+            let unregisterNativeBackHandler = null;
 
             const closeLightbox = () => {
                 lightboxStore.remove();
@@ -35,6 +37,24 @@
 
             const albumData = computed(() => {
                 return lightboxStore.albumData;
+            });
+
+            onMounted(() => {
+                unregisterNativeBackHandler = registerNativeBackHandler(() => {
+                    if(! albumData.value) {
+                        return false;
+                    }
+
+                    closeLightbox();
+
+                    return true;
+                });
+            });
+
+            onUnmounted(() => {
+                if(unregisterNativeBackHandler) {
+                    unregisterNativeBackHandler();
+                }
             });
 
             return {

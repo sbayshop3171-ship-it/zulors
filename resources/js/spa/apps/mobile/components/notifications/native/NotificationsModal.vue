@@ -48,6 +48,7 @@
 	import { defineComponent, computed, onMounted, reactive, onUnmounted } from 'vue';
 	import { useNotificationsStore } from '@M/store/notifications/notifications.store.js';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
+	import { registerNativeBackHandler } from '@M/core/services/native-back/index.js';
 	import { useRouter } from 'vue-router';
 
 	import Toolbar from '@M/components/layout/Toolbar.vue';
@@ -63,6 +64,7 @@
 
 			const router = useRouter();
 			const notificationsStore = useNotificationsStore();
+			let unregisterNativeBackHandler = null;
 
             const notifications = computed(() => {
                 return notificationsStore.notifications;
@@ -81,6 +83,11 @@
                 notificationsStore.fetchUnreadCount();
 
 				colibriEventBus.on('notifications:received', handleNotificationReceived);
+				unregisterNativeBackHandler = registerNativeBackHandler(() => {
+					closeModal();
+
+					return true;
+				});
 
 				freezeScroll();
             });
@@ -89,6 +96,10 @@
 				colibriEventBus.off('notifications:received', handleNotificationReceived);
 
 				unfreezeScroll();
+
+				if(unregisterNativeBackHandler) {
+					unregisterNativeBackHandler();
+				}
 			});
 
 			const handleTabChange = async (tab) => {

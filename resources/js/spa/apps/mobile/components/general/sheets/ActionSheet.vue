@@ -23,6 +23,7 @@
 
 <script>
 	import { defineComponent, ref, onMounted, onUnmounted } from 'vue';
+	import { registerNativeBackHandler } from '@M/core/services/native-back/index.js';
 
 	export default defineComponent({
 		emits: ['close', 'click'],
@@ -38,6 +39,7 @@
 		},
 		setup: function(props, context) {
 			const renderActionSheet = ref(false);
+			let unregisterNativeBackHandler = null;
 
 			const close = function() {
 
@@ -54,6 +56,15 @@
 
 			onMounted(function() {
 				freezeScroll();
+				unregisterNativeBackHandler = registerNativeBackHandler(() => {
+					if(props.isLocked) {
+						return false;
+					}
+
+					close();
+
+					return true;
+				});
 
 				setTimeout(function() {
 					renderActionSheet.value = true;
@@ -62,6 +73,10 @@
 
 			onUnmounted(function() {
 				unfreezeScroll();
+
+				if(unregisterNativeBackHandler) {
+					unregisterNativeBackHandler();
+				}
 			});
 
 			return {
