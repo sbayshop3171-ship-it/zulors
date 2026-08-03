@@ -28,10 +28,12 @@ class TelemetryController extends Controller
             'events.*.current_time_seconds' => ['nullable', 'numeric', 'min:0', 'max:86400'],
             'events.*.loop_count' => ['nullable', 'integer', 'min:0', 'max:100'],
             'events.*.session_id' => ['nullable', 'string', 'max:80'],
+            'events.*.playback_session_id' => ['nullable', 'string', 'max:80'],
             'events.*.feed_type' => ['nullable', 'string', 'max:32'],
             'events.*.source' => ['nullable', 'string', 'max:32'],
             'events.*.refresh_reason' => ['nullable', 'string', 'max:32'],
             'events.*.position' => ['nullable', 'integer', 'min:0', 'max:10000'],
+            'events.*.is_muted' => ['nullable', 'boolean'],
             'events.*.viewport_ratio' => ['nullable', 'numeric', 'min:0', 'max:1'],
             'events.*.visible_ms' => ['nullable', 'integer', 'min:0', 'max:86400000'],
         ]);

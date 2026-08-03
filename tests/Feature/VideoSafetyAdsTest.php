@@ -453,7 +453,7 @@ class VideoSafetyAdsTest extends TestCase
         $user->wallet()->create([
             'wallet_number' => 'ZLR-TEST-' . strtoupper($user->username),
             'balance' => $balance,
-            'currency' => config('app.default_currency'),
+            'currency' => config('app.default_currency') ?: 'USD',
         ]);
     }
 

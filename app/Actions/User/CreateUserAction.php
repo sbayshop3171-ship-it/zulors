@@ -57,7 +57,7 @@ class CreateUserAction
         $userData->wallet()->create([
             'wallet_number' => $this->generateUniqueWalletNumber(),
             'balance' => config('wallet.default_balance'),
-            'currency' => config('app.default_currency'),
+            'currency' => config('app.default_currency') ?: 'USD',
         ]);
 
         // Create privacy settings (Default all are set to: false)

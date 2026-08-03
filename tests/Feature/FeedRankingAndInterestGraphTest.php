@@ -17,6 +17,7 @@ use App\Models\Bookmark;
 use App\Models\Comment;
 use App\Models\Media;
 use App\Models\Post;
+use App\Models\PostVideoMetric;
 use App\Models\User;
 use App\Models\UserNotificationSettings;
 use App\Services\Timeline\CandidateGenerationService;
@@ -437,6 +438,8 @@ class FeedRankingAndInterestGraphTest extends TestCase
                     'feed_type' => 'reels',
                     'source' => 'reels',
                     'position' => 1,
+                    'playback_session_id' => 'reels-playback-session',
+                    'is_muted' => true,
                 ]]
             ])
             ->assertOk()
@@ -450,12 +453,68 @@ class FeedRankingAndInterestGraphTest extends TestCase
             'session_id' => 'reels-telemetry-session',
         ]);
 
+        $event = \App\Models\FeedEvent::query()
+            ->where('user_id', $viewer->id)
+            ->where('post_id', $post->id)
+            ->first();
+
+        $this->assertSame('reels', $event->metadata['feed_type']);
+        $this->assertSame(1, $event->metadata['position']);
+        $this->assertSame('reels-playback-session', $event->metadata['playback_session_id']);
+        $this->assertTrue($event->metadata['is_muted']);
+
         $this->assertDatabaseHas(Table::POST_VIDEO_METRICS, [
             'post_id' => $post->id,
             'media_id' => $media->id,
         ]);
 
         $this->assertGreaterThan(0, $this->interestScore($viewer, 'music'));
+    }
+
+    public function test_reels_ranking_prefers_retention_quality_over_simple_recency(): void
+    {
+        $viewer = $this->createUser('reels-retention-viewer');
+        $author = $this->createUser('reels-retention-author');
+
+        $newSkippedReel = $this->createVideoPost($author, 'Brand new low retention reel #dance', now());
+        $oldLovedReel = $this->createVideoPost($author, 'Older high retention reel #dance', now()->subDays(3));
+
+        PostVideoMetric::query()->create([
+            'post_id' => $newSkippedReel->id,
+            'media_id' => $newSkippedReel->media()->value('id'),
+            'plays_count' => 40,
+            'skips_count' => 34,
+            'avg_completion_rate' => 0.18,
+            'completion_rate' => 0.05,
+            'skip_rate' => 0.85,
+            'intelligence_score' => -35,
+        ]);
+
+        PostVideoMetric::query()->create([
+            'post_id' => $oldLovedReel->id,
+            'media_id' => $oldLovedReel->media()->value('id'),
+            'plays_count' => 40,
+            'completions_count' => 32,
+            'loops_count' => 8,
+            'rewatches_count' => 10,
+            'avg_completion_rate' => 0.98,
+            'completion_rate' => 0.80,
+            'skip_rate' => 0.05,
+            'rewatch_rate' => 0.25,
+            'intelligence_score' => 62,
+        ]);
+
+        $response = $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/timeline/feed?type=reels&session_id=reels-retention-quality')
+            ->assertOk();
+
+        $postIds = array_column($response->json('data'), 'id');
+
+        $this->assertLessThan(
+            array_search($newSkippedReel->id, $postIds, true),
+            array_search($oldLovedReel->id, $postIds, true)
+        );
     }
 
     private function interestScore(User $user, string $topic): float

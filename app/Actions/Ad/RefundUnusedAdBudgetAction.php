@@ -36,7 +36,7 @@ class RefundUnusedAdBudgetAction
                 'transaction_type' => TransactionType::REFUND,
                 'status' => TransactionStatus::COMPLETED,
                 'direction' => TransactionDirection::INCOMING,
-                'currency' => config('app.default_currency'),
+                'currency' => config('app.default_currency') ?: 'USD',
                 'metadata' => [
                     'ad_id' => $this->adData->id,
                     'source' => ['name' => config('ads.name')],

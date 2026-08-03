@@ -302,14 +302,15 @@ if (! function_exists('default_currency')) {
     function default_currency() {
 
         $fiatCurrencyService = app(FiatCurrencyService::class);
-        $currencyData = $fiatCurrencyService->getCurrencyData(config('app.default_currency'));
+        $currencyCode = config('app.default_currency') ?: 'USD';
+        $currencyData = $fiatCurrencyService->getCurrencyData($currencyCode);
 
         if (! empty($currencyData)) {
             return $currencyData->toArray();
         }
 
         return [
-            'alpha_3_code' => config('app.default_currency', 'USD'),
+            'alpha_3_code' => $currencyCode,
             'name' => 'United States dollar',
             'symbol' => '$',
             'symbol_native' => '$',

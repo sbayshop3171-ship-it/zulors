@@ -221,7 +221,7 @@ class Upsert extends Component
                 'transaction_type' => TransactionType::ADVERTISING,
                 'status' => TransactionStatus::COMPLETED,
                 'direction' => TransactionDirection::OUTGOING,
-                'currency' => config('app.default_currency'),
+                'currency' => config('app.default_currency') ?: 'USD',
                 'metadata' => [
                     'ad_id' => $this->adData->id,
                     'source' => ['name' => config('ads.name')],

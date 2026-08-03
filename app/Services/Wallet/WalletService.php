@@ -28,7 +28,7 @@ class WalletService
 			title: __('payment.intents.deposit.title'),
 			description: __('payment.intents.deposit.description', ['app_name' => config('app.name')]),
 			amount: $amount,
-			currency: $providerData['currency'] ?? config('app.default_currency'),
+			currency: $providerData['currency'] ?? (config('app.default_currency') ?: 'USD'),
 			returnUrl: route($providerData['redirect_route']),
 			cancelUrl: route($providerData['cancel_route'])
 		);
@@ -45,7 +45,7 @@ class WalletService
 				'payment_type' => PaymentType::DEPOSIT,
 				'payment_method' => $providerData['driver'],
 				'amount' => $amount,
-				'currency' => $providerData['currency'] ?? config('app.default_currency'),
+				'currency' => $providerData['currency'] ?? (config('app.default_currency') ?: 'USD'),
 				'metadata' => []
 			]);
 		}

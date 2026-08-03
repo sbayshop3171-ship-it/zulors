@@ -41,6 +41,10 @@ class VideoIntelligenceService
                 'current_time_seconds' => $this->positiveFloat(data_get($payload, 'current_time_seconds', 0)),
                 'loop_count' => (int) data_get($payload, 'loop_count', 0),
                 'source' => data_get($payload, 'source', 'video_player'),
+                'feed_type' => data_get($payload, 'feed_type'),
+                'position' => data_get($payload, 'position'),
+                'playback_session_id' => data_get($payload, 'playback_session_id'),
+                'is_muted' => data_get($payload, 'is_muted'),
             ],
         ]);
 
@@ -139,11 +143,11 @@ class VideoIntelligenceService
     private function intelligenceScore(PostVideoMetric $metric): float
     {
         return max(-45, min(65,
-            ($metric->avg_completion_rate * 26)
-            + ($metric->completion_rate * 20)
-            + ($metric->rewatch_rate * 18)
-            + (min(10, $metric->loops_count) * 2.5)
-            - ($metric->skip_rate * 36)
+            ($metric->avg_completion_rate * 30)
+            + ($metric->completion_rate * 24)
+            + ($metric->rewatch_rate * 22)
+            + (min(10, $metric->loops_count) * 3)
+            - ($metric->skip_rate * 42)
         ));
     }
 

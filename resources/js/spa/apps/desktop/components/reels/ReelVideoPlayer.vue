@@ -260,10 +260,12 @@
 						current_time_seconds: Math.round((videoPlayerRef.value.currentTime || 0) * 10) / 10,
 						completion_rate: durationSeconds ? Math.round((state.totalWatchMs / 1000 / durationSeconds) * 10000) / 10000 : 0,
 						loop_count: state.loopCount,
-						session_id: state.sessionId,
+						session_id: props.feedSessionId || state.sessionId,
+						playback_session_id: state.sessionId,
 						feed_type: 'reels',
 						source: 'reels',
-						position: props.position
+						position: props.position,
+						is_muted: state.isMuted
 					}]
 				}).sendTo('telemetry/events').catch(() => {});
 

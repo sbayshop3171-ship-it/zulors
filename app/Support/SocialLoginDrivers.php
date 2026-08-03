@@ -8,7 +8,7 @@ class SocialLoginDrivers
 
     public function __construct()
     {
-        $this->socialLoginOptions = config('social-login.providers');
+        $this->socialLoginOptions = config('social-login.providers', []) ?: [];
     }
 
     public function getActiveDrivers():array

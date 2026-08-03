@@ -291,17 +291,17 @@ class FeedRankingService
     {
         if($type === FeedService::TYPE_REELS) {
             return [
-                'freshness' => 0.9,
-                'engagement' => 0.9,
-                'relationship' => 0.65,
-                'author_quality' => 0.55,
-                'media_bonus' => 0.25,
-                'video_intelligence' => 1.45,
-                'interest' => 1.15,
-                'seen_penalty' => 1.0,
-                'session_jitter' => 1.0,
-                'report_penalty' => 1.0,
-                'safety_penalty' => 1.0,
+                'freshness' => 0.55,
+                'engagement' => 0.65,
+                'relationship' => 0.55,
+                'author_quality' => 0.45,
+                'media_bonus' => 0.10,
+                'video_intelligence' => 1.90,
+                'interest' => 1.25,
+                'seen_penalty' => 1.15,
+                'session_jitter' => 1.15,
+                'report_penalty' => 1.20,
+                'safety_penalty' => 1.20,
                 'repetition_penalty' => 1.0,
             ];
         }

@@ -8,6 +8,7 @@ use App\Enums\Media\MediaType;
 use App\Enums\Post\PostType;
 use App\Enums\User\FollowStatus;
 use App\Models\Post;
+use App\Models\PostVideoMetric;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -27,7 +28,7 @@ class CandidateGenerationService
             $query = $this->baseTimelineQuery($user, $onset, $type);
             $this->applyFeedType($query, $user, $type);
 
-            return $this->orderByRecencyAndEngagement($query)
+            return $this->orderByRecencyAndEngagement($query, $type)
                 ->limit($limit)
                 ->get();
         }
@@ -134,7 +135,7 @@ class CandidateGenerationService
         $query = $this->baseTimelineQuery($user, $onset, $type)
             ->whereIn('user_id', $followedAuthorIds);
 
-        return $this->orderByRecencyAndEngagement($query)->limit($limit)->get();
+        return $this->orderByRecencyAndEngagement($query, $type)->limit($limit)->get();
     }
 
     private function interestCandidates(User $user, int $onset, array $topics, array $excludeIds, int $limit, string $type): Collection
@@ -150,7 +151,7 @@ class CandidateGenerationService
 
         $this->excludeSelected($query, $excludeIds);
 
-        return $this->orderByRecencyAndEngagement($query)->limit($limit)->get();
+        return $this->orderByRecencyAndEngagement($query, $type)->limit($limit)->get();
     }
 
     private function recentCandidates(User $user, int $onset, array $excludeIds, int $limit, string $type): Collection
@@ -162,7 +163,7 @@ class CandidateGenerationService
         $query = $this->baseTimelineQuery($user, $onset, $type);
         $this->excludeSelected($query, $excludeIds);
 
-        return $this->orderByRecencyAndEngagement($query)->limit($limit)->get();
+        return $this->orderByRecencyAndEngagement($query, $type)->limit($limit)->get();
     }
 
     private function oldGoodCandidates(User $user, int $onset, array $excludeIds, int $limit, string $type): Collection
@@ -176,7 +177,7 @@ class CandidateGenerationService
 
         $this->excludeSelected($query, $excludeIds);
 
-        return $this->orderByEngagement($query)->limit($limit)->get();
+        return $this->orderByEngagement($query, $type)->limit($limit)->get();
     }
 
     private function appendCandidates(Collection $selected, Collection $candidates): void
@@ -223,8 +224,12 @@ class CandidateGenerationService
             ->all();
     }
 
-    private function orderByRecencyAndEngagement(Builder $query): Builder
+    private function orderByRecencyAndEngagement(Builder $query, string $type = ''): Builder
     {
+        if($type === FeedService::TYPE_REELS) {
+            $this->orderByReelsWatchQuality($query);
+        }
+
         return $query
             ->orderBy('created_at', 'desc')
             ->orderBy('comments_count', 'desc')
@@ -234,8 +239,12 @@ class CandidateGenerationService
             ->orderBy('id', 'desc');
     }
 
-    private function orderByEngagement(Builder $query): Builder
+    private function orderByEngagement(Builder $query, string $type = ''): Builder
     {
+        if($type === FeedService::TYPE_REELS) {
+            $this->orderByReelsWatchQuality($query);
+        }
+
         return $query
             ->orderBy('comments_count', 'desc')
             ->orderBy('bookmarks_count', 'desc')
@@ -243,6 +252,23 @@ class CandidateGenerationService
             ->orderBy('views_count', 'desc')
             ->orderBy('created_at', 'desc')
             ->orderBy('id', 'desc');
+    }
+
+    private function orderByReelsWatchQuality(Builder $query): Builder
+    {
+        return $query
+            ->orderByDesc(PostVideoMetric::query()
+                ->select('intelligence_score')
+                ->whereColumn(Table::POST_VIDEO_METRICS . '.post_id', Table::POSTS . '.id')
+                ->limit(1))
+            ->orderByDesc(PostVideoMetric::query()
+                ->select('avg_completion_rate')
+                ->whereColumn(Table::POST_VIDEO_METRICS . '.post_id', Table::POSTS . '.id')
+                ->limit(1))
+            ->orderByDesc(PostVideoMetric::query()
+                ->select('rewatch_rate')
+                ->whereColumn(Table::POST_VIDEO_METRICS . '.post_id', Table::POSTS . '.id')
+                ->limit(1));
     }
 
     private function applyReelsFilter(Builder $query): void
@@ -260,9 +286,9 @@ class CandidateGenerationService
     {
         if($type === FeedService::TYPE_REELS) {
             return [
-                'followed' => 0.35,
-                'interest' => 0.20,
-                'recent' => 0.20,
+                'followed' => 0.30,
+                'interest' => 0.25,
+                'recent' => 0.15,
             ];
         }
 

@@ -5,6 +5,7 @@ namespace App\Support;
 use App\Models\Locale;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Cookie;
+use Illuminate\Support\Facades\Schema;
 
 class Languages
 {
@@ -17,9 +18,11 @@ class Languages
      */
     public function __construct()
     {
-        $this->languages = Cache::rememberForever('locales', function() {
-            return Locale::query()->where('status', true)->get();
-        });
+        $this->languages = Schema::hasTable('locales')
+            ? Cache::rememberForever('locales', function() {
+                return Locale::query()->where('status', true)->get();
+            })
+            : collect();
         
         $this->currentLocale = app()->getLocale();
     }

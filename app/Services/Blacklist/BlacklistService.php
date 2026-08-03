@@ -2,9 +2,11 @@
 
 namespace App\Services\Blacklist;
 
+use App\Database\Configs\Table;
 use App\Models\Blacklist;
 use App\Enums\BlacklistType;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Schema;
 
 class BlacklistService
 {
@@ -79,6 +81,10 @@ class BlacklistService
 
 	private function getBlacklistedByType(BlacklistType $type)
 	{
+		if(! Schema::hasTable(Table::BLACKLIST)) {
+			return [];
+		}
+
 		$type = $type->value;
 		$key = "blacklisted_{$type}";
 
