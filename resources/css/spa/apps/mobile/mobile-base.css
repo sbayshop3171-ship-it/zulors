@@ -11,21 +11,23 @@ html {
 :root {
     --mobile-safe-top: env(safe-area-inset-top, 0px);
     --mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
-    --mobile-statusbar-guard: clamp(0.625rem, 2.8vh, 1.625rem);
+    --mobile-statusbar-guard: 0px;
     --mobile-header-cutout-padding: max(var(--mobile-safe-top), var(--mobile-statusbar-guard));
     --mobile-header-bar-height: 3.5rem;
     --mobile-navbar-height: 3.5rem;
 }
 
-@supports (height: 100svh) {
+@media (display-mode: standalone), (display-mode: fullscreen) {
     :root {
-        --mobile-statusbar-guard: clamp(0.625rem, 2.8svh, 1.625rem);
+        --mobile-statusbar-guard: clamp(0.25rem, 1.4vh, 0.875rem);
     }
 }
 
-@media (display-mode: standalone), (display-mode: fullscreen) {
-    :root {
-        --mobile-statusbar-guard: clamp(0.875rem, 3.2svh, 1.875rem);
+@supports (height: 100svh) {
+    @media (display-mode: standalone), (display-mode: fullscreen) {
+        :root {
+            --mobile-statusbar-guard: clamp(0.25rem, 1.4svh, 0.875rem);
+        }
     }
 }
 
