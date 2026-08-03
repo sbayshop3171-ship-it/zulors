@@ -30,6 +30,7 @@ yarn-error.log
 /storage/frontend/*
 !/storage/frontend/.gitignore
 /testing
+/testing.corrupt.*
 /database/*.sqlite
 /storage/logs/*.log
 /storage/framework/cache/*
