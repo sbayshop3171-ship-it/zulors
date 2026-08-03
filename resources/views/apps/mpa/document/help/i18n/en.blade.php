@@ -118,6 +118,7 @@
             <li><a href="{{ route('document.privacy.index') }}" class="legal-doc-anchor">Privacy Policy</a></li>
             <li><a href="{{ route('document.cookies.index') }}" class="legal-doc-anchor">Cookies Policy</a></li>
             <li><a href="{{ route('document.account-deletion.index') }}" class="legal-doc-anchor">Account Deletion</a></li>
+            <li><a href="{{ route('document.child-safety.index') }}" class="legal-doc-anchor">Child Safety Standards</a></li>
             <li><a href="{{ route('document.about.index') }}" class="legal-doc-anchor">About Project</a></li>
             <li><a href="{{ route('document.developers.index') }}" class="legal-doc-anchor">Developers API</a></li>
         </ul>

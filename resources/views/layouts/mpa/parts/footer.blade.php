@@ -20,6 +20,9 @@
             <a href="{{ route('document.cookies.index') }}" class="text-par-s text-lab-pr2 hover:text-brand-900 smoothing">
                 {{ __('links.cookies_policy') }}
             </a>
+            <a href="{{ route('document.child-safety.index') }}" class="text-par-s text-lab-pr2 hover:text-brand-900 smoothing">
+                {{ __('links.child_safety_standards') }}
+            </a>
             <a href="{{ route('document.developers.index') }}" class="text-par-s text-lab-pr2 hover:text-brand-900 smoothing">
                 {{ __('links.developers') }}
             </a>

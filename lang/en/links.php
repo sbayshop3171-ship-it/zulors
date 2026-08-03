@@ -6,6 +6,7 @@ return [
     'terms_of_use' => 'Terms of Use',
     'privacy_policy' => 'Privacy Policy',
     'cookies_policy' => 'Cookie Files Policy',
+    'child_safety_standards' => 'Child Safety Standards',
     'developers' => 'API Documentation',
     'pw_learn_more' => 'Learn more about PWA',
 ];
