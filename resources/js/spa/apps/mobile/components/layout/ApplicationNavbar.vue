@@ -28,9 +28,9 @@
 				</div>
 			</div>
 			<div class="flex items-center justify-center leading-zero">
-				<RouterLink v-bind:to="{ name: 'profile_index', params: { id: userData.username } }">
+				<RouterLink v-bind:to="profileRoute">
 					<div class="inline-flex border border-bord-card items-center justify-center size-6 rounded-full overflow-hidden">
-						<img v-bind:src="userData.avatar_url" v-bind:alt="userData.username" class="size-full object-cover">
+						<img v-bind:src="userData.avatar_url" v-bind:alt="userData.username || 'Profile'" class="size-full object-cover">
 					</div>
 				</RouterLink>
 			</div>
@@ -66,6 +66,7 @@
 	import { useInboxStore } from '@M/store/chats/inbox.store.js';
 	import useToastNotificationStore from '@M/store/toast/toast.store.js';
 	import { colibriSounds } from '@/kernel/services/sounds/index.js';
+	import { makeProfileRoute } from '@/kernel/support/profile-routing/index.js';
 	import BRD from '@/kernel/websockets/brd/index.js';
 
 	import PrimaryIconButton from '@M/components/inter-ui/buttons/PrimaryIconButton.vue';
@@ -92,6 +93,10 @@
 			const inboxCount = computed(() => {
                 return inboxStore.unreadCount;
             });
+
+			const profileRoute = computed(() => {
+				return makeProfileRoute(authStore.userData?.username);
+			});
 
 			const getAuthChannel = () => {
 				return BRD.getChannel('AUTH_USER', [authStore.userData.id]);
@@ -271,7 +276,8 @@
 
 					return actions;
 				}),
-				inboxCount: inboxCount
+				inboxCount: inboxCount,
+				profileRoute: profileRoute
 			};
 		},
 		components: {

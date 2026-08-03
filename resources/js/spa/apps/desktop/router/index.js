@@ -485,7 +485,12 @@ const Router = createRouter({
             },
             name: 'profile_index',
             props: true,
-            redirect: { name: 'profile_posts' },
+            redirect: (to) => {
+                return {
+                    name: 'profile_posts',
+                    params: to.params
+                };
+            },
             children: [
                 {
                     path: 'posts:?',

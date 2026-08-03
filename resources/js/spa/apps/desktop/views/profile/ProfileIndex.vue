@@ -73,6 +73,7 @@
     import { useRoute, useRouter } from 'vue-router';
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
     import { useInstantRevalidation } from '@/kernel/vue/composables/instant-revalidation/index.js';
+    import { normalizeProfileUsername, isValidProfileUsername } from '@/kernel/support/profile-routing/index.js';
 
     import ContentTabs from '@D/components/general/tabs/content/ContentTabs.vue';
     import TabsLink from '@D/components/general/tabs/content/parts/TabsLink.vue';
@@ -94,7 +95,7 @@
     export default defineComponent({
         props: ['id'],
         setup: function(props) {
-			const profileId = ref(props.id);
+			const profileId = ref(normalizeProfileUsername(props.id));
             const route = useRoute();
             const router = useRouter();
             const state = reactive({
@@ -102,8 +103,10 @@
             });
 
 			watch(() => { return route.params.id; }, () => {
-				if(route.params.id !== profileId.value) {
-					profileId.value = route.params.id;
+                const nextProfileId = normalizeProfileUsername(route.params.id);
+
+				if(nextProfileId !== profileId.value) {
+					profileId.value = nextProfileId;
 					fetchProfile();
 				}
 			});
@@ -113,29 +116,44 @@
             provide('profileData', profileData);
 
             onMounted(() => {
-				profileId.value = props.id;
+				profileId.value = normalizeProfileUsername(props.id);
 
                 fetchProfile();
             });
+
+            const redirectProfileHome = async () => {
+                await router.replace({
+                    name: 'home_index'
+                }).catch(() => {});
+            };
 
 			const fetchProfile = async (showLoader = true) => {
 				if(showLoader) {
                     state.isLoading = true;
                 }
 
-				await colibriAPI().userProfile().params({ id: profileId.value }).getFrom('profile').then(function(response) {
+                const currentProfileId = normalizeProfileUsername(profileId.value);
+                profileId.value = currentProfileId;
+
+                if(! isValidProfileUsername(currentProfileId)) {
+                    if(showLoader) {
+                        await redirectProfileHome();
+                    }
+
+                    return;
+                }
+
+                try {
+				    const response = await colibriAPI().userProfile().params({ id: currentProfileId }).getFrom('profile');
+
                     profileData.value = response.data.data;
+                } catch (error) {
+                    if(showLoader) {
+                        await redirectProfileHome();
+                    }
+                } finally {
                     state.isLoading = false;
-                }).catch(function(error) {
-                    router.push({
-                        name: 'error_404',
-                        params: {
-                            pathMatch: route.path.substring(1).split('/')
-                        },
-                        query: route.query,
-                        hash: route.hash
-                    });
-                });
+                }
 			};
 
             useInstantRevalidation(async () => {

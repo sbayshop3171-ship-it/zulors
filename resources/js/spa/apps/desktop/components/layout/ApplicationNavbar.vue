@@ -77,7 +77,7 @@
         </div>
         
         <div class="block">
-            <RouterLink v-bind:to="{ name: 'profile_index', params: { id: userData.username } }" v-slot="{ isActive }" class="block">
+            <RouterLink v-bind:to="profileRoute" v-slot="{ isActive }" class="block">
                 <div  class="flex items-center sidenav-inactive">
                     <span class="size-icon-normal shrink-0">
                         <SvgIcon name="user-01" type="line"></SvgIcon>
@@ -105,6 +105,7 @@
     import useToastNotificationStore from '@D/store/toast/toast.store.js';
     import { colibriSounds } from '@/kernel/services/sounds/index.js';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
+    import { makeProfileRoute } from '@/kernel/support/profile-routing/index.js';
 
     import BadgeCounter from '@D/components/general/counters/BadgeCounter.vue';
     import BRD from '@/kernel/websockets/brd/index.js';
@@ -125,6 +126,10 @@
 
             const inboxCount = computed(() => {
                 return inboxStore.unreadCount;
+            });
+
+            const profileRoute = computed(() => {
+                return makeProfileRoute(authStore.userData?.username);
             });
 
             const getAuthChannel = () => {
@@ -277,7 +282,8 @@
                 }),
                 openNotificationsModal: () => {
                     notificationsStore.openNotifications();
-                }
+                },
+                profileRoute: profileRoute
             };
         },
         components: {
