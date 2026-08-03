@@ -134,6 +134,28 @@ class BulkTestAccountEngagementPublisherTest extends TestCase
 		$this->assertCount(3, $preview['users']);
 	}
 
+	public function test_it_caps_targets_when_the_post_author_is_in_the_selected_test_user_pool(): void
+	{
+		$author = $this->createUser('bulk-cap-author', 'bulk-cap-author@gmail.test');
+		$this->createUser('bulk-cap-2', 'bulk-cap-2@gmail.test');
+		$this->createUser('bulk-cap-3', 'bulk-cap-3@gmail.test');
+
+		$post = $this->createPost($author, 'A capped pilot engagement update');
+		$publisher = app(BulkTestAccountEngagementPublisher::class);
+		$preview = $publisher->preview('bulk-cap-test', 3, 0, 1, 3, 3, 3, 3);
+		$summary = $publisher->publish('bulk-cap-test', $preview['users'], $preview['posts'], $preview['targets']);
+
+		$this->assertSame([
+			'reactions' => 2,
+			'comments' => 2,
+		], $preview['targets'][$post->id]);
+		$this->assertSame(0, $summary['failed']);
+		$this->assertSame(2, $summary['reactions_added']);
+		$this->assertSame(2, $summary['comments_added']);
+		$this->assertSame(2, (int) Reaction::query()->sum('reactions_count'));
+		$this->assertSame(2, Comment::query()->where('post_id', $post->id)->count());
+	}
+
 	private function createPost(User $user, string $title, PostType $type = PostType::TEXT): Post
 	{
 		return Post::query()->create([

@@ -52,9 +52,10 @@ class BulkTestAccountEngagementPublisher
 		$targets = [];
 
 		foreach ($posts as $post) {
-			$targets[$post->id] = $this->targetsFor(
+			$targets[$post->id] = $this->cappedTargetsFor(
 				$campaignKey,
-				$post->id,
+				$users,
+				$post,
 				$reactionMin,
 				$reactionMax,
 				$commentMin,
@@ -148,6 +149,7 @@ class BulkTestAccountEngagementPublisher
 				$testUserIds,
 				fn (int $userId) => $userId !== (int) $lockedPost->user_id,
 			));
+			$target = $this->capTargets($target, count($eligibleUserIds));
 
 			if (count($eligibleUserIds) < $target['reactions'] || count($eligibleUserIds) < $target['comments']) {
 				throw new \RuntimeException('There are not enough active .test accounts for the requested engagement target.');
@@ -200,6 +202,48 @@ class BulkTestAccountEngagementPublisher
 				'failed' => false,
 			];
 		}, 3);
+	}
+
+	/**
+	 * @param array<int, int> $testUserIds
+	 * @return array{reactions: int, comments: int}
+	 */
+	private function cappedTargetsFor(
+		string $campaignKey,
+		array $testUserIds,
+		Post $post,
+		int $reactionMin,
+		int $reactionMax,
+		int $commentMin,
+		int $commentMax,
+	): array {
+		$target = $this->targetsFor(
+			$campaignKey,
+			$post->id,
+			$reactionMin,
+			$reactionMax,
+			$commentMin,
+			$commentMax,
+		);
+
+		$eligibleCount = count(array_filter(
+			$testUserIds,
+			fn (int $userId) => $userId !== (int) $post->user_id,
+		));
+
+		return $this->capTargets($target, $eligibleCount);
+	}
+
+	/**
+	 * @param array{reactions: int, comments: int} $target
+	 * @return array{reactions: int, comments: int}
+	 */
+	private function capTargets(array $target, int $eligibleCount): array
+	{
+		return [
+			'reactions' => min($target['reactions'], $eligibleCount),
+			'comments' => min($target['comments'], $eligibleCount),
+		];
 	}
 
 	/**
