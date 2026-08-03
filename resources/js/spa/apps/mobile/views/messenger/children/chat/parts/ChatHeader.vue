@@ -1,5 +1,5 @@
 <template>
-	<div class="px-4 py-3 flex items-center leading-none gap-2.5">
+	<div class="mobile-safe-chat-header flex items-center leading-none gap-2.5">
 		<div class="shrink-0">
 			<PrimaryIconButton
 				v-on:click="$emit('close')"

@@ -1,6 +1,6 @@
 <template>
-	<div class="relative h-[calc(100dvh-3.5rem)] overflow-hidden bg-black text-white">
-		<div class="pointer-events-none absolute inset-x-0 top-0 z-40 bg-gradient-to-b from-black/90 via-black/55 to-transparent">
+	<div class="mobile-reels-viewport relative overflow-hidden bg-black text-white">
+		<div class="mobile-safe-overlay-top pointer-events-none absolute inset-x-0 top-0 z-40 bg-gradient-to-b from-black/90 via-black/55 to-transparent">
 			<div class="pointer-events-auto flex h-11 items-center px-2">
 				<button type="button" v-on:click="goBack" class="size-10 rounded-full inline-flex-center text-white hover:bg-white/10">
 					<SvgIcon name="arrow-left" type="solid" classes="size-6"></SvgIcon>

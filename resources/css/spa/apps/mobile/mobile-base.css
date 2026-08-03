@@ -1,4 +1,4 @@
-/* Desktop specific styles */
+/* Mobile specific styles */
 
 html {
     touch-action: manipulation;
@@ -11,24 +11,8 @@ html {
 :root {
     --mobile-safe-top: env(safe-area-inset-top, 0px);
     --mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
-    --mobile-statusbar-guard: 0px;
-    --mobile-header-cutout-padding: max(var(--mobile-safe-top), var(--mobile-statusbar-guard));
     --mobile-header-bar-height: 3.5rem;
     --mobile-navbar-height: 3.5rem;
-}
-
-@media (display-mode: standalone), (display-mode: fullscreen) {
-    :root {
-        --mobile-statusbar-guard: clamp(0.25rem, 1.4vh, 0.875rem);
-    }
-}
-
-@supports (height: 100svh) {
-    @media (display-mode: standalone), (display-mode: fullscreen) {
-        :root {
-            --mobile-statusbar-guard: clamp(0.25rem, 1.4svh, 0.875rem);
-        }
-    }
 }
 
 @supports (padding-top: constant(safe-area-inset-top)) {
@@ -59,11 +43,41 @@ html {
 }
 
 .mobile-safe-header {
-    padding-top: var(--mobile-header-cutout-padding);
+    padding-top: var(--mobile-safe-top);
 }
 
 .mobile-safe-header__bar {
     height: var(--mobile-header-bar-height);
+}
+
+.mobile-safe-toolbar {
+    padding: calc(var(--mobile-safe-top) + 1rem) 1rem 1rem;
+}
+
+.mobile-safe-chat-header {
+    padding: calc(var(--mobile-safe-top) + 0.75rem) 1rem 0.75rem;
+}
+
+.mobile-safe-page-start {
+    padding-top: calc(var(--mobile-safe-top) + 1rem);
+}
+
+.mobile-safe-sticky-top {
+    top: var(--mobile-safe-top);
+}
+
+.mobile-safe-overlay-top {
+    padding-top: var(--mobile-safe-top);
+}
+
+.mobile-reels-viewport {
+    height: calc(100vh - var(--mobile-navbar-height) - var(--mobile-safe-bottom));
+}
+
+@supports (height: 100dvh) {
+    .mobile-reels-viewport {
+        height: calc(100dvh - var(--mobile-navbar-height) - var(--mobile-safe-bottom));
+    }
 }
 
 .mobile-safe-header__wordmark {

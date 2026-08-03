@@ -1,5 +1,5 @@
 <template>
-	<div class="p-4 flex items-center leading-none">
+	<div class="mobile-safe-toolbar flex items-center leading-none">
 		<div class="shrink-0 w-12">
 			<PrimaryIconButton 
 				v-on:click="$emit('close')"

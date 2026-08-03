@@ -6,7 +6,7 @@
 	</Toolbar>
 
 	<div class="px-4 pb-24">
-		<div class="sticky top-0 z-20 bg-bg-pr pt-2 pb-3">
+		<div class="mobile-safe-sticky-top sticky z-20 bg-bg-pr pt-2 pb-3">
 			<label class="flex h-11 items-center gap-2 rounded-full border border-bord-pr bg-fill-qt px-4">
 				<span class="size-icon-small text-lab-sc">
 					<SvgIcon name="search-lg" type="line"></SvgIcon>

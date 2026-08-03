@@ -3,7 +3,7 @@
 		<HeaderSkeleton></HeaderSkeleton>
 	</template>
 	<template v-else>
-		<div class="pt-4 mb-2">
+		<div class="mobile-safe-page-start mb-2">
 			<div class="mb-4 px-4">
 				<ProfileControls></ProfileControls>
 			</div>
@@ -23,7 +23,7 @@
 			<ProfileActions></ProfileActions>
 		</div>
 
-		<div v-if="! state.isLoading" class="block sticky top-0 bg-bg-pr z-20">
+		<div v-if="! state.isLoading" class="mobile-safe-sticky-top block sticky bg-bg-pr z-20">
 			<ContentTabs>
 				<TabsLink v-bind:link="{ name: 'profile_posts' }">
 					{{ $t('labels.posts') }}

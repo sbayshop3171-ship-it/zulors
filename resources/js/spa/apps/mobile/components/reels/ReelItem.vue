@@ -1,7 +1,7 @@
 <template>
 	<section
 		ref="reelRootRef"
-		class="relative h-[calc(100dvh-3.5rem)] snap-start snap-always overflow-hidden bg-black text-white"
+		class="relative h-full snap-start snap-always overflow-hidden bg-black text-white"
 	>
 		<ReelVideoPlayer
 			v-if="canPlayImmediately"

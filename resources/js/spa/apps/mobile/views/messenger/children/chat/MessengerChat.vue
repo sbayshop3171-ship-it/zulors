@@ -2,7 +2,7 @@
 	<div class="fixed inset-0 bg-bg-pr flex flex-col mb-safe-bottom overflow-hidden">
 		<div class="shrink-0">
 			<ChatHeader v-if="hasChatData" v-on:close="$router.push({ name: 'messenger_inbox' })" v-bind:chatData="chatData" v-bind:typingUser="state.typing"></ChatHeader>
-			<div v-else class="px-4 py-3 flex items-center leading-none gap-2.5">
+			<div v-else class="mobile-safe-chat-header flex items-center leading-none gap-2.5">
 				<button type="button" class="size-10 flex items-center justify-center text-lab-pr" v-on:click="$router.push({ name: 'messenger_inbox' })">
 					<SvgIcon type="line" name="chevron-left" classes="size-icon-medium"></SvgIcon>
 				</button>
