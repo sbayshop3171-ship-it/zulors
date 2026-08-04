@@ -17,6 +17,7 @@ use App\Notifications\User\Important\StoryExpiredNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -163,6 +164,65 @@ class StoryProcessingVisibilityTest extends TestCase
         $this->assertSame(StoryStatus::ACTIVE, $draftFrame->status);
         $this->assertSame($publishedAt->toDateTimeString(), $draftFrame->getRawOriginal('created_at'));
         $this->assertSame($publishedAt->copy()->addHours(24)->toDateTimeString(), $draftFrame->getRawOriginal('expires_at'));
+    }
+
+    public function test_story_editor_preview_video_endpoint_serves_draft_story_video_for_owner(): void
+    {
+        $owner = $this->createUser('story-preview-owner');
+        $story = $this->createStory($owner);
+        $draftFrame = $this->createStoryFrame($story, [
+            'status' => StoryStatus::DRAFT,
+            'type' => StoryType::VIDEO,
+            'expires_at' => null,
+        ], MediaStatus::UNPROCESSED, [
+            'duration_seconds' => 12,
+        ]);
+        $storyMedia = $draftFrame->media()->firstOrFail();
+        $videoPath = 'testing/' . Str::uuid() . '.mp4';
+
+        Storage::disk('local')->put($videoPath, 'story-preview-video');
+
+        $storyMedia->update([
+            'source_path' => $videoPath,
+            'disk' => 'local',
+            'mime' => 'video/mp4',
+            'status' => MediaStatus::UNPROCESSED,
+        ]);
+
+        $response = $this->actingAs($owner)
+            ->withoutMiddleware()
+            ->get("/api/story/editor/media/video/preview/{$storyMedia->id}");
+
+        $response->assertOk();
+        $this->assertStringStartsWith('video/mp4', (string) $response->headers->get('content-type'));
+    }
+
+    public function test_story_editor_preview_video_endpoint_forbids_non_owner(): void
+    {
+        $owner = $this->createUser('story-preview-owner-2');
+        $viewer = $this->createUser('story-preview-viewer');
+        $story = $this->createStory($owner);
+        $draftFrame = $this->createStoryFrame($story, [
+            'status' => StoryStatus::DRAFT,
+            'type' => StoryType::VIDEO,
+            'expires_at' => null,
+        ], MediaStatus::UNPROCESSED);
+        $storyMedia = $draftFrame->media()->firstOrFail();
+        $videoPath = 'testing/' . Str::uuid() . '.mp4';
+
+        Storage::disk('local')->put($videoPath, 'story-preview-video');
+
+        $storyMedia->update([
+            'source_path' => $videoPath,
+            'disk' => 'local',
+            'mime' => 'video/mp4',
+            'status' => MediaStatus::UNPROCESSED,
+        ]);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->get("/api/story/editor/media/video/preview/{$storyMedia->id}")
+            ->assertForbidden();
     }
 
     public function test_story_clear_removes_stale_failed_processing_frames(): void

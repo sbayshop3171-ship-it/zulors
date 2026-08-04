@@ -16,6 +16,7 @@
 namespace App\Http\Controllers\Api\User\Story;
 
 use Exception;
+use App\Models\Media;
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use App\Constants\Filesystem;
@@ -24,6 +25,7 @@ use App\Enums\Story\StoryType;
 use App\Enums\Media\MediaStatus;
 use Illuminate\Http\UploadedFile;
 use App\Http\Controllers\Controller;
+use Illuminate\Support\Facades\Storage;
 use App\Traits\Http\Api\SupportsApiResponses;
 use App\Services\Filesystem\Delete\FileDeleteService;
 use App\Services\Filesystem\Upload\ImageUploadService;
@@ -207,7 +209,7 @@ class StoryMediaController extends Controller
 
             $this->draftStoryFrame->type = StoryType::VIDEO;
 
-            $this->draftStoryFrame->media()->create([
+            $storyMedia = $this->draftStoryFrame->media()->create([
                 'source_path' => $videoData['video_path'],
                 'thumbnail_path' => $imageData['image_path'],
                 'type' => MediaType::VIDEO,
@@ -251,14 +253,7 @@ class StoryMediaController extends Controller
             unlink($videoThumbnailPath);
 
             return $this->responseSuccess([
-                'data' => [
-                    'type' => 'video',
-                    'source_url' => storage_url($imageData['image_path'], $videoStorageDisk),
-                    'duration' => parse_duration($clipData['duration_seconds']),
-                    'duration_seconds' => $clipData['duration_seconds'],
-                    'clip_start_seconds' => $clipData['start_seconds'],
-                    'clip_end_seconds' => $clipData['end_seconds']
-                ]
+                'data' => $this->buildStoryVideoPreviewPayload($storyMedia, $clipData)
             ]);
         } catch (Exception $e) {
             return $this->responseValidationError([
@@ -270,6 +265,37 @@ class StoryMediaController extends Controller
                 ]
             ]);
         }
+    }
+
+    public function previewVideo(int $mediaId)
+    {
+        $storyMedia = Media::with('storyFrame.story')->findOrFail($mediaId);
+
+        abort_unless($storyMedia->type->isVideo(), 404);
+        abort_unless($storyMedia->storyFrame && $storyMedia->storyFrame->story && ($storyMedia->storyFrame->story->user_id === me()->id), 403);
+
+        if(in_array(data_get($storyMedia->metadata, 'provider'), ['r2_temp', 'r2_direct'], true)) {
+            return redirect()->away(Storage::disk($storyMedia->disk)->temporaryUrl(
+                $storyMedia->source_path,
+                now()->addMinutes(config('media.cloudflare.r2.temp_preview_expiry_minutes', 30))
+            ));
+        }
+
+        $videoPath = $storyMedia->status->isProcessed()
+            ? Storage::disk($storyMedia->disk)->path($storyMedia->source_path)
+            : storage_local_path($storyMedia->source_path);
+
+        abort_unless(is_file($videoPath), 404);
+
+        $contentType = str_starts_with((string) $storyMedia->mime, 'video/')
+            ? $storyMedia->mime
+            : 'video/mp4';
+
+        return response()->file($videoPath, [
+            'Content-Type' => $contentType,
+            'Accept-Ranges' => 'bytes',
+            'Cache-Control' => 'private, no-store',
+        ]);
     }
 
     private function canAddStoryFrame()
@@ -300,5 +326,35 @@ class StoryMediaController extends Controller
             'duration_seconds' => $clipDurationSeconds,
             'end_seconds' => $clipStartSeconds + $clipDurationSeconds,
         ];
+    }
+
+    private function buildStoryVideoPreviewPayload(Media $storyMedia, array $clipData): array
+    {
+        return [
+            'id' => $storyMedia->id,
+            'type' => 'video',
+            'source_url' => $this->storyEditorVideoPreviewUrl($storyMedia->id),
+            'preview_url' => $this->storyEditorVideoPreviewUrl($storyMedia->id),
+            'thumbnail_url' => storage_url($storyMedia->thumbnail_path, $storyMedia->thumbnail_disk),
+            'duration' => parse_duration($clipData['duration_seconds']),
+            'duration_seconds' => $clipData['duration_seconds'],
+            'clip_start_seconds' => $clipData['start_seconds'],
+            'clip_end_seconds' => $clipData['end_seconds'],
+            'metadata' => [
+                'duration' => parse_duration($clipData['duration_seconds']),
+                'duration_seconds' => $clipData['duration_seconds'],
+                'original_duration_seconds' => $clipData['original_duration_seconds'],
+                'clip_start_seconds' => $clipData['start_seconds'],
+                'clip_end_seconds' => $clipData['end_seconds'],
+                'dimensions' => data_get($storyMedia->metadata, 'dimensions', []),
+                'aspect_ratio' => data_get($storyMedia->metadata, 'aspect_ratio'),
+                'is_portrait' => data_get($storyMedia->metadata, 'is_portrait', false),
+            ],
+        ];
+    }
+
+    private function storyEditorVideoPreviewUrl(int $mediaId): string
+    {
+        return url("/api/story/editor/media/video/preview/{$mediaId}");
     }
 }

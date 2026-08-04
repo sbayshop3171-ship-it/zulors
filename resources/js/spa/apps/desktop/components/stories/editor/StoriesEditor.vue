@@ -7,14 +7,24 @@
 						<template v-if="storyMedia">
 							<div class="bg-black h-full rounded-md overflow-hidden">
 								<div class="h-full flex items-center relative">
-									<img class="w-full object-cover" v-bind:src="storyMedia.source_url" alt="Image">
+									<video
+										v-if="isVideo"
+										v-bind:src="storyVideoPreviewUrl"
+										v-bind:poster="storyVideoPosterUrl"
+										class="block w-full h-full object-contain bg-black"
+										webkit-playsinline
+										playsinline
+										preload="metadata"
+										controls
+									></video>
+									<img v-else class="w-full object-cover" v-bind:src="storyMedia.source_url" alt="Image">
 
 									<div class="absolute top-4 left-4 size-8 bg-white rounded-full leading-none">
 										<PrimaryIconButton v-on:click="deleteStoryMedia" iconName="x"></PrimaryIconButton>
 									</div>
-									<template v-if="isVideo">
+									<template v-if="isVideo && storyVideoDuration">
 										<div class="absolute bottom-4 right-4">
-											<VideoDurationTime v-bind:videoDuration="storyMedia.duration"></VideoDurationTime>
+											<VideoDurationTime v-bind:videoDuration="storyVideoDuration"></VideoDurationTime>
 										</div>
 									</template>
 								</div>
@@ -213,7 +223,16 @@
 					return storiesEditorStore.storyMedia;
 				}),
 				isVideo: computed(() => {
-					return storiesEditorStore.storyMedia.type === 'video';
+					return storiesEditorStore.storyMedia?.type === 'video';
+				}),
+				storyVideoPreviewUrl: computed(() => {
+					return storiesEditorStore.storyMedia?.preview_url || storiesEditorStore.storyMedia?.source_url || '';
+				}),
+				storyVideoPosterUrl: computed(() => {
+					return storiesEditorStore.storyMedia?.thumbnail_url || '';
+				}),
+				storyVideoDuration: computed(() => {
+					return storiesEditorStore.storyMedia?.duration || storiesEditorStore.storyMedia?.metadata?.duration || null;
 				}),
 				uploadProgress: computed(() => {
 					return storiesEditorStore.uploadProgress;
