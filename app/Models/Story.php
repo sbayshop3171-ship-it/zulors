@@ -14,7 +14,7 @@ class Story extends Model
     public function scopeActive($query)
     {
         return $query->whereHas('frames', function ($hasQuery) {
-            $hasQuery->where('expires_at', '>', now())->where('status', StoryStatus::ACTIVE);
+            $hasQuery->relevantStories();
         });
     }
 

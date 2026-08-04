@@ -19,6 +19,7 @@ return [
 		'product_rejected' => 'Your marketplace product was rejected.',
 		'job_approved' => 'Your job listing was approved.',
 		'job_rejected' => 'Your job listing was rejected.',
+		'story_expired' => 'Your story has expired.',
 	],
     'post' => [
 		'post_reacted' => 'reacted to your post',
@@ -39,6 +40,7 @@ return [
 			'product_rejected' => 'rejected your product ":title"',
 			'job_approved' => 'approved your job ":title"',
 			'job_rejected' => 'rejected your job ":title"',
+			'story_expired' => 'expired your story after 24 hours',
 		],
 	'wallet' => [
 		'deposit_success' => 'Your deposit has been successfully completed',

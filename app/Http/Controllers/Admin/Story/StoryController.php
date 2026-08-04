@@ -12,7 +12,7 @@ class StoryController extends Controller
 {
     public function index()
     {
-        $stories = StoryFrame::active()->with(['story.user', 'media'])->paginate(10);
+        $stories = StoryFrame::relevantStories()->with(['story.user', 'media'])->paginate(10);
 
         return view('admin::stories.index.index', [
             'stories' => $stories
@@ -21,7 +21,7 @@ class StoryController extends Controller
 
     public function show(int $frame_id)
     {
-        $storyData = StoryFrame::active()->findOrFail($frame_id);
+        $storyData = StoryFrame::relevantStories()->findOrFail($frame_id);
 
         return view('admin::stories.show.index', [
             'storyData' => $storyData
@@ -30,7 +30,7 @@ class StoryController extends Controller
 
     public function destroy(int $frame_id)
     {
-        $storyData = StoryFrame::active()->findOrFail($frame_id);
+        $storyData = StoryFrame::relevantStories()->findOrFail($frame_id);
 
         (new DeleteStoryFrameAction($storyData))->execute();
 

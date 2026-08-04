@@ -3,10 +3,12 @@
 namespace App\Console\Commands\Story;
 
 use App\Models\StoryFrame;
+use Carbon\Carbon;
 use App\Enums\Media\MediaStatus;
 use App\Enums\Story\StoryStatus;
 use Illuminate\Console\Command;
 use App\Actions\Story\DeleteStoryFrameAction;
+use App\Notifications\User\Important\StoryExpiredNotification;
 
 class DeleteExpiredStories extends Command
 {
@@ -18,9 +20,11 @@ class DeleteExpiredStories extends Command
     {
         $failedGraceMinutes = max(1, (int) config('story.failed_processing_cleanup_grace_minutes', 10));
 
-        $expiredStories = StoryFrame::query()
+        $deletedCount = 0;
+
+        StoryFrame::query()
             ->where(function($query) use ($failedGraceMinutes) {
-                $query->where('expires_at', '<', now())
+                $query->where('expires_at', '<=', now())
                     ->orWhere('created_at', '<', now()->subDays(3))
                     ->orWhere(function($failedQuery) use ($failedGraceMinutes) {
                         $failedQuery->where('status', StoryStatus::PROCESSING)
@@ -33,15 +37,28 @@ class DeleteExpiredStories extends Command
                             });
                     });
             })
-            ->take(100)
-            ->get();
+            ->with(['story.user', 'media'])
+            ->orderBy('id')
+            ->chunkById(100, function($storyFrames) use (&$deletedCount) {
+                $storyFrames->each(function(StoryFrame $storyFrame) use (&$deletedCount) {
+                    if($this->shouldNotifyStoryExpired($storyFrame)) {
+                        $storyFrame->story?->user?->notify(new StoryExpiredNotification($storyFrame));
+                    }
 
-        $expiredStories->each(function ($storyFrame) {
-            (new DeleteStoryFrameAction($storyFrame))->execute();
-        });
+                    (new DeleteStoryFrameAction($storyFrame))->execute();
+                    $deletedCount += 1;
+                });
+            });
 
         story_log('Expired stories deleted successfully.', [
-            'count' => $expiredStories->count()
+            'count' => $deletedCount
         ]);
+    }
+
+    private function shouldNotifyStoryExpired(StoryFrame $storyFrame): bool
+    {
+        $expiresAt = $storyFrame->getRawOriginal('expires_at');
+
+        return ($storyFrame->status === StoryStatus::ACTIVE) && ! empty($expiresAt) && Carbon::parse($expiresAt)->lte(now());
     }
 }

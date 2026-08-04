@@ -16,6 +16,7 @@
 namespace App\Http\Resources\User\Story;
 
 use App\Support\Story\StoryFrameProgress;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use App\Http\Resources\User\Media\MediaResource;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -54,7 +55,7 @@ class StoryResource extends JsonResource
                             'views' => []
                         ],
                         'date' => [
-                            'time_ago' => $frameItem->created_at->getTimeAgo()
+                            'time_ago' => $this->getPublishedAt($frameItem)->shortAbsoluteDiffForHumans()
                         ],
                         'activity' => [
                             'is_seen' => $this->checkIfStoryFrameSeen($frameItem)
@@ -81,5 +82,16 @@ class StoryResource extends JsonResource
     private function getStoryMedia($frameItem)
     {
         return MediaResource::make($frameItem->media->first());
+    }
+
+    private function getPublishedAt($frameItem): Carbon
+    {
+        if(! empty($frameItem->expires_at)) {
+            return Carbon::parse($frameItem->expires_at->getTimestamp())
+                ->subHours(max(1, (int) config('story.expire_after_hours', 24)))
+                ->locale(app()->getLocale());
+        }
+
+        return Carbon::parse($frameItem->created_at->getTimestamp())->locale(app()->getLocale());
     }
 }

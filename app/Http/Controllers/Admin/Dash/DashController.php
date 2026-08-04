@@ -43,7 +43,7 @@ class DashController extends Controller
         });
 
         $totalStories = cache()->remember('admin:dash:total_stories', 60, function () {
-            return StoryFrame::active()->count();
+            return StoryFrame::relevantStories()->count();
         });
 
         return [

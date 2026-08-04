@@ -1,6 +1,7 @@
 <?php
 
 return [
+    'expire_after_hours' => env('STORY_EXPIRE_AFTER_HOURS', 24),
     'video_clip_size' => env('STORY_VIDEO_CLIP_SIZE', 60),
     'image_clip_size' => env('STORY_IMAGE_CLIP_SIZE', 10),
     'max_frames_per_story' => env('STORY_MAX_FRAMES_PER_STORY', 10),

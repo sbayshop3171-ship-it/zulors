@@ -23,11 +23,11 @@ use App\Services\Timeline\UserInterestService;
 |--------------------------------------------------------------------------
 | Story Clear Command
 |--------------------------------------------------------------------------
-| This command clears expired stories from the database every day at 00:00.
+| This command clears expired stories from the database every hour.
 |--------------------------------------------------------------------------
 */
 
-Schedule::command('story:clear')->dailyAt('00:00');
+Schedule::command('story:clear')->hourly();
 
 Schedule::command('chat:invite-clear')->weekly();
 

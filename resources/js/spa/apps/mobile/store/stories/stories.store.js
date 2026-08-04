@@ -6,7 +6,7 @@ import { useAuthStore } from '@M/store/auth/auth.store.js';
 const getStoriesFeedCacheKey = function() {
     const authStore = useAuthStore();
 
-    return `colibri.mobile.stories.feed.v1.${authStore.userData?.id || 'guest'}`;
+    return `colibri.mobile.stories.feed.v2.${authStore.userData?.id || 'guest'}`;
 };
 
 const storyVisibleInFeed = function(storyItem) {

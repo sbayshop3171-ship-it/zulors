@@ -34,7 +34,7 @@ class StoryFrame extends Model
 
     public function scopeRelevantStories($query)
     {
-        return $query->active()->where('expires_at', '>', now());
+        return $query->active()->whereNotNull('expires_at')->where('expires_at', '>', now());
     }
     
     public function story()
@@ -54,6 +54,6 @@ class StoryFrame extends Model
 
     public function isExpired()
     {
-        return $this->expires_at->isPast();
+        return empty($this->expires_at) || $this->expires_at->isPast();
     }
 }

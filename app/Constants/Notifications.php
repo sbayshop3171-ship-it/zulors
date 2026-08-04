@@ -41,6 +41,7 @@ class Notifications
 		public const PRODUCT_REJECTED = 'important.product-rejected';
 		public const JOB_APPROVED = 'important.job-approved';
 		public const JOB_REJECTED = 'important.job-rejected';
+		public const STORY_EXPIRED = 'important.story-expired';
 	
 	public static function importantTypes(): array
 	{
@@ -51,7 +52,8 @@ class Notifications
 				self::PRODUCT_APPROVED,
 				self::PRODUCT_REJECTED,
 				self::JOB_APPROVED,
-				self::JOB_REJECTED
+				self::JOB_REJECTED,
+				self::STORY_EXPIRED
 			];
 	}
 

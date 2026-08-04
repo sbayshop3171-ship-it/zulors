@@ -13,8 +13,10 @@ use App\Enums\User\UserStatus;
 use App\Models\Story;
 use App\Models\StoryFrame;
 use App\Models\User;
+use App\Notifications\User\Important\StoryExpiredNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -96,8 +98,77 @@ class StoryProcessingVisibilityTest extends TestCase
         $this->assertSame(StoryStatus::ACTIVE->value, $viewerPayload['status']);
     }
 
+    public function test_expired_story_is_hidden_from_feed_viewer_and_view_endpoints(): void
+    {
+        $owner = $this->createUser('story-expired-owner');
+        $viewer = $this->createUser('story-expired-viewer');
+        $story = $this->createStory($owner);
+        $expiredFrame = $this->createStoryFrame($story, [
+            'status' => StoryStatus::ACTIVE,
+            'type' => StoryType::VIDEO,
+            'created_at' => now()->subDays(2),
+            'expires_at' => now()->subHour(),
+        ]);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/stories/feed')
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson("/api/stories/stories/{$story->story_uuid}")
+            ->assertNotFound();
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->postJson('/api/stories/views/record', [
+                'frame_id' => $expiredFrame->id,
+            ])
+            ->assertNotFound();
+
+        $this->actingAs($owner)
+            ->withoutMiddleware()
+            ->getJson("/api/stories/views/{$expiredFrame->id}")
+            ->assertNotFound();
+    }
+
+    public function test_story_create_resets_publish_time_and_sets_24_hour_expiry(): void
+    {
+        config(['story.expire_after_hours' => 24]);
+
+        $owner = $this->createUser('story-publish-owner');
+        $story = $this->createStory($owner);
+        $draftFrame = $this->createStoryFrame($story, [
+            'status' => StoryStatus::DRAFT,
+            'type' => StoryType::IMAGE,
+            'created_at' => now()->subDays(2),
+            'expires_at' => null,
+        ]);
+        $publishedAt = now()->startOfSecond();
+
+        $this->travelTo($publishedAt);
+
+        $this->actingAs($owner)
+            ->withoutMiddleware()
+            ->postJson('/api/story/editor/create', [
+                'content' => 'Fresh story publish time',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.status', StoryStatus::ACTIVE->value);
+
+        $draftFrame->refresh();
+
+        $this->assertSame(StoryStatus::ACTIVE, $draftFrame->status);
+        $this->assertSame($publishedAt->toDateTimeString(), $draftFrame->getRawOriginal('created_at'));
+        $this->assertSame($publishedAt->copy()->addHours(24)->toDateTimeString(), $draftFrame->getRawOriginal('expires_at'));
+    }
+
     public function test_story_clear_removes_stale_failed_processing_frames(): void
     {
+        Notification::fake();
+
         config(['story.failed_processing_cleanup_grace_minutes' => 10]);
 
         $owner = $this->createUser('story-clean-owner');
@@ -122,6 +193,30 @@ class StoryProcessingVisibilityTest extends TestCase
             'mediaable_id' => $failedFrame->id,
             'mediaable_type' => StoryFrame::class,
         ]);
+
+        Notification::assertNotSentTo($owner, StoryExpiredNotification::class);
+    }
+
+    public function test_story_clear_removes_expired_frames_and_notifies_owner(): void
+    {
+        Notification::fake();
+
+        $owner = $this->createUser('story-clear-expired-owner');
+        $story = $this->createStory($owner);
+        $expiredFrame = $this->createStoryFrame($story, [
+            'status' => StoryStatus::ACTIVE,
+            'type' => StoryType::VIDEO,
+            'created_at' => now()->subDays(2),
+            'expires_at' => now()->subMinute(),
+        ]);
+
+        $this->artisan('story:clear')->assertExitCode(0);
+
+        $this->assertDatabaseMissing(Table::STORY_FRAMES, [
+            'id' => $expiredFrame->id,
+        ]);
+
+        Notification::assertSentTo($owner, StoryExpiredNotification::class);
     }
 
     private function createStory(User $user): Story

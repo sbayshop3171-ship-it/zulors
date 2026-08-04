@@ -66,11 +66,7 @@ class StoryController extends Controller
 
     public function getFeed(Request $request)
     {
-        $storiesFeed = $this->visibleStoriesQuery()->with([
-            'user:id,avatar,first_name,last_name',
-            'frames.views',
-            'frames.media'
-        ])->latest('updated_at')->get();
+        $storiesFeed = $this->visibleStoriesQuery()->with($this->storyFeedRelations())->latest('updated_at')->get();
 
         return $this->responseSuccess([
             'data' => FeedCollection::make($storiesFeed)
@@ -98,11 +94,14 @@ class StoryController extends Controller
             ]);
 
             $isVideo = $this->draftStoryFrame->type->isVideo();
+            $publishedAt = now();
+            $expiresAt = $publishedAt->copy()->addHours(max(1, (int) config('story.expire_after_hours', 24)));
 
             $updateData = [
                 'content' => e($request->string('content')),
                 'status' => $isVideo ? StoryStatus::PROCESSING : StoryStatus::ACTIVE,
-                'expires_at' => now()->addHours(24)
+                'created_at' => $publishedAt,
+                'expires_at' => $expiresAt
             ];
 
             if(! $isVideo) {
@@ -127,11 +126,7 @@ class StoryController extends Controller
 
             event(new StoryCreatedEvent($this->draftStoryFrame));
 
-            $myStory = $this->draftStoryFrame->story()->with([
-                'user:id,avatar,first_name,last_name',
-                'frames.views',
-                'frames.media'
-            ])->first();
+            $myStory = $this->draftStoryFrame->story()->with($this->storyFeedRelations())->first();
 
             return $this->responseSuccess([
                 'data' => FeedResource::make($myStory)
@@ -144,7 +139,7 @@ class StoryController extends Controller
         $storyFrameId = $request->integer('frame_id');
 
         if(is_positive($storyFrameId)) {
-            $frameData = StoryFrame::active()->where('id', $storyFrameId)->first();
+            $frameData = StoryFrame::relevantStories()->where('id', $storyFrameId)->first();
 
             if($frameData) {
                 $isSeen = $frameData->views()->where('user_id', me()->id)->exists();
@@ -185,11 +180,7 @@ class StoryController extends Controller
 
                 (new DeleteStoryFrameAction($frameData))->execute();
 
-                $updatedStory = $this->visibleStoriesQuery()->where('id', $storyId)->with([
-                    'user:id,avatar,first_name,last_name',
-                    'frames.views',
-                    'frames.media'
-                ])->first();
+                $updatedStory = $this->visibleStoriesQuery()->where('id', $storyId)->with($this->storyFeedRelations())->first();
 
                 return $this->responseSuccess([
                     'data' => $updatedStory ? FeedResource::make($updatedStory) : null
@@ -205,7 +196,7 @@ class StoryController extends Controller
     public function getStoryViews(Request $request, $frameId)
     {
         if(is_positive($frameId)) {
-            $frameData = StoryFrame::active()->where('id', $frameId)->first();
+            $frameData = StoryFrame::relevantStories()->where('id', $frameId)->first();
 
             if($frameData) {
                 $frameViews = $frameData->views()->withUser()->get();
@@ -223,7 +214,7 @@ class StoryController extends Controller
     {
         return Story::query()->where(function($query) {
             $query->whereHas('frames', function($hasQuery) {
-                $hasQuery->where('expires_at', '>', now())->where('status', StoryStatus::ACTIVE);
+                $hasQuery->relevantStories();
             })->orWhere(function($ownerQuery) {
                 $ownerQuery->where('user_id', me()->id)->whereHas('frames', function($hasQuery) {
                     $this->applyVisibleProcessingFrameQuery($hasQuery);
@@ -241,19 +232,36 @@ class StoryController extends Controller
         return [
             'user:id,avatar,first_name,last_name,username,verified',
             'frames' => function($withQuery) {
-                $withQuery->where('expires_at', '>', now())->where(function($frameQuery) {
-                    $frameQuery->where('status', StoryStatus::ACTIVE)->orWhere(function($processingQuery) {
-                        $processingQuery->where('status', StoryStatus::PROCESSING)->whereHas('story', function($storyQuery) {
-                            $storyQuery->where('user_id', me()->id);
-                        })->whereHas('media', function($mediaQuery) {
-                            $this->applyProcessableStoryMediaQuery($mediaQuery);
-                        });
-                    });
-                });
+                $this->applyVisibleStoryFrameQuery($withQuery);
             },
             'frames.views',
             'frames.media'
         ];
+    }
+
+    private function storyFeedRelations(): array
+    {
+        return [
+            'user:id,avatar,first_name,last_name',
+            'frames' => function($withQuery) {
+                $this->applyVisibleStoryFrameQuery($withQuery);
+            },
+            'frames.views',
+            'frames.media'
+        ];
+    }
+
+    private function applyVisibleStoryFrameQuery($query): void
+    {
+        $query->whereNotNull('expires_at')->where('expires_at', '>', now())->where(function($frameQuery) {
+            $frameQuery->where('status', StoryStatus::ACTIVE)->orWhere(function($processingQuery) {
+                $processingQuery->where('status', StoryStatus::PROCESSING)->whereHas('story', function($storyQuery) {
+                    $storyQuery->where('user_id', me()->id);
+                })->whereHas('media', function($mediaQuery) {
+                    $this->applyProcessableStoryMediaQuery($mediaQuery);
+                });
+            });
+        });
     }
 
     private function applyVisibleProcessingFrameQuery($query): void
