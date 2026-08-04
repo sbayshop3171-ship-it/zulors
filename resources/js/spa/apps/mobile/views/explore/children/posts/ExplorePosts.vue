@@ -18,7 +18,7 @@
 			</div>
 			<div v-else-if="posts.length">
 				<template v-for="(postData, index) in posts" v-bind:key="postData.id">
-					<TimelinePublication v-bind:postData="postData" v-on:delete="handlePostDelete(postData)"></TimelinePublication>
+					<TimelinePublication v-bind:postData="postData" v-bind:feedSessionId="feedSessionId" v-bind:feedType="feedType" v-bind:position="index + 1" source="explore_posts" v-bind:refreshReason="refreshReason" v-on:delete="handlePostDelete(postData)"></TimelinePublication>
 
 					<!-- Show follow recommendation every 35 posts -->
 					<template v-if="(index + 1) % 35 === 0">
@@ -92,6 +92,18 @@
 				return explorePostsStore.posts;
 			});
 
+			const feedSessionId = computed(() => {
+				return explorePostsStore.feedSessionId;
+			});
+
+			const feedType = computed(() => {
+				return explorePostsStore.feedType;
+			});
+
+			const refreshReason = computed(() => {
+				return explorePostsStore.refreshReason;
+			});
+
 			const isSearchActive = computed(() => {
 				return postSearchQuery.value.trim().length > 0;
 			});
@@ -152,6 +164,7 @@
 			const applyFilters = async () => {
 				explorePostsStore.filter.page = 1;
 				explorePostsStore.update = [];
+				explorePostsStore.startFeedSession(isSearchActive.value ? 'search' : 'refresh');
 				state.noMoreContent = false;
 				state.isSearchLoading = ! explorePostsStore.hydrateCachedFirstPage(postSearchQuery.value);
 
@@ -165,17 +178,12 @@
 				// Because there can be a filter applied from the previous visits.
 
 				explorePostsStore.resetFilter();
-				state.isLoading = ! posts.value.length;
+				state.isLoading = true;
 
-				if(posts.value.length) {
-					explorePostsStore.refreshFirstPage().finally(() => {
-						state.isLoading = false;
-					});
-				}
-				else {
-					await explorePostsStore.fetchPosts();
-					state.isLoading = false;
-				}
+				await explorePostsStore.refreshFirstPage({
+					refreshReason: 'open'
+				});
+				state.isLoading = false;
 
 				setupFeedUpdateInterval();
 				setupRealtimeFeedUpdates();
@@ -202,6 +210,9 @@
             return {
                 state: state,
 				posts: posts,
+				feedSessionId: feedSessionId,
+				feedType: feedType,
+				refreshReason: refreshReason,
 				postSearchQuery: postSearchQuery,
                 newPosts: newPosts,
                 applyNewPosts: () => {

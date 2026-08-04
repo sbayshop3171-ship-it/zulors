@@ -19,7 +19,7 @@
                         <TimelinePublicationSkeleton v-for="i in 3" v-bind:key="i"></TimelinePublicationSkeleton>
                     </div>
                     <div v-else-if="posts.length">
-                        <TimelinePublication v-for="postData in posts" v-bind:key="postData.id" v-bind:postData="postData"></TimelinePublication>
+                        <TimelinePublication v-for="(postData, index) in posts" v-bind:key="postData.id" v-bind:postData="postData" v-bind:feedSessionId="feedSessionId" v-bind:feedType="feedType" v-bind:position="index + 1" source="explore_posts" v-bind:refreshReason="refreshReason"></TimelinePublication>
                     </div>
                     <div v-else>
                         <FluidEmptyState v-bind:text="$t('empty_state.empty')"></FluidEmptyState>
@@ -88,6 +88,18 @@
 				return explorePostsStore.posts;
 			});
 
+            const feedSessionId = computed(() => {
+                return explorePostsStore.feedSessionId;
+            });
+
+            const feedType = computed(() => {
+                return explorePostsStore.feedType;
+            });
+
+            const refreshReason = computed(() => {
+                return explorePostsStore.refreshReason;
+            });
+
             const isSearchActive = computed(() => {
                 return postSearchQuery.value.trim().length > 0;
             });
@@ -148,6 +160,7 @@
             const applyFilters = async () => {
                 explorePostsStore.filter.page = 1;
                 explorePostsStore.update = [];
+                explorePostsStore.startFeedSession(isSearchActive.value ? 'search' : 'refresh');
                 state.noMoreContent = false;
                 state.isSearchLoading = ! explorePostsStore.hydrateCachedFirstPage(postSearchQuery.value);
 
@@ -161,17 +174,12 @@
                 // Because there can be a filter applied from the previous visits.
 
                 explorePostsStore.resetFilter();
-                state.isLoading = ! posts.value.length;
+                state.isLoading = true;
 
-                if(posts.value.length) {
-                    explorePostsStore.refreshFirstPage().finally(() => {
-                        state.isLoading = false;
-                    });
-                }
-                else {
-                    await explorePostsStore.fetchPosts();
-                    state.isLoading = false;
-                }
+                await explorePostsStore.refreshFirstPage({
+                    refreshReason: 'open'
+                });
+                state.isLoading = false;
 
                 setupFeedUpdateInterval();
                 setupRealtimeFeedUpdates();
@@ -198,6 +206,9 @@
             return {
                 state: state,
 				posts: posts,
+                feedSessionId: feedSessionId,
+                feedType: feedType,
+                refreshReason: refreshReason,
                 postSearchQuery: postSearchQuery,
                 newPosts: newPosts,
                 applyNewPosts: () => {

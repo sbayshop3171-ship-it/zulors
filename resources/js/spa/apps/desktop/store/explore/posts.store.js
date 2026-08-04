@@ -11,10 +11,14 @@ const normalizeQuery = function(query = '') {
 const getExplorePostsCacheKey = function(query = '') {
 	const authStore = useAuthStore();
 
-	return `colibri.desktop.explore.posts.first_page.v1.${authStore.userData?.id || 'guest'}.${normalizeQuery(query) || 'default'}`;
+	return `colibri.desktop.explore.posts.first_page.v2.${authStore.userData?.id || 'guest'}.${normalizeQuery(query) || 'default'}`;
 };
 
 const explorePostsCacheLimit = 30;
+
+const createFeedSessionId = function() {
+	return `explore-posts-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+};
 
 const useExplorePostsStore = defineStore('explore_posts_store', {
 	deleteAware: true,
@@ -28,6 +32,9 @@ const useExplorePostsStore = defineStore('explore_posts_store', {
 			posts: cachedPosts,
 			update: [],
 			warmPromise: null,
+			feedType: 'for_you',
+			feedSessionId: createFeedSessionId(),
+			refreshReason: 'initial',
 			filter: {
 				page: 1,
 				query: ''
@@ -45,7 +52,10 @@ const useExplorePostsStore = defineStore('explore_posts_store', {
             await colibriAPI().explore().params({
                 filter: {
                     onset: this.posts.at(0).id,
-					query: this.filter.query
+					query: this.filter.query,
+					type: this.feedType,
+					session_id: this.feedSessionId,
+					refresh_reason: 'update'
                 }
             }).sendTo('posts').then((response) => {
                 this.update = response.data.data;
@@ -56,15 +66,15 @@ const useExplorePostsStore = defineStore('explore_posts_store', {
             });
         },
 		applyUpdate: function() {
+			const existingIds = new Set(this.posts.map((post) => post.id));
+
             this.update.forEach((postItem) => {
-                // Check if post already exists before adding
-                const exists = this.posts.slice(0, this.update.length).some((post) => {
-					return post.id === postItem.id;
-				});
+                const exists = existingIds.has(postItem.id);
 
                 if (! exists) {
 					prefetchTimelineMedia([postItem]);
                     this.posts.unshift(postItem);
+					existingIds.add(postItem.id);
                 }
             });
 
@@ -73,7 +83,7 @@ const useExplorePostsStore = defineStore('explore_posts_store', {
         },
 		makeLoadRequest: async function (filter = this.filter) {
 			return await colibriAPI().explore().with({
-				filter: filter
+				filter: this.requestFilter(filter)
 			}).sendTo('posts');
 		},
 		fetchPosts: async function() {
@@ -83,9 +93,10 @@ const useExplorePostsStore = defineStore('explore_posts_store', {
 				this.persistFirstPage();
 			});
 		},
-		refreshFirstPage: async function() {
+		refreshFirstPage: async function(options = {}) {
 			let pageNumber = this.filter.page;
 
+			this.startFeedSession(options.refreshReason || 'refresh');
 			this.filter.page = 1;
 
 			await this.fetchPosts();
@@ -95,10 +106,13 @@ const useExplorePostsStore = defineStore('explore_posts_store', {
 		loadMorePosts: async function() {
 			return await this.makeLoadRequest().then((response) => {
 				let posts = response.data.data;
+				const existingIds = new Set(this.posts.map((postData) => postData.id));
+				const nextPosts = posts.filter((postData) => ! existingIds.has(postData.id));
 				
-				if (posts.length) {	
-					this.posts = this.posts.concat(posts);
-					prefetchTimelineMedia(posts);
+				if (nextPosts.length) {
+					this.posts = this.posts.concat(nextPosts);
+					prefetchTimelineMedia(nextPosts);
+					this.persistFirstPage();
 					return true;
 				}
 
@@ -115,6 +129,7 @@ const useExplorePostsStore = defineStore('explore_posts_store', {
 				page: 1,
 				query: ''
 			};
+			this.startFeedSession('open');
 
 			if(! this.hydrateCachedFirstPage()) {
 				this.posts = [];
@@ -140,6 +155,8 @@ const useExplorePostsStore = defineStore('explore_posts_store', {
 			if(this.warmPromise) {
 				return this.warmPromise;
 			}
+
+			this.startFeedSession('warm');
 
 			this.warmPromise = this.makeLoadRequest({
 				page: 1,
@@ -167,6 +184,18 @@ const useExplorePostsStore = defineStore('explore_posts_store', {
 			}
 
 			writeCache(getExplorePostsCacheKey(this.filter.query), this.posts.slice(0, explorePostsCacheLimit));
+		},
+		startFeedSession: function(refreshReason = 'refresh') {
+			this.feedSessionId = createFeedSessionId();
+			this.refreshReason = refreshReason;
+		},
+		requestFilter: function(filter = this.filter) {
+			return {
+				...filter,
+				type: this.feedType,
+				session_id: this.feedSessionId,
+				refresh_reason: this.refreshReason
+			};
 		}
     }
 });

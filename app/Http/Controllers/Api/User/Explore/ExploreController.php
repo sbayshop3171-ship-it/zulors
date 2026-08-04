@@ -20,6 +20,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use App\Database\Configs\Table;
 use App\Http\Controllers\Controller;
+use App\Services\Timeline\FeedService;
 use App\Traits\Http\Api\SupportsApiResponses;
 use App\Http\Resources\User\People\PeopleCollection;
 use App\Http\Resources\User\Timeline\TimelineCollection;
@@ -74,6 +75,23 @@ class ExploreController extends Controller
         $this->filter['page'] = data_get_integer($filter, 'page', 1);
         $this->filter['onset'] = data_get_integer($filter, 'onset', 0);
         $this->filter['query'] = trim(strval(data_get($filter, 'query', '')));
+        $this->filter['session_id'] = substr(trim(strval(data_get($filter, 'session_id', ''))), 0, 80);
+        $this->filter['refresh_reason'] = substr(trim(strval(data_get($filter, 'refresh_reason', ''))), 0, 32);
+
+        if($this->filter['query'] === '') {
+            $feedResult = app(FeedService::class)->getFeed($this->me, [
+                'page' => $this->filter['page'],
+                'onset' => $this->filter['onset'],
+                'type' => FeedService::TYPE_FOR_YOU,
+                'session_id' => $this->filter['session_id'],
+                'refresh_reason' => $this->filter['refresh_reason'],
+            ]);
+
+            return $this->responseSuccess([
+                'data' => TimelineCollection::make($feedResult->posts),
+                'meta' => $feedResult->meta,
+            ]);
+        }
 
         $feedORMQuery = Post::timelineFormatPosts()
             ->when(! empty($this->filter['onset']), function($query) {

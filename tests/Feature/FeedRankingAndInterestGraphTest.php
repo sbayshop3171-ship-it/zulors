@@ -300,6 +300,66 @@ class FeedRankingAndInterestGraphTest extends TestCase
         $this->assertLessThanOrEqual(-150, $repeatPayload['meta']['ranking']['signals']['seen_penalty']);
     }
 
+    public function test_explore_posts_use_session_ranked_feed_and_suppress_seen_posts(): void
+    {
+        $viewer = $this->createUser('explore-posts-viewer');
+        $author = $this->createUser('explore-posts-author');
+
+        $seenPost = $this->createPost($author, 'Seen explore post #travel', now(), [
+            'comments_count' => 20,
+            'bookmarks_count' => 20,
+            'shares_count' => 20,
+            'views_count' => 300,
+        ]);
+
+        $freshPost = $this->createPost($author, 'Fresh explore replacement #coffee', now()->subMinutes(5), [
+            'comments_count' => 1,
+            'bookmarks_count' => 1,
+            'shares_count' => 1,
+            'views_count' => 20,
+        ]);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->postJson('/api/timeline/telemetry/events', [
+                'events' => [[
+                    'event_type' => 'post_dwell',
+                    'post_id' => $seenPost->id,
+                    'dwell_time_seconds' => 12,
+                    'session_id' => 'explore-posts-old-session',
+                    'feed_type' => 'for_you',
+                    'source' => 'explore_posts',
+                    'position' => 1,
+                ]],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.accepted', 1);
+
+        $response = $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->postJson('/api/explore/posts', [
+                'filter' => [
+                    'page' => 1,
+                    'session_id' => 'explore-posts-new-session',
+                    'refresh_reason' => 'open',
+                ],
+            ])
+            ->assertOk()
+            ->assertJsonPath('meta.feed.type', 'for_you')
+            ->assertJsonPath('meta.feed.scored', true);
+
+        $postIds = array_column($response->json('data'), 'id');
+
+        $this->assertLessThan(
+            array_search($seenPost->id, $postIds, true),
+            array_search($freshPost->id, $postIds, true)
+        );
+
+        $seenPayload = collect($response->json('data'))->firstWhere('id', $seenPost->id);
+
+        $this->assertLessThan(0, $seenPayload['meta']['ranking']['signals']['seen_penalty']);
+    }
+
     public function test_interest_graph_learns_bangla_and_english_hashtags_and_changes_for_you_feed(): void
     {
         Notification::fake();
