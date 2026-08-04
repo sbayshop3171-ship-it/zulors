@@ -48,7 +48,7 @@ class FeedRankingService
             'media_bonus' => $this->mediaBonus($post),
             'video_intelligence' => $this->videoIntelligenceScore($post),
             'interest' => $this->interestScore($post, $context),
-            'seen_penalty' => $this->seenPenalty($post, $context),
+            'seen_penalty' => $this->seenPenalty($post, $type, $context),
             'session_jitter' => $this->sessionJitter($user, $post, $type, $context),
             'report_penalty' => -$this->reportPenalty($post),
             'safety_penalty' => -$this->safetyService->authorSafetyPenalty($post),
@@ -111,7 +111,7 @@ class FeedRankingService
             ->pluck('following_id')
             ->all();
 
-        $seenAtByPost = $this->seenAtByPost($user, $candidateIds, $sessionId);
+        $seenStatsByPost = $this->seenStatsByPost($user, $candidateIds, $sessionId);
 
         return [
             'session_id' => $sessionId,
@@ -122,7 +122,7 @@ class FeedRankingService
             'interacted_author_ids' => array_map('intval', $interactedAuthorIds),
             'followed_author_ids' => array_map('intval', $followedAuthorIds),
             'interest_scores' => $this->userInterestService->scoresForTopics($user, $candidateTopics),
-            'seen_at_by_post' => $seenAtByPost,
+            'seen_stats_by_post' => $seenStatsByPost,
         ];
     }
 
@@ -210,22 +210,49 @@ class FeedRankingService
         return max(-35, min(45, $score));
     }
 
-    private function seenPenalty(Post $post, array $context): float
+    private function seenPenalty(Post $post, string $type, array $context): float
     {
-        $lastSeenAt = data_get($context['seen_at_by_post'], $post->id);
+        $seenStats = data_get($context['seen_stats_by_post'], $post->id, []);
+        $lastSeenAt = data_get($seenStats, 'last_seen_at');
 
         if(empty($lastSeenAt)) {
             return 0.0;
         }
 
         $minutesSinceSeen = max(0, Carbon::parse($lastSeenAt)->diffInMinutes(now()));
+        $seenCount = max(1, (int) data_get($seenStats, 'seen_count', 1));
 
+        $basePenalty = $type === FeedService::TYPE_REELS
+            ? $this->reelsSeenPenalty($minutesSinceSeen)
+            : $this->feedSeenPenalty($minutesSinceSeen);
+
+        $repeatPenalty = max(0, $seenCount - 1) * ($type === FeedService::TYPE_REELS ? -70.0 : -35.0);
+        $minimumPenalty = $type === FeedService::TYPE_REELS ? -260.0 : -180.0;
+
+        return max($minimumPenalty, $basePenalty + $repeatPenalty);
+    }
+
+    private function reelsSeenPenalty(int $minutesSinceSeen): float
+    {
         return match(true) {
-            $minutesSinceSeen < 15 => -80.0,
-            $minutesSinceSeen < 360 => -55.0,
-            $minutesSinceSeen < 1440 => -35.0,
-            $minutesSinceSeen < 10080 => -18.0,
-            default => -6.0,
+            $minutesSinceSeen < 15 => -180.0,
+            $minutesSinceSeen < 360 => -150.0,
+            $minutesSinceSeen < 1440 => -120.0,
+            $minutesSinceSeen < 10080 => -85.0,
+            $minutesSinceSeen < 43200 => -45.0,
+            default => -18.0,
+        };
+    }
+
+    private function feedSeenPenalty(int $minutesSinceSeen): float
+    {
+        return match(true) {
+            $minutesSinceSeen < 15 => -120.0,
+            $minutesSinceSeen < 360 => -95.0,
+            $minutesSinceSeen < 1440 => -75.0,
+            $minutesSinceSeen < 10080 => -45.0,
+            $minutesSinceSeen < 43200 => -18.0,
+            default => -8.0,
         };
     }
 
@@ -382,17 +409,18 @@ class FeedRankingService
         return $topics->pluck('topic')->all();
     }
 
-    private function seenAtByPost(User $user, array $candidateIds, string $sessionId): array
+    private function seenStatsByPost(User $user, array $candidateIds, string $sessionId): array
     {
         if(empty($candidateIds)) {
             return [];
         }
 
         return DB::table(Table::FEED_EVENTS)
-            ->select('post_id', DB::raw('MAX(created_at) as last_seen_at'))
+            ->select('post_id', DB::raw('MAX(created_at) as last_seen_at'), DB::raw('COUNT(*) as seen_count'))
             ->where('user_id', $user->id)
             ->whereIn('post_id', $candidateIds)
             ->whereIn('event_type', FeedTelemetryService::SEEN_EVENT_TYPES)
+            ->where('created_at', '>=', now()->subDays(30))
             ->when($sessionId !== '', function($query) use ($sessionId) {
                 $query->where(function($query) use ($sessionId) {
                     $query->whereNull('session_id')
@@ -400,7 +428,13 @@ class FeedRankingService
                 });
             })
             ->groupBy('post_id')
-            ->pluck('last_seen_at', 'post_id')
+            ->get()
+            ->mapWithKeys(fn($stats) => [
+                (int) $stats->post_id => [
+                    'last_seen_at' => $stats->last_seen_at,
+                    'seen_count' => (int) $stats->seen_count,
+                ],
+            ])
             ->all();
     }
 }

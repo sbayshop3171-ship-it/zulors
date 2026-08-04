@@ -66,14 +66,15 @@ const useTimelineStore = defineStore('timeline_store', {
             // Check if post already exists before adding
             // Otherwise, add the post to the beginning of the posts array.
 
+            const existingIds = new Set(this.posts.map((post) => post.id));
+
             this.update.forEach((postItem) => {
-                const exists = this.posts.slice(0, this.update.length).some((post) => {
-                    return post.id === postItem.id;
-                });
+                const exists = existingIds.has(postItem.id);
                 
                 if (! exists) {
                     prefetchTimelineMedia([postItem]);
                     this.posts.unshift(postItem);
+                    existingIds.add(postItem.id);
                 }
             });
 
@@ -126,11 +127,20 @@ const useTimelineStore = defineStore('timeline_store', {
             }).getFrom('feed');
         },
         appendPosts: function(posts) {
-            prefetchTimelineMedia(posts);
-            this.posts = this.posts.concat(posts);
+            const existingIds = new Set(this.posts.map((postData) => postData.id));
+            const nextPosts = posts.filter((postData) => ! existingIds.has(postData.id));
+
+            prefetchTimelineMedia(nextPosts);
+            this.posts = this.posts.concat(nextPosts);
             this.persistFirstPage();
+
+            return nextPosts.length > 0;
         },
         prependPost: function(postData) {
+            this.posts = this.posts.filter((item) => {
+                return item.id != postData.id;
+            });
+
             prefetchTimelineMedia([postData]);
             this.posts.unshift(postData);
             this.persistFirstPage();

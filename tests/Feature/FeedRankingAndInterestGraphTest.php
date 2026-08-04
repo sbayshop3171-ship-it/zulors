@@ -237,6 +237,69 @@ class FeedRankingAndInterestGraphTest extends TestCase
         $this->assertGreaterThan(0, $seenPayload['meta']['ranking']['signals']['session_jitter']);
     }
 
+    public function test_repeat_seen_posts_receive_stronger_repeat_penalty_on_new_sessions(): void
+    {
+        $viewer = $this->createUser('repeat-seen-viewer');
+        $author = $this->createUser('repeat-seen-author');
+
+        $repeatPost = $this->createPost($author, 'Repeat high value post #design', now(), [
+            'comments_count' => 25,
+            'bookmarks_count' => 25,
+            'shares_count' => 25,
+            'views_count' => 500,
+        ]);
+
+        $alternativePost = $this->createPost($author, 'Fresh replacement post #design', now()->subMinutes(4), [
+            'comments_count' => 1,
+            'bookmarks_count' => 1,
+            'shares_count' => 1,
+            'views_count' => 10,
+        ]);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->postJson('/api/timeline/telemetry/events', [
+                'events' => [
+                    [
+                        'event_type' => 'post_dwell',
+                        'post_id' => $repeatPost->id,
+                        'dwell_time_seconds' => 10,
+                        'session_id' => 'repeat-seen-one',
+                        'feed_type' => 'for_you',
+                        'source' => 'home',
+                        'position' => 1,
+                    ],
+                    [
+                        'event_type' => 'post_dwell',
+                        'post_id' => $repeatPost->id,
+                        'dwell_time_seconds' => 9,
+                        'session_id' => 'repeat-seen-two',
+                        'feed_type' => 'for_you',
+                        'source' => 'home',
+                        'position' => 4,
+                    ],
+                ],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.accepted', 2);
+
+        $feedResponse = $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/timeline/feed?type=for_you&session_id=repeat-seen-new-open')
+            ->assertOk();
+
+        $feedIds = array_column($feedResponse->json('data'), 'id');
+
+        $this->assertLessThan(
+            array_search($repeatPost->id, $feedIds, true),
+            array_search($alternativePost->id, $feedIds, true)
+        );
+
+        $repeatPayload = collect($feedResponse->json('data'))->firstWhere('id', $repeatPost->id);
+
+        $this->assertLessThanOrEqual(-150, $repeatPayload['meta']['ranking']['signals']['seen_penalty']);
+    }
+
     public function test_interest_graph_learns_bangla_and_english_hashtags_and_changes_for_you_feed(): void
     {
         Notification::fake();
@@ -515,6 +578,76 @@ class FeedRankingAndInterestGraphTest extends TestCase
             array_search($newSkippedReel->id, $postIds, true),
             array_search($oldLovedReel->id, $postIds, true)
         );
+    }
+
+    public function test_reels_seen_video_is_suppressed_after_app_reopen_but_topic_interest_remains(): void
+    {
+        $viewer = $this->createUser('reels-reopen-viewer');
+        $author = $this->createUser('reels-reopen-author');
+
+        $seenReel = $this->createVideoPost($author, 'Watched high retention reel #music', now(), [
+            'comments_count' => 30,
+            'bookmarks_count' => 30,
+            'shares_count' => 30,
+            'views_count' => 1000,
+        ]);
+        $alternativeReel = $this->createVideoPost($author, 'Related fresh replacement reel #music', now()->subMinutes(5), [
+            'comments_count' => 1,
+            'bookmarks_count' => 1,
+            'shares_count' => 1,
+            'views_count' => 20,
+        ]);
+        $media = $seenReel->media()->first();
+
+        PostVideoMetric::query()->create([
+            'post_id' => $seenReel->id,
+            'media_id' => $media->id,
+            'plays_count' => 60,
+            'completions_count' => 54,
+            'loops_count' => 12,
+            'rewatches_count' => 16,
+            'avg_completion_rate' => 1.10,
+            'completion_rate' => 0.90,
+            'skip_rate' => 0.02,
+            'rewatch_rate' => 0.27,
+            'intelligence_score' => 65,
+        ]);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->postJson('/api/timeline/telemetry/events', [
+                'events' => [[
+                    'event_type' => 'video_complete',
+                    'post_id' => $seenReel->id,
+                    'media_id' => $media->id,
+                    'watch_time_seconds' => 12,
+                    'duration_seconds' => 12,
+                    'completion_rate' => 1,
+                    'session_id' => 'reels-old-app-session',
+                    'feed_type' => 'reels',
+                    'source' => 'reels',
+                    'position' => 1,
+                ]],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.accepted', 1);
+
+        $feedResponse = $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/timeline/feed?type=reels&session_id=reels-new-app-session')
+            ->assertOk();
+
+        $feedIds = array_column($feedResponse->json('data'), 'id');
+
+        $this->assertLessThan(
+            array_search($seenReel->id, $feedIds, true),
+            array_search($alternativeReel->id, $feedIds, true)
+        );
+
+        $seenPayload = collect($feedResponse->json('data'))->firstWhere('id', $seenReel->id);
+
+        $this->assertLessThanOrEqual(-180, $seenPayload['meta']['ranking']['signals']['seen_penalty']);
+        $this->assertGreaterThan(0, $this->interestScore($viewer, 'music'));
     }
 
     private function interestScore(User $user, string $topic): float

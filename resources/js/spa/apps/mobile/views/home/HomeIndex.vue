@@ -211,7 +211,7 @@
 							let content = response.data.data;
 
 							if(content.length) {
-								timelineStore.appendPosts(content);
+								state.noMoreContent = ! timelineStore.appendPosts(content);
 							}
 							else{
 								state.noMoreContent = true;

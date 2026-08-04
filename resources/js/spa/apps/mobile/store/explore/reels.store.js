@@ -54,9 +54,9 @@ const useExploreReelsStore = defineStore('mobile_explore_reels_store', {
 			}
 			else {
 				prefetchTimelineMedia(this.posts);
-				this.refreshFirstPage({
+				await this.refreshFirstPage({
 					refreshReason: 'resume'
-				}).catch(() => {});
+				});
 			}
 		},
 		reset: function(seedHashId = '') {
