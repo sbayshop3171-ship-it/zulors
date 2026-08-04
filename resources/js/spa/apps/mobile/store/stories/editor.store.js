@@ -5,6 +5,8 @@ import { useStoriesStore } from '@M/store/stories/stories.store.js';
 const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 	state: function() {
 		return {
+			discardUploadedMedia: false,
+			isUploading: false,
 			uploadProgress: 0,
 			videoClipCandidate: null,
 			storyMedia: null,
@@ -21,6 +23,8 @@ const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 	actions: {
 		resetEditor: function() {
 			this.clearVideoClipCandidate();
+			this.discardUploadedMedia = false;
+			this.isUploading = false;
 			this.uploadProgress = 0;
 			this.storyMedia = null;
 			this.storyData = {
@@ -37,6 +41,14 @@ const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 			}
 
 			this.videoClipCandidate = null;
+		},
+		cancelPendingUpload: function() {
+			if(this.isUploading) {
+				this.discardUploadedMedia = true;
+				return;
+			}
+
+			this.resetEditor();
 		},
 		publishStory: async function() {
 			const storiesStore = useStoriesStore();
@@ -57,6 +69,8 @@ const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 		uploadMedia: async function(mediaFile, options = {}) {
 			const formData = new FormData();
 
+			this.discardUploadedMedia = false;
+			this.isUploading = true;
 			formData.append('media_file', mediaFile);
 
 			if(options.clip_start_seconds !== undefined) {
@@ -74,13 +88,36 @@ const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 			}).sendTo('media/upload').then((response) => {
 				this.storyMedia = response.data.data;
 				this.clearVideoClipCandidate();
+				this.isUploading = false;
 				this.uploadProgress = 0;
+
+				if(this.discardUploadedMedia) {
+					this.discardUploadedMedia = false;
+					return this.deleteMedia();
+				}
 			}).catch((error) => {
+				const wasDiscarding = this.discardUploadedMedia;
+
+				this.discardUploadedMedia = false;
+				this.isUploading = false;
+
 				if(error.response) {
 					this.uploadProgress = 0;
 
+					if(wasDiscarding) {
+						return;
+					}
+
 					throw new Error(error.response.data.message);
 				}
+
+				this.uploadProgress = 0;
+
+				if(wasDiscarding) {
+					return;
+				}
+
+				throw error;
 			});
 		},
 		deleteMedia: async function() {

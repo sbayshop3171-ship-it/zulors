@@ -12,7 +12,7 @@
 </template>
 
 <script>
-	import { defineComponent, ref, computed, reactive, onMounted, onUnmounted } from 'vue';
+	import { defineComponent, ref, computed, onMounted, onUnmounted } from 'vue';
 	import { useRouter } from 'vue-router';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { getStoryVideoClipCandidate, storyClipUploadOptions } from '@/kernel/services/media/story-video-clip.js';
@@ -21,10 +21,6 @@
 
 	export default defineComponent({
 		setup: function() {
-			const state = reactive({
-				isUploading: false
-			});
-
 			const router = useRouter();
 			const storiesEditorStore = useStoriesEditorStore();
 			const stroyMediaFileInput = ref(null);
@@ -44,15 +40,16 @@
 						return;
 					}
 
-					state.isUploading = true;
-					await storiesEditorStore.uploadMedia(file, storyClipUploadOptions(clipCandidate));
-
 					router.push({ name: 'story_editor' });
-					state.isUploading = false;
+					await storiesEditorStore.uploadMedia(file, storyClipUploadOptions(clipCandidate));
 				} catch (e) {
-					state.isUploading = false;
-
 					toastError(e.message);
+
+					if(router.currentRoute.value.name === 'story_editor' && ! storiesEditorStore.storyMedia && ! storiesEditorStore.videoClipCandidate) {
+						router.replace({
+							name: 'home_index'
+						});
+					}
 				}
 			}
 

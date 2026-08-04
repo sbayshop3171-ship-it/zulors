@@ -43,7 +43,7 @@
 							</div>
 						</div>
 					</template>
-					<template v-else-if="state.isUploading">
+					<template v-else-if="isUploading">
 						<div class="border border-dashed border-edge-pr rounded-md p-4">
 							<div class="bg-fill-tr h-1 rounded-full overflow-hidden">
 								<div class="bg-green-900 min-w-10 h-full" v-bind:style="{ width: uploadProgress + '%' }"></div>
@@ -101,7 +101,7 @@
 </template>
 
 <script>
-	import { defineComponent, reactive, ref, computed, onMounted, onUnmounted, defineAsyncComponent, nextTick } from 'vue';
+	import { defineComponent, reactive, ref, computed, onMounted, onUnmounted, defineAsyncComponent, nextTick, watch } from 'vue';
 	import { useRouter } from 'vue-router';
 
 	import { useInputHandlers } from '@/kernel/vue/composables/input/index.js';
@@ -120,8 +120,7 @@
 			const videoClipPreview = ref(null);
 			const router = useRouter();
 			const state = reactive({
-				isSubmitting: false,
-				isUploading: false
+				isSubmitting: false
 			});
 
 			const { autoResize } = useInputHandlers();
@@ -131,6 +130,9 @@
 				try {
 					if(storiesEditorStore.storyMedia) {
 						storiesEditorStore.deleteMedia();
+					}
+					else if(storiesEditorStore.isUploading) {
+						storiesEditorStore.cancelPendingUpload();
 					}
 
 					storiesEditorStore.clearVideoClipCandidate();
@@ -146,17 +148,27 @@
 			};
 
 			onMounted(() => {
-				if(! storiesEditorStore.storyMedia && ! storiesEditorStore.videoClipCandidate) {
-					router.push({
-						name: 'home_index'
-					});
-				}
-
 				nextTick(syncClipPreview);
 			});
 
+			watch(() => {
+				return [
+					storiesEditorStore.storyMedia,
+					storiesEditorStore.videoClipCandidate,
+					storiesEditorStore.isUploading
+				];
+			}, ([storyMedia, videoClipCandidate, isUploading]) => {
+				if(! storyMedia && ! videoClipCandidate && ! isUploading) {
+					router.replace({
+						name: 'home_index'
+					});
+				}
+			}, {
+				immediate: true
+			});
+
 			onUnmounted(() => {
-				if(! storiesEditorStore.storyMedia) {
+				if(! storiesEditorStore.storyMedia && ! storiesEditorStore.isUploading) {
 					storiesEditorStore.clearVideoClipCandidate();
 				}
 			});
@@ -172,6 +184,9 @@
 				}),
 				isVideo: computed(() => {
 					return storiesEditorStore.storyMedia?.type === 'video';
+				}),
+				isUploading: computed(() => {
+					return storiesEditorStore.isUploading;
 				}),
 				storyVideoPreviewUrl: computed(() => {
 					return storiesEditorStore.storyMedia?.preview_url || storiesEditorStore.storyMedia?.source_url || '';
@@ -212,12 +227,9 @@
 						const uploadOptions = storyClipUploadOptions(clipCandidate);
 
 						storiesEditorStore.clearVideoClipCandidate();
-						state.isUploading = true;
 						await storiesEditorStore.uploadMedia(mediaFile, uploadOptions);
-						state.isUploading = false;
 					}
 					catch (e) {
-						state.isUploading = false;
 						toastError(e.message);
 					}
 				},
