@@ -169,6 +169,12 @@ class BulkTestAccountFollowPublisher
 				->map(fn ($followerId) => (int) $followerId)
 				->values()
 				->all();
+			$toRemoveFollowing = $existingTestFollows
+				->filter(fn ($follow, $followerId) => ! isset($selectedFollowerLookup[(int) $followerId]) && $follow->status === FollowStatus::FOLLOWING->value)
+				->keys()
+				->map(fn ($followerId) => (int) $followerId)
+				->values()
+				->all();
 			$now = now();
 			$added = 0;
 
@@ -194,6 +200,9 @@ class BulkTestAccountFollowPublisher
 					]);
 			}
 
+			$this->adjustFollowingCounts($toInsert, 1);
+			$this->adjustFollowingCounts($toPromote, 1);
+
 			$removed = 0;
 
 			foreach (array_chunk($toRemove, 500) as $followerChunk) {
@@ -203,11 +212,8 @@ class BulkTestAccountFollowPublisher
 					->delete();
 			}
 
-			$this->synchronizeCounts(array_values(array_unique(array_merge(
-				[$lockedTarget->id],
-				$selectedFollowerIds,
-				$toRemove,
-			))));
+			$this->adjustFollowingCounts($toRemoveFollowing, -1);
+			$this->synchronizeFollowerCountForUser($lockedTarget->id);
 
 			return [
 				'target' => $targetCount,
@@ -442,5 +448,37 @@ class BulkTestAccountFollowPublisher
 	private function isTestEmail(string $email): bool
 	{
 		return str_ends_with(strtolower($email), '.test');
+	}
+
+	/** @param array<int, int> $userIds */
+	private function adjustFollowingCounts(array $userIds, int $delta): void
+	{
+		if ($userIds === [] || $delta === 0) {
+			return;
+		}
+
+		foreach (array_chunk(array_values(array_unique($userIds)), 500) as $chunk) {
+			$query = DB::table(Table::USERS)->whereIn('id', $chunk);
+
+			if ($delta > 0) {
+				$query->increment('following_count', $delta);
+				continue;
+			}
+
+			$decrement = abs($delta);
+
+			$query->update([
+				'following_count' => DB::raw("CASE WHEN following_count <= {$decrement} THEN 0 ELSE following_count - {$decrement} END"),
+			]);
+		}
+	}
+
+	private function synchronizeFollowerCountForUser(int $userId): void
+	{
+		DB::table(Table::USERS)
+			->where('id', $userId)
+			->update([
+				'followers_count' => DB::raw("(SELECT COUNT(*) FROM ".Table::FOLLOWS." WHERE following_id = ".Table::USERS.".id AND status = '".FollowStatus::FOLLOWING->value."')"),
+			]);
 	}
 }

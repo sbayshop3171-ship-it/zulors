@@ -121,6 +121,12 @@ class BulkTestAccountFollowPublisherTest extends TestCase
 		$this->assertSame(3, $publisher->currentTestFollowerCountFor($target));
 		$this->assertSame(3, Follow::query()->where('following_id', $target->id)->count());
 		$this->assertSame(3, (int) $target->fresh()->followers_count);
+		$this->assertSame(
+			3,
+			(int) User::query()
+				->where('email', 'like', '%.test')
+				->sum('following_count'),
+		);
 	}
 
 	public function test_it_can_resize_a_test_follower_set_without_duplicates_or_self_follows(): void
@@ -148,6 +154,12 @@ class BulkTestAccountFollowPublisherTest extends TestCase
 				->where('following_id', $target->id)
 				->distinct('follower_id')
 				->count('follower_id'),
+		);
+		$this->assertSame(
+			2,
+			(int) User::query()
+				->where('email', 'like', '%.test')
+				->sum('following_count'),
 		);
 	}
 
@@ -178,6 +190,13 @@ class BulkTestAccountFollowPublisherTest extends TestCase
 				->exists(),
 		);
 		$this->assertSame(3, (int) $target->fresh()->followers_count);
+		$this->assertSame(
+			2,
+			(int) User::query()
+				->where('email', 'like', '%.test')
+				->sum('following_count'),
+		);
+		$this->assertSame(0, (int) $realFollower->fresh()->following_count);
 	}
 
 	private function createUser(string $username, string $email): User
