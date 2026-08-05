@@ -56,7 +56,7 @@
 					v-bind:key="postData.id"
 					v-bind:postData="postData"
 					v-bind:active="index === state.activeIndex"
-					v-bind:isNear="Math.abs(index - state.activeIndex) <= 1"
+					v-bind:isNear="Math.abs(index - state.activeIndex) <= nearRadius"
 					v-bind:position="index"
 					v-bind:feedSessionId="reelsStore.feedSessionId"
 				></ReelItem>
@@ -79,6 +79,7 @@
 <script>
 	import { computed, defineComponent, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 	import { useRouter } from 'vue-router';
+	import { getNetworkProfileSnapshot, subscribeNetworkProfile } from '@/kernel/services/network/index.js';
 	import { useExploreReelsStore } from '@D/store/explore/reels.store.js';
 
 	import ReelItem from '@D/components/reels/ReelItem.vue';
@@ -102,8 +103,11 @@
 				isLoading: true,
 				isLoadingMore: false,
 				noMoreContent: false,
-				activeIndex: 0
+				activeIndex: 0,
+				networkProfile: getNetworkProfileSnapshot()
 			});
+
+			let unsubscribeNetworkProfile = null;
 
 			const posts = computed(() => {
 				return reelsStore.posts;
@@ -115,6 +119,10 @@
 
 			const canGoNext = computed(() => {
 				return posts.value.length > (state.activeIndex + 1) || ! state.noMoreContent;
+			});
+
+			const nearRadius = computed(() => {
+				return state.networkProfile.reelsNearRadius;
 			});
 
 			const updateActiveIndex = () => {
@@ -249,12 +257,17 @@
 			};
 
 			onMounted(() => {
+				unsubscribeNetworkProfile = subscribeNetworkProfile((networkProfile) => {
+					state.networkProfile = networkProfile;
+				});
+
 				lockPageScroll();
 				window.addEventListener('keydown', handleKeydown);
 				loadInitial();
 			});
 
 			onUnmounted(() => {
+				unsubscribeNetworkProfile?.();
 				unlockPageScroll();
 				window.removeEventListener('keydown', handleKeydown);
 			});
@@ -268,6 +281,7 @@
 				posts: posts,
 				scrollerRef: scrollerRef,
 				reelsStore: reelsStore,
+				nearRadius: nearRadius,
 				handleScroll: handleScroll,
 				canGoPrevious: canGoPrevious,
 				canGoNext: canGoNext,

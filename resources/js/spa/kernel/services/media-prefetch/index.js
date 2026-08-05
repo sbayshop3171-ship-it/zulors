@@ -1,3 +1,6 @@
+import { buildAdaptiveVideoSource } from '@/kernel/services/media/adaptive-video/index.js';
+import { getNetworkProfileSnapshot, isSlowNetworkProfile } from '@/kernel/services/network/index.js';
+
 const prefetchedUrls = new Set();
 let queuedPosts = [];
 let queuedLimit = 0;
@@ -34,41 +37,57 @@ function prefetchVideoMetadata(url) {
     video.load();
 }
 
-function prefetchPostMedia(postData, state) {
-    const mediaItems = postData?.relations?.media || [];
+function prefetchPostMedia(postData, state, networkProfile) {
+	const mediaItems = postData?.relations?.media || [];
 
-    mediaItems.forEach((mediaItem) => {
-        if(state.count >= state.limit) {
-            return;
+	mediaItems.forEach((mediaItem) => {
+		if(state.count >= state.limit) {
+			return;
         }
 
-        if(mediaItem.type === 'video') {
-            prefetchImage(mediaItem.thumbnail_url);
-            prefetchVideoMetadata(mediaItem.preview_url || mediaItem.source_url);
-        }
-        else {
-            prefetchImage(mediaItem.source_url);
-        }
+		if(mediaItem.type === 'video') {
+			prefetchImage(mediaItem.thumbnail_url);
+
+			if(networkProfile.allowVideoPrefetch) {
+				prefetchVideoMetadata(buildAdaptiveVideoSource(mediaItem).url);
+			}
+		}
+		else {
+			prefetchImage(mediaItem.source_url);
+		}
 
         state.count++;
     });
 
-    if(postData?.relations?.quoted_post) {
-        prefetchPostMedia(postData.relations.quoted_post, state);
-    }
+	if(postData?.relations?.quoted_post) {
+		prefetchPostMedia(postData.relations.quoted_post, state, networkProfile);
+	}
 }
 
 function prefetchTimelineMedia(posts = [], limit = 8) {
-    if(! canPrefetch() || ! Array.isArray(posts)) {
-        return;
-    }
+	if(! canPrefetch() || ! Array.isArray(posts)) {
+		return;
+	}
 
-    queuedPosts = queuedPosts.concat(posts.slice(0, Math.max(limit * 3, limit)));
-    queuedLimit = Math.max(queuedLimit, limit);
+	const networkProfile = getNetworkProfileSnapshot();
 
-    if(prefetchHandle) {
-        return;
-    }
+	if(networkProfile.offline) {
+		return;
+	}
+
+	const effectiveLimit = isSlowNetworkProfile(networkProfile)
+		? Math.max(1, Math.ceil(limit / 2))
+		: limit;
+	const queueLimit = isSlowNetworkProfile(networkProfile)
+		? Math.max(effectiveLimit * 2, effectiveLimit)
+		: Math.max(effectiveLimit * 3, effectiveLimit);
+
+	queuedPosts = queuedPosts.concat(posts.slice(0, queueLimit));
+	queuedLimit = Math.max(queuedLimit, effectiveLimit);
+
+	if(prefetchHandle) {
+		return;
+	}
 
     const runPrefetch = () => {
         prefetchHandle = null;
@@ -81,21 +100,22 @@ function prefetchTimelineMedia(posts = [], limit = 8) {
         }
 
         const postsBatch = queuedPosts.splice(0);
-        const limitBatch = queuedLimit || limit;
+		const limitBatch = queuedLimit || effectiveLimit;
+		const activeNetworkProfile = getNetworkProfileSnapshot();
 
-        queuedLimit = 0;
+		queuedLimit = 0;
 
-        const state = {
-            count: 0,
+		const state = {
+			count: 0,
             limit: limitBatch
         };
 
-        postsBatch.some((postData) => {
-            prefetchPostMedia(postData, state);
+		postsBatch.some((postData) => {
+			prefetchPostMedia(postData, state, activeNetworkProfile);
 
-            return state.count >= state.limit;
-        });
-    };
+			return state.count >= state.limit;
+		});
+	};
 
     if('requestIdleCallback' in window) {
         prefetchHandle = window.requestIdleCallback(runPrefetch, { timeout: 2500 });

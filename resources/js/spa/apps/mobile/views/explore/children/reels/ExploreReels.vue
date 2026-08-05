@@ -28,7 +28,7 @@
 				v-bind:key="postData.id"
 				v-bind:postData="postData"
 				v-bind:active="activeIndex === index"
-				v-bind:isNear="Math.abs(activeIndex - index) <= 1"
+				v-bind:isNear="Math.abs(activeIndex - index) <= nearRadius"
 				v-bind:position="index + 1"
 				v-bind:feedSessionId="feedSessionId"
 			></ReelItem>
@@ -49,6 +49,7 @@
 <script>
 	import { computed, defineComponent, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 	import { useRouter } from 'vue-router';
+	import { getNetworkProfileSnapshot, subscribeNetworkProfile } from '@/kernel/services/network/index.js';
 	import { useExploreReelsStore } from '@M/store/explore/reels.store.js';
 
 	import ReelItem from '@M/components/reels/ReelItem.vue';
@@ -70,10 +71,12 @@
 			const state = reactive({
 				isLoading: true,
 				isLoadingContent: false,
-				noMoreContent: false
+				noMoreContent: false,
+				networkProfile: getNetworkProfileSnapshot()
 			});
 
 			let scrollFrame = null;
+			let unsubscribeNetworkProfile = null;
 
 			const posts = computed(() => {
 				return reelsStore.posts;
@@ -81,6 +84,10 @@
 
 			const feedSessionId = computed(() => {
 				return reelsStore.feedSessionId;
+			});
+
+			const nearRadius = computed(() => {
+				return state.networkProfile.reelsNearRadius;
 			});
 
 			const updateActiveIndex = () => {
@@ -162,11 +169,16 @@
 			};
 
 			onMounted(async () => {
+				unsubscribeNetworkProfile = subscribeNetworkProfile((networkProfile) => {
+					state.networkProfile = networkProfile;
+				});
+
 				await loadReels();
 				window.addEventListener('resize', handleResize);
 			});
 
 			onUnmounted(() => {
+				unsubscribeNetworkProfile?.();
 				window.removeEventListener('resize', handleResize);
 
 				if(scrollFrame) {
@@ -182,6 +194,7 @@
 				state: state,
 				posts: posts,
 				feedSessionId: feedSessionId,
+				nearRadius: nearRadius,
 				scrollerRef: scrollerRef,
 				activeIndex: activeIndex,
 				handleScroll: handleScroll,
