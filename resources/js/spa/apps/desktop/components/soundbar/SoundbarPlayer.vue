@@ -25,7 +25,7 @@
                             <span class="h-full max-w-full bg-brand-900 transition-width ease-in-out" v-bind:style="{width: `${playerState.progressBar}%`}"></span>
                         </div>
                         <div class="min-w-12 text-right">
-                            <span class="text-par-s text-lab-pr3">{{ $filters.mediaDuration(audioData.metadata.duration) }}</span>
+                            <span class="text-par-s text-lab-pr3">{{ $filters.mediaDuration(audioDuration) }}</span>
                         </div>
                     </div>
                 </div>
@@ -61,6 +61,7 @@
     import { Howl, Howler } from 'howler';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
     import { audioVisualizer } from '@/kernel/services/audio-visualizer/index.js';
+    import { durationObjectToSeconds, resolveMediaDuration } from '@/kernel/helpers/media/audio/index.js';
     import PrimaryIconButton from '@D/components/inter-ui/buttons/PrimaryIconButton.vue';
 
     export default defineComponent({
@@ -86,19 +87,48 @@
             const playerState = computed(() => {
                 return audioStore.playerState;
             });
+            const metadataDurationSeconds = computed(() => {
+                return durationObjectToSeconds(audioData.value?.metadata?.duration)
+                    || Number(audioData.value?.metadata?.duration_seconds || 0);
+            });
+            let progressTimer = 0;
+
+            const syncDuration = (duration) => {
+                const resolvedDuration = Math.max(1, Math.ceil(Number(duration) || metadataDurationSeconds.value || 1));
+
+                audioStore.updateStateValue('durationSeconds', resolvedDuration);
+
+                return resolvedDuration;
+            };
 
             const initializeAudioFile = (() => {
+                stopProgressUpdater();
+
                 if(audioFile.value !== null) {
+                    audioFile.value.stop();
                     audioFile.value.unload();
                 }
 
+                audioStore.clearStateErrors();
+                audioStore.updateStateValue('playing', false);
+                audioStore.updateStateValue('playbackTime', 0);
+                audioStore.updateStateValue('progressBar', 0);
+                audioStore.updateStateValue('durationSeconds', metadataDurationSeconds.value);
+                audioStore.updateStateValue('isLoading', true);
+
                 audioFile.value = new Howl({
                     src: [audioData.value.source_url],
+                    format: audioData.value?.extension ? [audioData.value.extension] : undefined,
                     rate: playerState.value.rate,
                     mute: playerState.value.isMuted,
+                    onload: function() {
+                        audioStore.updateStateValue('isLoading', false);
+                        syncDuration(audioFile.value.duration());
+                    },
                     onplay: function() {
                         startProgressUpdater();
                         audioStore.updateStateValue('playing', true);
+                        syncDuration(audioFile.value.duration());
 
                         const audioContext = Howler.ctx;
                         const analyser = audioContext.createAnalyser();
@@ -135,11 +165,14 @@
                     onend: function() {
                         stopProgressUpdater();
                         audioStore.updateStateValue('playing', false);
+                        audioStore.updateStateValue('playbackTime', syncDuration(audioFile.value.duration()));
+                        audioStore.updateStateValue('progressBar', 100);
                     },
                     onseek: function(time) {
                         audioStore.updateStateValue('playbackTime', time);
                     },
                     onloaderror: (id, error) => {
+                        audioStore.updateStateValue('isLoading', false);
                         audioStore.addStateError(`Failed to load audio (ID: ${id}). Error: ${error}`);
                     },
                     onplayerror: (id, error) => {
@@ -149,44 +182,57 @@
             });
 
             function startProgressUpdater() {
-                function updateProgress() {
-                    const currentTime = audioFile.value.seek();
-                    const duration = audioFile.value.duration();
+                stopProgressUpdater();
 
-                    audioStore.updateStateValue('progressBar', Math.round((currentTime / duration) * 100));
-                    audioStore.updateStateValue('playbackTime', Math.round(currentTime));
+                function updateProgress() {
+                    if(! audioFile.value) {
+                        return;
+                    }
+
+                    const currentTime = Number(audioFile.value.seek() || 0);
+                    const duration = syncDuration(audioFile.value.duration());
+
+                    audioStore.updateStateValue('progressBar', duration > 0 ? Math.round(Math.min(100, (currentTime / duration) * 100)) : 0);
+                    audioStore.updateStateValue('playbackTime', Math.max(0, Math.floor(currentTime)));
 
                     if (audioFile.value.playing()) {
-                        window.progressTimer = requestAnimationFrame(updateProgress);
+                        progressTimer = requestAnimationFrame(updateProgress);
                     }
                 }
 
-                window.progressTimer = requestAnimationFrame(updateProgress);
+                progressTimer = requestAnimationFrame(updateProgress);
             }
 
             function stopProgressUpdater() {
-                cancelAnimationFrame(window.progressTimer);
+                if(progressTimer) {
+                    cancelAnimationFrame(progressTimer);
+                    progressTimer = 0;
+                }
             }
 
             const playAudio = () => {
-                if(! playerState.value.playing) {
+                if(audioFile.value && ! playerState.value.playing) {
                     audioFile.value.play();
                 }
             }
 
             const pauseAudio = () => {
-                if(playerState.value.playing) {
+                if(audioFile.value && playerState.value.playing) {
                     audioFile.value.pause();
                 }
             }
 
             const seekAudio = (event) => {
+                if(! audioFile.value) {
+                    return;
+                }
+
                 try {
                     const progressBar = event.currentTarget;
                     const rect = progressBar.getBoundingClientRect();
                     const clickPosition = (event.clientX - rect.left);
                     const percentage = (clickPosition / rect.width);
-                    const newTime = (audioFile.value.duration() * percentage);
+                    const newTime = (syncDuration(audioFile.value.duration()) * percentage);
 
                     audioFile.value.seek(newTime);
 
@@ -204,42 +250,49 @@
 
                 document.body.classList.add('sticky-bar-open');
 
-                audioFile.value.play();
+                audioFile.value?.play();
 
-                colibriEventBus.on('soundbar:play', () => {
+                const togglePlayback = () => {
                     if(playerState.value.playing) {
                         audioFile.value.pause();
                     }
                     else{
                         audioFile.value.play();
                     }
-                });
+                };
 
-                colibriEventBus.on('soundbar:reset', closeSoundbar);
-
-                colibriEventBus.on('soundbar:reinitialize', () => {
+                const reinitializeSoundbar = () => {
                     initializeAudioFile();
-                    audioFile.value.play();
-                });
+                    audioFile.value?.play();
+                };
 
+                colibriEventBus.on('soundbar:play', togglePlayback);
+                colibriEventBus.on('soundbar:reset', closeSoundbar);
+                colibriEventBus.on('soundbar:reinitialize', reinitializeSoundbar);
                 colibriEventBus.on('media:pause-all', pauseAudio);
+
+                soundbarVisualizerCanvas.value.togglePlayback = togglePlayback;
+                soundbarVisualizerCanvas.value.reinitializeSoundbar = reinitializeSoundbar;
             });
 
             onUnmounted(() => {
                 document.body.classList.remove('sticky-bar-open');
 
-                colibriEventBus.off('soundbar:play');
-                colibriEventBus.off('soundbar:reinitialize');
+                colibriEventBus.off('soundbar:play', soundbarVisualizerCanvas.value?.togglePlayback);
+                colibriEventBus.off('soundbar:reinitialize', soundbarVisualizerCanvas.value?.reinitializeSoundbar);
 
-                audioFile.value.pause();
+                stopProgressUpdater();
+                audioFile.value?.pause();
+                audioFile.value?.unload();
                 colibriEventBus.off('media:pause-all', pauseAudio);
 
                 colibriEventBus.off('soundbar:reset', closeSoundbar);
             });
 
             const closeSoundbar = () => {
-                audioFile.value.pause();
-                audioFile.value.unload();
+                stopProgressUpdater();
+                audioFile.value?.pause();
+                audioFile.value?.unload();
 
                 audioStore.remove();
             }
@@ -247,6 +300,12 @@
             return {
                 audioData: audioData,
                 playerState: playerState,
+                audioDuration: computed(() => {
+                    return resolveMediaDuration(
+                        audioData.value?.metadata?.duration,
+                        playerState.value.durationSeconds || audioData.value?.metadata?.duration_seconds,
+                    );
+                }),
                 playAudio: playAudio,
                 pauseAudio: pauseAudio,
                 seekAudio: seekAudio,

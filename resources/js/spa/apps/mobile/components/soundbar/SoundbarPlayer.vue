@@ -52,6 +52,7 @@
     import { useAudioStore } from '@M/store/audio/audio.store.js';
     import { Howl } from 'howler';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
+    import { durationObjectToSeconds } from '@/kernel/helpers/media/audio/index.js';
 
     export default defineComponent({
         setup: function(props) {
@@ -69,21 +70,44 @@
             const playerState = computed(() => {
                 return audioStore.playerState;
             });
+            const metadataDurationSeconds = computed(() => {
+                return durationObjectToSeconds(audioData.value?.metadata?.duration)
+                    || Number(audioData.value?.metadata?.duration_seconds || 0);
+            });
+            let progressTimer = 0;
 
             const initializeAudioFile = (() => {
+                stopProgressUpdater();
+
                 if(audioFile.value !== null) {
+                    audioFile.value.stop();
                     audioFile.value.unload();
                 }
 
+                state.isLoaded = false;
+                audioStore.clearStateErrors();
+                audioStore.updateStateValue('playing', false);
+                audioStore.updateStateValue('playbackTime', 0);
+                audioStore.updateStateValue('progressBar', 0);
+                audioStore.updateStateValue('durationSeconds', metadataDurationSeconds.value);
+                audioStore.updateStateValue('isLoading', true);
+
                 audioFile.value = new Howl({
                     src: [audioData.value.source_url],
+                    format: audioData.value?.extension ? [audioData.value.extension] : undefined,
+                    html5: true,
+                    preload: true,
                     rate: playerState.value.rate,
+                    mute: playerState.value.isMuted,
                     onload: function() {
                         state.isLoaded = true;
+                        audioStore.updateStateValue('isLoading', false);
+                        syncDuration(audioFile.value.duration());
                     },
                     onplay: function() {
                         startProgressUpdater();
                         audioStore.updateStateValue('playing', true);
+                        syncDuration(audioFile.value.duration());
                     },
                     onpause: function() {
                         stopProgressUpdater();
@@ -92,58 +116,88 @@
                     onend: function() {
                         stopProgressUpdater();
                         audioStore.updateStateValue('playing', false);
+                        audioStore.updateStateValue('playbackTime', syncDuration(audioFile.value.duration()));
+                        audioStore.updateStateValue('progressBar', 100);
                     },
                     onseek: function(time) {
                         audioStore.updateStateValue('playbackTime', time);
                     },
                     onloaderror: (id, error) => {
+                        state.isLoaded = false;
+                        audioStore.updateStateValue('isLoading', false);
                         audioStore.addStateError(`Failed to load audio (ID: ${id}). Error: ${error}`);
                     },
                     onplayerror: (id, error) => {
+                        audioStore.updateStateValue('isLoading', false);
                         audioStore.addStateError(`Failed to play audio (ID: ${id}). Error: ${error}`);
+                        audioFile.value.once('unlock', () => {
+                            audioFile.value.play();
+                        });
                     },
                 });
             });
 
-            function startProgressUpdater() {
-                function updateProgress() {
-                    const currentTime = audioFile.value.seek();
-                    const duration = audioFile.value.duration();
+            function syncDuration(duration) {
+                const resolvedDuration = Math.max(1, Math.ceil(Number(duration) || metadataDurationSeconds.value || 1));
 
-                    audioStore.updateStateValue('progressBar', Math.round((currentTime / duration) * 100));
-                    audioStore.updateStateValue('playbackTime', Math.round(currentTime));
+                audioStore.updateStateValue('durationSeconds', resolvedDuration);
+
+                return resolvedDuration;
+            }
+
+            function startProgressUpdater() {
+                stopProgressUpdater();
+
+                function updateProgress() {
+                    if (!audioFile.value) {
+                        return;
+                    }
+
+                    const currentTime = Number(audioFile.value.seek() || 0);
+                    const duration = syncDuration(audioFile.value.duration());
+
+                    audioStore.updateStateValue('progressBar', duration > 0 ? Math.round(Math.min(100, (currentTime / duration) * 100)) : 0);
+                    audioStore.updateStateValue('playbackTime', Math.max(0, Math.floor(currentTime)));
 
                     if (audioFile.value.playing()) {
-                        window.progressTimer = requestAnimationFrame(updateProgress);
+                        progressTimer = requestAnimationFrame(updateProgress);
                     }
                 }
 
-                window.progressTimer = requestAnimationFrame(updateProgress);
+                progressTimer = requestAnimationFrame(updateProgress);
             }
 
             function stopProgressUpdater() {
-                cancelAnimationFrame(window.progressTimer);
+                if(progressTimer) {
+                    cancelAnimationFrame(progressTimer);
+                    progressTimer = 0;
+                }
             }
 
             const playAudio = () => {
-                if(! playerState.value.playing) {
+                if(audioFile.value && ! playerState.value.playing) {
                     audioFile.value.play();
                 }
             }
 
             const pauseAudio = () => {
-                if(playerState.value.playing) {
+                if(audioFile.value && playerState.value.playing) {
                     audioFile.value.pause();
                 }
             }
 
             const seekAudio = (event) => {
+                if(! audioFile.value) {
+                    return;
+                }
+
                 try {
                     const progressBar = event.currentTarget;
                     const rect = progressBar.getBoundingClientRect();
                     const clickPosition = (event.clientX - rect.left);
                     const percentage = (clickPosition / rect.width);
-                    const newTime = (audioFile.value.duration() * percentage);
+                    const duration = syncDuration(audioFile.value.duration());
+                    const newTime = (duration * percentage);
 
                     audioFile.value.seek(newTime);
 
@@ -159,30 +213,37 @@
             onMounted(() => {
                 initializeAudioFile();
 
-                audioFile.value.play();
+                audioFile.value?.play();
 
-                colibriEventBus.on('soundbar:play', () => {
+                const togglePlayback = () => {
                     if(playerState.value.playing) {
                         audioFile.value.pause();
                     }
                     else{
                         audioFile.value.play();
                     }
-                });
+                };
 
-                colibriEventBus.on('soundbar:reinitialize', () => {
+                const reinitializeSoundbar = () => {
                     initializeAudioFile();
-                    audioFile.value.play();
-                });
+                    audioFile.value?.play();
+                };
 
+                colibriEventBus.on('soundbar:play', togglePlayback);
+                colibriEventBus.on('soundbar:reinitialize', reinitializeSoundbar);
                 colibriEventBus.on('media:pause-all', pauseAudio);
+
+                state.togglePlayback = togglePlayback;
+                state.reinitializeSoundbar = reinitializeSoundbar;
             });
 
             onUnmounted(() => {
-                colibriEventBus.off('soundbar:play');
-                colibriEventBus.off('soundbar:reinitialize');
+                colibriEventBus.off('soundbar:play', state.togglePlayback);
+                colibriEventBus.off('soundbar:reinitialize', state.reinitializeSoundbar);
 
-                audioFile.value.pause();
+                stopProgressUpdater();
+                audioFile.value?.pause();
+                audioFile.value?.unload();
 
                 colibriEventBus.off('media:pause-all', pauseAudio);
             });
@@ -207,8 +268,10 @@
                     audioFile.value.rate(playerState.value.rate);
                 },
                 closeSoundbar: () => {
-                    audioFile.value.stop();
-                    audioFile.value.unload();
+                    stopProgressUpdater();
+                    audioFile.value?.stop();
+                    audioFile.value?.unload();
+                    state.isLoaded = false;
 
                     audioStore.remove();
                 }

@@ -79,6 +79,7 @@
 	import { useInputHandlers } from '@/kernel/vue/composables/input/index.js';
 	import { colibriSounds } from '@/kernel/services/sounds/index.js';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
+    import { inferAudioExtension } from '@/kernel/helpers/media/audio/index.js';
 
 	import PrimaryIconButton from '@M/components/inter-ui/buttons/PrimaryIconButton.vue';
 	import ToastNotification from '@M/components/notifications/toast/ToastNotification.vue';
@@ -356,7 +357,7 @@
 
                 await chatStore.sendMediaMessage({
                     type: 'audio',
-                    extension: audioData.blob.type.includes('mp4') ? 'mp4' : 'webm',
+                    extension: inferAudioExtension(audioData.mimeType || audioData.blob.type, 'webm'),
                     file: audioData.blob,
                     duration: audioData.duration,
                 });

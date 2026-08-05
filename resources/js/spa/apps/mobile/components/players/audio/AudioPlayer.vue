@@ -22,7 +22,7 @@
                     </svg>
                 </div>
                 <p class="text-cap-l text-lab-sc" v-bind:title="$filters.fileSize(mediaItem.size)">
-                    {{ $filters.mediaDuration(mediaItem.metadata.duration) }}
+                    {{ $filters.mediaDuration(audioDuration) }}
                 </p>
             </div>
         </div>
@@ -30,11 +30,11 @@
 </template>
 
 <script>
-    import { defineComponent, computed, ref, defineAsyncComponent } from 'vue';
+    import { defineComponent, computed } from 'vue';
     import { useAudioStore } from '@M/store/audio/audio.store.js';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
+    import { buildStableWaveformBars, resolveMediaDuration } from '@/kernel/helpers/media/audio/index.js';
 
-    import PrimaryIconButton from '@M/components/inter-ui/buttons/PrimaryIconButton.vue';
     import AudioPlayButton from '@M/components/players/audio/parts/AudioPlayButton.vue';
 
     export default defineComponent({
@@ -64,22 +64,15 @@
 
                 return null;
             });
-
-            function generateFakeWaveform(barCount = 80) {
-                const bars = [];
-
-                for (let i = 0; i < barCount; i++) {
-                    const base = Math.random() * 0.7 + 0.15;
-                    const edge = 1 - Math.abs(i - barCount / 2) / (barCount / 2) * 0.3;
-                    bars.push(base * edge);
-                }
-
-                return bars;
-            }
-
             return {
                 playerState: playerState,
                 mediaItem: props.mediaItem,
+                audioDuration: computed(() => {
+                    return resolveMediaDuration(
+                        props.mediaItem?.metadata?.duration,
+                        props.mediaItem?.metadata?.duration_seconds,
+                    );
+                }),
                 addAudio: () => {
                     audioStore.add(props.mediaItem, props.label);
 
@@ -89,12 +82,11 @@
                     colibriEventBus.emit('soundbar:play');
                 },
                 visualBars: computed(() => {
-                    return generateFakeWaveform();
+                    return buildStableWaveformBars(props.mediaItem);
                 }),
             }
         },
         components: {
-            PrimaryIconButton: PrimaryIconButton,
             AudioPlayButton: AudioPlayButton
         }
     });

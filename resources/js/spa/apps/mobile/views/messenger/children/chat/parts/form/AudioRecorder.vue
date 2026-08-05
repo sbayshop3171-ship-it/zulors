@@ -20,7 +20,7 @@
 </template>
 
 <script>
-    import { defineComponent, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
+    import { defineComponent, onMounted, onBeforeUnmount, watch, ref } from 'vue';
     import { useAudioRecorder } from '@/kernel/vue/composables/record/audio-recorder.js';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
 
@@ -30,12 +30,21 @@
         emits: ['cancel', 'sendAudio'],
         setup: function(props, context) {
             const audioDurationSeconds = 120;
-            const { startMic, startRecording, stopRecording, stopMic, blob, elapsed } = useAudioRecorder({
+            const isSubmitting = ref(false);
+            const { startMic, startRecording, stopRecording, stopMic, finalizeRecording, elapsed, error } = useAudioRecorder({
                 maxDuration: audioDurationSeconds,
             });
 
             onMounted(async () => {
                 await startMic();
+
+                if(error.value) {
+                    alert('Microphone access is required to send a voice message.');
+                    context.emit('cancel');
+
+                    return;
+                }
+
                 startRecording();
 
                 // Pause all media players what ever they are.
@@ -44,6 +53,7 @@
 
             onBeforeUnmount(() => {
                 stopRecording();
+                stopMic();
             });
 
             const cancelAudioRecording = () => {
@@ -53,20 +63,33 @@
                 context.emit('cancel');
             }
 
-            const sendAudio = () => {
-                stopMic();
-                stopRecording();
+            const sendAudio = async () => {
+                if(isSubmitting.value) {
+                    return;
+                }
 
-                setTimeout(() => {
+                isSubmitting.value = true;
+
+                const recordingData = await finalizeRecording();
+
+                stopMic();
+
+                if(recordingData?.blob && recordingData.blob.size > 0) {
                     context.emit('sendAudio', {
-                        blob: blob.value,
-                        duration: elapsed.value,
+                        blob: recordingData.blob,
+                        duration: Math.max(1, recordingData.duration || elapsed.value || 1),
+                        mimeType: recordingData.mimeType || recordingData.blob.type || 'audio/webm',
                     });
-                }, 300);
+                }
+                else{
+                    context.emit('cancel');
+                }
+
+                isSubmitting.value = false;
             }
 
             watch(elapsed, (newElapsed) => {
-                if(newElapsed >= audioDurationSeconds) {
+                if(newElapsed >= audioDurationSeconds && ! isSubmitting.value) {
                     sendAudio();
                 }
             });

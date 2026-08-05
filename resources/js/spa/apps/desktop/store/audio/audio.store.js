@@ -32,6 +32,7 @@ const useAudioStore = defineStore('audio_store', {
             return new Object({
                 playing: false,
                 playbackTime: 0,
+                durationSeconds: 0,
                 progressBar: 0,
                 isMuted: false,
                 rate: 1,

@@ -14,8 +14,10 @@ use App\Services\Filesystem\Upload\ImageUploadService;
 use App\Services\Filesystem\Upload\VideoThumbnailService;
 use App\Services\Filesystem\Upload\VideoUploadService;
 use Exception;
+use FFMpeg\Format\Audio\Mp3;
 use FFMpeg\Format\Video\X264;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 
 trait WithMediaUpload
 {
@@ -153,23 +155,27 @@ trait WithMediaUpload
                 ->setStorageDisk($this->roundRobinService->getNextDisk())
                 ->tempSaveLocally($chatAudioFile);
 
+            $audioMetadata = $this->optimizeAudioForChat($audioData, $chatAudioFile);
+
             $audioData = $this->audioUploadService
                 ->setNamespace(Filesystem::mediaNamespace('chats/audios'))
-                ->setStorageDisk($audioData['disk'])
-                ->setDefaultExtension($chatAudioFile->getClientOriginalExtension())
-                ->upload(storage_local_path($audioData['audio_path']));
+                ->setStorageDisk($audioMetadata['disk'])
+                ->setDefaultExtension($audioMetadata['extension'])
+                ->upload(storage_local_path($audioMetadata['audio_path']));
 
             $this->messageData->media()->create([
                 'source_path' => $audioData['audio_path'],
                 'type' => MediaType::AUDIO,
                 'status' => MediaStatus::PROCESSED,
                 'disk' => $audioData['disk'],
-                'extension' => $chatAudioFile->getClientOriginalExtension(),
-                'mime' => $chatAudioFile->getClientMimeType(),
-                'size' => $chatAudioFile->getSize(),
+                'extension' => $audioMetadata['extension'],
+                'mime' => $audioMetadata['mime'],
+                'size' => $audioMetadata['size'],
                 'metadata' => [
-                    'duration' => parse_duration(intval($this->mediaDuration)),
-                    'file_name' => $chatAudioFile->getClientOriginalName()
+                    'duration' => $audioMetadata['duration'],
+                    'duration_seconds' => $audioMetadata['duration_seconds'],
+                    'file_name' => $chatAudioFile->getClientOriginalName(),
+                    'original_name' => $chatAudioFile->getClientOriginalName(),
                 ]
             ]);
 
@@ -180,6 +186,64 @@ trait WithMediaUpload
         catch(Exception $e) {
             // Pass
         }
+    }
+
+    private function optimizeAudioForChat(array $audioData, UploadedFile $chatAudioFile): array
+    {
+        $preferredExtension = strtolower((string) config('chat.processing.audio.preferred_extension', 'mp3'));
+        $optimizedAudioPath = $audioData['audio_path'];
+        $optimizedExtension = strtolower($chatAudioFile->getClientOriginalExtension() ?: $preferredExtension ?: 'webm');
+        $optimizedMime = $chatAudioFile->getClientMimeType() ?: $chatAudioFile->getMimeType() ?: 'audio/webm';
+        $optimizedDurationSeconds = max(1, (int) ($audioData['duration_seconds'] ?? $this->mediaDuration ?: 1));
+        $optimizedDuration = $audioData['duration'] ?? parse_duration($optimizedDurationSeconds);
+
+        if($preferredExtension === 'mp3') {
+            try {
+                $optimizedAudioPath = $this->transcodeChatAudioToMp3($audioData['audio_path']);
+                $optimizedExtension = 'mp3';
+                $optimizedMime = 'audio/mpeg';
+                $optimizedDurationSeconds = $this->audioUploadService->getAudioDurationSeconds($optimizedAudioPath);
+                $optimizedDuration = parse_duration($optimizedDurationSeconds);
+
+                if($optimizedAudioPath !== $audioData['audio_path']) {
+                    Storage::disk('local')->delete($audioData['audio_path']);
+                }
+            }
+            catch(Exception $e) {
+                $optimizedAudioPath = $audioData['audio_path'];
+            }
+        }
+
+        $optimizedAbsolutePath = storage_local_path($optimizedAudioPath);
+        $optimizedSize = file_exists($optimizedAbsolutePath)
+            ? (int) (filesize($optimizedAbsolutePath) ?: 0)
+            : (int) ($chatAudioFile->getSize() ?: 0);
+
+        return array_merge($audioData, [
+            'audio_path' => $optimizedAudioPath,
+            'duration' => $optimizedDuration,
+            'duration_seconds' => $optimizedDurationSeconds,
+            'extension' => $optimizedExtension,
+            'mime' => $optimizedMime,
+            'size' => $optimizedSize,
+        ]);
+    }
+
+    private function transcodeChatAudioToMp3(string $audioPath): string
+    {
+        $sourceAbsolutePath = storage_local_path($audioPath);
+        $optimizedAudioPath = $this->audioUploadService->generateAudioTemporaryFilePath('mp3');
+        $optimizedAbsolutePath = storage_local_path($optimizedAudioPath);
+
+        $format = new Mp3();
+        $format->setAudioKiloBitrate((int) config('chat.processing.audio.bitrate', 96));
+
+        $this->audioUploadService
+            ->getFFMpeg()
+            ->open($sourceAbsolutePath)
+            ->save($format, $optimizedAbsolutePath);
+
+        return $optimizedAudioPath;
     }
 
     private function uploadDocument(UploadedFile $chatDocumentFile)

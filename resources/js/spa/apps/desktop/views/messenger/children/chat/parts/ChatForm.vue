@@ -79,6 +79,7 @@
 <script>
 	import { defineComponent, ref, computed, reactive, defineAsyncComponent, onMounted, nextTick } from 'vue';
 	import { useInputHandlers } from '@/kernel/vue/composables/input/index.js';
+    import { inferAudioExtension } from '@/kernel/helpers/media/audio/index.js';
 	import { useChatStore } from '@D/store/chats/chat.store.js';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { colibriSounds } from '@/kernel/services/sounds/index.js';
@@ -189,7 +190,7 @@
 
                 await chatStore.sendMediaMessage({
                     type: 'audio',
-                    extension: audioData.blob.type.includes('mp4') ? 'mp4' : 'webm',
+                    extension: inferAudioExtension(audioData.mimeType || audioData.blob.type, 'webm'),
                     file: audioData.blob,
                     duration: audioData.duration,
                 });

@@ -16,6 +16,11 @@ return [
             'media' => [
                 'mimes' => join(',', [
                     'mp4',
+                    'm4a',
+                    'mp3',
+                    'wav',
+                    'aac',
+                    'ogg',
                     'avi',
                     'mpeg',
                     'mov',
@@ -41,6 +46,15 @@ return [
                     'rar',
                 ]),
                 'mimetypes' => join(',', [
+                    'audio/aac',
+                    'audio/mp4',
+                    'audio/mpeg',
+                    'audio/mp3',
+                    'audio/ogg',
+                    'audio/webm',
+                    'audio/wav',
+                    'audio/x-m4a',
+                    'audio/x-wav',
                     'video/mp4',
                     'video/avi',
                     'video/mpeg',
@@ -104,6 +118,10 @@ return [
             'preset' => env('CHAT_VIDEO_PRESET', 'medium'),
             'audio_bitrate' => (int) env('CHAT_VIDEO_AUDIO_BITRATE', 128),
             'square_size' => (int) env('CHAT_VIDEO_SQUARE_SIZE', 720),
+        ],
+        'audio' => [
+            'preferred_extension' => env('CHAT_AUDIO_PREFERRED_EXTENSION', 'mp3'),
+            'bitrate' => (int) env('CHAT_AUDIO_BITRATE', 96),
         ],
     ],
     'enable_video_compression' => env('CHAT_ENABLE_VIDEO_COMPRESSION', true),

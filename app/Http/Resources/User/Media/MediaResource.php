@@ -76,6 +76,15 @@ class MediaResource extends JsonResource
                 ]);
             }
 
+            if($this->type->isAudio()) {
+                $metadata = Arr::only($metadata, [
+                    'duration',
+                    'duration_seconds',
+                    'file_name',
+                    'original_name',
+                ]);
+            }
+
             return $metadata;
         }
         

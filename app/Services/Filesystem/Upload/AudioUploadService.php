@@ -74,12 +74,13 @@ class AudioUploadService extends AbstractUploadService
                 $this->makeUploadException('Audio upload on disk (local) failed.');
             }
 
-            $audioOriginalDuration = $this->getAudioDuration($audioTempPath);
+            $audioOriginalDurationSeconds = $this->getAudioDurationSeconds($audioTempPath);
 
             return [
                 'disk' => $this->storageDisk,
                 'audio_path' => $audioTempPath,
-                'duration' => $audioOriginalDuration
+                'duration' => parse_duration($audioOriginalDurationSeconds),
+                'duration_seconds' => $audioOriginalDurationSeconds,
             ];
         }
 
@@ -90,6 +91,11 @@ class AudioUploadService extends AbstractUploadService
 
     public function getAudioDuration(string $audioLocalPath)
     {
+        return parse_duration($this->getAudioDurationSeconds($audioLocalPath));
+    }
+
+    public function getAudioDurationSeconds(string $audioLocalPath): int
+    {
         $retries = 5;
 
         try {
@@ -98,7 +104,7 @@ class AudioUploadService extends AbstractUploadService
                 $ffprobe = $this->getFFProbe();
                 $durationInSeconds = $ffprobe->format(storage_local_path($audioLocalPath))->get('duration', 0);
 
-                return parse_duration($durationInSeconds);
+                return max(1, (int) ceil((float) $durationInSeconds));
 
             }, 1000);
         }
