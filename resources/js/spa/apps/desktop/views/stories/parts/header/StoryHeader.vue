@@ -1,6 +1,10 @@
 <template>
 	<div class="flex justify-between items-center">
-		<div class="flex gap-2 items-center overflow-hidden">
+		<button
+			type="button"
+			v-on:click.stop="openAuthorProfile"
+			class="flex min-w-0 items-center gap-2 overflow-hidden rounded-xl text-left transition-opacity hover:opacity-100 active:opacity-80"
+		>
 			<div class="shrink-0">
 				<AvatarSmall v-bind:avatarSrc="storyAuthor.avatar_url"></AvatarSmall>
 			</div>
@@ -12,7 +16,7 @@
 					{{ playerState.frameData.date.time_ago ?? '' }}
 				</span>
 			</div>
-		</div>
+		</button>
 		<div class="ml-4 inline-flex gap-1 items-center">
 			<template v-if="! isFrameProcessing">
 				<PrimaryIconButton v-if="playerState.isPaused" v-on:click="play" iconName="play" iconSize="5" buttonColor="text-gray-300" hoverText="text-white" hoverBg="hover:bg-white/20"></PrimaryIconButton>
@@ -40,6 +44,7 @@
 
 <script>
 	import { defineComponent, computed, reactive, onMounted, inject } from 'vue';
+	import { useRouter } from 'vue-router';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import PrimaryIconButton from '@D/components/inter-ui/buttons/PrimaryIconButton.vue';
 	import AvatarSmall from '@D/components/general/avatars/AvatarSmall.vue';
@@ -55,6 +60,22 @@
 			});
 
 			const playerState = inject('playerState');
+			const router = useRouter();
+			const storyAuthor = computed(() => {
+				return playerState.storyAuthor;
+			});
+			const authorProfileRoute = computed(() => {
+				if(! storyAuthor.value?.username) {
+					return null;
+				}
+
+				return {
+					name: 'profile_index',
+					params: {
+						id: storyAuthor.value.username
+					}
+				};
+			});
 
 			onMounted(() => {
 				if (localStorage.getItem('stories_videos_muted')) {
@@ -73,9 +94,8 @@
 			return {
 				state: state,
 				playerState: playerState,
-				storyAuthor: computed(() => {
-                    return playerState.storyAuthor;
-                }),
+				storyAuthor: storyAuthor,
+				authorProfileRoute: authorProfileRoute,
 				isVideo: computed(() => {
                     if (playerState.frameData.type == 'video') {
                         return true;
@@ -124,7 +144,16 @@
 				}),
 				canSeeViews: computed(() => {
 					return playerState.isOwner;
-				})
+				}),
+				openAuthorProfile: () => {
+					if(! authorProfileRoute.value) {
+						return;
+					}
+
+					pause();
+					state.isMenuOpen = false;
+					router.push(authorProfileRoute.value);
+				}
 			};
 		},
 		components: {

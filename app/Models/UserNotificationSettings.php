@@ -9,6 +9,34 @@ class UserNotificationSettings extends Model
 {
     public $timestamps = false;
 
+    public static function defaultEmailPreferences(): array
+    {
+        return [
+            'direct_messages' => false,
+            'show_message_preview' => true,
+            'reactions' => false,
+            'comments' => false,
+            'shared_posts' => false,
+            'followers' => false,
+            'follow_request' => false,
+            'mentions' => false,
+        ];
+    }
+
+    public static function defaultPushPreferences(): array
+    {
+        return [
+            'direct_messages' => true,
+            'show_message_preview' => true,
+            'reactions' => true,
+            'comments' => true,
+            'shared_posts' => true,
+            'followers' => true,
+            'follow_request' => true,
+            'mentions' => true,
+        ];
+    }
+
     protected $casts = [
         'type' => NotificationType::class,
         'direct_messages' => 'boolean',

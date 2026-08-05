@@ -69,21 +69,15 @@ class CreateUserAction
         // Create email notification settings (Default all are set to: false)
         UserNotificationSettings::create([
             'user_id' => $userData->id,
-            'type' => NotificationType::EMAIL
+            'type' => NotificationType::EMAIL,
+            ...UserNotificationSettings::defaultEmailPreferences(),
         ]);
 
         // Create push notification settings (Default social apps behavior: enabled, with previews visible)
         UserNotificationSettings::create([
             'user_id' => $userData->id,
             'type' => NotificationType::PUSH,
-            'direct_messages' => true,
-            'show_message_preview' => true,
-            'reactions' => true,
-            'comments' => true,
-            'shared_posts' => true,
-            'followers' => true,
-            'follow_request' => true,
-            'mentions' => true,
+            ...UserNotificationSettings::defaultPushPreferences(),
         ]);
 
         // Create security settings (Default all are set to: false)

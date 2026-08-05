@@ -159,12 +159,40 @@ class User extends Authenticatable
 
     public function emailNotificationSettings()
     {
-        return $this->hasOne(UserNotificationSettings::class, 'user_id', 'id')->where('type', NotificationType::EMAIL);
+        return $this->hasOne(UserNotificationSettings::class, 'user_id', 'id')
+            ->where('type', NotificationType::EMAIL)
+            ->withDefault(function (UserNotificationSettings $settings, self $user) {
+                $settings->forceFill(array_merge([
+                    'user_id' => $user->id,
+                    'type' => NotificationType::EMAIL,
+                ], UserNotificationSettings::defaultEmailPreferences()));
+            });
     }
 
     public function pushNotificationSettings()
     {
-        return $this->hasOne(UserNotificationSettings::class, 'user_id', 'id')->where('type', NotificationType::PUSH);
+        return $this->hasOne(UserNotificationSettings::class, 'user_id', 'id')
+            ->where('type', NotificationType::PUSH)
+            ->withDefault(function (UserNotificationSettings $settings, self $user) {
+                $settings->forceFill(array_merge([
+                    'user_id' => $user->id,
+                    'type' => NotificationType::PUSH,
+                ], UserNotificationSettings::defaultPushPreferences()));
+            });
+    }
+
+    public function resolveEmailNotificationSettings(): UserNotificationSettings
+    {
+        return $this->emailNotificationSettings()->firstOrCreate([
+            'type' => NotificationType::EMAIL,
+        ], UserNotificationSettings::defaultEmailPreferences());
+    }
+
+    public function resolvePushNotificationSettings(): UserNotificationSettings
+    {
+        return $this->pushNotificationSettings()->firstOrCreate([
+            'type' => NotificationType::PUSH,
+        ], UserNotificationSettings::defaultPushPreferences());
     }
 
     public function pushTokens()

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Actions\User\CreateUserAction;
 use App\Enums\Chat\ChatType;
 use App\Enums\User\UserRole;
 use App\Enums\User\UserStatus;
@@ -25,6 +26,103 @@ use Tests\TestCase;
 class PushNotificationsTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_new_users_start_with_push_notifications_enabled_by_default(): void
+    {
+        config([
+            'wallet.default_balance' => 0,
+            'app.default_currency' => 'USD',
+        ]);
+
+        $suffix = Str::lower(Str::random(8));
+        $user = (new CreateUserAction([
+            'first_name' => 'Push',
+            'last_name' => 'Default',
+            'username' => "push-default-{$suffix}",
+            'caption' => '@push-default',
+            'email' => "push-default-{$suffix}@example.com",
+            'password' => Hash::make('password'),
+            'role' => UserRole::USER,
+            'status' => UserStatus::ACTIVE,
+            'theme' => 'light',
+        ]))->execute();
+
+        $this->assertDatabaseHas('user_notification_settings', [
+            'user_id' => $user->id,
+            'type' => 'push',
+            'direct_messages' => true,
+            'show_message_preview' => true,
+            'reactions' => true,
+            'comments' => true,
+            'shared_posts' => true,
+            'followers' => true,
+            'follow_request' => true,
+            'mentions' => true,
+        ]);
+    }
+
+    public function test_get_push_settings_backfills_enabled_defaults_for_users_missing_a_push_settings_row(): void
+    {
+        $user = $this->createUser('push-settings-missing-' . Str::lower(Str::random(6)));
+
+        Sanctum::actingAs($user);
+
+        $this->getJson('/api/settings/notifications/push/settings')
+            ->assertOk()
+            ->assertJsonPath('data.direct_messages', true)
+            ->assertJsonPath('data.show_message_preview', true)
+            ->assertJsonPath('data.reactions', true)
+            ->assertJsonPath('data.comments', true)
+            ->assertJsonPath('data.shared_posts', true)
+            ->assertJsonPath('data.followers', true)
+            ->assertJsonPath('data.follow_request', true)
+            ->assertJsonPath('data.mentions', true);
+
+        $this->assertDatabaseHas('user_notification_settings', [
+            'user_id' => $user->id,
+            'type' => 'push',
+            'direct_messages' => true,
+            'show_message_preview' => true,
+            'reactions' => true,
+            'comments' => true,
+            'shared_posts' => true,
+            'followers' => true,
+            'follow_request' => true,
+            'mentions' => true,
+        ]);
+    }
+
+    public function test_updating_push_settings_creates_the_missing_row_before_saving_preferences(): void
+    {
+        $user = $this->createUser('push-update-missing-' . Str::lower(Str::random(6)));
+
+        Sanctum::actingAs($user);
+
+        $this->putJson('/api/settings/notification/push/update', [
+            'direct_messages' => false,
+            'show_message_preview' => false,
+            'reactions' => false,
+            'comments' => false,
+            'shared_posts' => true,
+            'followers' => false,
+            'follow_request' => true,
+            'mentions' => false,
+        ])->assertOk()
+            ->assertJsonPath('status', 'success');
+
+        $this->assertDatabaseHas('user_notification_settings', [
+            'user_id' => $user->id,
+            'type' => 'push',
+            'direct_messages' => false,
+            'show_message_preview' => false,
+            'reactions' => false,
+            'comments' => false,
+            'shared_posts' => true,
+            'followers' => false,
+            'follow_request' => true,
+            'mentions' => false,
+        ]);
+    }
 
     public function test_authenticated_user_can_register_and_remove_an_fcm_push_token(): void
     {

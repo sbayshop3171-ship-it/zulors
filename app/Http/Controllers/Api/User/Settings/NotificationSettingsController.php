@@ -31,7 +31,7 @@ class NotificationSettingsController extends Controller
 
     public function getPushSettings()
     {
-        $pushSettings = $this->me->pushNotificationSettings;
+        $pushSettings = $this->me->resolvePushNotificationSettings();
 
         return $this->responseSuccess([
             'data' => [
@@ -49,7 +49,7 @@ class NotificationSettingsController extends Controller
 
     public function getEmailSettings()
     {
-        $emailSettings = $this->me->emailNotificationSettings;
+        $emailSettings = $this->me->resolveEmailNotificationSettings();
 
         return $this->responseSuccess([
             'data' => [
@@ -66,7 +66,9 @@ class NotificationSettingsController extends Controller
 
     public function updatePushSettings(Request $request)
     {
-        $this->me->pushNotificationSettings()->update($this->fetchNotificationSettingsFromRequest($request));
+        $this->me
+            ->resolvePushNotificationSettings()
+            ->update($this->fetchNotificationSettingsFromRequest($request));
 
         return $this->responseSuccess([
             'data' => null
@@ -75,7 +77,9 @@ class NotificationSettingsController extends Controller
 
     public function updateEmailSettings(Request $request)
     {
-        $this->me->emailNotificationSettings()->update($this->fetchNotificationSettingsFromRequest($request));
+        $this->me
+            ->resolveEmailNotificationSettings()
+            ->update($this->fetchNotificationSettingsFromRequest($request));
 
         return $this->responseSuccess([
             'data' => null

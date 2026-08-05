@@ -1,7 +1,11 @@
 <template>
 	<div class="flex items-center gap-1">
 		<PrimaryIconButton v-on:click="leaveStories" iconName="chevron-left" iconSize="7" buttonColor="text-gray-300" hoverText="text-white" hoverBg="hover:bg-white/20"></PrimaryIconButton>
-		<div class="flex gap-2 items-center overflow-hidden flex-1">
+		<button
+			type="button"
+			v-on:click.stop="openAuthorProfile"
+			class="flex min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-xl text-left transition-opacity active:opacity-80"
+		>
 			<div class="shrink-0">
 				<AvatarSmall v-bind:avatarSrc="storyAuthor.avatar_url"></AvatarSmall>
 			</div>
@@ -13,7 +17,7 @@
 					{{ playerState.frameData.date.time_ago ?? '' }}
 				</span>
 			</div>
-		</div>
+		</button>
 		<div class="inline-flex gap-1 items-center">
 			<PrimaryIconButton v-if="playerState.isPaused && ! isFrameProcessing" v-on:click="play" iconName="play" iconSize="5" buttonColor="text-gray-300" hoverText="text-white" hoverBg="hover:bg-white/20"></PrimaryIconButton>
 			<template v-if="isVideo && ! isFrameProcessing">
@@ -40,6 +44,7 @@
 
 <script>
 	import { defineComponent, computed, reactive, onMounted, inject } from 'vue';
+	import { useRouter } from 'vue-router';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { useMenu } from '@/kernel/vue/composables/menu/index.js';
 
@@ -58,6 +63,22 @@
 			});
 
 			const playerState = inject('playerState');
+			const router = useRouter();
+			const storyAuthor = computed(() => {
+				return playerState.storyAuthor;
+			});
+			const authorProfileRoute = computed(() => {
+				if(! storyAuthor.value?.username) {
+					return null;
+				}
+
+				return {
+					name: 'profile_index',
+					params: {
+						id: storyAuthor.value.username
+					}
+				};
+			});
 
 			onMounted(() => {
 				if (localStorage.getItem('stories_videos_muted')) {
@@ -76,9 +97,8 @@
 			return {
 				state: state,
 				playerState: playerState,
-				storyAuthor: computed(() => {
-                    return playerState.storyAuthor;
-                }),
+				storyAuthor: storyAuthor,
+				authorProfileRoute: authorProfileRoute,
 				isVideo: computed(() => {
                     if (playerState.frameData.type == 'video') {
                         return true;
@@ -128,6 +148,15 @@
 				canSeeViews: computed(() => {
 					return playerState.isOwner;
 				}),
+				openAuthorProfile: () => {
+					if(! storyAuthor.value?.username) {
+						return;
+					}
+
+					pause();
+					state.mainMenu.close();
+					router.push(authorProfileRoute.value);
+				},
 				leaveStories: () => {
 					colibriEventBus.emit('story:leave');
 				}

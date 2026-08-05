@@ -6,6 +6,7 @@ use App\Enums\User\UserRole;
 use App\Enums\User\UserStatus;
 use App\Enums\User\UserType;
 use App\Models\User;
+use App\Models\UserNotificationSettings;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Database\Seeder;
 use Database\Seeders\LocaleSeeder;
@@ -86,20 +87,11 @@ class DatabaseSeeder extends Seeder
 
         $user->emailNotificationSettings()->firstOrCreate([
             'type' => 'email',
-        ]);
+        ], UserNotificationSettings::defaultEmailPreferences());
 
         $user->pushNotificationSettings()->firstOrCreate([
             'type' => 'push',
-        ], [
-            'direct_messages' => true,
-            'show_message_preview' => true,
-            'reactions' => true,
-            'comments' => true,
-            'shared_posts' => true,
-            'followers' => true,
-            'follow_request' => true,
-            'mentions' => true,
-        ]);
+        ], UserNotificationSettings::defaultPushPreferences());
 
         $user->securitySettings()->updateOrCreate([], [
             '2fa' => false,
