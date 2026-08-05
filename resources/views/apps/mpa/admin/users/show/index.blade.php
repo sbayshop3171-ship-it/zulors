@@ -106,6 +106,49 @@
 				<x-counter.counter-item counterValue="{{ $userData->publications_count }}" captionText="{{ __('labels.posts') }}"></x-counter.counter-item>
 			</x-counter.counter>
 		</div>
+		<div class="mb-8">
+			<div class="rounded-3xl border border-bord-pr bg-bg-pr p-5 sm:p-6">
+				<div class="mb-5 flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+					<div class="max-w-2xl">
+						<h3 class="text-par-l font-semibold text-lab-pr">Test follower control</h3>
+						<p class="mt-1 text-par-n text-lab-sc">
+							Only active <code>.test</code> accounts are used here. Real users and non-test follow relationships stay untouched.
+						</p>
+					</div>
+					<div class="flex flex-wrap gap-2 text-par-s text-lab-sc">
+						<span class="rounded-full bg-fill-fv px-3 py-1.5">Current active .test followers: <strong class="text-lab-pr">{{ number_format($testFollowerCount) }}</strong></span>
+						<span class="rounded-full bg-fill-fv px-3 py-1.5">Available .test pool: <strong class="text-lab-pr">{{ number_format($testFollowerPool) }}</strong></span>
+					</div>
+				</div>
+
+				<form action="{{ route('admin.users.test-followers.sync', $userData->id) }}" method="POST" class="grid gap-4 lg:grid-cols-[minmax(0,280px)_auto] lg:items-end">
+					@csrf
+					<x-form.text-input
+						name="test_followers"
+						errorKey="test_followers"
+						labelText="Exact test follower count"
+						inputType="number"
+						placeholder="Enter follower count"
+						value="{{ old('test_followers', $testFollowerCount) }}"
+						min="0"
+						max="{{ $testFollowerPool }}"
+					>
+						<x-slot:feedbackInfo>
+							Set the exact number of active <code>.test</code> followers for this user. If you lower the number later, surplus test follows will be removed cleanly.
+						</x-slot:feedbackInfo>
+					</x-form.text-input>
+
+					<div class="flex flex-col gap-2 sm:flex-row lg:justify-end">
+						<x-ui.buttons.pill
+							type="submit"
+							size="sm"
+							btnText="Save test followers"
+							width="w-full sm:w-auto"
+						></x-ui.buttons.pill>
+					</div>
+				</form>
+			</div>
+		</div>
 		<div class="mb-6">
 			<x-line-table.table>
 				<x-line-table.row>

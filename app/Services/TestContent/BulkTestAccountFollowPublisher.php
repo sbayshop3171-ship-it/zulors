@@ -4,6 +4,7 @@ namespace App\Services\TestContent;
 
 use App\Database\Configs\Table;
 use App\Enums\User\FollowStatus;
+use App\Enums\User\UserStatus;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
@@ -87,6 +88,137 @@ class BulkTestAccountFollowPublisher
 					'following_count' => DB::raw("(SELECT COUNT(*) FROM ".Table::FOLLOWS." WHERE follower_id = ".Table::USERS.".id AND status = '".FollowStatus::FOLLOWING->value."')"),
 				]);
 		}
+	}
+
+	public function availableTestFollowerPoolFor(User $target): int
+	{
+		return count($this->activeTestFollowerIdsFor($target));
+	}
+
+	public function currentTestFollowerCountFor(User $target): int
+	{
+		return (int) DB::table(Table::FOLLOWS.' as follows')
+			->join(Table::USERS.' as follower_users', 'follower_users.id', '=', 'follows.follower_id')
+			->where('follows.following_id', $target->id)
+			->where('follows.status', FollowStatus::FOLLOWING->value)
+			->where('follower_users.status', UserStatus::ACTIVE->value)
+			->whereRaw('LOWER(follower_users.email) LIKE ?', ['%.test'])
+			->count();
+	}
+
+	/**
+	 * @return array{
+	 *     target: int,
+	 *     available: int,
+	 *     current: int,
+	 *     added: int,
+	 *     existing: int,
+	 *     promoted: int,
+	 *     removed: int
+	 * }
+	 */
+	public function syncExactFollowersForUser(User $target, int $targetCount): array
+	{
+		return DB::transaction(function () use ($target, $targetCount) {
+			$lockedTarget = User::query()
+				->whereKey($target->id)
+				->lockForUpdate()
+				->firstOrFail();
+			$eligibleFollowerIds = $this->activeTestFollowerIdsFor($lockedTarget);
+			$available = count($eligibleFollowerIds);
+
+			if ($targetCount < 0 || $targetCount > $available) {
+				throw new \InvalidArgumentException('The requested follower target is outside the eligible account range.');
+			}
+
+			$selectedFollowerIds = $targetCount > 0
+				? $this->rotatingUsers($eligibleFollowerIds, $targetCount, "admin:test-followers:{$lockedTarget->id}")
+				: [];
+			$selectedFollowerLookup = array_fill_keys($selectedFollowerIds, true);
+			$existingTestFollows = DB::table(Table::FOLLOWS.' as follows')
+				->join(Table::USERS.' as follower_users', 'follower_users.id', '=', 'follows.follower_id')
+				->where('follows.following_id', $lockedTarget->id)
+				->whereRaw('LOWER(follower_users.email) LIKE ?', ['%.test'])
+				->lockForUpdate()
+				->get([
+					'follows.follower_id',
+					'follows.status',
+				])
+				->keyBy('follower_id');
+			$toInsert = [];
+			$toPromote = [];
+			$existingFollowing = 0;
+
+			foreach ($selectedFollowerIds as $followerId) {
+				$follow = $existingTestFollows->get($followerId);
+
+				if (! $follow) {
+					$toInsert[] = $followerId;
+					continue;
+				}
+
+				if ($follow->status === FollowStatus::FOLLOWING->value) {
+					$existingFollowing++;
+				} else {
+					$toPromote[] = $followerId;
+				}
+			}
+
+			$toRemove = $existingTestFollows->keys()
+				->reject(fn ($followerId) => isset($selectedFollowerLookup[(int) $followerId]))
+				->map(fn ($followerId) => (int) $followerId)
+				->values()
+				->all();
+			$now = now();
+			$added = 0;
+
+			foreach (array_chunk($toInsert, 500) as $followerChunk) {
+				$rows = array_map(fn (int $followerId) => [
+					'follower_id' => $followerId,
+					'following_id' => $lockedTarget->id,
+					'status' => FollowStatus::FOLLOWING->value,
+					'created_at' => $now,
+					'updated_at' => $now,
+				], $followerChunk);
+				$added += DB::table(Table::FOLLOWS)->insertOrIgnore($rows);
+			}
+
+			if ($toPromote !== []) {
+				DB::table(Table::FOLLOWS)
+					->where('following_id', $lockedTarget->id)
+					->whereIn('follower_id', $toPromote)
+					->where('status', '!=', FollowStatus::FOLLOWING->value)
+					->update([
+						'status' => FollowStatus::FOLLOWING->value,
+						'updated_at' => $now,
+					]);
+			}
+
+			$removed = 0;
+
+			foreach (array_chunk($toRemove, 500) as $followerChunk) {
+				$removed += DB::table(Table::FOLLOWS)
+					->where('following_id', $lockedTarget->id)
+					->whereIn('follower_id', $followerChunk)
+					->delete();
+			}
+
+			$this->synchronizeCounts(array_values(array_unique(array_merge(
+				[$lockedTarget->id],
+				$selectedFollowerIds,
+				$toRemove,
+			))));
+
+			return [
+				'target' => $targetCount,
+				'available' => $available,
+				'current' => $targetCount,
+				'added' => $added,
+				'existing' => $existingFollowing,
+				'promoted' => count($toPromote),
+				'removed' => $removed,
+			];
+		}, 3);
 	}
 
 	/**
@@ -273,6 +405,19 @@ class BulkTestAccountFollowPublisher
 			->all();
 	}
 
+	/** @return array<int, int> */
+	private function activeTestFollowerIdsFor(User $target): array
+	{
+		return User::query()
+			->active()
+			->whereRaw('LOWER(email) LIKE ?', ['%.test'])
+			->when($this->isTestEmail($target->email), fn ($query) => $query->whereKeyNot($target->id))
+			->orderBy('id')
+			->pluck('id')
+			->map(fn ($id) => (int) $id)
+			->all();
+	}
+
 	/** @return Collection<int, User> */
 	private function testUsersAfter(int $afterId, int $targetLimit): Collection
 	{
@@ -292,5 +437,10 @@ class BulkTestAccountFollowPublisher
 		}
 
 		return (int) (sprintf('%u', crc32($seed)) % $length);
+	}
+
+	private function isTestEmail(string $email): bool
+	{
+		return str_ends_with(strtolower($email), '.test');
 	}
 }

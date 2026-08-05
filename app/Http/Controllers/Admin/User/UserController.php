@@ -2,8 +2,9 @@
 
 namespace App\Http\Controllers\Admin\User;
 
-use App\Models\User;
 use App\Enums\User\UserType;
+use App\Models\User;
+use App\Services\TestContent\BulkTestAccountFollowPublisher;
 use App\Support\Views\Flash;
 use Illuminate\Http\Request;
 use App\Enums\User\ASRStatus;
@@ -42,7 +43,7 @@ class UserController extends Controller
         ]);
     }
 
-    public function show(int $userId)
+    public function show(int $userId, BulkTestAccountFollowPublisher $testFollowerPublisher)
     {
         $userData = $this->fetchUserById($userId);
 
@@ -50,7 +51,9 @@ class UserController extends Controller
 
         return view('admin::users.show.index', [
             'userData' => $userData,
-            'authorshipRequest' => $authorshipRequest
+            'authorshipRequest' => $authorshipRequest,
+            'testFollowerPool' => $testFollowerPublisher->availableTestFollowerPoolFor($userData),
+            'testFollowerCount' => $testFollowerPublisher->currentTestFollowerCountFor($userData),
         ]);
     }
 
@@ -137,6 +140,19 @@ class UserController extends Controller
         ]);
 
         return redirect()->route('admin.users.show', $userId)->with('flashMessage', (new Flash(content: __('admin/flash.user.unverify_success')))->get());
+    }
+
+    public function syncTestFollowers(Request $request, int $userId, BulkTestAccountFollowPublisher $testFollowerPublisher)
+    {
+        $userData = $this->fetchUserById($userId);
+        $availablePool = $testFollowerPublisher->availableTestFollowerPoolFor($userData);
+        $validated = $request->validate([
+            'test_followers' => ['required', 'integer', 'min:0', 'max:'.$availablePool],
+        ]);
+        $summary = $testFollowerPublisher->syncExactFollowersForUser($userData, (int) $validated['test_followers']);
+        $message = "Test followers synced for @{$userData->username}: {$summary['current']} active .test followers set ({$summary['added']} added, {$summary['promoted']} promoted, {$summary['removed']} removed).";
+
+        return redirect()->route('admin.users.show', $userId)->with('flashMessage', (new Flash(content: $message))->get());
     }
 
     private function fetchUserById(int $userId)

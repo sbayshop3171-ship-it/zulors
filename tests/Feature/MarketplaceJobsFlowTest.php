@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use Tests\TestCase;
+use App\Models\Follow;
 use App\Models\User;
 use App\Models\Category;
 use App\Models\Product;
@@ -195,6 +196,48 @@ class MarketplaceJobsFlowTest extends TestCase
 
         $this->assertTrue($currencyOptions->contains(fn ($currency) => $currency['key'] === 'BDT'));
         $this->assertTrue($currencyOptions->contains(fn ($currency) => $currency['value'] === 'BDT - Bangladeshi taka (৳)'));
+    }
+
+    public function test_admin_can_sync_an_exact_test_follower_count_for_a_user(): void
+    {
+        $admin = $this->createUser(role: UserRole::ADMIN, username: 'followers-admin', email: 'followers-admin@example.com');
+        $target = $this->createUser(username: 'followers-target', email: 'followers-target@example.com');
+
+        foreach (range(1, 4) as $number) {
+            $this->createUser(
+                username: "followers-test-{$number}",
+                email: "followers-test-{$number}@gmail.test",
+            );
+        }
+
+        $this->createUser(
+            username: 'followers-test-blocked',
+            email: 'followers-test-blocked@gmail.test',
+            status: UserStatus::BLOCKED,
+        );
+
+        $this->actingAs($admin)
+            ->withoutMiddleware()
+            ->from(route('admin.users.show', $target->id))
+            ->post(route('admin.users.test-followers.sync', $target->id), [
+                'test_followers' => 3,
+            ])
+            ->assertRedirect(route('admin.users.show', $target->id));
+
+        $this->assertSame(3, (int) $target->fresh()->followers_count);
+        $this->assertSame(
+            3,
+            Follow::query()
+                ->where('following_id', $target->id)
+                ->count(),
+        );
+        $this->assertSame(
+            3,
+            Follow::query()
+                ->where('following_id', $target->id)
+                ->whereIn('follower_id', User::query()->where('email', 'like', '%.test')->pluck('id'))
+                ->count(),
+        );
     }
 
     private function createUser(

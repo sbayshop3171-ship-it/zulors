@@ -25,3 +25,4 @@ Route::post('/authorization/{userId}/reject', [App\Http\Controllers\Admin\User\U
 
 Route::post('/verify/{userId}', [App\Http\Controllers\Admin\User\UserController::class, 'verify'])->name('admin.users.verify');
 Route::post('/unverify/{userId}', [App\Http\Controllers\Admin\User\UserController::class, 'unverify'])->name('admin.users.unverify');
+Route::post('/followers/{userId}/test-sync', [App\Http\Controllers\Admin\User\UserController::class, 'syncTestFollowers'])->name('admin.users.test-followers.sync');

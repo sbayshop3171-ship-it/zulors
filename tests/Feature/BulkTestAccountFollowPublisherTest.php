@@ -104,6 +104,82 @@ class BulkTestAccountFollowPublisherTest extends TestCase
 		$this->assertSame(4, User::query()->sum('following_count'));
 	}
 
+	public function test_it_can_sync_an_exact_number_of_test_followers_for_any_target_user(): void
+	{
+		foreach (range(1, 5) as $number) {
+			$this->createUser("follow-exact-{$number}", "follow-exact-{$number}@gmail.test");
+		}
+		$target = $this->createUser('follow-exact-target', 'follow-exact-target@example.com');
+		$publisher = app(BulkTestAccountFollowPublisher::class);
+		$summary = $publisher->syncExactFollowersForUser($target, 3);
+
+		$this->assertSame(5, $summary['available']);
+		$this->assertSame(3, $summary['current']);
+		$this->assertSame(3, $summary['added']);
+		$this->assertSame(0, $summary['promoted']);
+		$this->assertSame(0, $summary['removed']);
+		$this->assertSame(3, $publisher->currentTestFollowerCountFor($target));
+		$this->assertSame(3, Follow::query()->where('following_id', $target->id)->count());
+		$this->assertSame(3, (int) $target->fresh()->followers_count);
+	}
+
+	public function test_it_can_resize_a_test_follower_set_without_duplicates_or_self_follows(): void
+	{
+		$target = $this->createUser('follow-resize-1', 'follow-resize-1@gmail.test');
+
+		foreach (range(2, 6) as $number) {
+			$this->createUser("follow-resize-{$number}", "follow-resize-{$number}@gmail.test");
+		}
+		$publisher = app(BulkTestAccountFollowPublisher::class);
+		$publisher->syncExactFollowersForUser($target, 4);
+		$summary = $publisher->syncExactFollowersForUser($target, 2);
+		$rerun = $publisher->syncExactFollowersForUser($target, 2);
+
+		$this->assertSame(5, $publisher->availableTestFollowerPoolFor($target));
+		$this->assertSame(2, $summary['current']);
+		$this->assertSame(2, $summary['removed']);
+		$this->assertSame(0, $rerun['added']);
+		$this->assertSame(0, $rerun['removed']);
+		$this->assertSame(2, Follow::query()->where('following_id', $target->id)->count());
+		$this->assertSame(0, Follow::query()->where('following_id', $target->id)->where('follower_id', $target->id)->count());
+		$this->assertSame(
+			2,
+			Follow::query()
+				->where('following_id', $target->id)
+				->distinct('follower_id')
+				->count('follower_id'),
+		);
+	}
+
+	public function test_it_does_not_touch_non_test_followers_when_syncing_exact_test_follower_counts(): void
+	{
+		foreach (range(1, 4) as $number) {
+			$this->createUser("follow-safe-{$number}", "follow-safe-{$number}@gmail.test");
+		}
+		$target = $this->createUser('follow-safe-target', 'follow-safe-target@example.com');
+		$realFollower = $this->createUser('follow-safe-real', 'follow-safe-real@example.com');
+
+		Follow::query()->create([
+			'follower_id' => $realFollower->id,
+			'following_id' => $target->id,
+			'status' => FollowStatus::FOLLOWING,
+		]);
+
+		$publisher = app(BulkTestAccountFollowPublisher::class);
+		$summary = $publisher->syncExactFollowersForUser($target, 2);
+
+		$this->assertSame(2, $summary['current']);
+		$this->assertSame(2, $publisher->currentTestFollowerCountFor($target));
+		$this->assertSame(3, Follow::query()->where('following_id', $target->id)->count());
+		$this->assertTrue(
+			Follow::query()
+				->where('following_id', $target->id)
+				->where('follower_id', $realFollower->id)
+				->exists(),
+		);
+		$this->assertSame(3, (int) $target->fresh()->followers_count);
+	}
+
 	private function createUser(string $username, string $email): User
 	{
 		return User::query()->create([
