@@ -32,21 +32,26 @@
         setup: function(props, context) {
             const audioDurationSeconds = 120;
             const isSubmitting = ref(false);
-            const { startMic, startRecording, stopRecording, stopMic, finalizeRecording, elapsed, error } = useAudioRecorder({
+            const { startMic, startRecording, stopRecording, stopMic, finalizeRecording, elapsed, errorMessage } = useAudioRecorder({
                 maxDuration: audioDurationSeconds,
             });
 
             onMounted(async () => {
-                await startMic();
+                const micStartResult = await startMic();
 
-                if(error.value) {
-                    alert('Microphone access is required to send a voice message.');
+                if(micStartResult?.ok === false) {
+                    alert(errorMessage.value || 'We could not start voice recording right now. Please try again.');
                     context.emit('cancel');
 
                     return;
                 }
 
-                startRecording();
+                if(! startRecording()) {
+                    alert(errorMessage.value || 'We could not start voice recording on this device. Please try again.');
+                    context.emit('cancel');
+
+                    return;
+                }
 
                 hotkeys('esc', cancelAudioRecording);
 
@@ -62,8 +67,8 @@
             });
 
             const cancelAudioRecording = () => {
-                stopMic();
                 stopRecording();
+                stopMic();
 
                 context.emit('cancel');
             }

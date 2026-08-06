@@ -7,6 +7,8 @@ export function useAudioRecorder({ maxDuration = 120 } = {}) {
     const blob = ref(null);
     const duration = ref(0);
     const error = ref(null);
+    const errorCode = ref('');
+    const errorMessage = ref('');
     const elapsed = ref(0);
     const mimeType = ref('');
 
@@ -18,6 +20,10 @@ export function useAudioRecorder({ maxDuration = 120 } = {}) {
     let resolveFinalizeRecording = null;
 
     function getPreferredMimeType() {
+        if (!supportsMediaRecorder()) {
+            return "";
+        }
+
         const types = [
             "audio/mp4",
             "audio/webm;codecs=opus",
@@ -29,22 +35,92 @@ export function useAudioRecorder({ maxDuration = 120 } = {}) {
         return types.find((t) => MediaRecorder.isTypeSupported(t)) || "";
     }
 
+    function resetRecorderError() {
+        error.value = null;
+        errorCode.value = '';
+        errorMessage.value = '';
+    }
+
+    function setRecorderError(code, message, rawError = null) {
+        error.value = rawError;
+        errorCode.value = code;
+        errorMessage.value = message;
+
+        return {
+            ok: false,
+            code: code,
+            message: message,
+            error: rawError,
+        };
+    }
+
     async function startMic() {
-        try {
-            stream.value = await navigator.mediaDevices.getUserMedia({
+        resetRecorderError();
+        stopMic();
+
+        if (!canUseUserMedia()) {
+            return setRecorderError('unsupported', 'Voice recording is not supported in this browser or app build yet.');
+        }
+
+        const permissionState = await getMicrophonePermissionState();
+
+        if (permissionState === 'denied') {
+            return setRecorderError('permission-denied', 'Microphone access is blocked. Please allow microphone access in your browser or app settings and try again.');
+        }
+
+        const microphoneConstraintSets = [
+            {
                 audio: {
                     echoCancellation: true,
                     noiseSuppression: true,
                     autoGainControl: true,
-                    channelCount: 1,
-                    sampleRate: 48000,
-                    sampleSize: 16,
+                    channelCount: { ideal: 1 },
+                    sampleRate: { ideal: 48000 },
+                    sampleSize: { ideal: 16 },
                 },
                 video: false,
-            });
+            },
+            {
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                },
+                video: false,
+            },
+            {
+                audio: true,
+                video: false,
+            },
+        ];
+
+        let lastError = null;
+
+        try {
+            for (const constraints of microphoneConstraintSets) {
+                try {
+                    stream.value = await navigator.mediaDevices.getUserMedia(constraints);
+
+                    return {
+                        ok: true,
+                    };
+                } catch (constraintError) {
+                    lastError = constraintError;
+
+                    if (isPermissionDeniedError(constraintError)) {
+                        break;
+                    }
+                }
+            }
         } catch (e) {
-            error.value = e;
+            lastError = e;
         }
+
+        return setRecorderError(
+            resolveMicErrorCode(lastError, permissionState),
+            resolveMicErrorMessage(lastError, permissionState),
+            lastError,
+        );
     }
 
     function startRecording() {
@@ -52,11 +128,18 @@ export function useAudioRecorder({ maxDuration = 120 } = {}) {
             return false;
         };
 
+        resetRecorderError();
+
+        if (!supportsMediaRecorder()) {
+            setRecorderError('unsupported', 'Voice recording is not supported in this browser or app build yet.');
+
+            return false;
+        }
+
         chunks = [];
         blob.value = null;
         duration.value = 0;
         elapsed.value = 0;
-        error.value = null;
         mimeType.value = getPreferredMimeType();
 
         const recorderOptions = {
@@ -67,7 +150,18 @@ export function useAudioRecorder({ maxDuration = 120 } = {}) {
             recorderOptions.mimeType = mimeType.value;
         }
 
-        recorder = new MediaRecorder(stream.value, recorderOptions);
+        try {
+            recorder = new MediaRecorder(stream.value, recorderOptions);
+        } catch (primaryError) {
+            try {
+                recorder = new MediaRecorder(stream.value);
+                mimeType.value = '';
+            } catch (fallbackError) {
+                setRecorderError('recorder-init-failed', 'We could not start voice recording on this device. Please try again.', fallbackError);
+
+                return false;
+            }
+        }
 
         finalizeRecordingPromise = new Promise((resolve) => {
             resolveFinalizeRecording = resolve;
@@ -105,6 +199,8 @@ export function useAudioRecorder({ maxDuration = 120 } = {}) {
                 stopRecording();
             }
         }, 250);
+
+        return true;
     }
 
     function stopRecording() {
@@ -150,6 +246,8 @@ export function useAudioRecorder({ maxDuration = 120 } = {}) {
         isRecording,
         blob,
         error,
+        errorCode,
+        errorMessage,
         elapsed,
         duration,
         mimeType,
@@ -159,4 +257,75 @@ export function useAudioRecorder({ maxDuration = 120 } = {}) {
         finalizeRecording,
         stopMic,
     };
+}
+
+function canUseUserMedia() {
+    return typeof navigator !== 'undefined'
+        && !!navigator.mediaDevices
+        && typeof navigator.mediaDevices.getUserMedia === 'function';
+}
+
+function supportsMediaRecorder() {
+    return typeof MediaRecorder !== 'undefined';
+}
+
+async function getMicrophonePermissionState() {
+    if (typeof navigator === 'undefined' || !navigator.permissions?.query) {
+        return null;
+    }
+
+    try {
+        const result = await navigator.permissions.query({ name: 'microphone' });
+
+        return result?.state || null;
+    } catch {
+        return null;
+    }
+}
+
+function isPermissionDeniedError(error) {
+    return [
+        'NotAllowedError',
+        'PermissionDeniedError',
+        'SecurityError',
+    ].includes(error?.name);
+}
+
+function resolveMicErrorCode(error, permissionState) {
+    if (permissionState === 'denied' || isPermissionDeniedError(error)) {
+        return 'permission-denied';
+    }
+
+    if ([
+        'NotReadableError',
+        'TrackStartError',
+        'AbortError',
+    ].includes(error?.name)) {
+        return 'mic-unavailable';
+    }
+
+    if ([
+        'OverconstrainedError',
+        'ConstraintNotSatisfiedError',
+    ].includes(error?.name)) {
+        return 'mic-constraints';
+    }
+
+    return 'mic-unavailable';
+}
+
+function resolveMicErrorMessage(error, permissionState) {
+    if (permissionState === 'denied' || isPermissionDeniedError(error)) {
+        return 'Microphone access is blocked. Please allow microphone access in your browser or app settings and try again.';
+    }
+
+    if ([
+        'NotReadableError',
+        'TrackStartError',
+        'AbortError',
+    ].includes(error?.name)) {
+        return 'Your microphone is busy or unavailable right now. Close other apps using it and try again.';
+    }
+
+    return 'We could not start voice recording right now. Please try again.';
 }
