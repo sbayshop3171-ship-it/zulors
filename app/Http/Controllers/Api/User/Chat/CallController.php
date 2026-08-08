@@ -46,7 +46,7 @@ class CallController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'chat_id' => ['required', 'uuid'],
-            'media_type' => ['nullable', Rule::enum(CallMediaType::class)],
+            'media_type' => ['nullable', Rule::in([CallMediaType::AUDIO->value])],
         ]);
 
         if($validator->fails()) {
@@ -77,7 +77,7 @@ class CallController extends Controller
             return $this->responseBusy($chat);
         }
 
-        $mediaType = CallMediaType::tryFrom((string) $request->input('media_type')) ?: CallMediaType::AUDIO;
+        $mediaType = CallMediaType::AUDIO;
         $expiresAt = now()->addSeconds(45);
 
         $callSession = DB::transaction(function () use ($chat, $receiver, $mediaType, $expiresAt) {
@@ -197,19 +197,31 @@ class CallController extends Controller
         ]);
     }
 
-    public function end(string $callUuid, CallLifecycleService $calls)
+    public function end(Request $request, string $callUuid, CallLifecycleService $calls)
     {
+        $validator = Validator::make($request->all(), [
+            'reason' => ['nullable', 'string', Rule::in(['user_ended', 'canceled', 'connection_lost', 'connection_timeout', 'ice_failed'])],
+        ]);
+
+        if($validator->fails()) {
+            return $this->throwValidationError($validator);
+        }
+
         $callSession = $this->resolveCallForMe($callUuid);
 
         if(empty($callSession)) {
             return $this->responseResourceNotFoundError('Call', $callUuid);
         }
 
+        $requestedReason = (string) $request->input('reason', 'user_ended');
         $reason = $callSession->status === CallStatus::RINGING && $callSession->initiator_id === me()->id
             ? 'canceled'
-            : 'user_ended';
+            : $requestedReason;
+        $finalStatus = in_array($reason, ['connection_lost', 'connection_timeout', 'ice_failed'], true)
+            ? CallStatus::FAILED
+            : CallStatus::ENDED;
 
-        $calls->finalize($callSession, CallStatus::ENDED, $reason, me()->id);
+        $calls->finalize($callSession, $finalStatus, $reason, me()->id);
         $callSession = $callSession->fresh(['chat', 'initiator', 'receiver']);
 
         event(new CallSessionEvent('call.ended', $callSession, [
@@ -223,6 +235,115 @@ class CallController extends Controller
         ]);
     }
 
+    public function quality(Request $request, string $callUuid)
+    {
+        $validator = Validator::make($request->all(), [
+            'network_quality' => ['nullable', 'string', Rule::in(['good', 'weak', 'poor', 'reconnecting', 'unknown'])],
+            'issue' => ['nullable', 'string', 'max:120'],
+            'connection_state' => ['nullable', 'string', Rule::in(['new', 'connecting', 'connected', 'disconnected', 'failed', 'closed', 'unknown'])],
+            'ice_connection_state' => ['nullable', 'string', Rule::in(['new', 'checking', 'connected', 'completed', 'disconnected', 'failed', 'closed', 'unknown'])],
+            'round_trip_time_ms' => ['nullable', 'numeric', 'min:0', 'max:60000'],
+            'jitter_ms' => ['nullable', 'numeric', 'min:0', 'max:60000'],
+            'packets_lost' => ['nullable', 'integer', 'min:0', 'max:100000000'],
+            'packets_received' => ['nullable', 'integer', 'min:0', 'max:100000000'],
+            'packet_loss_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'bytes_sent' => ['nullable', 'integer', 'min:0', 'max:100000000000'],
+            'bytes_received' => ['nullable', 'integer', 'min:0', 'max:100000000000'],
+            'available_outgoing_bitrate' => ['nullable', 'numeric', 'min:0', 'max:1000000000'],
+            'audio_level' => ['nullable', 'numeric', 'min:0', 'max:1'],
+        ]);
+
+        if($validator->fails()) {
+            return $this->throwValidationError($validator);
+        }
+
+        $callSession = $this->resolveCallForMe($callUuid);
+
+        if(empty($callSession)) {
+            return $this->responseResourceNotFoundError('Call', $callUuid);
+        }
+
+        if(! $callSession->status->isActive()) {
+            return $this->responseError([
+                'message' => 'This call is no longer active.',
+            ], Response::HTTP_GONE);
+        }
+
+        $metadata = $callSession->metadata ?: [];
+        $qualityData = $metadata['quality'] ?? [];
+        $latest = $qualityData['latest'] ?? [];
+        $summary = $qualityData['summary'] ?? [];
+        $events = $qualityData['events'] ?? [];
+        $userKey = (string) me()->id;
+        $sample = array_filter([
+            'network_quality' => $request->input('network_quality', 'unknown'),
+            'issue' => $request->input('issue'),
+            'connection_state' => $request->input('connection_state', 'unknown'),
+            'ice_connection_state' => $request->input('ice_connection_state', 'unknown'),
+            'round_trip_time_ms' => $this->metricFloat($request->input('round_trip_time_ms')),
+            'jitter_ms' => $this->metricFloat($request->input('jitter_ms')),
+            'packets_lost' => $this->metricInt($request->input('packets_lost')),
+            'packets_received' => $this->metricInt($request->input('packets_received')),
+            'packet_loss_percent' => $this->metricFloat($request->input('packet_loss_percent')),
+            'bytes_sent' => $this->metricInt($request->input('bytes_sent')),
+            'bytes_received' => $this->metricInt($request->input('bytes_received')),
+            'available_outgoing_bitrate' => $this->metricFloat($request->input('available_outgoing_bitrate')),
+            'audio_level' => $this->metricFloat($request->input('audio_level')),
+            'reported_at' => now()->toIso8601String(),
+        ], fn ($value) => $value !== null && $value !== '');
+
+        $latest[$userKey] = $sample;
+
+        $userSummary = $summary[$userKey] ?? [
+            'reports_count' => 0,
+            'weak_reports' => 0,
+            'poor_reports' => 0,
+            'max_packet_loss_percent' => 0,
+            'max_jitter_ms' => 0,
+            'max_round_trip_time_ms' => 0,
+            'last_reported_at' => null,
+        ];
+        $userSummary['reports_count'] = ((int) ($userSummary['reports_count'] ?? 0)) + 1;
+        $userSummary['weak_reports'] = ((int) ($userSummary['weak_reports'] ?? 0)) + ($sample['network_quality'] === 'weak' ? 1 : 0);
+        $userSummary['poor_reports'] = ((int) ($userSummary['poor_reports'] ?? 0)) + (in_array($sample['network_quality'], ['poor', 'reconnecting'], true) ? 1 : 0);
+        $userSummary['max_packet_loss_percent'] = max((float) ($userSummary['max_packet_loss_percent'] ?? 0), (float) ($sample['packet_loss_percent'] ?? 0));
+        $userSummary['max_jitter_ms'] = max((float) ($userSummary['max_jitter_ms'] ?? 0), (float) ($sample['jitter_ms'] ?? 0));
+        $userSummary['max_round_trip_time_ms'] = max((float) ($userSummary['max_round_trip_time_ms'] ?? 0), (float) ($sample['round_trip_time_ms'] ?? 0));
+        $userSummary['last_network_quality'] = $sample['network_quality'] ?? 'unknown';
+        $userSummary['last_issue'] = $sample['issue'] ?? null;
+        $userSummary['last_reported_at'] = $sample['reported_at'];
+        $summary[$userKey] = $userSummary;
+
+        if(in_array(($sample['network_quality'] ?? 'unknown'), ['weak', 'poor', 'reconnecting'], true) || ! empty($sample['issue'])) {
+            $events[] = [
+                'user_id' => me()->id,
+                'network_quality' => $sample['network_quality'] ?? 'unknown',
+                'issue' => $sample['issue'] ?? null,
+                'reported_at' => $sample['reported_at'],
+            ];
+            $events = array_slice($events, -20);
+        }
+
+        $metadata['quality'] = [
+            'latest' => $latest,
+            'summary' => $summary,
+            'events' => $events,
+        ];
+
+        $callSession->forceFill([
+            'metadata' => $metadata,
+        ])->save();
+
+        return $this->responseSuccess([
+            'data' => [
+                'quality' => [
+                    'accepted' => true,
+                    'summary' => $summary[$userKey],
+                ],
+            ],
+        ]);
+    }
+
     public function signal(Request $request, string $callUuid)
     {
         $validator = Validator::make($request->all(), [
@@ -232,6 +353,12 @@ class CallController extends Controller
 
         if($validator->fails()) {
             return $this->throwValidationError($validator);
+        }
+
+        if(strlen((string) json_encode($request->input('signal', []))) > 160000) {
+            return $this->responseError([
+                'message' => 'Call signal payload is too large.',
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
         }
 
         $callSession = $this->resolveCallForMe($callUuid);
@@ -354,5 +481,15 @@ class CallController extends Controller
         catch(Throwable $exception) {
             return true;
         }
+    }
+
+    private function metricFloat($value): ?float
+    {
+        return is_numeric($value) ? round((float) $value, 3) : null;
+    }
+
+    private function metricInt($value): ?int
+    {
+        return is_numeric($value) ? max(0, (int) $value) : null;
     }
 }

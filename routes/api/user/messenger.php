@@ -25,12 +25,13 @@ Route::post('/search/recent', [App\Http\Controllers\Api\User\Chat\ChatController
 Route::delete('/search/recent/{userId}', [App\Http\Controllers\Api\User\Chat\ChatController::class, 'deleteSearchRecent']);
 Route::delete('/search/recent', [App\Http\Controllers\Api\User\Chat\ChatController::class, 'clearSearchRecents']);
 
-Route::post('/calls/start', [App\Http\Controllers\Api\User\Chat\CallController::class, 'start']);
+Route::post('/calls/start', [App\Http\Controllers\Api\User\Chat\CallController::class, 'start'])->middleware('throttle:12,1');
 Route::get('/calls/{callUuid}', [App\Http\Controllers\Api\User\Chat\CallController::class, 'show']);
 Route::post('/calls/{callUuid}/answer', [App\Http\Controllers\Api\User\Chat\CallController::class, 'answer']);
 Route::post('/calls/{callUuid}/decline', [App\Http\Controllers\Api\User\Chat\CallController::class, 'decline']);
 Route::post('/calls/{callUuid}/end', [App\Http\Controllers\Api\User\Chat\CallController::class, 'end']);
-Route::post('/calls/{callUuid}/signal', [App\Http\Controllers\Api\User\Chat\CallController::class, 'signal']);
+Route::post('/calls/{callUuid}/signal', [App\Http\Controllers\Api\User\Chat\CallController::class, 'signal'])->middleware('throttle:180,1');
+Route::post('/calls/{callUuid}/quality', [App\Http\Controllers\Api\User\Chat\CallController::class, 'quality'])->middleware('throttle:60,1');
 
 Route::get('/groups/create', [App\Http\Controllers\Api\User\Chat\GroupController::class, 'createDraftGroup']);
 Route::get('/groups/{chatId}/edit', [App\Http\Controllers\Api\User\Chat\GroupController::class, 'editGroup']);

@@ -160,10 +160,20 @@
                     }
 
                     if(['accepted', 'connecting'].includes(props.callStore.status)) {
+                        if(props.callStore.networkState === 'reconnecting') {
+                            return 'Reconnecting...';
+                        }
+
                         return 'Connecting...';
                     }
 
                     if(props.callStore.status === 'connected') {
+                        if(props.callStore.qualityNotice) {
+                            return props.callStore.durationSeconds
+                                ? `${props.callStore.qualityNotice} · ${durationText.value}`
+                                : props.callStore.qualityNotice;
+                        }
+
                         return props.callStore.durationSeconds ? `Connected · ${durationText.value}` : 'Connected';
                     }
 

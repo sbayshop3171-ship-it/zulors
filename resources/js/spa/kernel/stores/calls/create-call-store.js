@@ -8,6 +8,7 @@ const finalStatuses = ['ended', 'missed', 'declined', 'busy', 'failed'];
 const connectingStatuses = ['ringing', 'accepted', 'connecting'];
 const defaultRingTimeoutSeconds = 45;
 const connectionTimeoutSeconds = 24;
+const qualityReportThrottleMs = 10000;
 
 const normalizeCallPayload = (payload = {}) => {
     if(payload?.data?.call) {
@@ -47,8 +48,13 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             ringSecondsRemaining: 0,
             ringTimeoutTimer: null,
             connectionTimeoutTimer: null,
+            reconnectTimeoutTimer: null,
             ringToneContext: null,
-            ringToneTimer: null
+            ringToneTimer: null,
+            networkState: 'stable',
+            qualityNotice: '',
+            lastQualityReportAt: 0,
+            lastQualitySignature: ''
         };
     },
     getters: {
@@ -107,6 +113,10 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         startCall: async function(chatData = {}, mediaType = 'audio') {
             if(! this.canStartCall(chatData)) {
                 throw new Error('Audio call is not available for this chat.');
+            }
+
+            if(mediaType !== 'audio') {
+                throw new Error('Video calls are not available yet.');
             }
 
             this.unlockAudioFeedback();
@@ -211,19 +221,23 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 this.finishCall('declined');
             }
         },
-        endCall: async function() {
+        endCall: async function(reason = 'user_ended') {
             if(! this.call?.call_uuid) {
                 this.finishCall('ended');
 
                 return false;
             }
 
+            reason = typeof reason === 'string' && reason ? reason : 'user_ended';
+
             try {
-                await colibriAPI().messenger()
+                await colibriAPI().messenger().with({
+                    reason: reason
+                })
                     .sendTo(`calls/${this.call.call_uuid}/end`);
             }
             finally {
-                this.finishCall('ended');
+                this.finishCall(['connection_lost', 'connection_timeout', 'ice_failed'].includes(reason) ? 'failed' : 'ended');
             }
         },
         sendSignal: async function(signalType, signal = {}) {
@@ -380,9 +394,15 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     this.markConnected(true);
                 },
                 onStateChange: (state) => {
-                    if(['failed', 'disconnected'].includes(state)) {
+                    if(['failed'].includes(state)) {
                         this.error = 'Audio connection was interrupted.';
                     }
+                },
+                onQualityStats: (stats) => {
+                    this.handleQualityStats(stats);
+                },
+                onReconnectState: (state) => {
+                    this.handleReconnectState(state);
                 }
             });
 
@@ -416,15 +436,104 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         },
         markConnected: function(shouldNotify = true) {
             this.status = 'connected';
+            this.networkState = 'stable';
+            this.qualityNotice = '';
             this.stopRingingFeedback();
             this.stopRingTimeoutTimer();
             this.stopConnectionTimeoutTimer();
+            this.stopReconnectTimeoutTimer();
             this.startDurationTimer();
 
             if(shouldNotify && ! this.connectedSignalSent) {
                 this.connectedSignalSent = true;
                 this.sendSignal('connected', {}).catch(() => {});
             }
+        },
+        handleQualityStats: function(stats = {}) {
+            if(! this.call?.call_uuid || ! this.isActive) {
+                return false;
+            }
+
+            const networkQuality = stats.network_quality || 'unknown';
+
+            this.networkState = networkQuality === 'good' ? 'stable' : networkQuality;
+            this.qualityNotice = this.qualityNoticeFor(networkQuality);
+
+            const now = Date.now();
+            const signature = [
+                networkQuality,
+                stats.issue || '',
+                stats.connection_state || '',
+                stats.ice_connection_state || ''
+            ].join(':');
+            const urgent = ['poor', 'reconnecting'].includes(networkQuality) || stats.issue;
+
+            if(! urgent && now - this.lastQualityReportAt < qualityReportThrottleMs) {
+                return true;
+            }
+
+            if(urgent && signature === this.lastQualitySignature && now - this.lastQualityReportAt < qualityReportThrottleMs) {
+                return true;
+            }
+
+            this.lastQualityReportAt = now;
+            this.lastQualitySignature = signature;
+            this.sendQualityReport(stats).catch(() => {});
+
+            return true;
+        },
+        handleReconnectState: function(state = 'stable') {
+            if(state === 'stable') {
+                this.stopReconnectTimeoutTimer();
+                this.networkState = 'stable';
+                this.qualityNotice = '';
+
+                return true;
+            }
+
+            if(state === 'reconnecting') {
+                this.networkState = 'reconnecting';
+                this.qualityNotice = 'Reconnecting...';
+                this.startReconnectTimeoutTimer();
+
+                return true;
+            }
+
+            if(state === 'failed') {
+                this.stopReconnectTimeoutTimer();
+
+                if(this.isActive) {
+                    this.error = 'Audio connection was lost.';
+                    this.endCall('connection_lost');
+                }
+            }
+
+            return true;
+        },
+        qualityNoticeFor: function(networkQuality) {
+            if(networkQuality === 'weak') {
+                return 'Weak network';
+            }
+
+            if(networkQuality === 'poor') {
+                return 'Poor connection';
+            }
+
+            if(networkQuality === 'reconnecting') {
+                return 'Reconnecting...';
+            }
+
+            return '';
+        },
+        sendQualityReport: async function(stats = {}) {
+            if(! this.call?.call_uuid) {
+                return false;
+            }
+
+            await colibriAPI().messenger().with(stats)
+                .sendTo(`calls/${this.call.call_uuid}/quality`);
+
+            return true;
         },
         toggleMute: function() {
             this.isMuted = ! this.isMuted;
@@ -458,6 +567,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.stopRingingFeedback();
             this.stopRingTimeoutTimer();
             this.stopConnectionTimeoutTimer();
+            this.stopReconnectTimeoutTimer();
             this.peer?.close();
             this.peer = null;
             this.offerSent = false;
@@ -479,6 +589,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.stopRingingFeedback();
             this.stopRingTimeoutTimer();
             this.stopConnectionTimeoutTimer();
+            this.stopReconnectTimeoutTimer();
             this.stopDurationTimer();
             this.exitNativeAudioMode();
             this.detachRealtimeChannel();
@@ -498,6 +609,10 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.isAnswering = false;
             this.durationSeconds = 0;
             this.ringSecondsRemaining = 0;
+            this.networkState = 'stable';
+            this.qualityNotice = '';
+            this.lastQualityReportAt = 0;
+            this.lastQualitySignature = '';
         },
         syncCallSideEffects: function() {
             if(this.status === 'ringing') {
@@ -600,13 +715,35 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 }
 
                 this.error = 'Audio connection timed out.';
-                await this.endCall();
+                await this.endCall('connection_timeout');
             }, connectionTimeoutSeconds * 1000);
         },
         stopConnectionTimeoutTimer: function() {
             if(this.connectionTimeoutTimer) {
                 window.clearTimeout(this.connectionTimeoutTimer);
                 this.connectionTimeoutTimer = null;
+            }
+        },
+        startReconnectTimeoutTimer: function() {
+            if(this.reconnectTimeoutTimer || ! this.isActive) {
+                return;
+            }
+
+            this.reconnectTimeoutTimer = window.setTimeout(async () => {
+                this.reconnectTimeoutTimer = null;
+
+                if(! this.isActive || this.networkState !== 'reconnecting') {
+                    return;
+                }
+
+                this.error = 'Audio connection was lost.';
+                await this.endCall('connection_lost');
+            }, 10000);
+        },
+        stopReconnectTimeoutTimer: function() {
+            if(this.reconnectTimeoutTimer) {
+                window.clearTimeout(this.reconnectTimeoutTimer);
+                this.reconnectTimeoutTimer = null;
             }
         },
         unlockAudioFeedback: function() {

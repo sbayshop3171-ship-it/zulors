@@ -19,6 +19,7 @@ class CallSessionResource extends JsonResource
             'initiator_id' => $this->initiator_id,
             'receiver_id' => $this->receiver_id,
             'expires_at' => $this->expires_at?->toIso8601String(),
+            'quality' => data_get($this->metadata ?: [], 'quality.summary', []),
             'timestamps' => [
                 'started_at' => $this->started_at?->toIso8601String(),
                 'answered_at' => $this->answered_at?->toIso8601String(),

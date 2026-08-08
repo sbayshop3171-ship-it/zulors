@@ -60,6 +60,25 @@ class AudioCallsTest extends TestCase
         Queue::assertPushed(ExpireRingingCallJob::class);
     }
 
+    public function test_video_calls_are_deferred_for_audio_v1(): void
+    {
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+
+        Sanctum::actingAs($caller);
+
+        $this->postJson('/api/messenger/calls/start', [
+            'chat_id' => $chat->chat_id,
+            'media_type' => 'video',
+        ])->assertUnprocessable();
+
+        $this->assertDatabaseMissing('call_sessions', [
+            'chat_id' => $chat->id,
+            'initiator_id' => $caller->id,
+            'receiver_id' => $receiver->id,
+            'media_type' => CallMediaType::VIDEO->value,
+        ]);
+    }
+
     public function test_non_participant_cannot_start_or_signal_call(): void
     {
         [$caller, $receiver, $chat] = $this->createDirectChat();
@@ -126,6 +145,35 @@ class AudioCallsTest extends TestCase
         $this->assertDatabaseHas('messages', [
             'chat_id' => $chat->id,
             'type' => MessageType::CALL->value,
+        ]);
+    }
+
+    public function test_connection_lost_end_marks_call_failed(): void
+    {
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+        $call = $this->createRingingCall($caller, $receiver, $chat, [
+            'status' => CallStatus::CONNECTED,
+            'answered_at' => now()->subSeconds(20),
+            'connected_at' => now()->subSeconds(18),
+        ]);
+
+        Sanctum::actingAs($caller);
+
+        $this->postJson("/api/messenger/calls/{$call->call_uuid}/end", [
+            'reason' => 'connection_lost',
+        ])->assertOk()
+            ->assertJsonPath('data.call.status', 'failed');
+
+        $this->assertDatabaseHas('call_sessions', [
+            'id' => $call->id,
+            'status' => CallStatus::FAILED->value,
+            'end_reason' => 'connection_lost',
+        ]);
+
+        $this->assertDatabaseHas('messages', [
+            'chat_id' => $chat->id,
+            'type' => MessageType::CALL->value,
+            'content' => 'Voice call failed',
         ]);
     }
 
@@ -206,6 +254,58 @@ class AudioCallsTest extends TestCase
         $this->assertSame($receiver->id, $verifiedToken['user_id']);
         $this->assertSame($chat->chat_id, $verifiedToken['chat_uuid']);
         $this->assertSame($call->call_uuid, $verifiedToken['call_uuid']);
+    }
+
+    public function test_call_quality_report_updates_call_metadata(): void
+    {
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+        $call = $this->createRingingCall($caller, $receiver, $chat, [
+            'status' => CallStatus::CONNECTED,
+            'answered_at' => now()->subSeconds(10),
+            'connected_at' => now()->subSeconds(8),
+        ]);
+
+        Sanctum::actingAs($caller);
+
+        $this->postJson("/api/messenger/calls/{$call->call_uuid}/quality", [
+            'network_quality' => 'weak',
+            'issue' => 'media_quality_weak',
+            'connection_state' => 'connected',
+            'ice_connection_state' => 'connected',
+            'round_trip_time_ms' => 430.4,
+            'jitter_ms' => 52.2,
+            'packet_loss_percent' => 4.5,
+            'packets_lost' => 9,
+            'packets_received' => 191,
+            'bytes_sent' => 1000,
+            'bytes_received' => 1200,
+        ])->assertOk()
+            ->assertJsonPath('data.quality.accepted', true)
+            ->assertJsonPath('data.quality.summary.weak_reports', 1);
+
+        $metadata = $call->fresh()->metadata;
+        $summary = data_get($metadata, "quality.summary.{$caller->id}");
+
+        $this->assertSame(1, $summary['reports_count']);
+        $this->assertSame(1, $summary['weak_reports']);
+        $this->assertSame('weak', $summary['last_network_quality']);
+        $this->assertSame('media_quality_weak', $summary['last_issue']);
+    }
+
+    public function test_oversized_call_signal_payload_is_rejected(): void
+    {
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+        $call = $this->createRingingCall($caller, $receiver, $chat);
+
+        Sanctum::actingAs($caller);
+
+        $this->postJson("/api/messenger/calls/{$call->call_uuid}/signal", [
+            'signal_type' => 'offer',
+            'signal' => [
+                'type' => 'offer',
+                'sdp' => str_repeat('a', 170000),
+            ],
+        ])->assertUnprocessable();
     }
 
     public function test_push_decline_action_ends_ringing_call(): void
