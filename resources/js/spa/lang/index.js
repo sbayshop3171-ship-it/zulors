@@ -68,6 +68,7 @@ const fallbackMessages = {
         information: 'Information',
         download: 'Download',
         loading: 'Loading',
+        something_went_wrong: 'Something went wrong',
         share_post: 'Share post',
         new_posts: 'New posts',
         reply: 'Reply',
@@ -108,12 +109,16 @@ const fallbackMessages = {
             message_text_copied: 'Message copied'
         },
         post: {
-            updated: 'Post updated'
+            updated: 'Post updated',
+            reel_hidden: 'Reel hidden',
+            show_fewer_reels: "We'll show fewer reels like this"
         }
     },
     dd: {
         post: {
-            edit_post: 'Edit post'
+            edit_post: 'Edit post',
+            not_interested: 'Not interested',
+            hide_reel: 'Hide this reel'
         }
     },
     prompt: {

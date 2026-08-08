@@ -5,6 +5,7 @@ import { prefetchTimelineMedia } from '@/kernel/services/media-prefetch/index.js
 import { useAuthStore } from '@M/store/auth/auth.store.js';
 
 const reelsCacheLimit = 20;
+const reelsPerPage = 30;
 
 const normalizeSeedHash = function(seedHashId = '') {
 	return String(seedHashId || '').trim().slice(0, 80);
@@ -108,6 +109,61 @@ const useExploreReelsStore = defineStore('mobile_explore_reels_store', {
 			this.persistFirstPage();
 
 			return nextPosts.length > 0;
+		},
+		removePost: function(postId) {
+			const postIndex = this.posts.findIndex((item) => {
+				return item.id == postId;
+			});
+
+			if(postIndex === -1) {
+				return null;
+			}
+
+			const removedPost = this.posts[postIndex];
+
+			this.posts.splice(postIndex, 1);
+			this.persistFirstPage();
+
+			return {
+				index: postIndex,
+				postData: removedPost
+			};
+		},
+		restorePost: function(snapshot) {
+			if(! snapshot?.postData) {
+				return;
+			}
+
+			if(this.posts.some((item) => item.id == snapshot.postData.id)) {
+				return;
+			}
+
+			this.posts.splice(Math.max(0, Math.min(snapshot.index ?? 0, this.posts.length)), 0, snapshot.postData);
+			this.persistFirstPage();
+		},
+		applyFeedbackSuppression: function(postId, refreshReason = 'feedback') {
+			const removed = this.removePost(postId);
+			const snapshot = {
+				...(removed || {}),
+				feedSessionId: this.feedSessionId,
+				refreshReason: this.refreshReason,
+				page: this.filter.page
+			};
+
+			this.startFeedSession(refreshReason);
+			this.filter.page = Math.max(1, Math.ceil(this.posts.length / reelsPerPage));
+
+			return snapshot;
+		},
+		rollbackFeedbackSuppression: function(snapshot) {
+			if(! snapshot) {
+				return;
+			}
+
+			this.feedSessionId = snapshot.feedSessionId || this.feedSessionId;
+			this.refreshReason = snapshot.refreshReason || this.refreshReason;
+			this.filter.page = snapshot.page || 1;
+			this.restorePost(snapshot);
 		},
 		updatePost: function(postData) {
 			const postIndex = this.posts.findIndex((item) => {

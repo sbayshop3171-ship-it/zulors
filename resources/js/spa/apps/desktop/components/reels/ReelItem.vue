@@ -146,6 +146,24 @@
 							<SvgIcon name="type-01" type="line" classes="size-4"></SvgIcon>
 							{{ $t('dd.copy_text') }}
 						</button>
+						<button
+							type="button"
+							v-on:click="markNotInterested"
+							class="flex w-full items-center gap-2 px-4 py-3 text-left text-par-s hover:bg-white/10"
+							v-bind:class="{ 'cursor-wait opacity-70': state.isApplyingFeedback }"
+						>
+							<SvgIcon name="minus-circle" type="solid" classes="size-4"></SvgIcon>
+							{{ $t('dd.post.not_interested') }}
+						</button>
+						<button
+							type="button"
+							v-on:click="hideReel"
+							class="flex w-full items-center gap-2 px-4 py-3 text-left text-par-s hover:bg-white/10"
+							v-bind:class="{ 'cursor-wait opacity-70': state.isApplyingFeedback }"
+						>
+							<SvgIcon name="eye-off" type="line" classes="size-4"></SvgIcon>
+							{{ $t('dd.post.hide_reel') }}
+						</button>
 						<button v-if="canReportPost" type="button" v-on:click="reportPost" class="flex w-full items-center gap-2 px-4 py-3 text-left text-par-s text-red-900 hover:bg-white/10">
 							<SvgIcon name="annotation-alert" type="line" classes="size-4"></SvgIcon>
 							{{ $t('dd.post.report_post') }}
@@ -165,7 +183,9 @@
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { applyOptimisticReaction } from '@/kernel/services/reactions/optimistic.js';
 	import { MediaStatusUtils } from '@/kernel/enums/post/media.status.js';
+	import { sendFeedFeedbackEvent } from '@/kernel/services/timeline-feedback/index.js';
 	import { normalizeVideoDimensions } from '@/kernel/services/media/video-metadata.js';
+	import { useExploreReelsStore } from '@D/store/explore/reels.store.js';
 
 	import ReelVideoPlayer from '@D/components/reels/ReelVideoPlayer.vue';
 	import SvgIcon from '@/kernel/vue/components/icons/SvgIcon.vue';
@@ -214,10 +234,12 @@
 				showHeartBurst: false,
 				isShareOpen: false,
 				isMenuOpen: false,
+				isApplyingFeedback: false,
 				presentationMetadata: {},
 				viewportWidth: typeof window !== 'undefined' ? window.innerWidth : 1440,
 				viewportHeight: typeof window !== 'undefined' ? window.innerHeight : 900
 			});
+			const reelsStore = useExploreReelsStore();
 
 			const postData = computed(() => {
 				return props.postData;
@@ -406,6 +428,53 @@
 				});
 			};
 
+			const ensureFeedContinuity = async () => {
+				if(! reelsStore.posts.length) {
+					await reelsStore.refreshFirstPage({
+						refreshReason: 'feedback'
+					}).catch(() => {});
+
+					return;
+				}
+
+				if(reelsStore.posts.length <= Math.max(6, Number(props.position || 0) + 3)) {
+					await reelsStore.loadNextPage().then((response) => {
+						reelsStore.appendPosts(response.data.data);
+					}).catch(() => {});
+				}
+			};
+
+			const applyFeedbackAction = async (eventType, successMessage) => {
+				if(state.isApplyingFeedback) {
+					return;
+				}
+
+				state.isMenuOpen = false;
+				state.isApplyingFeedback = true;
+
+				const snapshot = reelsStore.applyFeedbackSuppression(postData.value.id, 'feedback');
+
+				try {
+					await sendFeedFeedbackEvent({
+						eventType: eventType,
+						postId: postData.value.id,
+						sessionId: props.feedSessionId,
+						feedType: 'reels',
+						source: 'reels',
+						position: props.position,
+						refreshReason: 'feedback'
+					});
+
+					toastSuccess(successMessage);
+					await ensureFeedContinuity();
+				} catch (error) {
+					reelsStore.rollbackFeedbackSuppression(snapshot);
+					toastError(error.response?.data?.message || __t('labels.something_went_wrong'));
+				} finally {
+					state.isApplyingFeedback = false;
+				}
+			};
+
 			const refreshViewportSize = () => {
 				state.viewportWidth = window.innerWidth;
 				state.viewportHeight = window.innerHeight;
@@ -524,6 +593,12 @@
 						type: 'post',
 						reportableId: postData.value.id
 					});
+				},
+				markNotInterested: () => {
+					applyFeedbackAction('post_not_interested', __t('toast.post.show_fewer_reels'));
+				},
+				hideReel: () => {
+					applyFeedbackAction('post_hide', __t('toast.post.reel_hidden'));
 				}
 			};
 		},

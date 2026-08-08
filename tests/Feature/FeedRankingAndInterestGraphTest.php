@@ -915,6 +915,103 @@ class FeedRankingAndInterestGraphTest extends TestCase
         $this->assertLessThanOrEqual(2, $topThreeDominantCount);
     }
 
+    public function test_reels_not_interested_event_excludes_the_reel_and_records_negative_interest(): void
+    {
+        $viewer = $this->createUser('reels-not-interested-viewer');
+        $author = $this->createUser('reels-not-interested-author');
+        $alternateAuthor = $this->createUser('reels-not-interested-alt-author');
+
+        $suppressedReel = $this->createVideoPost($author, 'Do not show me this reel #fashion', now(), [
+            'comments_count' => 18,
+            'bookmarks_count' => 14,
+            'shares_count' => 12,
+            'views_count' => 950,
+        ]);
+        $alternateReel = $this->createVideoPost($alternateAuthor, 'Fresh fashion alternative reel #fashion', now()->subMinutes(4), [
+            'comments_count' => 4,
+            'bookmarks_count' => 4,
+            'shares_count' => 3,
+            'views_count' => 140,
+        ]);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->postJson('/api/timeline/telemetry/events', [
+                'events' => [[
+                    'event_type' => 'post_not_interested',
+                    'post_id' => $suppressedReel->id,
+                    'session_id' => 'reels-not-interested-old-session',
+                    'feed_type' => 'reels',
+                    'source' => 'reels',
+                    'position' => 1,
+                ]],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.accepted', 1);
+
+        $this->assertDatabaseHas(Table::FEED_EVENTS, [
+            'user_id' => $viewer->id,
+            'post_id' => $suppressedReel->id,
+            'event_type' => 'post_not_interested',
+        ]);
+        $this->assertLessThan(0, $this->interestScore($viewer, 'fashion'));
+
+        $response = $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/timeline/feed?type=reels&session_id=reels-not-interested-new-session')
+            ->assertOk();
+
+        $postIds = array_column($response->json('data'), 'id');
+
+        $this->assertContains($alternateReel->id, $postIds);
+        $this->assertNotContains($suppressedReel->id, $postIds);
+    }
+
+    public function test_reels_hide_event_never_reintroduces_the_same_reel_in_fallback_slots(): void
+    {
+        $viewer = $this->createUser('reels-hide-viewer');
+        $author = $this->createUser('reels-hide-author');
+        $alternateAuthor = $this->createUser('reels-hide-alt-author');
+
+        $hiddenReel = $this->createVideoPost($author, 'Hide this reel forever #travel', now(), [
+            'comments_count' => 24,
+            'bookmarks_count' => 20,
+            'shares_count' => 18,
+            'views_count' => 1200,
+        ]);
+        $remainingReel = $this->createVideoPost($alternateAuthor, 'Only remaining travel reel #travel', now()->subMinutes(6), [
+            'comments_count' => 2,
+            'bookmarks_count' => 2,
+            'shares_count' => 1,
+            'views_count' => 60,
+        ]);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->postJson('/api/timeline/telemetry/events', [
+                'events' => [[
+                    'event_type' => 'post_hide',
+                    'post_id' => $hiddenReel->id,
+                    'session_id' => 'reels-hide-old-session',
+                    'feed_type' => 'reels',
+                    'source' => 'reels',
+                    'position' => 1,
+                ]],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.accepted', 1);
+
+        $response = $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/timeline/feed?type=reels&session_id=reels-hide-new-session')
+            ->assertOk();
+
+        $postIds = array_column($response->json('data'), 'id');
+
+        $this->assertContains($remainingReel->id, $postIds);
+        $this->assertNotContains($hiddenReel->id, $postIds);
+    }
+
     private function interestScore(User $user, string $topic): float
     {
         return (float) \App\Models\UserInterestScore::query()

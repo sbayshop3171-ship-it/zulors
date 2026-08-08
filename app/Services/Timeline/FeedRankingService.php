@@ -50,6 +50,7 @@ class FeedRankingService
             'interest' => $this->interestScore($post, $context),
             'seen_penalty' => $this->seenPenalty($post, $type, $context),
             'session_jitter' => $this->sessionJitter($user, $post, $type, $context),
+            'feedback_penalty' => -$this->feedbackPenalty($post, $type, $context),
             'report_penalty' => -$this->reportPenalty($post),
             'safety_penalty' => -$this->safetyService->authorSafetyPenalty($post),
             'repetition_penalty' => 0.0,
@@ -70,6 +71,7 @@ class FeedRankingService
     {
         $candidateIds = $candidates->pluck('id')->all();
         $candidateAuthors = $candidates->pluck('user_id', 'id');
+        $candidateAuthorIds = $candidates->pluck('user_id')->map(fn($id) => (int) $id)->unique()->values()->all();
         $candidateTopics = $this->candidateTopics($candidates);
         $sessionId = trim((string) data_get($filter, 'session_id', ''));
 
@@ -123,6 +125,8 @@ class FeedRankingService
             'followed_author_ids' => array_map('intval', $followedAuthorIds),
             'interest_scores' => $this->userInterestService->scoresForTopics($user, $candidateTopics),
             'seen_stats_by_post' => $seenStatsByPost,
+            'feedback_stats_by_post' => $this->feedbackStatsByPost($user, $candidateIds),
+            'feedback_author_penalty_by_author' => $this->feedbackAuthorPenaltyByAuthor($user, $candidateAuthorIds),
         ];
     }
 
@@ -270,6 +274,27 @@ class FeedRankingService
         return round(($hash / 4294967295) * $maxBoost, 4);
     }
 
+    private function feedbackPenalty(Post $post, string $type, array $context): float
+    {
+        $postFeedback = data_get($context, "feedback_stats_by_post.{$post->id}", []);
+        $postPenalty = match(data_get($postFeedback, 'last_event_type')) {
+            FeedTelemetryService::EVENT_POST_HIDE => 340.0,
+            FeedTelemetryService::EVENT_POST_NOT_INTERESTED => 220.0,
+            default => 0.0,
+        };
+
+        $feedbackCount = max(0, (int) data_get($postFeedback, 'feedback_count', 0) - 1);
+        $postPenalty += $feedbackCount * 45.0;
+
+        if($type !== FeedService::TYPE_REELS) {
+            return min(480.0, $postPenalty);
+        }
+
+        $authorPenalty = (float) data_get($context, "feedback_author_penalty_by_author.{$post->user_id}", 0.0);
+
+        return min(560.0, $postPenalty + $authorPenalty);
+    }
+
     private function videoIntelligenceScore(Post $post): float
     {
         if(! $post->type->isVideo() || empty($post->videoMetric)) {
@@ -344,6 +369,7 @@ class FeedRankingService
                 'interest' => 1.25,
                 'seen_penalty' => 1.45,
                 'session_jitter' => 0.55,
+                'feedback_penalty' => 1.35,
                 'report_penalty' => 1.20,
                 'safety_penalty' => 1.20,
                 'repetition_penalty' => 1.0,
@@ -361,6 +387,7 @@ class FeedRankingService
                 'interest' => 0.25,
                 'seen_penalty' => 1.0,
                 'session_jitter' => 0.45,
+                'feedback_penalty' => 1.1,
                 'report_penalty' => 1.0,
                 'safety_penalty' => 1.0,
                 'repetition_penalty' => 1.0,
@@ -377,6 +404,7 @@ class FeedRankingService
             'interest' => 1.0,
             'seen_penalty' => 1.0,
             'session_jitter' => 1.0,
+            'feedback_penalty' => 1.0,
             'report_penalty' => 1.0,
             'safety_penalty' => 1.0,
             'repetition_penalty' => 1.0,
@@ -451,6 +479,64 @@ class FeedRankingService
                     'last_seen_at' => $stats->last_seen_at,
                     'seen_count' => (int) $stats->seen_count,
                 ],
+            ])
+            ->all();
+    }
+
+    private function feedbackStatsByPost(User $user, array $candidateIds): array
+    {
+        if(empty($candidateIds)) {
+            return [];
+        }
+
+        return DB::table(Table::FEED_EVENTS)
+            ->select('post_id', 'event_type', 'created_at')
+            ->where('user_id', $user->id)
+            ->whereIn('post_id', $candidateIds)
+            ->whereIn('event_type', FeedTelemetryService::FEEDBACK_EVENT_TYPES)
+            ->where('created_at', '>=', now()->subDays(120))
+            ->orderByDesc('created_at')
+            ->get()
+            ->groupBy('post_id')
+            ->mapWithKeys(function(Collection $events, int|string $postId) {
+                $latest = $events->first();
+
+                return [
+                    (int) $postId => [
+                        'last_event_type' => $latest->event_type,
+                        'last_feedback_at' => $latest->created_at,
+                        'feedback_count' => $events->count(),
+                    ],
+                ];
+            })
+            ->all();
+    }
+
+    private function feedbackAuthorPenaltyByAuthor(User $user, array $candidateAuthorIds): array
+    {
+        if(empty($candidateAuthorIds)) {
+            return [];
+        }
+
+        return DB::table(Table::FEED_EVENTS)
+            ->join(Table::POSTS, Table::POSTS . '.id', '=', Table::FEED_EVENTS . '.post_id')
+            ->select(
+                Table::POSTS . '.user_id as author_id',
+                DB::raw('SUM(CASE
+                    WHEN ' . Table::FEED_EVENTS . ".event_type = '" . FeedTelemetryService::EVENT_POST_HIDE . "' THEN 26
+                    WHEN " . Table::FEED_EVENTS . ".event_type = '" . FeedTelemetryService::EVENT_POST_NOT_INTERESTED . "' THEN 12
+                    ELSE 0
+                END) as feedback_penalty")
+            )
+            ->where(Table::FEED_EVENTS . '.user_id', $user->id)
+            ->whereIn(Table::POSTS . '.user_id', $candidateAuthorIds)
+            ->where(Table::POSTS . '.type', PostType::VIDEO->value)
+            ->whereIn(Table::FEED_EVENTS . '.event_type', FeedTelemetryService::FEEDBACK_EVENT_TYPES)
+            ->where(Table::FEED_EVENTS . '.created_at', '>=', now()->subDays(120))
+            ->groupBy(Table::POSTS . '.user_id')
+            ->get()
+            ->mapWithKeys(fn($row) => [
+                (int) $row->author_id => min(160.0, (float) $row->feedback_penalty),
             ])
             ->all();
     }

@@ -209,7 +209,13 @@
 				});
 
 				watch(() => posts.value.length, () => {
+					activeIndex.value = Math.max(0, Math.min(activeIndex.value, Math.max(0, posts.value.length - 1)));
 					warmPlaybackWindow();
+
+					nextTick(() => {
+						updateActiveIndex();
+						maybeLoadMore();
+					});
 				});
 
 			return {

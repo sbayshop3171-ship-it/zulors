@@ -11,17 +11,28 @@ class FeedTelemetryService
     public const EVENT_POST_IMPRESSION = 'post_impression';
     public const EVENT_POST_DWELL = 'post_dwell';
     public const EVENT_POST_QUICK_SKIP = 'post_quick_skip';
+    public const EVENT_POST_NOT_INTERESTED = 'post_not_interested';
+    public const EVENT_POST_HIDE = 'post_hide';
 
     public const POST_EVENT_TYPES = [
         self::EVENT_POST_IMPRESSION,
         self::EVENT_POST_DWELL,
         self::EVENT_POST_QUICK_SKIP,
+        self::EVENT_POST_NOT_INTERESTED,
+        self::EVENT_POST_HIDE,
+    ];
+
+    public const FEEDBACK_EVENT_TYPES = [
+        self::EVENT_POST_NOT_INTERESTED,
+        self::EVENT_POST_HIDE,
     ];
 
     public const SEEN_EVENT_TYPES = [
         self::EVENT_POST_IMPRESSION,
         self::EVENT_POST_DWELL,
         self::EVENT_POST_QUICK_SKIP,
+        self::EVENT_POST_NOT_INTERESTED,
+        self::EVENT_POST_HIDE,
         VideoIntelligenceService::EVENT_PLAY,
         VideoIntelligenceService::EVENT_WATCH,
         VideoIntelligenceService::EVENT_SKIP,
@@ -74,6 +85,18 @@ class FeedTelemetryService
             return;
         }
 
+        if($eventType === self::EVENT_POST_HIDE) {
+            $this->userInterestService->recordPostInteraction($user, $post, UserInterestService::EVENT_HIDE, -20.0);
+
+            return;
+        }
+
+        if($eventType === self::EVENT_POST_NOT_INTERESTED) {
+            $this->userInterestService->recordPostInteraction($user, $post, UserInterestService::EVENT_HIDE, -12.0);
+
+            return;
+        }
+
         $delta = match(true) {
             $eventType === self::EVENT_POST_QUICK_SKIP || $dwellSeconds < 2 => -3.0,
             $dwellSeconds < 8 => 1.0,
@@ -86,6 +109,14 @@ class FeedTelemetryService
 
     private function normalizeEventType(string $eventType, float $dwellSeconds): string
     {
+        if($eventType === self::EVENT_POST_HIDE) {
+            return self::EVENT_POST_HIDE;
+        }
+
+        if($eventType === self::EVENT_POST_NOT_INTERESTED) {
+            return self::EVENT_POST_NOT_INTERESTED;
+        }
+
         if($eventType === self::EVENT_POST_QUICK_SKIP) {
             return self::EVENT_POST_QUICK_SKIP;
         }

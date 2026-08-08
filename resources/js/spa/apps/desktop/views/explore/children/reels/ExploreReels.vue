@@ -291,9 +291,15 @@
 					loadInitial();
 				});
 
-				watch(() => posts.value.length, () => {
-					warmPlaybackWindow();
+			watch(() => posts.value.length, () => {
+				state.activeIndex = Math.max(0, Math.min(state.activeIndex, Math.max(0, posts.value.length - 1)));
+				warmPlaybackWindow();
+
+				nextTick(() => {
+					updateActiveIndex();
+					maybeLoadMore();
 				});
+			});
 
 			return {
 				state: state,

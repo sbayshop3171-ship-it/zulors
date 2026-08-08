@@ -134,6 +134,20 @@
 				</ActionSheetGroup>
 			</div>
 			<ActionSheetGroup>
+				<ActionSheetItem
+					v-on:click="markNotInterested"
+					v-bind:loading="state.isApplyingFeedback"
+					iconName="minus-circle"
+					iconType="solid"
+					v-bind:textLabel="$t('dd.post.not_interested')"
+				></ActionSheetItem>
+				<ActionSheetItem
+					v-on:click="hideReel"
+					v-bind:loading="state.isApplyingFeedback"
+					v-bind:notLast="canReportPost"
+					iconName="eye-off"
+					v-bind:textLabel="$t('dd.post.hide_reel')"
+				></ActionSheetItem>
 				<ActionSheetItem v-if="canReportPost" v-on:click="reportPost" itemColor="text-red-900" iconName="annotation-alert" v-bind:textLabel="$t('dd.post.report_post')"></ActionSheetItem>
 			</ActionSheetGroup>
 		</div>
@@ -146,7 +160,9 @@
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { applyOptimisticReaction } from '@/kernel/services/reactions/optimistic.js';
 	import { MediaStatusUtils } from '@/kernel/enums/post/media.status.js';
+	import { sendFeedFeedbackEvent } from '@/kernel/services/timeline-feedback/index.js';
 	import { useMenu } from '@/kernel/vue/composables/menu/index.js';
+	import { useExploreReelsStore } from '@M/store/explore/reels.store.js';
 
 	import ReelVideoPlayer from '@M/components/reels/ReelVideoPlayer.vue';
 	import SvgIcon from '@/kernel/vue/components/icons/SvgIcon.vue';
@@ -188,8 +204,10 @@
 				reactionMenu: useMenu(),
 				mainMenu: useMenu(),
 				sensitiveRevealed: false,
-				showHeartBurst: false
+				showHeartBurst: false,
+				isApplyingFeedback: false
 			});
+			const reelsStore = useExploreReelsStore();
 
 			const postData = computed(() => {
 				return props.postData;
@@ -292,6 +310,53 @@
 				});
 			};
 
+			const ensureFeedContinuity = async () => {
+				if(! reelsStore.posts.length) {
+					await reelsStore.refreshFirstPage({
+						refreshReason: 'feedback'
+					}).catch(() => {});
+
+					return;
+				}
+
+				if(reelsStore.posts.length <= Math.max(6, Number(props.position || 0) + 3)) {
+					await reelsStore.loadNextPage().then((response) => {
+						reelsStore.appendPosts(response.data.data);
+					}).catch(() => {});
+				}
+			};
+
+			const applyFeedbackAction = async (eventType, successMessage) => {
+				if(state.isApplyingFeedback) {
+					return;
+				}
+
+				state.mainMenu.close();
+				state.isApplyingFeedback = true;
+
+				const snapshot = reelsStore.applyFeedbackSuppression(postData.value.id, 'feedback');
+
+				try {
+					await sendFeedFeedbackEvent({
+						eventType: eventType,
+						postId: postData.value.id,
+						sessionId: props.feedSessionId,
+						feedType: 'reels',
+						source: 'reels',
+						position: props.position,
+						refreshReason: 'feedback'
+					});
+
+					toastSuccess(successMessage);
+					await ensureFeedContinuity();
+				} catch (error) {
+					reelsStore.rollbackFeedbackSuppression(snapshot);
+					toastError(error.response?.data?.message || __t('labels.something_went_wrong'));
+				} finally {
+					state.isApplyingFeedback = false;
+				}
+			};
+
 			return {
 				state: state,
 				postData: postData,
@@ -384,6 +449,12 @@
 						type: 'post',
 						reportableId: postData.value.id
 					});
+				},
+				markNotInterested: () => {
+					applyFeedbackAction('post_not_interested', __t('toast.post.show_fewer_reels'));
+				},
+				hideReel: () => {
+					applyFeedbackAction('post_hide', __t('toast.post.reel_hidden'));
 				}
 			};
 		},

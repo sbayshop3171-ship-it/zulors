@@ -114,9 +114,13 @@ class CandidateGenerationService
         $followedAuthorIds = $this->followedAuthorIds($user);
         $userTopics = $this->positiveUserTopics($user);
         $mix = $this->candidateMixForType($type);
-        $baselineExcludeIds = $type === FeedService::TYPE_REELS
+        $seenExcludeIds = $type === FeedService::TYPE_REELS
             ? $this->recentlySeenReelIds($user)
             : [];
+        $feedbackExcludeIds = $type === FeedService::TYPE_REELS
+            ? $this->feedbackSuppressedReelIds($user)
+            : [];
+        $baselineExcludeIds = $this->mergeExcludedIds($seenExcludeIds, $feedbackExcludeIds);
 
         $this->appendCandidates($selected, $this->followedCandidates(
             $user,
@@ -150,11 +154,23 @@ class CandidateGenerationService
         ));
 
         if($selected->count() < $limit) {
-            $this->appendCandidates($selected, $this->recentCandidates($user, $onset, $this->selectedIds($selected), $limit - $selected->count(), $type));
+            $this->appendCandidates($selected, $this->recentCandidates(
+                $user,
+                $onset,
+                $this->mergeExcludedIds($this->selectedIds($selected), $feedbackExcludeIds),
+                $limit - $selected->count(),
+                $type
+            ));
         }
 
         if($type === FeedService::TYPE_REELS && $selected->count() < $limit) {
-            $this->appendCandidates($selected, $this->oldGoodCandidates($user, $onset, $this->selectedIds($selected), $limit - $selected->count(), $type));
+            $this->appendCandidates($selected, $this->oldGoodCandidates(
+                $user,
+                $onset,
+                $this->mergeExcludedIds($this->selectedIds($selected), $feedbackExcludeIds),
+                $limit - $selected->count(),
+                $type
+            ));
         }
 
         return $selected->unique('id')->take($limit)->values();
@@ -281,6 +297,22 @@ class CandidateGenerationService
             ->groupBy('post_id')
             ->orderByDesc('last_seen_at')
             ->limit(600)
+            ->pluck('post_id')
+            ->map(fn($id) => (int) $id)
+            ->all();
+    }
+
+    private function feedbackSuppressedReelIds(User $user): array
+    {
+        return DB::table(Table::FEED_EVENTS)
+            ->select('post_id', DB::raw('MAX(created_at) as last_feedback_at'))
+            ->where('user_id', $user->id)
+            ->whereNotNull('post_id')
+            ->whereIn('event_type', FeedTelemetryService::FEEDBACK_EVENT_TYPES)
+            ->where('created_at', '>=', now()->subDays(120))
+            ->groupBy('post_id')
+            ->orderByDesc('last_feedback_at')
+            ->limit(1000)
             ->pluck('post_id')
             ->map(fn($id) => (int) $id)
             ->all();
