@@ -19,6 +19,7 @@ use App\Notifications\User\Call\MissedCallNotification;
 use App\Services\Calls\CallLifecycleService;
 use App\Services\Notifications\NotificationActionTokenService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
@@ -254,6 +255,32 @@ class AudioCallsTest extends TestCase
         $this->assertSame($receiver->id, $verifiedToken['user_id']);
         $this->assertSame($chat->chat_id, $verifiedToken['chat_uuid']);
         $this->assertSame($call->call_uuid, $verifiedToken['call_uuid']);
+    }
+
+    public function test_authenticated_user_receives_short_lived_turn_ice_servers(): void
+    {
+        $user = $this->createUser('call-ice-' . Str::lower(Str::random(6)));
+
+        Config::set('services.calls.stun_urls', ['stun:stun.example.com:19302']);
+        Config::set('services.calls.turn_urls', ['turn:turn.example.com:3478?transport=udp']);
+        Config::set('services.calls.turn_secret', 'test-turn-secret');
+        Config::set('services.calls.turn_username', null);
+        Config::set('services.calls.turn_credential', null);
+        Config::set('services.calls.turn_ttl_seconds', 600);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->getJson('/api/messenger/calls/ice-servers')
+            ->assertOk()
+            ->assertJsonPath('data.ice_servers.0.urls', 'stun:stun.example.com:19302')
+            ->assertJsonPath('data.ice_servers.1.urls', 'turn:turn.example.com:3478?transport=udp');
+
+        $turnServer = $response->json('data.ice_servers.1');
+        $expectedCredential = base64_encode(hash_hmac('sha1', $turnServer['username'], 'test-turn-secret', true));
+
+        $this->assertStringEndsWith(':' . $user->id, $turnServer['username']);
+        $this->assertSame($expectedCredential, $turnServer['credential']);
+        $this->assertNotEmpty($response->json('data.expires_at'));
     }
 
     public function test_call_quality_report_updates_call_metadata(): void

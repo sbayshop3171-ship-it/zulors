@@ -42,6 +42,18 @@ class CallController extends Controller
         ]);
     }
 
+    public function iceServers()
+    {
+        [$iceServers, $expiresAt] = $this->makeIceServers();
+
+        return $this->responseSuccess([
+            'data' => [
+                'ice_servers' => $iceServers,
+                'expires_at' => $expiresAt?->toIso8601String(),
+            ],
+        ]);
+    }
+
     public function start(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -491,5 +503,66 @@ class CallController extends Controller
     private function metricInt($value): ?int
     {
         return is_numeric($value) ? max(0, (int) $value) : null;
+    }
+
+    private function makeIceServers(): array
+    {
+        $iceServers = [];
+        $stunUrls = $this->configUrlList('services.calls.stun_urls');
+        $turnUrls = $this->configUrlList('services.calls.turn_urls');
+        $expiresAt = null;
+
+        if(! empty($stunUrls)) {
+            $iceServers[] = [
+                'urls' => count($stunUrls) === 1 ? $stunUrls[0] : $stunUrls,
+            ];
+        }
+
+        if(! empty($turnUrls)) {
+            $turnUsername = config('services.calls.turn_username');
+            $turnCredential = config('services.calls.turn_credential');
+            $turnSecret = config('services.calls.turn_secret');
+
+            if(filled($turnSecret)) {
+                $ttlSeconds = max(300, min(86400, (int) config('services.calls.turn_ttl_seconds', 3600)));
+                $expiresAt = now()->addSeconds($ttlSeconds);
+                $turnUsername = $expiresAt->timestamp . ':' . me()->id;
+                $turnCredential = base64_encode(hash_hmac('sha1', $turnUsername, (string) $turnSecret, true));
+            }
+
+            if(filled($turnUsername) && filled($turnCredential)) {
+                $iceServers[] = [
+                    'urls' => count($turnUrls) === 1 ? $turnUrls[0] : $turnUrls,
+                    'username' => $turnUsername,
+                    'credential' => $turnCredential,
+                ];
+            }
+        }
+
+        if(empty($iceServers)) {
+            $iceServers[] = [
+                'urls' => 'stun:stun.l.google.com:19302',
+            ];
+        }
+
+        return [$iceServers, $expiresAt];
+    }
+
+    private function configUrlList(string $key): array
+    {
+        $value = config($key, []);
+
+        if(is_string($value)) {
+            $value = explode(',', $value);
+        }
+
+        if(! is_array($value)) {
+            return [];
+        }
+
+        return array_values(array_filter(array_map(
+            fn ($url) => is_string($url) ? trim($url) : null,
+            $value
+        )));
     }
 }

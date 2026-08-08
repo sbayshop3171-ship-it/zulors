@@ -26,6 +26,7 @@ Route::delete('/search/recent/{userId}', [App\Http\Controllers\Api\User\Chat\Cha
 Route::delete('/search/recent', [App\Http\Controllers\Api\User\Chat\ChatController::class, 'clearSearchRecents']);
 
 Route::post('/calls/start', [App\Http\Controllers\Api\User\Chat\CallController::class, 'start'])->middleware('throttle:12,1');
+Route::get('/calls/ice-servers', [App\Http\Controllers\Api\User\Chat\CallController::class, 'iceServers'])->middleware('throttle:30,1');
 Route::get('/calls/{callUuid}', [App\Http\Controllers\Api\User\Chat\CallController::class, 'show']);
 Route::post('/calls/{callUuid}/answer', [App\Http\Controllers\Api\User\Chat\CallController::class, 'answer']);
 Route::post('/calls/{callUuid}/decline', [App\Http\Controllers\Api\User\Chat\CallController::class, 'decline']);

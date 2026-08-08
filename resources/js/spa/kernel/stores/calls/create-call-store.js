@@ -9,6 +9,7 @@ const connectingStatuses = ['ringing', 'accepted', 'connecting'];
 const defaultRingTimeoutSeconds = 45;
 const connectionTimeoutSeconds = 24;
 const qualityReportThrottleMs = 10000;
+const iceServerRefreshSkewMs = 60000;
 
 const normalizeCallPayload = (payload = {}) => {
     if(payload?.data?.call) {
@@ -54,7 +55,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             networkState: 'stable',
             qualityNotice: '',
             lastQualityReportAt: 0,
-            lastQualitySignature: ''
+            lastQualitySignature: '',
+            iceServers: null,
+            iceServersExpiresAt: 0
         };
     },
     getters: {
@@ -380,6 +383,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 return this.peer;
             }
 
+            const iceServers = await this.resolveIceServers();
             const peer = createAudioCallPeer({
                 onSignal: (signalType, signal) => {
                     this.sendSignal(signalType, signal).catch(() => {});
@@ -404,6 +408,8 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 onReconnectState: (state) => {
                     this.handleReconnectState(state);
                 }
+            }, {
+                iceServers: iceServers
             });
 
             this.peer = markRaw(peer);
@@ -534,6 +540,30 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 .sendTo(`calls/${this.call.call_uuid}/quality`);
 
             return true;
+        },
+        resolveIceServers: async function() {
+            const now = Date.now();
+
+            if(Array.isArray(this.iceServers) && this.iceServers.length && (! this.iceServersExpiresAt || now < this.iceServersExpiresAt - iceServerRefreshSkewMs)) {
+                return this.iceServers;
+            }
+
+            try {
+                const response = await colibriAPI().messenger().getFrom('calls/ice-servers');
+                const payload = response.data?.data || {};
+                const servers = Array.isArray(payload.ice_servers) ? payload.ice_servers : [];
+                const expiresAt = Date.parse(payload.expires_at || '');
+
+                if(servers.length) {
+                    this.iceServers = servers;
+                    this.iceServersExpiresAt = Number.isFinite(expiresAt) ? expiresAt : 0;
+
+                    return servers;
+                }
+            }
+            catch(error) {}
+
+            return null;
         },
         toggleMute: function() {
             this.isMuted = ! this.isMuted;

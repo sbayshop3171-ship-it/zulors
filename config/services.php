@@ -58,5 +58,13 @@ return [
         'logo' => env('TRANSLATION_SERVICE_LOGO'),
         'name' => env('TRANSLATION_SERVICE_NAME'),
         'url' => env('TRANSLATION_SERVICE_URL'),
-    ]
+    ],
+    'calls' => [
+        'stun_urls' => array_filter(array_map('trim', explode(',', env('CALL_STUN_URLS', 'stun:stun.l.google.com:19302')))),
+        'turn_urls' => array_filter(array_map('trim', explode(',', env('CALL_TURN_URLS', '')))),
+        'turn_username' => env('CALL_TURN_USERNAME'),
+        'turn_credential' => env('CALL_TURN_CREDENTIAL'),
+        'turn_secret' => env('CALL_TURN_SECRET'),
+        'turn_ttl_seconds' => (int) env('CALL_TURN_TTL_SECONDS', 3600),
+    ],
 ];

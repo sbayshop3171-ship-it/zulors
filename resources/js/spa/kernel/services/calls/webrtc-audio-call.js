@@ -45,7 +45,21 @@ const reconnectGraceMs = parsePositiveInteger(
 );
 const enableVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_AUDIO_PROCESSING, true);
 
-const parseIceServers = () => {
+const normalizeIceServers = (config) => {
+    if(Array.isArray(config) && config.length) {
+        return config;
+    }
+
+    return null;
+};
+
+const parseIceServers = (iceServers = null) => {
+    const providedServers = normalizeIceServers(iceServers);
+
+    if(providedServers) {
+        return providedServers;
+    }
+
     const rawConfig = import.meta.env.VITE_CALL_ICE_SERVERS;
 
     if(! rawConfig) {
@@ -55,8 +69,10 @@ const parseIceServers = () => {
     try {
         const parsedConfig = JSON.parse(rawConfig);
 
-        if(Array.isArray(parsedConfig) && parsedConfig.length) {
-            return parsedConfig;
+        const parsedServers = normalizeIceServers(parsedConfig);
+
+        if(parsedServers) {
+            return parsedServers;
         }
     }
     catch(error) {}
@@ -439,7 +455,7 @@ const classifyNetworkQuality = (stats = {}) => {
     };
 };
 
-const createAudioCallPeer = (callbacks = {}) => {
+const createAudioCallPeer = (callbacks = {}, options = {}) => {
     let peerConnection = null;
     let localStream = null;
     let rawLocalStream = null;
@@ -641,7 +657,7 @@ const createAudioCallPeer = (callbacks = {}) => {
 
         remoteStream = new MediaStream();
         peerConnection = new RTCPeerConnection({
-            iceServers: parseIceServers(),
+            iceServers: parseIceServers(options.iceServers),
             bundlePolicy: 'max-bundle',
             rtcpMuxPolicy: 'require',
             iceCandidatePoolSize: 4
