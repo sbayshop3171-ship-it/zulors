@@ -10,10 +10,14 @@ const normalizeQuery = function(query = '') {
 const getExplorePeopleCacheKey = function(query = '') {
 	const authStore = useAuthStore();
 
-	return `colibri.mobile.explore.people.first_page.v1.${authStore.userData?.id || 'guest'}.${normalizeQuery(query) || 'default'}`;
+	return `colibri.mobile.explore.people.first_page.v2.${authStore.userData?.id || 'guest'}.${normalizeQuery(query) || 'default'}`;
 };
 
 const explorePeopleCacheLimit = 40;
+const isSamePeopleFilter = function(currentFilter = {}, requestFilter = {}) {
+	return normalizeQuery(currentFilter.query) === normalizeQuery(requestFilter.query)
+		&& Number(currentFilter.page || 1) === Number(requestFilter.page || 1);
+};
 
 const useExplorePeopleStore = defineStore('mobile_explore_people_store', {
     state: function() {
@@ -34,10 +38,18 @@ const useExplorePeopleStore = defineStore('mobile_explore_people_store', {
 				filter: filter
 			}).sendTo('people');
 		},
-		fetchPeople: async function() {
-			await this.makeLoadRequest().then((response) => {
+		fetchPeople: async function(filter = this.filter) {
+			const requestFilter = { ...filter };
+
+			return await this.makeLoadRequest(requestFilter).then((response) => {
+				if(! isSamePeopleFilter(this.filter, requestFilter)) {
+					return response.data.data;
+				}
+
 				this.people = response.data.data;
-				this.persistFirstPage();
+				this.persistFirstPage(requestFilter.query);
+
+				return this.people;
 			});
 		},
 		warmFirstPage: async function() {
@@ -65,8 +77,14 @@ const useExplorePeopleStore = defineStore('mobile_explore_people_store', {
 			return this.warmPromise;
 		},
 		loadMorePeople: async function() {
-			return await this.makeLoadRequest().then((response) => {
+			const requestFilter = { ...this.filter };
+
+			return await this.makeLoadRequest(requestFilter).then((response) => {
 				let people = response.data.data;
+
+				if(! isSamePeopleFilter(this.filter, requestFilter)) {
+					return false;
+				}
 				
 				if (people.length) {	
 					this.people = this.people.concat(people);
@@ -102,12 +120,12 @@ const useExplorePeopleStore = defineStore('mobile_explore_people_store', {
 
 			return false;
 		},
-		persistFirstPage: function() {
-			if(this.filter.page !== 1) {
+		persistFirstPage: function(query = this.filter.query) {
+			if(Number(this.filter.page) !== 1) {
 				return;
 			}
 
-			writeCache(getExplorePeopleCacheKey(this.filter.query), this.people.slice(0, explorePeopleCacheLimit));
+			writeCache(getExplorePeopleCacheKey(query), this.people.slice(0, explorePeopleCacheLimit));
 		}
     }
 });

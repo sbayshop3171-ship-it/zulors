@@ -7,7 +7,7 @@
 					<Border></Border>
 
 					<div class="p-4">
-						<SearchBar v-model.lazy="peopleSearchQuery" v-bind:placeholder="$t('labels.search')"></SearchBar>
+						<SearchBar v-model="peopleSearchQuery" v-bind:placeholder="$t('labels.search')"></SearchBar>
 					</div>
 				</div>
 				<Border></Border>
@@ -98,9 +98,7 @@
 			watch(peopleSearchQuery, () => {
                 explorePeopleStore.filter.query = peopleSearchQuery.value;
 
-                debounce(async () => {
-                    await applyFilters();
-                }, 500);
+                void applyFilters();
             });
 
 			const applyFilters = async () => {

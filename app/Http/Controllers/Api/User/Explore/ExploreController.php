@@ -17,10 +17,12 @@ namespace App\Http\Controllers\Api\User\Explore;
 
 use App\Models\Post;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use App\Database\Configs\Table;
 use App\Http\Controllers\Controller;
 use App\Services\Timeline\FeedService;
+use Illuminate\Support\Facades\DB;
 use App\Traits\Http\Api\SupportsApiResponses;
 use App\Http\Resources\User\People\PeopleCollection;
 use App\Http\Resources\User\Timeline\TimelineCollection;
@@ -42,26 +44,25 @@ class ExploreController extends Controller
     public function getPeople(Request $request)
     {
         $filterOptions = $this->getValidatedFilters($request);
+        $page = (! empty($filterOptions['page']) ? (int) $filterOptions['page'] : 1);
+        $searchQuery = trim((string) data_get($filterOptions, 'query', ''));
 
-        $people = User::active()->author()->excludeSelf()->whereNotIn('id', function ($query) {
+        $peopleQuery = User::active()->author()->excludeSelf()->whereNotIn('id', function ($query) {
             $query->select('following_id')->from(Table::FOLLOWS)->where('follower_id', me()->id);
         })->whereNotIn('id', function($query) {
             $query->select('blocked_id')->from(Table::BLOCKS)->where('blocker_id', me()->id);
         })->whereNotIn('id', function($query) {
             $query->select('blocker_id')->from(Table::BLOCKS)->where('blocked_id', me()->id);
-        })->unless(empty($filterOptions['query']), function ($query) use ($filterOptions) {
-            $query->where(function($query) use ($filterOptions) {
-                $query->whereLike('username', "%{$filterOptions['query']}%")
-                    ->orWhereLike('first_name', "%{$filterOptions['query']}%")
-                    ->orWhereLike('last_name', "%{$filterOptions['query']}%")
-                    ->orWhereLike('city', "%{$filterOptions['query']}%")
-                    ->orWhereLike('caption', "%{$filterOptions['query']}%")
-                    ->orWhereLike('bio', "%{$filterOptions['query']}%");
-            });
-        })
-        ->orderByDesc('followers_count')
-        ->orderByDesc('publications_count')
-        ->simplePaginateManual(30, (! empty($filterOptions['page']) ? $filterOptions['page'] : 1));
+        });
+
+        if($searchQuery !== '') {
+            $this->applyPeopleSearchFilters($peopleQuery, $searchQuery);
+        } else {
+            $peopleQuery->orderByDesc('followers_count')
+                ->orderByDesc('publications_count');
+        }
+
+        $people = $peopleQuery->simplePaginateManual(30, $page);
 
         return $this->responseSuccess([
             'data' => PeopleCollection::make($people->items())
@@ -129,5 +130,147 @@ class ExploreController extends Controller
         return $this->responseSuccess([
             'data' => TimelineCollection::make($timelinePosts)
         ]);
+    }
+
+    private function applyPeopleSearchFilters(Builder $query, string $searchQuery): void
+    {
+        $normalizedQuery = $this->normalizePeopleSearchQuery($searchQuery);
+        $searchTerms = $this->extractPeopleSearchTerms($normalizedQuery);
+        $rawLike = $this->makeLikePattern($searchQuery);
+        $normalizedLike = $this->makeLikePattern($normalizedQuery);
+        $documentExpression = $this->peopleSearchDocumentExpression();
+        $displayNameExpression = $this->peopleDisplayNameExpression();
+
+        $query->where(function(Builder $searchBuilder) use ($searchQuery, $rawLike, $normalizedLike, $normalizedQuery, $searchTerms, $documentExpression, $displayNameExpression) {
+            $searchBuilder->whereLike('username', $rawLike)
+                ->orWhereLike('first_name', $rawLike)
+                ->orWhereLike('last_name', $rawLike)
+                ->orWhereLike('city', $rawLike)
+                ->orWhereLike('caption', $rawLike)
+                ->orWhereLike('bio', $rawLike)
+                ->orWhereRaw("{$displayNameExpression} LIKE ?", [$normalizedLike])
+                ->orWhereRaw("{$documentExpression} LIKE ?", [$normalizedLike]);
+
+            if(is_numeric($searchQuery)) {
+                $searchBuilder->orWhereRaw($this->peopleIdentifierExpression() . ' LIKE ?', [$this->makeLikePattern($searchQuery)]);
+            }
+
+            if(count($searchTerms) > 1) {
+                $searchBuilder->orWhere(function(Builder $tokenBuilder) use ($searchTerms, $documentExpression) {
+                    foreach($searchTerms as $term) {
+                        $tokenBuilder->whereRaw("{$documentExpression} LIKE ?", [$this->makeLikePattern($term)]);
+                    }
+                });
+            }
+        });
+
+        $rankingBindings = [
+            mb_strtolower($searchQuery),
+            $normalizedQuery,
+            $this->makePrefixPattern(mb_strtolower($searchQuery)),
+            $this->makePrefixPattern($normalizedQuery),
+            $this->makePrefixPattern($normalizedQuery),
+        ];
+
+        $query->orderByRaw(
+            "CASE
+                WHEN LOWER(username) = ? THEN 0
+                WHEN {$displayNameExpression} = ? THEN 1
+                WHEN LOWER(username) LIKE ? THEN 2
+                WHEN {$displayNameExpression} LIKE ? THEN 3
+                WHEN {$documentExpression} LIKE ? THEN 4
+                ELSE 5
+            END",
+            $rankingBindings
+        );
+
+        if(count($searchTerms) > 1) {
+            $termScoreSql = implode(' + ', array_fill(0, count($searchTerms), "CASE WHEN {$documentExpression} LIKE ? THEN 1 ELSE 0 END"));
+
+            $query->orderByRaw(
+                "({$termScoreSql}) DESC",
+                array_map(fn(string $term) => $this->makeLikePattern($term), $searchTerms)
+            );
+        }
+
+        $query->orderByDesc('followers_count')
+            ->orderByDesc('publications_count');
+    }
+
+    private function normalizePeopleSearchQuery(string $query): string
+    {
+        $normalized = preg_replace('/[^\pL\pN]+/u', ' ', mb_strtolower(trim($query)));
+        $normalized = preg_replace('/\s+/u', ' ', (string) $normalized);
+
+        return trim((string) $normalized);
+    }
+
+    private function extractPeopleSearchTerms(string $normalizedQuery): array
+    {
+        if($normalizedQuery === '') {
+            return [];
+        }
+
+        return array_values(array_filter(array_unique(explode(' ', $normalizedQuery))));
+    }
+
+    private function peopleSearchDocumentExpression(): string
+    {
+        return $this->normalizedSqlTextExpression([
+            'first_name',
+            'last_name',
+            'username',
+            'caption',
+            'city',
+            'bio',
+        ]);
+    }
+
+    private function peopleDisplayNameExpression(): string
+    {
+        return $this->normalizedSqlTextExpression([
+            'first_name',
+            'last_name',
+        ]);
+    }
+
+    private function peopleIdentifierExpression(): string
+    {
+        return match (DB::connection()->getDriverName()) {
+            'sqlite' => 'CAST(id AS TEXT)',
+            'pgsql' => 'CAST(id AS TEXT)',
+            default => 'CAST(id AS CHAR)',
+        };
+    }
+
+    private function normalizedSqlTextExpression(array $columns): string
+    {
+        $expression = match (DB::connection()->getDriverName()) {
+            'sqlite' => implode(" || ' ' || ", array_map(fn(string $column) => "COALESCE({$column}, '')", $columns)),
+            'pgsql' => implode(" || ' ' || ", array_map(fn(string $column) => "COALESCE({$column}, '')", $columns)),
+            default => "CONCAT_WS(' ', " . implode(', ', array_map(fn(string $column) => "COALESCE({$column}, '')", $columns)) . ')',
+        };
+
+        $expression = "LOWER({$expression})";
+
+        foreach(['.', '-', '_', '@'] as $character) {
+            $expression = "REPLACE({$expression}, '{$character}', ' ')";
+        }
+
+        for($iteration = 0; $iteration < 3; $iteration++) {
+            $expression = "REPLACE({$expression}, '  ', ' ')";
+        }
+
+        return "TRIM({$expression})";
+    }
+
+    private function makeLikePattern(string $value): string
+    {
+        return '%' . addcslashes($value, '\\%_') . '%';
+    }
+
+    private function makePrefixPattern(string $value): string
+    {
+        return addcslashes($value, '\\%_') . '%';
     }
 }

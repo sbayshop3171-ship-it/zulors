@@ -2,7 +2,7 @@
 	<TimelineContainer>
 		<div class="mobile-safe-overlay-top sticky top-0 popup-background-tr z-10">
 			<div class="px-4 pt-4">
-				<QuickSearch v-on:cancel="handleSearchCancel" v-model.lazy="peopleSearchQuery" v-bind:placeholder="$t('labels.search')"></QuickSearch>
+				<QuickSearch v-on:cancel="handleSearchCancel" v-model="peopleSearchQuery" v-bind:placeholder="$t('labels.search')"></QuickSearch>
 			</div>
 			<ExploreTabs></ExploreTabs>
 			<Border></Border>
@@ -50,7 +50,7 @@
 </template>
 
 <script>
-	import { defineComponent, reactive, onMounted, ref, watch, computed } from 'vue';
+	import { defineComponent, reactive, onMounted, onUnmounted, ref, watch, computed } from 'vue';
 	import { useExplorePeopleStore } from '@M/store/explore/people.store.js';
 	import { useInfiniteScroll } from '@/kernel/vue/composables/infinite-scroll/index.js';
 
@@ -65,6 +65,7 @@
 	export default defineComponent({
 		setup: function() {
 			const peopleSearchQuery = ref('');
+			let searchTimeoutId = null;
 			
 			const state = reactive({
 				noMoreContent: false,
@@ -107,10 +108,15 @@
 			watch(peopleSearchQuery, () => {
                 explorePeopleStore.filter.query = peopleSearchQuery.value;
 
-                debounce(async () => {
-                    await applyFilters();
-                }, 500);
+                clearTimeout(searchTimeoutId);
+                searchTimeoutId = setTimeout(() => {
+                    void applyFilters();
+                }, 250);
             });
+
+			onUnmounted(() => {
+				clearTimeout(searchTimeoutId);
+			});
 
 			const applyFilters = async () => {
 				explorePeopleStore.filter.page = 1;
