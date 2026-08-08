@@ -6,7 +6,7 @@
             v-if="isMini"
             type="button"
             class="pointer-events-auto fixed bottom-5 left-1/2 flex h-12 max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg border border-bord-pr bg-bg-pr px-4 text-left shadow-2xl"
-        v-on:click="callStore.expand">
+            v-on:click="callStore.expand">
             <span class="flex size-8 shrink-0 items-center justify-center rounded-full bg-green-600 text-white">
                 <SvgIcon name="phone" type="line" classes="size-4"></SvgIcon>
             </span>
@@ -23,7 +23,7 @@
                         v-if="callStore.isActive"
                         type="button"
                         class="flex size-9 items-center justify-center rounded-full text-lab-sc hover:bg-fill-qt hover:text-lab-pr"
-                    v-on:click="callStore.minimize">
+                        v-on:click="callStore.minimize">
                         <SvgIcon name="chevron-down" type="solid" classes="size-5"></SvgIcon>
                     </button>
                 </div>
@@ -56,7 +56,7 @@
                             type="button"
                             class="flex flex-col items-center gap-2 text-par-s font-semibold text-lab-pr disabled:opacity-60"
                             v-bind:disabled="callStore.isAnswering"
-                        v-on:click="callStore.answerCall">
+                            v-on:click="callStore.answerCall">
                             <span class="flex size-14 items-center justify-center rounded-full bg-green-600 text-white">
                                 <SvgIcon name="phone" type="line" classes="size-6"></SvgIcon>
                             </span>
@@ -104,7 +104,7 @@
 </template>
 
 <script>
-    import { computed, defineComponent, ref, watch } from 'vue';
+    import { computed, defineComponent, onBeforeUnmount, ref, watch } from 'vue';
 
     export default defineComponent({
         props: {
@@ -123,20 +123,53 @@
                 return `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
             };
 
-            const attachRemoteStream = () => {
-                if(remoteAudioRef.value && props.callStore.remoteStream) {
-                    remoteAudioRef.value.srcObject = props.callStore.remoteStream;
-                    remoteAudioRef.value.volume = props.callStore.speakerEnabled ? 1 : 0;
-                    remoteAudioRef.value.play?.().catch(() => {});
+            const detachRemoteStream = () => {
+                if(! remoteAudioRef.value) {
+                    return;
                 }
+
+                try {
+                    remoteAudioRef.value.pause?.();
+                    remoteAudioRef.value.srcObject = null;
+                    remoteAudioRef.value.removeAttribute?.('src');
+                    remoteAudioRef.value.load?.();
+                }
+                catch(error) {}
             };
 
-            watch(() => props.callStore.remoteStream, attachRemoteStream);
+            const attachRemoteStream = () => {
+                if(! remoteAudioRef.value) {
+                    return;
+                }
+
+                if(! props.callStore.remoteStream) {
+                    detachRemoteStream();
+
+                    return;
+                }
+
+                if(remoteAudioRef.value.srcObject !== props.callStore.remoteStream) {
+                    remoteAudioRef.value.srcObject = props.callStore.remoteStream;
+                }
+
+                remoteAudioRef.value.volume = props.callStore.speakerEnabled ? 1 : 0;
+                remoteAudioRef.value.play?.().catch(() => {});
+            };
+
+            watch(() => props.callStore.remoteStream, attachRemoteStream, {
+                immediate: true
+            });
+            watch(() => props.callStore.status, (status) => {
+                if(['idle', 'ended', 'missed', 'declined', 'busy', 'failed'].includes(status)) {
+                    detachRemoteStream();
+                }
+            });
             watch(() => props.callStore.speakerEnabled, () => {
                 if(remoteAudioRef.value) {
                     remoteAudioRef.value.volume = props.callStore.speakerEnabled ? 1 : 0;
                 }
             });
+            onBeforeUnmount(detachRemoteStream);
 
             const durationText = computed(() => {
                 return formatDuration(props.callStore.durationSeconds);

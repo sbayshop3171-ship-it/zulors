@@ -271,6 +271,16 @@ const applySpeechTrackHints = (stream) => {
     });
 };
 
+const stopMediaStream = (stream) => {
+    stream?.getTracks?.().forEach((track) => {
+        try {
+            track.enabled = false;
+            track.stop();
+        }
+        catch(error) {}
+    });
+};
+
 const createInteractiveAudioContext = () => {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
 
@@ -467,8 +477,13 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
     let reconnectTimer = null;
     let currentNetworkQuality = 'unknown';
     let connectedNotified = false;
+    let isClosed = false;
 
     const emit = (name, ...args) => {
+        if(isClosed) {
+            return;
+        }
+
         if(typeof callbacks[name] === 'function') {
             callbacks[name](...args);
         }
@@ -643,17 +658,38 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
             return peerConnection;
         }
 
+        isClosed = false;
+
         if(! isAudioCallSupported()) {
             throw new Error('Audio call is not supported in this browser.');
         }
 
         rawLocalStream = await requestLocalMediaStream(mediaType);
+
+        if(isClosed) {
+            stopMediaStream(rawLocalStream);
+            rawLocalStream = null;
+
+            throw new Error('Call already ended.');
+        }
+
         applySpeechTrackHints(rawLocalStream);
 
         const processedStream = await createVoiceProcessedStream(rawLocalStream);
 
         localStream = processedStream.stream;
         voiceProcessingCleanup = processedStream.cleanup;
+
+        if(isClosed) {
+            voiceProcessingCleanup?.();
+            stopMediaStream(localStream);
+            stopMediaStream(rawLocalStream);
+            localStream = null;
+            rawLocalStream = null;
+            voiceProcessingCleanup = null;
+
+            throw new Error('Call already ended.');
+        }
 
         remoteStream = new MediaStream();
         peerConnection = new RTCPeerConnection({
@@ -681,6 +717,10 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
         });
 
         peerConnection.onicecandidate = (event) => {
+            if(isClosed) {
+                return;
+            }
+
             if(event.candidate) {
                 emit('onSignal', 'ice', {
                     candidate: event.candidate.toJSON()
@@ -689,6 +729,10 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
         };
 
         peerConnection.ontrack = (event) => {
+            if(isClosed) {
+                return;
+            }
+
             event.streams?.[0]?.getTracks()?.forEach((track) => {
                 if(! remoteStream.getTracks().some((remoteTrack) => remoteTrack.id === track.id)) {
                     remoteStream.addTrack(track);
@@ -699,11 +743,19 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
         };
 
         peerConnection.onconnectionstatechange = () => {
+            if(isClosed) {
+                return;
+            }
+
             emit('onStateChange', peerConnection.connectionState);
             handleReconnectState();
         };
 
         peerConnection.oniceconnectionstatechange = () => {
+            if(isClosed) {
+                return;
+            }
+
             handleReconnectState();
         };
 
@@ -776,23 +828,51 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
     };
 
     const close = () => {
+        isClosed = true;
+        stopQualityMonitor();
+        clearReconnectTimer();
+
+        const pc = peerConnection;
+        peerConnection = null;
+
         try {
-            peerConnection?.getSenders()?.forEach((sender) => {
+            pc?.getSenders?.()?.forEach((sender) => {
+                try {
+                    const replacement = sender.replaceTrack?.(null);
+
+                    replacement?.catch?.(() => {});
+                }
+                catch(error) {}
+
                 sender.track?.stop();
             });
 
-            peerConnection?.close();
+            pc?.getReceivers?.()?.forEach((receiver) => {
+                receiver.track?.stop();
+            });
+
+            pc?.getTransceivers?.()?.forEach((transceiver) => {
+                try {
+                    transceiver.stop?.();
+                }
+                catch(error) {}
+            });
+
+            if(pc) {
+                pc.onicecandidate = null;
+                pc.ontrack = null;
+                pc.onconnectionstatechange = null;
+                pc.oniceconnectionstatechange = null;
+                pc.close();
+            }
         }
         catch(error) {}
 
         voiceProcessingCleanup?.();
-        stopQualityMonitor();
-        clearReconnectTimer();
-        localStream?.getTracks()?.forEach((track) => track.stop());
-        rawLocalStream?.getTracks()?.forEach((track) => track.stop());
-        remoteStream?.getTracks()?.forEach((track) => track.stop());
+        stopMediaStream(localStream);
+        stopMediaStream(rawLocalStream);
+        stopMediaStream(remoteStream);
 
-        peerConnection = null;
         localStream = null;
         rawLocalStream = null;
         remoteStream = null;

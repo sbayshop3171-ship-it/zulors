@@ -222,13 +222,12 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
             catch(error) {
                 this.error = error.message || 'Unable to start audio call.';
+                this.finishCall('failed', 2600);
 
                 try {
                     await colibriAPI().messenger().sendTo(`calls/${callUuid}/decline`);
                 }
                 catch(declineError) {}
-
-                this.finishCall('failed', 2600);
 
                 return false;
             }
@@ -247,6 +246,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             const callUuid = this.call.call_uuid;
             this.finalizingCallUuid = callUuid;
+            this.finishCall('declined');
 
             try {
                 await colibriAPI().messenger()
@@ -255,9 +255,8 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             catch(error) {
                 // The local UI still closes. The server may already have finalized the call.
             }
-            finally {
-                this.finishCall('declined');
-            }
+
+            return true;
         },
         endCall: async function(reason = 'user_ended') {
             if(! this.call?.call_uuid) {
@@ -274,6 +273,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             const callUuid = this.call.call_uuid;
             this.finalizingCallUuid = callUuid;
+            this.finishCall(['connection_lost', 'connection_timeout', 'ice_failed'].includes(reason) ? 'failed' : 'ended');
 
             try {
                 await colibriAPI().messenger().with({
@@ -285,9 +285,8 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 // Finalization requests can race with the remote side or timeout jobs.
                 // Keep the local call UI deterministic and let realtime/history catch up.
             }
-            finally {
-                this.finishCall(['connection_lost', 'connection_timeout', 'ice_failed'].includes(reason) ? 'failed' : 'ended');
-            }
+
+            return true;
         },
         sendSignal: async function(signalType, signal = {}) {
             if(! this.call?.call_uuid || this.isFinal || this.finalizingCallUuid === this.call.call_uuid) {
@@ -649,14 +648,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.stopRingTimeoutTimer();
             this.stopConnectionTimeoutTimer();
             this.stopReconnectTimeoutTimer();
-            this.peer?.close();
-            this.peer = null;
-            this.offerSent = false;
             this.isAnswering = false;
-            this.localStream = null;
-            this.remoteStream = null;
+            this.cleanupMediaSession();
             this.stopDurationTimer();
-            this.exitNativeAudioMode();
             this.detachRealtimeChannel();
 
             this.resetTimer = window.setTimeout(() => {
@@ -666,14 +660,18 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }, resetDelay);
         },
         reset: function() {
-            this.peer?.close();
+            if(this.resetTimer) {
+                window.clearTimeout(this.resetTimer);
+                this.resetTimer = null;
+            }
+
             this.stopRingingFeedback();
             this.stopRingTimeoutTimer();
             this.stopConnectionTimeoutTimer();
             this.stopReconnectTimeoutTimer();
             this.stopDurationTimer();
             this.stopStartCooldown();
-            this.exitNativeAudioMode();
+            this.cleanupMediaSession();
             this.detachRealtimeChannel();
 
             this.call = null;
@@ -698,7 +696,47 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.isStarting = false;
             this.isStartCoolingDown = false;
             this.finalizingCallUuid = null;
-            this.resetTimer = null;
+        },
+        cleanupMediaSession: function() {
+            const peer = this.peer;
+
+            this.peer = null;
+
+            try {
+                peer?.close?.();
+            }
+            catch(error) {}
+
+            this.releaseMediaStream(this.localStream);
+            this.releaseMediaStream(this.remoteStream);
+
+            this.localStream = null;
+            this.remoteStream = null;
+            this.offerSent = false;
+            this.connectedSignalSent = false;
+            this.exitNativeAudioMode();
+            this.closeRingToneContext();
+        },
+        releaseMediaStream: function(stream) {
+            stream?.getTracks?.().forEach((track) => {
+                try {
+                    track.enabled = false;
+                    track.stop();
+                }
+                catch(error) {}
+            });
+        },
+        closeRingToneContext: function() {
+            const context = this.ringToneContext;
+
+            this.ringToneContext = null;
+
+            try {
+                if(context && context.state !== 'closed') {
+                    context.close?.().catch(() => {});
+                }
+            }
+            catch(error) {}
         },
         startCallCooldown: function(durationMs = callStartCooldownMs) {
             this.stopStartCooldown();
