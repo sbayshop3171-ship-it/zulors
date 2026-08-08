@@ -108,6 +108,10 @@
 				type: Boolean,
 				default: false
 			},
+			distanceFromActive: {
+				type: Number,
+				default: 0
+			},
 			blocked: {
 				type: Boolean,
 				default: false
@@ -164,6 +168,18 @@
 				return props.active || props.isNear;
 			});
 
+			const shouldWarmPlayback = computed(() => {
+				if(props.active || props.blocked) {
+					return props.active && ! props.blocked;
+				}
+
+				return canRenderVideo.value && Number(props.distanceFromActive || 0) <= Number(state.networkProfile.reelsWarmRadius || 0);
+			});
+
+			const shouldAttachPlaybackSource = computed(() => {
+				return canRenderVideo.value && ! props.blocked && shouldWarmPlayback.value;
+			});
+
 			const nativeVideoUrl = computed(() => {
 				return state.nativeVideoUrl;
 			});
@@ -173,7 +189,7 @@
 					return state.networkProfile.activeVideoPreload;
 				}
 
-					return props.isNear && state.networkProfile.allowVideoPrefetch ? 'auto' : (props.isNear ? 'metadata' : 'none');
+					return shouldWarmPlayback.value ? (state.networkProfile.reelsAdjacentVideoPreload || 'metadata') : 'none';
 				});
 
 				const showBufferIndicator = computed(() => {
@@ -237,6 +253,14 @@
 				catch(error) {
 					return 0;
 				}
+			};
+
+			const hlsStartPosition = () => {
+				const currentTime = Number(videoPlayerRef.value?.currentTime || 0);
+
+				return Number.isFinite(currentTime) && currentTime > 0
+					? currentTime
+					: -1;
 			};
 
 			const clearBufferRecoveryTimer = () => {
@@ -505,7 +529,7 @@
 						}
 
 						try {
-							hlsInstance.startLoad(-1);
+							hlsInstance.startLoad(hlsStartPosition());
 						}
 						catch(error) {
 							applyFallbackSource();
@@ -519,7 +543,7 @@
 				const warmNativePlayback = () => {
 					const videoElement = videoPlayerRef.value;
 
-					if(! videoElement || ! state.nativeVideoUrl || (! props.active && ! props.isNear)) {
+					if(! videoElement || ! state.nativeVideoUrl || ! shouldWarmPlayback.value) {
 						return;
 					}
 
@@ -659,7 +683,7 @@
 					case Hls.ErrorTypes.NETWORK_ERROR:
 						if(! applyFallbackSource()) {
 							try {
-								hlsInstance?.startLoad(-1);
+								hlsInstance?.startLoad(hlsStartPosition());
 							}
 							catch(error) {}
 						}
@@ -678,7 +702,7 @@
 				}
 			};
 
-			const configurePlaybackSource = () => {
+				const configurePlaybackSource = () => {
 				const videoElement = videoPlayerRef.value;
 				const source = playbackSource.value;
 
@@ -686,7 +710,7 @@
 				state.nativeVideoUrl = '';
 				resetPlaybackState(false);
 
-				if(! videoElement || ! source.url) {
+				if(! videoElement || ! source.url || ! shouldAttachPlaybackSource.value) {
 					return;
 				}
 
@@ -699,13 +723,14 @@
 					videoElement.load();
 
 					hlsInstance = new Hls({
+						autoStartLoad: false,
 						enableWorker: true,
 						capLevelToPlayerSize: true,
 						lowLatencyMode: false,
-						backBufferLength: 15,
+						backBufferLength: state.networkProfile.reelsBackBufferLength,
 						startLevel: isSlowNetworkProfile(state.networkProfile) ? 0 : -1,
-						maxBufferLength: isSlowNetworkProfile(state.networkProfile) ? 12 : 30,
-						maxMaxBufferLength: isSlowNetworkProfile(state.networkProfile) ? 20 : 60
+						maxBufferLength: state.networkProfile.reelsMaxBufferLength,
+						maxMaxBufferLength: state.networkProfile.reelsMaxMaxBufferLength
 					});
 
 					hlsInstance.on(Hls.Events.ERROR, handleHlsError);
@@ -718,8 +743,8 @@
 					hlsInstance.on(Hls.Events.MEDIA_ATTACHED, () => {
 						hlsInstance.loadSource(source.url);
 
-						if(props.active || props.isNear) {
-							hlsInstance.startLoad(-1);
+						if(shouldWarmPlayback.value) {
+							hlsInstance.startLoad(hlsStartPosition());
 						}
 						else {
 							hlsInstance.stopLoad();
@@ -753,8 +778,8 @@
 			const syncPlaybackWindow = () => {
 				if(hlsInstance) {
 					try {
-						if(props.active || props.isNear) {
-							hlsInstance.startLoad(-1);
+						if(shouldWarmPlayback.value) {
+							hlsInstance.startLoad(hlsStartPosition());
 						}
 						else {
 							hlsInstance.stopLoad();
@@ -767,14 +792,14 @@
 				};
 
 				const releasePlaybackSource = () => {
-					pauseVideo(inactiveTelemetryEvent());
+					pauseVideo();
 					destroyHlsInstance();
 					state.nativeVideoUrl = '';
 					resetPlaybackState(false);
 				};
 
-				watch(canRenderVideo, (canRender) => {
-					if(canRender) {
+				watch(shouldAttachPlaybackSource, (shouldAttach) => {
+					if(shouldAttach) {
 						nextTick(() => {
 							configurePlaybackSource();
 							syncPlaybackWindow();
@@ -804,7 +829,7 @@
 				}
 			});
 
-			watch(() => props.isNear, () => {
+			watch(() => props.distanceFromActive, () => {
 				syncPlaybackWindow();
 			});
 
@@ -825,8 +850,13 @@
 			});
 
 			watch(() => state.networkProfile.profile, () => {
-				configurePlaybackSource();
-				syncPlaybackWindow();
+				if(shouldAttachPlaybackSource.value) {
+					configurePlaybackSource();
+					syncPlaybackWindow();
+				}
+				else {
+					releasePlaybackSource();
+				}
 			});
 
 			onMounted(() => {
@@ -834,8 +864,11 @@
 				unsubscribeNetworkProfile = subscribeNetworkProfile((networkProfile) => {
 					state.networkProfile = networkProfile;
 				});
-				configurePlaybackSource();
-				syncPlaybackWindow();
+
+				if(shouldAttachPlaybackSource.value) {
+					configurePlaybackSource();
+					syncPlaybackWindow();
+				}
 			});
 
 			onUnmounted(() => {

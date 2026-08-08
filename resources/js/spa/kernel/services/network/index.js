@@ -27,9 +27,15 @@ const buildProfilePolicy = (profile, connection) => {
 				downlinkMbps: 0,
 				allowVideoPrefetch: false,
 				reelsNearRadius: 0,
+				reelsWarmRadius: 0,
+				reelsPrefetchAhead: 0,
+				reelsAdjacentVideoPreload: 'none',
 				activeVideoPreload: 'metadata',
 				reelsMinBufferSeconds: 1.4,
-				stallRecoveryDelayMs: 1800
+				stallRecoveryDelayMs: 1800,
+				reelsBackBufferLength: 4,
+				reelsMaxBufferLength: 8,
+				reelsMaxMaxBufferLength: 12
 			};
 		case 'very_slow':
 			return {
@@ -40,9 +46,15 @@ const buildProfilePolicy = (profile, connection) => {
 				downlinkMbps,
 				allowVideoPrefetch: false,
 				reelsNearRadius: 0,
+				reelsWarmRadius: 0,
+				reelsPrefetchAhead: 0,
+				reelsAdjacentVideoPreload: 'none',
 				activeVideoPreload: 'metadata',
 				reelsMinBufferSeconds: 1.35,
-				stallRecoveryDelayMs: 1600
+				stallRecoveryDelayMs: 1600,
+				reelsBackBufferLength: 4,
+				reelsMaxBufferLength: 8,
+				reelsMaxMaxBufferLength: 12
 			};
 		case 'slow':
 			return {
@@ -53,9 +65,15 @@ const buildProfilePolicy = (profile, connection) => {
 				downlinkMbps,
 				allowVideoPrefetch: false,
 				reelsNearRadius: 1,
+				reelsWarmRadius: 0,
+				reelsPrefetchAhead: 0,
+				reelsAdjacentVideoPreload: 'none',
 				activeVideoPreload: 'auto',
 				reelsMinBufferSeconds: 1.0,
-				stallRecoveryDelayMs: 1400
+				stallRecoveryDelayMs: 1400,
+				reelsBackBufferLength: 5,
+				reelsMaxBufferLength: 10,
+				reelsMaxMaxBufferLength: 14
 			};
 			case 'normal':
 				return {
@@ -65,10 +83,16 @@ const buildProfilePolicy = (profile, connection) => {
 				effectiveType,
 				downlinkMbps,
 				allowVideoPrefetch: true,
-					reelsNearRadius: 2,
+					reelsNearRadius: 1,
+					reelsWarmRadius: 1,
+					reelsPrefetchAhead: 1,
+					reelsAdjacentVideoPreload: 'metadata',
 					activeVideoPreload: 'auto',
-					reelsMinBufferSeconds: 0.65,
-					stallRecoveryDelayMs: 1100
+					reelsMinBufferSeconds: 0.85,
+					stallRecoveryDelayMs: 1100,
+					reelsBackBufferLength: 6,
+					reelsMaxBufferLength: 12,
+					reelsMaxMaxBufferLength: 18
 			};
 		default:
 				return {
@@ -78,10 +102,16 @@ const buildProfilePolicy = (profile, connection) => {
 				effectiveType,
 				downlinkMbps,
 				allowVideoPrefetch: true,
-					reelsNearRadius: 2,
+					reelsNearRadius: 1,
+					reelsWarmRadius: 1,
+					reelsPrefetchAhead: 1,
+					reelsAdjacentVideoPreload: 'metadata',
 					activeVideoPreload: 'auto',
-					reelsMinBufferSeconds: 0.35,
-					stallRecoveryDelayMs: 900
+					reelsMinBufferSeconds: 0.55,
+					stallRecoveryDelayMs: 900,
+					reelsBackBufferLength: 8,
+					reelsMaxBufferLength: 14,
+					reelsMaxMaxBufferLength: 22
 			};
 	}
 };

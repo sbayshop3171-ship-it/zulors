@@ -29,6 +29,7 @@
 				v-bind:postData="postData"
 				v-bind:active="activeIndex === index"
 				v-bind:isNear="Math.abs(activeIndex - index) <= nearRadius"
+				v-bind:distanceFromActive="Math.abs(activeIndex - index)"
 				v-bind:position="index + 1"
 				v-bind:feedSessionId="feedSessionId"
 			></ReelItem>
@@ -127,7 +128,7 @@
 
 				const remaining = scroller.scrollHeight - (scroller.scrollTop + scroller.clientHeight);
 
-				if(remaining > scroller.clientHeight * 2) {
+				if(remaining > scroller.clientHeight * 4) {
 					return;
 				}
 

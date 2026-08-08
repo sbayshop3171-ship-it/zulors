@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 import { readCache, writeCache } from '@/kernel/services/cache/index.js';
-import { prefetchTimelineMedia } from '@/kernel/services/media-prefetch/index.js';
+import { prefetchReelsPlaybackWindow } from '@/kernel/services/media-prefetch/index.js';
 import { useAuthStore } from '@M/store/auth/auth.store.js';
 
 const reelsCacheLimit = 20;
@@ -26,8 +26,6 @@ const useExploreReelsStore = defineStore('mobile_explore_reels_store', {
 	deleteAware: true,
 	state: function() {
 		const cachedPosts = readCache(getExploreReelsCacheKey(), []);
-
-		prefetchTimelineMedia(cachedPosts);
 
 		return {
 			posts: cachedPosts,
@@ -54,7 +52,6 @@ const useExploreReelsStore = defineStore('mobile_explore_reels_store', {
 				});
 			}
 			else {
-				prefetchTimelineMedia(this.posts);
 				await this.refreshFirstPage({
 					refreshReason: 'resume'
 				});
@@ -81,8 +78,8 @@ const useExploreReelsStore = defineStore('mobile_explore_reels_store', {
 			return await this.load().then((response) => {
 				const posts = response.data.data;
 
-				prefetchTimelineMedia(posts);
 				this.posts = posts;
+				prefetchReelsPlaybackWindow(this.posts, 0);
 				this.persistFirstPage();
 
 				return response;
@@ -104,7 +101,6 @@ const useExploreReelsStore = defineStore('mobile_explore_reels_store', {
 			const existingIds = new Set(this.posts.map((postData) => postData.id));
 			const nextPosts = posts.filter((postData) => ! existingIds.has(postData.id));
 
-			prefetchTimelineMedia(nextPosts);
 			this.posts = this.posts.concat(nextPosts);
 			this.persistFirstPage();
 
@@ -190,7 +186,7 @@ const useExploreReelsStore = defineStore('mobile_explore_reels_store', {
 
 			if(cachedPosts.length) {
 				this.posts = cachedPosts;
-				prefetchTimelineMedia(cachedPosts);
+				prefetchReelsPlaybackWindow(cachedPosts, 0);
 
 				return true;
 			}

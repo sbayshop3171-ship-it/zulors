@@ -9,6 +9,7 @@
 			v-bind:postData="postData"
 			v-bind:active="active"
 			v-bind:isNear="isNear"
+			v-bind:distanceFromActive="distanceFromActive"
 			v-bind:blocked="isPlaybackBlocked"
 			v-bind:feedSessionId="feedSessionId"
 			v-bind:position="position"
@@ -187,6 +188,10 @@
 			isNear: {
 				type: Boolean,
 				default: false
+			},
+			distanceFromActive: {
+				type: Number,
+				default: 0
 			},
 			position: {
 				type: Number,

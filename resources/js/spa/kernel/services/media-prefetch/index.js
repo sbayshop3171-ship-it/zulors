@@ -181,11 +181,10 @@ function prefetchReelsPlaybackWindow(posts = [], activeIndex = 0) {
     }
 
     const safeActiveIndex = Math.max(0, Math.min(posts.length - 1, Number(activeIndex || 0)));
-    const forwardRadius = networkProfile.allowVideoPrefetch ? 3 : 1;
-    const backwardRadius = networkProfile.allowVideoPrefetch ? 1 : 0;
+    const forwardRadius = Math.max(0, Number(networkProfile.reelsPrefetchAhead || 0));
     const orderedPosts = [];
 
-    for(let offset = 0; offset <= forwardRadius; offset++) {
+    for(let offset = 1; offset <= forwardRadius; offset++) {
         const postData = posts[safeActiveIndex + offset];
 
         if(postData) {
@@ -193,18 +192,14 @@ function prefetchReelsPlaybackWindow(posts = [], activeIndex = 0) {
         }
     }
 
-    for(let offset = 1; offset <= backwardRadius; offset++) {
-        const postData = posts[safeActiveIndex - offset];
-
-        if(postData) {
-            orderedPosts.push(postData);
-        }
+    if(! orderedPosts.length) {
+        return;
     }
 
     prefetchTimelineMedia(orderedPosts, orderedPosts.length || 1, {
         immediate: true,
-        videoPreload: networkProfile.allowVideoPrefetch ? 'auto' : 'metadata',
-        includeFallbackSource: networkProfile.allowVideoPrefetch
+        videoPreload: networkProfile.reelsAdjacentVideoPreload || 'metadata',
+        includeFallbackSource: false
     });
 }
 
