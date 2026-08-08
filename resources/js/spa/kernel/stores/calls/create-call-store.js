@@ -5,6 +5,7 @@ import BRD from '@/kernel/websockets/brd/index.js';
 import { createAudioCallPeer, isAudioCallSupported } from '@/kernel/services/calls/webrtc-audio-call.js';
 
 const finalStatuses = ['ended', 'missed', 'declined', 'busy', 'failed'];
+const connectingStatuses = ['ringing', 'accepted', 'connecting'];
 
 const normalizeCallPayload = (payload = {}) => {
     if(payload?.data?.call) {
@@ -289,11 +290,11 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 if(data.signal_type === 'offer') {
                     await this.setupPeer();
                     await this.peer.handleOffer(data.signal || {}, this.call.media_type || 'audio');
-                    this.status = 'connecting';
+                    this.markConnecting();
                 }
                 else if(data.signal_type === 'answer') {
                     await this.peer?.handleAnswer(data.signal || {});
-                    this.status = 'connecting';
+                    this.markConnecting();
                 }
                 else if(['ice', 'candidate'].includes(data.signal_type)) {
                     await this.peer?.handleIce(data.signal || {});
@@ -349,11 +350,16 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             try {
                 this.offerSent = true;
                 await this.peer?.createOffer(this.call?.media_type || 'audio');
-                this.status = 'connecting';
+                this.markConnecting();
             }
             catch(error) {
                 this.offerSent = false;
                 throw error;
+            }
+        },
+        markConnecting: function() {
+            if(this.status !== 'connected') {
+                this.status = 'connecting';
             }
         },
         markConnected: function(shouldNotify = true) {
@@ -380,10 +386,14 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         },
         setCall: function(call, options = {}) {
             const normalizedCall = normalizeCallPayload(call);
+            const sameCall = Boolean(this.call?.call_uuid && normalizedCall?.call_uuid === this.call.call_uuid);
+            const nextStatus = options.status || normalizedCall.status || this.status;
 
             this.call = normalizedCall;
             this.direction = options.direction || this.direction;
-            this.status = options.status || normalizedCall.status || this.status;
+            this.status = sameCall && this.status === 'connected' && connectingStatuses.includes(nextStatus)
+                ? 'connected'
+                : nextStatus;
             this.error = '';
         },
         finishCall: function(status = 'ended', resetDelay = 900) {
