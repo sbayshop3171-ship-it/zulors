@@ -6,6 +6,8 @@ import { createAudioCallPeer, isAudioCallSupported } from '@/kernel/services/cal
 
 const finalStatuses = ['ended', 'missed', 'declined', 'busy', 'failed'];
 const connectingStatuses = ['ringing', 'accepted', 'connecting'];
+const defaultRingTimeoutSeconds = 45;
+const connectionTimeoutSeconds = 24;
 
 const normalizeCallPayload = (payload = {}) => {
     if(payload?.data?.call) {
@@ -39,8 +41,14 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             activeChannel: null,
             offerSent: false,
             connectedSignalSent: false,
+            isAnswering: false,
             durationSeconds: 0,
-            durationTimer: null
+            durationTimer: null,
+            ringSecondsRemaining: 0,
+            ringTimeoutTimer: null,
+            connectionTimeoutTimer: null,
+            ringToneContext: null,
+            ringToneTimer: null
         };
     },
     getters: {
@@ -101,6 +109,8 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 throw new Error('Audio call is not available for this chat.');
             }
 
+            this.unlockAudioFeedback();
+
             let response = null;
 
             try {
@@ -145,18 +155,48 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 return false;
             }
 
-            await this.setupPeer();
+            if(this.isAnswering) {
+                return false;
+            }
 
-            const response = await colibriAPI().messenger()
-                .sendTo(`calls/${this.call.call_uuid}/answer`);
+            const callUuid = this.call.call_uuid;
 
-            this.setCall(response.data.data.call, {
-                direction: 'incoming',
-                status: response.data.data.call.status || 'accepted'
-            });
-            this.minimized = false;
-            this.attachRealtimeChannel(this.call.chat_id);
-            await this.sendSignal('ready', {});
+            this.isAnswering = true;
+            this.status = 'connecting';
+            this.stopRingingFeedback();
+            this.enterNativeAudioMode();
+
+            try {
+                await this.setupPeer();
+
+                const response = await colibriAPI().messenger()
+                    .sendTo(`calls/${callUuid}/answer`);
+
+                this.setCall(response.data.data.call, {
+                    direction: 'incoming',
+                    status: response.data.data.call.status || 'accepted'
+                });
+                this.minimized = false;
+                this.attachRealtimeChannel(this.call.chat_id);
+                await this.sendSignal('ready', {});
+
+                return true;
+            }
+            catch(error) {
+                this.error = error.message || 'Unable to start audio call.';
+
+                try {
+                    await colibriAPI().messenger().sendTo(`calls/${callUuid}/decline`);
+                }
+                catch(declineError) {}
+
+                this.finishCall('failed', 2600);
+
+                return false;
+            }
+            finally {
+                this.isAnswering = false;
+            }
         },
         declineCall: async function() {
             if(! this.call?.call_uuid) {
@@ -252,8 +292,15 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             });
 
             if(call.initiator_id === this.currentUserId) {
-                await this.setupPeer();
-                await this.createOffer();
+                try {
+                    this.enterNativeAudioMode();
+                    await this.setupPeer();
+                    await this.createOffer();
+                }
+                catch(error) {
+                    this.error = error.message || 'Unable to connect audio call.';
+                    await this.endCall();
+                }
             }
         },
         handleDeclined: function(event = {}) {
@@ -288,6 +335,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             try {
                 if(data.signal_type === 'offer') {
+                    this.enterNativeAudioMode();
                     await this.setupPeer();
                     await this.peer.handleOffer(data.signal || {}, this.call.media_type || 'audio');
                     this.markConnecting();
@@ -303,6 +351,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     this.markConnected(false);
                 }
                 else if(data.signal_type === 'ready' && this.call?.initiator_id === this.currentUserId) {
+                    this.enterNativeAudioMode();
                     await this.setupPeer();
                     await this.createOffer();
                 }
@@ -338,6 +387,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             });
 
             this.peer = markRaw(peer);
+            this.enterNativeAudioMode();
             await this.peer.ensurePeerConnection(this.call?.media_type || 'audio');
 
             return this.peer;
@@ -360,10 +410,15 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         markConnecting: function() {
             if(this.status !== 'connected') {
                 this.status = 'connecting';
+                this.stopRingingFeedback();
+                this.startConnectionTimeoutTimer();
             }
         },
         markConnected: function(shouldNotify = true) {
             this.status = 'connected';
+            this.stopRingingFeedback();
+            this.stopRingTimeoutTimer();
+            this.stopConnectionTimeoutTimer();
             this.startDurationTimer();
 
             if(shouldNotify && ! this.connectedSignalSent) {
@@ -377,6 +432,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         },
         toggleSpeaker: function() {
             this.speakerEnabled = ! this.speakerEnabled;
+            this.setNativeSpeakerEnabled(this.speakerEnabled);
         },
         minimize: function() {
             this.minimized = true;
@@ -395,15 +451,21 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 ? 'connected'
                 : nextStatus;
             this.error = '';
+            this.syncCallSideEffects();
         },
         finishCall: function(status = 'ended', resetDelay = 900) {
             this.status = status;
+            this.stopRingingFeedback();
+            this.stopRingTimeoutTimer();
+            this.stopConnectionTimeoutTimer();
             this.peer?.close();
             this.peer = null;
             this.offerSent = false;
+            this.isAnswering = false;
             this.localStream = null;
             this.remoteStream = null;
             this.stopDurationTimer();
+            this.exitNativeAudioMode();
             this.detachRealtimeChannel();
 
             window.setTimeout(() => {
@@ -414,7 +476,11 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         },
         reset: function() {
             this.peer?.close();
+            this.stopRingingFeedback();
+            this.stopRingTimeoutTimer();
+            this.stopConnectionTimeoutTimer();
             this.stopDurationTimer();
+            this.exitNativeAudioMode();
             this.detachRealtimeChannel();
 
             this.call = null;
@@ -429,7 +495,28 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.peer = null;
             this.offerSent = false;
             this.connectedSignalSent = false;
+            this.isAnswering = false;
             this.durationSeconds = 0;
+            this.ringSecondsRemaining = 0;
+        },
+        syncCallSideEffects: function() {
+            if(this.status === 'ringing') {
+                this.stopConnectionTimeoutTimer();
+                this.startRingTimeoutTimer();
+                this.startRingingFeedback();
+
+                return;
+            }
+
+            this.stopRingingFeedback();
+            this.stopRingTimeoutTimer();
+
+            if(['accepted', 'connecting'].includes(this.status)) {
+                this.startConnectionTimeoutTimer();
+            }
+            else {
+                this.stopConnectionTimeoutTimer();
+            }
         },
         startDurationTimer: function() {
             if(this.durationTimer) {
@@ -445,6 +532,220 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 window.clearInterval(this.durationTimer);
                 this.durationTimer = null;
             }
+        },
+        startRingTimeoutTimer: function() {
+            this.stopRingTimeoutTimer();
+            this.updateRingSecondsRemaining();
+
+            if(this.ringSecondsRemaining <= 0) {
+                this.handleRingingTimeout();
+
+                return;
+            }
+
+            this.ringTimeoutTimer = window.setInterval(() => {
+                this.updateRingSecondsRemaining();
+
+                if(this.ringSecondsRemaining <= 0) {
+                    this.handleRingingTimeout();
+                }
+            }, 1000);
+        },
+        stopRingTimeoutTimer: function() {
+            if(this.ringTimeoutTimer) {
+                window.clearInterval(this.ringTimeoutTimer);
+                this.ringTimeoutTimer = null;
+            }
+        },
+        updateRingSecondsRemaining: function() {
+            const expiresAt = Date.parse(this.call?.expires_at || '');
+
+            if(Number.isFinite(expiresAt)) {
+                this.ringSecondsRemaining = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+
+                return;
+            }
+
+            const startedAt = Date.parse(this.call?.timestamps?.started_at || '');
+
+            if(Number.isFinite(startedAt)) {
+                const elapsed = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+                this.ringSecondsRemaining = Math.max(0, defaultRingTimeoutSeconds - elapsed);
+
+                return;
+            }
+
+            this.ringSecondsRemaining = defaultRingTimeoutSeconds;
+        },
+        handleRingingTimeout: function() {
+            if(this.status !== 'ringing') {
+                return false;
+            }
+
+            this.error = this.direction === 'outgoing' ? 'No answer.' : 'Missed call.';
+            this.finishCall('missed', 1600);
+
+            return true;
+        },
+        startConnectionTimeoutTimer: function() {
+            if(this.connectionTimeoutTimer || this.status === 'connected') {
+                return;
+            }
+
+            this.connectionTimeoutTimer = window.setTimeout(async () => {
+                this.connectionTimeoutTimer = null;
+
+                if(! ['accepted', 'connecting'].includes(this.status)) {
+                    return;
+                }
+
+                this.error = 'Audio connection timed out.';
+                await this.endCall();
+            }, connectionTimeoutSeconds * 1000);
+        },
+        stopConnectionTimeoutTimer: function() {
+            if(this.connectionTimeoutTimer) {
+                window.clearTimeout(this.connectionTimeoutTimer);
+                this.connectionTimeoutTimer = null;
+            }
+        },
+        unlockAudioFeedback: function() {
+            this.ensureRingToneContext();
+        },
+        ensureRingToneContext: function() {
+            if(typeof window === 'undefined') {
+                return null;
+            }
+
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+
+            if(! AudioContext) {
+                return null;
+            }
+
+            if(! this.ringToneContext) {
+                this.ringToneContext = markRaw(new AudioContext());
+            }
+
+            if(this.ringToneContext.state === 'suspended') {
+                this.ringToneContext.resume().catch(() => {});
+            }
+
+            return this.ringToneContext;
+        },
+        startRingingFeedback: function() {
+            if(this.ringToneTimer || this.status !== 'ringing') {
+                return;
+            }
+
+            const isIncoming = this.direction === 'incoming';
+            const playTone = () => {
+                if(this.status !== 'ringing') {
+                    this.stopRingingFeedback();
+
+                    return;
+                }
+
+                isIncoming ? this.playIncomingRingTone() : this.playOutgoingRingTone();
+            };
+
+            playTone();
+            this.ringToneTimer = window.setInterval(playTone, isIncoming ? 1700 : 2300);
+        },
+        stopRingingFeedback: function() {
+            if(this.ringToneTimer) {
+                window.clearInterval(this.ringToneTimer);
+                this.ringToneTimer = null;
+            }
+
+            if(typeof navigator !== 'undefined' && navigator.vibrate) {
+                navigator.vibrate(0);
+            }
+        },
+        playOutgoingRingTone: function() {
+            this.playTone(470, 0.16, 0.055);
+            window.setTimeout(() => {
+                if(this.status === 'ringing') {
+                    this.playTone(520, 0.16, 0.055);
+                }
+            }, 280);
+        },
+        playIncomingRingTone: function() {
+            this.playTone(860, 0.2, 0.075);
+            window.setTimeout(() => {
+                if(this.status === 'ringing') {
+                    this.playTone(690, 0.25, 0.075);
+                }
+            }, 290);
+
+            if(typeof navigator !== 'undefined' && navigator.vibrate) {
+                navigator.vibrate([260, 90, 260]);
+            }
+        },
+        playTone: function(frequency, duration, volume) {
+            const context = this.ensureRingToneContext();
+
+            if(! context) {
+                return false;
+            }
+
+            try {
+                const oscillator = context.createOscillator();
+                const gain = context.createGain();
+                const now = context.currentTime;
+
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(frequency, now);
+                gain.gain.setValueAtTime(0.0001, now);
+                gain.gain.exponentialRampToValueAtTime(volume, now + 0.02);
+                gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+                oscillator.connect(gain);
+                gain.connect(context.destination);
+                oscillator.start(now);
+                oscillator.stop(now + duration + 0.03);
+                oscillator.onended = () => {
+                    oscillator.disconnect();
+                    gain.disconnect();
+                };
+
+                return true;
+            }
+            catch(error) {
+                return false;
+            }
+        },
+        getNativeCallBridge: function() {
+            if(typeof window === 'undefined') {
+                return null;
+            }
+
+            return window.ZulorsCallAudio || null;
+        },
+        enterNativeAudioMode: function() {
+            const bridge = this.getNativeCallBridge();
+
+            try {
+                bridge?.enterCall?.();
+                bridge?.setSpeakerEnabled?.(this.speakerEnabled);
+            }
+            catch(error) {}
+        },
+        exitNativeAudioMode: function() {
+            const bridge = this.getNativeCallBridge();
+
+            try {
+                bridge?.leaveCall?.();
+            }
+            catch(error) {}
+        },
+        setNativeSpeakerEnabled: function(isEnabled) {
+            const bridge = this.getNativeCallBridge();
+
+            try {
+                bridge?.setSpeakerEnabled?.(isEnabled);
+            }
+            catch(error) {}
         },
         attachRealtimeChannel: function(chatId) {
             if(! chatId || ! window.ColibriBRD) {

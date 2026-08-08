@@ -49,6 +49,63 @@ const normalizeSessionDescription = (description) => {
     };
 };
 
+const userFriendlyMediaError = (error) => {
+    const errorName = error?.name || '';
+    const errorMessage = error?.message || '';
+
+    if(['NotAllowedError', 'PermissionDeniedError', 'SecurityError'].includes(errorName)) {
+        return new Error('Microphone permission is blocked. Allow microphone access and try again.');
+    }
+
+    if(['NotFoundError', 'DevicesNotFoundError'].includes(errorName)) {
+        return new Error('No microphone was found on this device.');
+    }
+
+    if(['NotReadableError', 'TrackStartError'].includes(errorName) || /could not start audio source/i.test(errorMessage)) {
+        return new Error('Could not start microphone. Close other calls or apps using the microphone, then try again.');
+    }
+
+    if(['OverconstrainedError', 'ConstraintNotSatisfiedError'].includes(errorName)) {
+        return new Error('This microphone cannot start with the current audio settings.');
+    }
+
+    return new Error(errorMessage || 'Unable to start microphone.');
+};
+
+const requestLocalMediaStream = async (mediaType = 'audio') => {
+    const wantsVideo = mediaType === 'video';
+    const attempts = [
+        {
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            },
+            video: wantsVideo
+        },
+        {
+            audio: true,
+            video: wantsVideo
+        },
+        {
+            audio: true,
+            video: false
+        }
+    ];
+    let lastError = null;
+
+    for(const constraints of attempts) {
+        try {
+            return await navigator.mediaDevices.getUserMedia(constraints);
+        }
+        catch(error) {
+            lastError = error;
+        }
+    }
+
+    throw userFriendlyMediaError(lastError);
+};
+
 const createAudioCallPeer = (callbacks = {}) => {
     let peerConnection = null;
     let localStream = null;
@@ -96,14 +153,7 @@ const createAudioCallPeer = (callbacks = {}) => {
             throw new Error('Audio call is not supported in this browser.');
         }
 
-        localStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-            },
-            video: mediaType === 'video'
-        });
+        localStream = await requestLocalMediaStream(mediaType);
 
         remoteStream = new MediaStream();
         peerConnection = new RTCPeerConnection({

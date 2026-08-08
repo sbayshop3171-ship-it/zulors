@@ -48,7 +48,11 @@
                             </span>
                             <span>Decline</span>
                         </button>
-                        <button type="button" class="flex flex-col items-center gap-2 text-par-s font-semibold text-lab-pr" v-on:click="callStore.answerCall">
+                        <button
+                            type="button"
+                            class="flex flex-col items-center gap-2 text-par-s font-semibold text-lab-pr disabled:opacity-60"
+                            v-bind:disabled="callStore.isAnswering"
+                        v-on:click="callStore.answerCall">
                             <span class="flex size-14 items-center justify-center rounded-full bg-green-600 text-white">
                                 <SvgIcon name="phone" type="line" classes="size-6"></SvgIcon>
                             </span>
@@ -103,6 +107,13 @@
         },
         setup: function(props) {
             const remoteAudioRef = ref(null);
+            const formatDuration = (seconds) => {
+                const safeSeconds = Math.max(0, Number(seconds || 0));
+                const minutes = Math.floor(safeSeconds / 60);
+                const remainingSeconds = safeSeconds % 60;
+
+                return `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
+            };
 
             const attachRemoteStream = () => {
                 if(remoteAudioRef.value && props.callStore.remoteStream) {
@@ -119,6 +130,17 @@
                 }
             });
 
+            const durationText = computed(() => {
+                return formatDuration(props.callStore.durationSeconds);
+            });
+            const ringCountdownText = computed(() => {
+                if(props.callStore.status !== 'ringing' || ! props.callStore.ringSecondsRemaining) {
+                    return '';
+                }
+
+                return formatDuration(props.callStore.ringSecondsRemaining);
+            });
+
             return {
                 remoteAudioRef: remoteAudioRef,
                 isMini: computed(() => {
@@ -127,20 +149,14 @@
                 avatarInitial: computed(() => {
                     return String(props.callStore.title || 'Z').charAt(0).toUpperCase();
                 }),
-                durationText: computed(() => {
-                    const seconds = Number(props.callStore.durationSeconds || 0);
-                    const minutes = Math.floor(seconds / 60);
-                    const remainingSeconds = seconds % 60;
-
-                    return `${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`;
-                }),
+                durationText: durationText,
                 statusText: computed(() => {
                     if(props.callStore.status === 'ringing' && props.callStore.direction === 'incoming') {
-                        return 'Incoming voice call';
+                        return ringCountdownText.value ? `Incoming voice call · ${ringCountdownText.value}` : 'Incoming voice call';
                     }
 
                     if(props.callStore.status === 'ringing') {
-                        return 'Calling...';
+                        return ringCountdownText.value ? `Calling... ${ringCountdownText.value}` : 'Calling...';
                     }
 
                     if(['accepted', 'connecting'].includes(props.callStore.status)) {
@@ -148,7 +164,7 @@
                     }
 
                     if(props.callStore.status === 'connected') {
-                        return props.callStore.durationSeconds ? `Connected · ${String(Math.floor(props.callStore.durationSeconds / 60)).padStart(2, '0')}:${String(props.callStore.durationSeconds % 60).padStart(2, '0')}` : 'Connected';
+                        return props.callStore.durationSeconds ? `Connected · ${durationText.value}` : 'Connected';
                     }
 
                     if(props.callStore.status === 'declined') {
