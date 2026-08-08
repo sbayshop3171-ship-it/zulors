@@ -69,6 +69,7 @@
 	import { colibriSounds } from '@/kernel/services/sounds/index.js';
 	import { useChatStore } from '@M/store/chats/chat.store.js';
 	import { useAuthStore } from '@M/store/auth/auth.store.js';
+	import { useCallStore } from '@M/store/calls/call.store.js';
 	import BRD from '@/kernel/websockets/brd/index.js';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { useInstantRevalidation } from '@/kernel/vue/composables/instant-revalidation/index.js';
@@ -86,6 +87,7 @@
 			const router = useRouter();
 			const messagesHistoryContainer = ref(null);
 			const authStore = useAuthStore();
+			const callStore = useCallStore();
 
 			const chatStore = useChatStore();
 
@@ -239,11 +241,23 @@
 
 					state.realtimeReady = false;
 				}
+
+				if(! callStore.isVisible) {
+					callStore.detachRealtimeChannel();
+				}
 			}
 
 			const attachRealtimeListeners = () => {
-				if(state.realtimeReady || ! window.ColibriBRD || ! chatChannel.value) {
+				if(! window.ColibriBRD || ! chatChannel.value) {
 					return false;
+				}
+
+				if(! chatData.value?.is_group && (chatData.value?.chat_id || chatStore.chatId)) {
+					callStore.attachRealtimeChannel(chatData.value?.chat_id || chatStore.chatId);
+				}
+
+				if(state.realtimeReady) {
+					return true;
 				}
 
 				listenEventInChat(BRD.getEvent('CHAT_MESSAGE_RECEIVED'), function (event) {

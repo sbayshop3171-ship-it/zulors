@@ -70,6 +70,7 @@
     import { useRoute, useRouter } from 'vue-router';
     import { useChatStore } from '@D/store/chats/chat.store.js';
     import { useAuthStore } from '@D/store/auth/auth.store.js';
+    import { useCallStore } from '@D/store/calls/call.store.js';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
     import { useInstantRevalidation } from '@/kernel/vue/composables/instant-revalidation/index.js';
 
@@ -99,6 +100,7 @@
 
             const authStore = useAuthStore();
             const chatStore = useChatStore();
+            const callStore = useCallStore();
             const router = useRouter();
             const route = useRoute();
             const userData = ref(authStore.userData);
@@ -242,11 +244,23 @@
 
                     state.realtimeReady = false;
                 }
+
+                if(! callStore.isVisible) {
+                    callStore.detachRealtimeChannel();
+                }
             }
 
             const attachRealtimeListeners = () => {
-                if(state.realtimeReady || ! window.ColibriBRD || ! getChatChannel()) {
+                if(! window.ColibriBRD || ! getChatChannel()) {
                     return false;
+                }
+
+                if(! chatData.value?.is_group && chatData.value?.chat_id) {
+                    callStore.attachRealtimeChannel(chatData.value.chat_id);
+                }
+
+                if(state.realtimeReady) {
+                    return true;
                 }
 
                 listenEventInChat(BRD.getEvent('CHAT_MESSAGE_RECEIVED'), function (event) {
