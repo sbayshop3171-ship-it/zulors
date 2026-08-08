@@ -12,6 +12,33 @@ const qualityReportThrottleMs = 10000;
 const iceServerRefreshSkewMs = 60000;
 const callStartCooldownMs = 3500;
 const rateLimitedCallStartCooldownMs = 15000;
+const busyCallMessage = 'User is busy on another call.';
+
+const getErrorStatus = (error) => {
+    return Number(error?.response?.status || 0);
+};
+
+const getErrorData = (error) => {
+    return error?.response?.data || {};
+};
+
+const makeSilentCallError = (message = '') => {
+    const error = new Error(message || 'Call request ignored.');
+
+    error.__zulorsSilentCallToast = true;
+
+    return error;
+};
+
+const isBusyCallError = (error) => {
+    const data = getErrorData(error);
+
+    return getErrorStatus(error) === 409
+        || data?.reason === 'busy'
+        || data?.status === 'busy'
+        || data?.data?.reason === 'busy'
+        || data?.data?.status === 'busy';
+};
 
 const normalizeCallPayload = (payload = {}) => {
     if(payload?.data?.call) {
@@ -127,7 +154,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         },
         startCall: async function(chatData = {}, mediaType = 'audio') {
             if(this.isStarting || this.isStartCoolingDown) {
-                throw new Error('Please wait a few seconds before starting another call.');
+                throw makeSilentCallError();
             }
 
             if(! this.canStartCall(chatData)) {
@@ -151,8 +178,14 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 }).sendTo('calls/start');
             }
             catch(error) {
-                if(Number(error?.response?.status || 0) === 429) {
+                if(isBusyCallError(error)) {
+                    this.error = busyCallMessage;
+                    throw new Error(busyCallMessage);
+                }
+
+                if(getErrorStatus(error) === 429) {
                     this.startCallCooldown(rateLimitedCallStartCooldownMs);
+                    throw makeSilentCallError();
                 }
 
                 throw new Error(error.response?.data?.message || error.message || 'Unable to start audio call.');
@@ -383,7 +416,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             const data = normalizeEventData(event);
 
             if(data.reason === 'busy' || data.call?.status === 'busy') {
-                this.error = 'User is busy on another call.';
+                this.error = busyCallMessage;
                 this.finishCall('busy', 1800);
             }
         },

@@ -111,6 +111,10 @@
 				}),
 				startAudioCall: () => {
 					callStore.startCall(chatData.value).catch((error) => {
+						if(error?.__zulorsSilentCallToast) {
+							return;
+						}
+
 						toastError(error.message || 'Unable to start audio call.');
 					});
 				},

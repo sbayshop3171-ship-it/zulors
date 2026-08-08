@@ -460,14 +460,17 @@ class CallController extends Controller
     private function responseBusy(Chat $chat)
     {
         try {
-            event(new CallSessionEvent('call.busy', new CallSession([
+            $busyCallSession = new CallSession([
                 'call_uuid' => (string) Str::uuid(),
                 'chat_id' => $chat->id,
                 'initiator_id' => me()->id,
                 'receiver_id' => me()->id,
                 'media_type' => CallMediaType::AUDIO,
                 'status' => CallStatus::BUSY,
-            ]), [
+            ]);
+            $busyCallSession->setRelation('chat', $chat);
+
+            event(new CallSessionEvent('call.busy', $busyCallSession, [
                 'chat_id' => $chat->chat_id,
                 'reason' => 'busy',
             ]));
