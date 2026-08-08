@@ -226,8 +226,8 @@ class FeedRankingService
             ? $this->reelsSeenPenalty($minutesSinceSeen)
             : $this->feedSeenPenalty($minutesSinceSeen);
 
-        $repeatPenalty = max(0, $seenCount - 1) * ($type === FeedService::TYPE_REELS ? -70.0 : -35.0);
-        $minimumPenalty = $type === FeedService::TYPE_REELS ? -260.0 : -180.0;
+        $repeatPenalty = max(0, $seenCount - 1) * ($type === FeedService::TYPE_REELS ? -100.0 : -35.0);
+        $minimumPenalty = $type === FeedService::TYPE_REELS ? -360.0 : -180.0;
 
         return max($minimumPenalty, $basePenalty + $repeatPenalty);
     }
@@ -235,12 +235,12 @@ class FeedRankingService
     private function reelsSeenPenalty(int $minutesSinceSeen): float
     {
         return match(true) {
-            $minutesSinceSeen < 15 => -180.0,
-            $minutesSinceSeen < 360 => -150.0,
-            $minutesSinceSeen < 1440 => -120.0,
-            $minutesSinceSeen < 10080 => -85.0,
-            $minutesSinceSeen < 43200 => -45.0,
-            default => -18.0,
+            $minutesSinceSeen < 15 => -240.0,
+            $minutesSinceSeen < 360 => -210.0,
+            $minutesSinceSeen < 1440 => -180.0,
+            $minutesSinceSeen < 10080 => -130.0,
+            $minutesSinceSeen < 43200 => -70.0,
+            default => -28.0,
         };
     }
 
@@ -297,9 +297,9 @@ class FeedRankingService
 
         $seenAuthors = [];
 
-        return $ranked->map(function(Post $post) use (&$seenAuthors) {
+        return $ranked->map(function(Post $post) use (&$seenAuthors, $type) {
             $seenCount = $seenAuthors[$post->user_id] ?? 0;
-            $penalty = $seenCount * 12.0;
+            $penalty = $this->authorRepetitionPenalty($seenCount, $type);
             $seenAuthors[$post->user_id] = $seenCount + 1;
 
             if($penalty > 0) {
@@ -314,6 +314,23 @@ class FeedRankingService
         });
     }
 
+    private function authorRepetitionPenalty(int $seenCount, string $type): float
+    {
+        if($seenCount <= 0) {
+            return 0.0;
+        }
+
+        if($type === FeedService::TYPE_REELS) {
+            return match(true) {
+                $seenCount === 1 => 28.0,
+                $seenCount === 2 => 72.0,
+                default => min(320.0, 150.0 + (($seenCount - 3) * 85.0)),
+            };
+        }
+
+        return $seenCount * 12.0;
+    }
+
     private function weightsForType(string $type): array
     {
         if($type === FeedService::TYPE_REELS) {
@@ -325,8 +342,8 @@ class FeedRankingService
                 'media_bonus' => 0.10,
                 'video_intelligence' => 1.90,
                 'interest' => 1.25,
-                'seen_penalty' => 1.15,
-                'session_jitter' => 1.15,
+                'seen_penalty' => 1.45,
+                'session_jitter' => 0.55,
                 'report_penalty' => 1.20,
                 'safety_penalty' => 1.20,
                 'repetition_penalty' => 1.0,

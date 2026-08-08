@@ -12,6 +12,7 @@ use App\Models\PostVideoMetric;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 class CandidateGenerationService
 {
@@ -113,20 +114,53 @@ class CandidateGenerationService
         $followedAuthorIds = $this->followedAuthorIds($user);
         $userTopics = $this->positiveUserTopics($user);
         $mix = $this->candidateMixForType($type);
+        $baselineExcludeIds = $type === FeedService::TYPE_REELS
+            ? $this->recentlySeenReelIds($user)
+            : [];
 
-        $this->appendCandidates($selected, $this->followedCandidates($user, $onset, $followedAuthorIds, (int) ceil($limit * $mix['followed']), $type));
-        $this->appendCandidates($selected, $this->interestCandidates($user, $onset, $userTopics, $this->selectedIds($selected), (int) ceil($limit * $mix['interest']), $type));
-        $this->appendCandidates($selected, $this->recentCandidates($user, $onset, $this->selectedIds($selected), (int) ceil($limit * $mix['recent']), $type));
-        $this->appendCandidates($selected, $this->oldGoodCandidates($user, $onset, $this->selectedIds($selected), $limit - $selected->count(), $type));
+        $this->appendCandidates($selected, $this->followedCandidates(
+            $user,
+            $onset,
+            $followedAuthorIds,
+            $this->mergeExcludedIds([], $baselineExcludeIds),
+            (int) ceil($limit * $mix['followed']),
+            $type
+        ));
+        $this->appendCandidates($selected, $this->interestCandidates(
+            $user,
+            $onset,
+            $userTopics,
+            $this->mergeExcludedIds($this->selectedIds($selected), $baselineExcludeIds),
+            (int) ceil($limit * $mix['interest']),
+            $type
+        ));
+        $this->appendCandidates($selected, $this->recentCandidates(
+            $user,
+            $onset,
+            $this->mergeExcludedIds($this->selectedIds($selected), $baselineExcludeIds),
+            (int) ceil($limit * $mix['recent']),
+            $type
+        ));
+        $this->appendCandidates($selected, $this->oldGoodCandidates(
+            $user,
+            $onset,
+            $this->mergeExcludedIds($this->selectedIds($selected), $baselineExcludeIds),
+            $limit - $selected->count(),
+            $type
+        ));
 
         if($selected->count() < $limit) {
             $this->appendCandidates($selected, $this->recentCandidates($user, $onset, $this->selectedIds($selected), $limit - $selected->count(), $type));
         }
 
+        if($type === FeedService::TYPE_REELS && $selected->count() < $limit) {
+            $this->appendCandidates($selected, $this->oldGoodCandidates($user, $onset, $this->selectedIds($selected), $limit - $selected->count(), $type));
+        }
+
         return $selected->unique('id')->take($limit)->values();
     }
 
-    private function followedCandidates(User $user, int $onset, array $followedAuthorIds, int $limit, string $type): Collection
+    private function followedCandidates(User $user, int $onset, array $followedAuthorIds, array $excludeIds, int $limit, string $type): Collection
     {
         if(empty($followedAuthorIds) || $limit <= 0) {
             return collect();
@@ -134,6 +168,8 @@ class CandidateGenerationService
 
         $query = $this->baseTimelineQuery($user, $onset, $type)
             ->whereIn('user_id', $followedAuthorIds);
+
+        $this->excludeSelected($query, $excludeIds);
 
         return $this->orderByRecencyAndEngagement($query, $type)->limit($limit)->get();
     }
@@ -197,6 +233,16 @@ class CandidateGenerationService
         return $selected->pluck('id')->map(fn($id) => (int) $id)->all();
     }
 
+    private function mergeExcludedIds(array $left, array $right): array
+    {
+        return collect($left)
+            ->merge($right)
+            ->map(fn($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
     private function excludeSelected(Builder $query, array $excludeIds): void
     {
         if(! empty($excludeIds)) {
@@ -221,6 +267,22 @@ class CandidateGenerationService
             ->orderByDesc('score')
             ->limit(12)
             ->pluck('topic')
+            ->all();
+    }
+
+    private function recentlySeenReelIds(User $user): array
+    {
+        return DB::table(Table::FEED_EVENTS)
+            ->select('post_id', DB::raw('MAX(created_at) as last_seen_at'))
+            ->where('user_id', $user->id)
+            ->whereNotNull('post_id')
+            ->whereIn('event_type', FeedTelemetryService::SEEN_EVENT_TYPES)
+            ->where('created_at', '>=', now()->subDays(7))
+            ->groupBy('post_id')
+            ->orderByDesc('last_seen_at')
+            ->limit(600)
+            ->pluck('post_id')
+            ->map(fn($id) => (int) $id)
             ->all();
     }
 

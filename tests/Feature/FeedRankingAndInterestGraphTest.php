@@ -710,6 +710,211 @@ class FeedRankingAndInterestGraphTest extends TestCase
         $this->assertGreaterThan(0, $this->interestScore($viewer, 'music'));
     }
 
+    public function test_recently_seen_reels_stay_out_of_early_slots_when_unseen_pool_exists(): void
+    {
+        $viewer = $this->createUser('reels-unseen-pool-viewer');
+        $seenAuthor = $this->createUser('reels-unseen-pool-seen-author');
+
+        $seenReel = $this->createVideoPost($seenAuthor, 'Already watched hero reel #travel', now(), [
+            'comments_count' => 40,
+            'bookmarks_count' => 40,
+            'shares_count' => 40,
+            'views_count' => 4000,
+        ]);
+        $seenMedia = $seenReel->media()->first();
+
+        PostVideoMetric::query()->create([
+            'post_id' => $seenReel->id,
+            'media_id' => $seenMedia->id,
+            'plays_count' => 120,
+            'completions_count' => 110,
+            'loops_count' => 24,
+            'rewatches_count' => 28,
+            'avg_completion_rate' => 1.16,
+            'completion_rate' => 0.91,
+            'skip_rate' => 0.01,
+            'rewatch_rate' => 0.23,
+            'intelligence_score' => 65,
+        ]);
+
+        foreach(range(1, 14) as $index) {
+            $author = $this->createUser("reels-unseen-pool-alt-{$index}");
+            $this->createVideoPost($author, "Fresh unseen reel {$index} #travel", now()->subMinutes($index), [
+                'comments_count' => 2,
+                'bookmarks_count' => 2,
+                'shares_count' => 1,
+                'views_count' => 40 + $index,
+            ]);
+        }
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->postJson('/api/timeline/telemetry/events', [
+                'events' => [[
+                    'event_type' => 'video_complete',
+                    'post_id' => $seenReel->id,
+                    'media_id' => $seenMedia->id,
+                    'watch_time_seconds' => 11,
+                    'duration_seconds' => 11,
+                    'completion_rate' => 1,
+                    'session_id' => 'reels-unseen-pool-old-session',
+                    'feed_type' => 'reels',
+                    'source' => 'reels',
+                    'position' => 1,
+                ]],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.accepted', 1);
+
+        $response = $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/timeline/feed?type=reels&session_id=reels-unseen-pool-new-session')
+            ->assertOk();
+
+        $postIds = array_column($response->json('data'), 'id');
+
+        $this->assertNotContains($seenReel->id, array_slice($postIds, 0, 10));
+    }
+
+    public function test_reels_skip_event_suppresses_a_quickly_skipped_reel_after_reopen(): void
+    {
+        $viewer = $this->createUser('reels-skip-viewer');
+        $author = $this->createUser('reels-skip-author');
+
+        $skippedReel = $this->createVideoPost($author, 'Quickly skipped reel #sports', now(), [
+            'comments_count' => 20,
+            'bookmarks_count' => 20,
+            'shares_count' => 20,
+            'views_count' => 1800,
+        ]);
+        $replacementReel = $this->createVideoPost($author, 'Fresh replacement reel #sports', now()->subMinutes(4), [
+            'comments_count' => 2,
+            'bookmarks_count' => 1,
+            'shares_count' => 1,
+            'views_count' => 20,
+        ]);
+        $media = $skippedReel->media()->first();
+
+        PostVideoMetric::query()->create([
+            'post_id' => $skippedReel->id,
+            'media_id' => $media->id,
+            'plays_count' => 90,
+            'completions_count' => 82,
+            'loops_count' => 10,
+            'rewatches_count' => 9,
+            'avg_completion_rate' => 0.94,
+            'completion_rate' => 0.83,
+            'skip_rate' => 0.03,
+            'rewatch_rate' => 0.10,
+            'intelligence_score' => 58,
+        ]);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->postJson('/api/timeline/telemetry/events', [
+                'events' => [[
+                    'event_type' => 'video_skip',
+                    'post_id' => $skippedReel->id,
+                    'media_id' => $media->id,
+                    'watch_time_seconds' => 0.2,
+                    'duration_seconds' => 9,
+                    'completion_rate' => 0.02,
+                    'session_id' => 'reels-skip-old-session',
+                    'feed_type' => 'reels',
+                    'source' => 'reels',
+                    'position' => 1,
+                ]],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.accepted', 1);
+
+        $response = $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/timeline/feed?type=reels&session_id=reels-skip-new-session')
+            ->assertOk();
+
+        $postIds = array_column($response->json('data'), 'id');
+        $skippedPayload = collect($response->json('data'))->firstWhere('id', $skippedReel->id);
+
+        $this->assertDatabaseHas(Table::FEED_EVENTS, [
+            'user_id' => $viewer->id,
+            'post_id' => $skippedReel->id,
+            'event_type' => 'video_skip',
+        ]);
+        $this->assertLessThan(
+            array_search($skippedReel->id, $postIds, true),
+            array_search($replacementReel->id, $postIds, true)
+        );
+        $this->assertLessThanOrEqual(-240, $skippedPayload['meta']['ranking']['signals']['seen_penalty']);
+    }
+
+    public function test_reels_ranking_limits_single_author_takeover_when_alternatives_exist(): void
+    {
+        $viewer = $this->createUser('reels-diversity-viewer');
+        $dominantAuthor = $this->createUser('reels-dominant-author');
+
+        $dominantIds = [];
+
+        foreach(range(1, 4) as $index) {
+            $post = $this->createVideoPost($dominantAuthor, "Dominant reel {$index} #tech", now()->subMinutes($index), [
+                'comments_count' => 18,
+                'bookmarks_count' => 18,
+                'shares_count' => 18,
+                'views_count' => 1000 + $index,
+            ]);
+
+            $dominantIds[] = $post->id;
+
+            PostVideoMetric::query()->create([
+                'post_id' => $post->id,
+                'media_id' => $post->media()->value('id'),
+                'plays_count' => 60,
+                'completions_count' => 48,
+                'loops_count' => 8,
+                'rewatches_count' => 7,
+                'avg_completion_rate' => 0.95,
+                'completion_rate' => 0.80,
+                'skip_rate' => 0.05,
+                'rewatch_rate' => 0.12,
+                'intelligence_score' => 59,
+            ]);
+        }
+
+        foreach(range(1, 4) as $index) {
+            $author = $this->createUser("reels-diversity-alt-{$index}");
+            $post = $this->createVideoPost($author, "Alternative reel {$index} #tech", now()->subMinutes(10 + $index), [
+                'comments_count' => 14,
+                'bookmarks_count' => 14,
+                'shares_count' => 14,
+                'views_count' => 900 + $index,
+            ]);
+
+            PostVideoMetric::query()->create([
+                'post_id' => $post->id,
+                'media_id' => $post->media()->value('id'),
+                'plays_count' => 58,
+                'completions_count' => 44,
+                'loops_count' => 7,
+                'rewatches_count' => 6,
+                'avg_completion_rate' => 0.92,
+                'completion_rate' => 0.76,
+                'skip_rate' => 0.06,
+                'rewatch_rate' => 0.10,
+                'intelligence_score' => 55,
+            ]);
+        }
+
+        $response = $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/timeline/feed?type=reels&session_id=reels-author-diversity')
+            ->assertOk();
+
+        $postIds = array_column($response->json('data'), 'id');
+        $topThreeDominantCount = count(array_intersect(array_slice($postIds, 0, 3), $dominantIds));
+
+        $this->assertLessThanOrEqual(2, $topThreeDominantCount);
+    }
+
     private function interestScore(User $user, string $topic): float
     {
         return (float) \App\Models\UserInterestScore::query()
