@@ -42,7 +42,11 @@
                     </p>
 
                     <div v-if="callStore.isIncoming" class="mt-8 grid grid-cols-2 gap-4">
-                        <button type="button" class="flex flex-col items-center gap-2 text-par-s font-semibold text-lab-pr" v-on:click="callStore.declineCall">
+                        <button
+                            type="button"
+                            class="flex flex-col items-center gap-2 text-par-s font-semibold text-lab-pr disabled:opacity-60"
+                            v-bind:disabled="callStore.isFinalizing"
+                            v-on:click="callStore.declineCall">
                             <span class="flex size-14 items-center justify-center rounded-full bg-red-900 text-white">
                                 <SvgIcon name="x" type="solid" classes="size-6"></SvgIcon>
                             </span>
@@ -82,7 +86,11 @@
                             <span>{{ callStore.isMuted ? 'Unmute' : 'Mute' }}</span>
                         </button>
 
-                        <button type="button" class="col-start-2 flex flex-col items-center gap-2 text-par-s font-semibold text-lab-pr" v-on:click="callStore.endCall">
+                        <button
+                            type="button"
+                            class="col-start-2 flex flex-col items-center gap-2 text-par-s font-semibold text-lab-pr disabled:opacity-60"
+                            v-bind:disabled="callStore.isFinalizing"
+                            v-on:click="callStore.endCall">
                             <span class="flex size-14 items-center justify-center rounded-full bg-red-900 text-white">
                                 <SvgIcon name="phone" type="line" classes="size-6 rotate-[135deg]"></SvgIcon>
                             </span>

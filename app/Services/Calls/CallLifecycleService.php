@@ -7,28 +7,38 @@ use App\Enums\Chat\MessageType;
 use App\Events\User\Chat\MessageReceivedEvent;
 use App\Models\CallSession;
 use App\Models\Message;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 class CallLifecycleService
 {
     public function finalize(CallSession $callSession, CallStatus $status, ?string $reason = null, ?int $actorUserId = null): ?Message
     {
-        if($callSession->status->isFinal()) {
-            return null;
-        }
+        return DB::transaction(function () use ($callSession, $status, $reason, $actorUserId) {
+            $lockedCallSession = CallSession::query()
+                ->whereKey($callSession->id)
+                ->lockForUpdate()
+                ->first();
 
-        $callSession->forceFill([
-            'status' => $status,
-            'end_reason' => $reason,
-            'ended_at' => now(),
-        ])->save();
+            if(empty($lockedCallSession) || $lockedCallSession->status->isFinal()) {
+                return null;
+            }
 
-        $callSession->participants()->update([
-            'status' => $status,
-            'left_at' => now(),
-        ]);
+            $endedAt = now();
 
-        return $this->createCallMessage($callSession->fresh(['chat.participants', 'initiator', 'receiver']), $actorUserId);
+            $lockedCallSession->forceFill([
+                'status' => $status,
+                'end_reason' => $reason,
+                'ended_at' => $endedAt,
+            ])->save();
+
+            $lockedCallSession->participants()->update([
+                'status' => $status,
+                'left_at' => $endedAt,
+            ]);
+
+            return $this->createCallMessage($lockedCallSession->fresh(['chat.participants', 'initiator', 'receiver']), $actorUserId);
+        });
     }
 
     public function createCallMessage(CallSession $callSession, ?int $actorUserId = null): ?Message
@@ -69,7 +79,9 @@ class CallLifecycleService
         $message = $this->loadRealtimeRelations($message);
 
         try {
-            event(new MessageReceivedEvent($message));
+            DB::afterCommit(function () use ($message) {
+                event(new MessageReceivedEvent($message));
+            });
         }
         catch(Throwable $exception) {
             // Call history should be saved even if realtime delivery is unavailable.

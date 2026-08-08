@@ -10,6 +10,8 @@ const defaultRingTimeoutSeconds = 45;
 const connectionTimeoutSeconds = 24;
 const qualityReportThrottleMs = 10000;
 const iceServerRefreshSkewMs = 60000;
+const callStartCooldownMs = 3500;
+const rateLimitedCallStartCooldownMs = 15000;
 
 const normalizeCallPayload = (payload = {}) => {
     if(payload?.data?.call) {
@@ -57,7 +59,12 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             lastQualityReportAt: 0,
             lastQualitySignature: '',
             iceServers: null,
-            iceServersExpiresAt: 0
+            iceServersExpiresAt: 0,
+            isStarting: false,
+            isStartCoolingDown: false,
+            startCooldownTimer: null,
+            finalizingCallUuid: null,
+            resetTimer: null
         };
     },
     getters: {
@@ -100,6 +107,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         },
         canUseAudio: function() {
             return isAudioCallSupported();
+        },
+        isFinalizing: function() {
+            return Boolean(this.finalizingCallUuid);
         }
     },
     actions: {
@@ -110,10 +120,16 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 && ! chatData?.is_group
                 && chatData?.type !== 'group'
                 && ! chatData?.chat_info?.meta?.relationship?.block?.blocking
+                && ! this.isStarting
+                && ! this.isStartCoolingDown
                 && ! this.isVisible
             );
         },
         startCall: async function(chatData = {}, mediaType = 'audio') {
+            if(this.isStarting || this.isStartCoolingDown) {
+                throw new Error('Please wait a few seconds before starting another call.');
+            }
+
             if(! this.canStartCall(chatData)) {
                 throw new Error('Audio call is not available for this chat.');
             }
@@ -123,6 +139,8 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
 
             this.unlockAudioFeedback();
+            this.isStarting = true;
+            this.startCallCooldown(callStartCooldownMs);
 
             let response = null;
 
@@ -133,7 +151,14 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 }).sendTo('calls/start');
             }
             catch(error) {
+                if(Number(error?.response?.status || 0) === 429) {
+                    this.startCallCooldown(rateLimitedCallStartCooldownMs);
+                }
+
                 throw new Error(error.response?.data?.message || error.message || 'Unable to start audio call.');
+            }
+            finally {
+                this.isStarting = false;
             }
 
             this.setCall(response.data.data.call, {
@@ -216,9 +241,19 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 return false;
             }
 
+            if(this.finalizingCallUuid === this.call.call_uuid) {
+                return false;
+            }
+
+            const callUuid = this.call.call_uuid;
+            this.finalizingCallUuid = callUuid;
+
             try {
                 await colibriAPI().messenger()
-                    .sendTo(`calls/${this.call.call_uuid}/decline`);
+                    .sendTo(`calls/${callUuid}/decline`);
+            }
+            catch(error) {
+                // The local UI still closes. The server may already have finalized the call.
             }
             finally {
                 this.finishCall('declined');
@@ -231,20 +266,31 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 return false;
             }
 
+            if(this.finalizingCallUuid === this.call.call_uuid) {
+                return false;
+            }
+
             reason = typeof reason === 'string' && reason ? reason : 'user_ended';
+
+            const callUuid = this.call.call_uuid;
+            this.finalizingCallUuid = callUuid;
 
             try {
                 await colibriAPI().messenger().with({
                     reason: reason
                 })
-                    .sendTo(`calls/${this.call.call_uuid}/end`);
+                    .sendTo(`calls/${callUuid}/end`);
+            }
+            catch(error) {
+                // Finalization requests can race with the remote side or timeout jobs.
+                // Keep the local call UI deterministic and let realtime/history catch up.
             }
             finally {
                 this.finishCall(['connection_lost', 'connection_timeout', 'ice_failed'].includes(reason) ? 'failed' : 'ended');
             }
         },
         sendSignal: async function(signalType, signal = {}) {
-            if(! this.call?.call_uuid) {
+            if(! this.call?.call_uuid || this.isFinal || this.finalizingCallUuid === this.call.call_uuid) {
                 return false;
             }
 
@@ -331,7 +377,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             const call = normalizeCallPayload(normalizeEventData(event));
 
             if(this.isCurrentCall(call)) {
-                this.finishCall(call.status || 'ended');
+                this.finishCall(finalStatuses.includes(call.status) ? call.status : 'ended');
             }
         },
         handleBusy: function(event = {}) {
@@ -532,7 +578,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             return '';
         },
         sendQualityReport: async function(stats = {}) {
-            if(! this.call?.call_uuid) {
+            if(! this.call?.call_uuid || this.isFinal || this.finalizingCallUuid === this.call.call_uuid) {
                 return false;
             }
 
@@ -593,6 +639,11 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.syncCallSideEffects();
         },
         finishCall: function(status = 'ended', resetDelay = 900) {
+            if(this.resetTimer) {
+                window.clearTimeout(this.resetTimer);
+                this.resetTimer = null;
+            }
+
             this.status = status;
             this.stopRingingFeedback();
             this.stopRingTimeoutTimer();
@@ -608,7 +659,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.exitNativeAudioMode();
             this.detachRealtimeChannel();
 
-            window.setTimeout(() => {
+            this.resetTimer = window.setTimeout(() => {
                 if(this.isFinal || this.status === status) {
                     this.reset();
                 }
@@ -621,6 +672,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.stopConnectionTimeoutTimer();
             this.stopReconnectTimeoutTimer();
             this.stopDurationTimer();
+            this.stopStartCooldown();
             this.exitNativeAudioMode();
             this.detachRealtimeChannel();
 
@@ -643,6 +695,24 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.qualityNotice = '';
             this.lastQualityReportAt = 0;
             this.lastQualitySignature = '';
+            this.isStarting = false;
+            this.isStartCoolingDown = false;
+            this.finalizingCallUuid = null;
+            this.resetTimer = null;
+        },
+        startCallCooldown: function(durationMs = callStartCooldownMs) {
+            this.stopStartCooldown();
+            this.isStartCoolingDown = true;
+            this.startCooldownTimer = window.setTimeout(() => {
+                this.isStartCoolingDown = false;
+                this.startCooldownTimer = null;
+            }, durationMs);
+        },
+        stopStartCooldown: function() {
+            if(this.startCooldownTimer) {
+                window.clearTimeout(this.startCooldownTimer);
+                this.startCooldownTimer = null;
+            }
         },
         syncCallSideEffects: function() {
             if(this.status === 'ringing') {
