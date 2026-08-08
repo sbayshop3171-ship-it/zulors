@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Enums\User\UserRole;
 use App\Enums\User\UserStatus;
 use App\Enums\User\UserType;
+use App\Models\Follow;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
@@ -32,6 +33,46 @@ class ExplorePeopleSearchTest extends TestCase
         $this->assertSearchContains($viewer, 'Shishir Chow', $target->id);
         $this->assertSearchContains($viewer, 'shishirchow', $target->id);
         $this->assertSearchContains($viewer, (string) $target->id, $target->id);
+    }
+
+    public function test_people_search_includes_active_reader_accounts_when_query_matches(): void
+    {
+        $viewer = $this->createUser('reader-search-viewer', UserType::READER, [
+            'first_name' => 'Reader',
+            'last_name' => 'Viewer',
+        ]);
+
+        $readerTarget = $this->createUser('shishirchowdhury808', UserType::READER, [
+            'first_name' => 'Md Shishir C.',
+            'last_name' => 'Chowdhury',
+            'caption' => 'Reader profile',
+        ]);
+
+        $this->assertSearchContains($viewer, 'shishirchowdhury808', $readerTarget->id);
+        $this->assertSearchContains($viewer, 'Md Shishir C. Chowdhury', $readerTarget->id);
+        $this->assertSearchContains($viewer, 'Shishir Chow', $readerTarget->id);
+    }
+
+    public function test_people_search_still_returns_matching_followed_accounts(): void
+    {
+        $viewer = $this->createUser('followed-search-viewer', UserType::READER, [
+            'first_name' => 'Followed',
+            'last_name' => 'Viewer',
+        ]);
+
+        $followedTarget = $this->createUser('shishirfollowed808', UserType::READER, [
+            'first_name' => 'Shishir',
+            'last_name' => 'Chowdhury',
+        ]);
+
+        Follow::query()->create([
+            'follower_id' => $viewer->id,
+            'following_id' => $followedTarget->id,
+            'status' => true,
+        ]);
+
+        $this->assertSearchContains($viewer, 'shishirfollowed808', $followedTarget->id);
+        $this->assertSearchContains($viewer, 'Shishir Chowdhury', $followedTarget->id);
     }
 
     public function test_people_search_prioritizes_exact_full_name_match_over_loose_related_matches(): void

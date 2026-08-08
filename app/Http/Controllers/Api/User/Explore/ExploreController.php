@@ -47,9 +47,7 @@ class ExploreController extends Controller
         $page = (! empty($filterOptions['page']) ? (int) $filterOptions['page'] : 1);
         $searchQuery = trim((string) data_get($filterOptions, 'query', ''));
 
-        $peopleQuery = User::active()->author()->excludeSelf()->whereNotIn('id', function ($query) {
-            $query->select('following_id')->from(Table::FOLLOWS)->where('follower_id', me()->id);
-        })->whereNotIn('id', function($query) {
+        $peopleQuery = User::active()->onboarded()->excludeSelf()->whereNotIn('id', function($query) {
             $query->select('blocked_id')->from(Table::BLOCKS)->where('blocker_id', me()->id);
         })->whereNotIn('id', function($query) {
             $query->select('blocker_id')->from(Table::BLOCKS)->where('blocked_id', me()->id);
@@ -58,7 +56,10 @@ class ExploreController extends Controller
         if($searchQuery !== '') {
             $this->applyPeopleSearchFilters($peopleQuery, $searchQuery);
         } else {
-            $peopleQuery->orderByDesc('followers_count')
+            $peopleQuery->whereNotIn('id', function ($query) {
+                $query->select('following_id')->from(Table::FOLLOWS)->where('follower_id', me()->id);
+            })->author()
+                ->orderByDesc('followers_count')
                 ->orderByDesc('publications_count');
         }
 
