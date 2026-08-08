@@ -34,6 +34,21 @@ const isAudioCallSupported = () => {
     );
 };
 
+const normalizeSessionDescription = (description) => {
+    if(! description?.sdp) {
+        return description;
+    }
+
+    const sdp = String(description.sdp)
+        .replace(/\r\n|\r|\n/g, '\r\n')
+        .replace(/(\r\n)+$/g, '');
+
+    return {
+        type: description.type,
+        sdp: `${sdp}\r\n`
+    };
+};
+
 const createAudioCallPeer = (callbacks = {}) => {
     let peerConnection = null;
     let localStream = null;
@@ -144,19 +159,19 @@ const createAudioCallPeer = (callbacks = {}) => {
         });
 
         await pc.setLocalDescription(offer);
-        emit('onSignal', 'offer', pc.localDescription.toJSON());
+        emit('onSignal', 'offer', normalizeSessionDescription(pc.localDescription.toJSON()));
     };
 
     const handleOffer = async (offer, mediaType = 'audio') => {
         const pc = await ensurePeerConnection(mediaType);
 
-        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+        await pc.setRemoteDescription(new RTCSessionDescription(normalizeSessionDescription(offer)));
         await flushPendingIceCandidates();
 
         const answer = await pc.createAnswer();
 
         await pc.setLocalDescription(answer);
-        emit('onSignal', 'answer', pc.localDescription.toJSON());
+        emit('onSignal', 'answer', normalizeSessionDescription(pc.localDescription.toJSON()));
     };
 
     const handleAnswer = async (answer) => {
@@ -164,7 +179,7 @@ const createAudioCallPeer = (callbacks = {}) => {
             return;
         }
 
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(normalizeSessionDescription(answer)));
         await flushPendingIceCandidates();
     };
 
