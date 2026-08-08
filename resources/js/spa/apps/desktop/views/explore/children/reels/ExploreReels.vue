@@ -80,6 +80,7 @@
 	import { computed, defineComponent, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 	import { useRouter } from 'vue-router';
 	import { getNetworkProfileSnapshot, subscribeNetworkProfile } from '@/kernel/services/network/index.js';
+	import { prefetchReelsPlaybackWindow } from '@/kernel/services/media-prefetch/index.js';
 	import { useExploreReelsStore } from '@D/store/explore/reels.store.js';
 
 	import ReelItem from '@D/components/reels/ReelItem.vue';
@@ -121,19 +122,30 @@
 				return posts.value.length > (state.activeIndex + 1) || ! state.noMoreContent;
 			});
 
-			const nearRadius = computed(() => {
-				return state.networkProfile.reelsNearRadius;
-			});
+				const nearRadius = computed(() => {
+					return state.networkProfile.reelsNearRadius;
+				});
 
-			const updateActiveIndex = () => {
-				const scroller = scrollerRef.value;
+				const warmPlaybackWindow = () => {
+					prefetchReelsPlaybackWindow(posts.value, state.activeIndex);
+				};
 
-				if(! scroller?.clientHeight) {
-					return;
-				}
+				const updateActiveIndex = () => {
+					const scroller = scrollerRef.value;
 
-				state.activeIndex = Math.max(0, Math.min(posts.value.length - 1, Math.round(scroller.scrollTop / scroller.clientHeight)));
-			};
+					if(! scroller?.clientHeight) {
+						return;
+					}
+
+					const nextIndex = Math.max(0, Math.min(posts.value.length - 1, Math.round(scroller.scrollTop / scroller.clientHeight)));
+
+					if(state.activeIndex === nextIndex) {
+						return;
+					}
+
+					state.activeIndex = nextIndex;
+					warmPlaybackWindow();
+				};
 
 			const scrollToIndex = (index) => {
 				const scroller = scrollerRef.value;
@@ -165,12 +177,13 @@
 
 				state.isLoadingMore = true;
 
-				try {
-					const response = await reelsStore.loadNextPage();
-					state.noMoreContent = ! reelsStore.appendPosts(response.data.data);
-				} catch (error) {
-					state.noMoreContent = true;
-				} finally {
+					try {
+						const response = await reelsStore.loadNextPage();
+						state.noMoreContent = ! reelsStore.appendPosts(response.data.data);
+						warmPlaybackWindow();
+					} catch (error) {
+						state.noMoreContent = true;
+					} finally {
 					state.isLoadingMore = false;
 				}
 			};
@@ -252,14 +265,16 @@
 						scrollerRef.value.scrollTop = 0;
 					}
 
-					updateActiveIndex();
-				});
-			};
+						updateActiveIndex();
+						warmPlaybackWindow();
+					});
+				};
 
-			onMounted(() => {
-				unsubscribeNetworkProfile = subscribeNetworkProfile((networkProfile) => {
-					state.networkProfile = networkProfile;
-				});
+				onMounted(() => {
+					unsubscribeNetworkProfile = subscribeNetworkProfile((networkProfile) => {
+						state.networkProfile = networkProfile;
+						warmPlaybackWindow();
+					});
 
 				lockPageScroll();
 				window.addEventListener('keydown', handleKeydown);
@@ -272,9 +287,13 @@
 				window.removeEventListener('keydown', handleKeydown);
 			});
 
-			watch(() => props.hash_id, () => {
-				loadInitial();
-			});
+				watch(() => props.hash_id, () => {
+					loadInitial();
+				});
+
+				watch(() => posts.value.length, () => {
+					warmPlaybackWindow();
+				});
 
 			return {
 				state: state,

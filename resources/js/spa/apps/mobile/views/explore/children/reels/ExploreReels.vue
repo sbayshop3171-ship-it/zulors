@@ -50,6 +50,7 @@
 	import { computed, defineComponent, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 	import { useRouter } from 'vue-router';
 	import { getNetworkProfileSnapshot, subscribeNetworkProfile } from '@/kernel/services/network/index.js';
+	import { prefetchReelsPlaybackWindow } from '@/kernel/services/media-prefetch/index.js';
 	import { useExploreReelsStore } from '@M/store/explore/reels.store.js';
 	import { mobileExploreSwipeSequence, useSwipeRouteNavigation } from '@/kernel/vue/composables/swipe-route-navigation/index.js';
 
@@ -88,24 +89,34 @@
 				return reelsStore.feedSessionId;
 			});
 
-			const nearRadius = computed(() => {
-				return state.networkProfile.reelsNearRadius;
-			});
+				const nearRadius = computed(() => {
+					return state.networkProfile.reelsNearRadius;
+				});
 
-			useSwipeRouteNavigation(swipeSurfaceRef, mobileExploreSwipeSequence);
+				useSwipeRouteNavigation(swipeSurfaceRef, mobileExploreSwipeSequence);
 
-			const updateActiveIndex = () => {
-				const scroller = scrollerRef.value;
+				const warmPlaybackWindow = () => {
+					prefetchReelsPlaybackWindow(posts.value, activeIndex.value);
+				};
 
-				if(! scroller || ! scroller.clientHeight) {
-					activeIndex.value = 0;
-					return;
-				}
+				const updateActiveIndex = () => {
+					const scroller = scrollerRef.value;
 
-				const nextIndex = Math.max(0, Math.min(posts.value.length - 1, Math.round(scroller.scrollTop / scroller.clientHeight)));
+					if(! scroller || ! scroller.clientHeight) {
+						activeIndex.value = 0;
+						warmPlaybackWindow();
+						return;
+					}
 
-				activeIndex.value = nextIndex;
-			};
+					const nextIndex = Math.max(0, Math.min(posts.value.length - 1, Math.round(scroller.scrollTop / scroller.clientHeight)));
+
+					if(activeIndex.value === nextIndex) {
+						return;
+					}
+
+					activeIndex.value = nextIndex;
+					warmPlaybackWindow();
+				};
 
 			const maybeLoadMore = async () => {
 				const scroller = scrollerRef.value;
@@ -122,14 +133,15 @@
 
 				state.isLoadingContent = true;
 
-				await reelsStore.loadNextPage().then((response) => {
-					const newPosts = response.data.data;
+					await reelsStore.loadNextPage().then((response) => {
+						const newPosts = response.data.data;
 
-					if(newPosts.length) {
-						reelsStore.appendPosts(newPosts);
-					}
-					else {
-						state.noMoreContent = true;
+						if(newPosts.length) {
+							reelsStore.appendPosts(newPosts);
+							warmPlaybackWindow();
+						}
+						else {
+							state.noMoreContent = true;
 					}
 				}).catch(() => {
 					state.noMoreContent = true;
@@ -161,23 +173,25 @@
 					nextTick(() => {
 						if(scrollerRef.value) {
 							scrollerRef.value.scrollTop = 0;
-						}
+							}
 
-						updateActiveIndex();
+							updateActiveIndex();
+							warmPlaybackWindow();
+						});
 					});
-				});
-			};
+				};
 
 			const handleResize = () => {
 				updateActiveIndex();
 			};
 
-			onMounted(async () => {
-				unsubscribeNetworkProfile = subscribeNetworkProfile((networkProfile) => {
-					state.networkProfile = networkProfile;
-				});
+				onMounted(async () => {
+					unsubscribeNetworkProfile = subscribeNetworkProfile((networkProfile) => {
+						state.networkProfile = networkProfile;
+						warmPlaybackWindow();
+					});
 
-				await loadReels();
+					await loadReels();
 				window.addEventListener('resize', handleResize);
 			});
 
@@ -190,9 +204,13 @@
 				}
 			});
 
-			watch(() => props.hash_id, async () => {
-				await loadReels();
-			});
+				watch(() => props.hash_id, async () => {
+					await loadReels();
+				});
+
+				watch(() => posts.value.length, () => {
+					warmPlaybackWindow();
+				});
 
 			return {
 				state: state,

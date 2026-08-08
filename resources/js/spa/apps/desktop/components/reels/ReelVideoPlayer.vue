@@ -1,9 +1,17 @@
 <template>
 	<div class="absolute inset-0 bg-black">
+		<img
+			v-if="mediaItem.thumbnail_url"
+			v-bind:src="mediaItem.thumbnail_url"
+			alt=""
+			class="pointer-events-none absolute inset-0 size-full scale-110 object-cover opacity-35 blur-xl"
+		>
+
 		<template v-if="sourceUrl && canRenderVideo">
 			<video
 				ref="videoPlayerRef"
-				class="size-full object-contain bg-black"
+				class="relative z-10 size-full object-contain bg-transparent transition-opacity duration-150"
+				v-bind:class="state.hasVisualFrame ? 'opacity-100' : 'opacity-0'"
 				webkit-playsinline
 				playsinline
 				v-bind:src="nativeVideoUrl || null"
@@ -12,7 +20,9 @@
 				v-bind:muted="state.isMuted"
 				v-on:click.stop="handleSurfaceTap"
 				v-on:loadedmetadata="handleLoadedMetadata"
+				v-on:loadeddata="handleLoadedData"
 				v-on:canplay="handleCanPlay"
+				v-on:canplaythrough="handleCanPlay"
 				v-on:playing="handlePlaying"
 				v-on:waiting="handleWaiting"
 				v-on:stalled="handleWaiting"
@@ -23,31 +33,38 @@
 			></video>
 		</template>
 		<template v-else-if="mediaItem.thumbnail_url">
-			<img v-bind:src="mediaItem.thumbnail_url" alt="" class="size-full object-contain bg-black">
+			<img v-bind:src="mediaItem.thumbnail_url" alt="" class="relative z-10 size-full object-contain bg-transparent">
 		</template>
 		<template v-else>
-			<div class="size-full inline-flex-center bg-black text-white/60">
+			<div class="relative z-10 size-full inline-flex-center bg-black text-white/60">
 				<div class="colibri-primary-animation"></div>
 			</div>
 		</template>
 
-		<div v-if="state.manualPaused && active && ! blocked" class="pointer-events-none absolute inset-0 inline-flex-center">
+		<img
+			v-if="showPosterCover"
+			v-bind:src="mediaItem.thumbnail_url"
+			alt=""
+			class="pointer-events-none absolute inset-0 z-20 size-full object-contain bg-transparent transition-opacity duration-150"
+		>
+
+		<div v-if="state.manualPaused && active && ! blocked" class="pointer-events-none absolute inset-0 z-30 inline-flex-center">
 			<div class="size-16 rounded-full bg-black/45 inline-flex-center text-white">
 				<SvgIcon name="play" type="solid" classes="size-9"></SvgIcon>
 			</div>
 		</div>
 
-		<div v-if="showBufferIndicator" class="pointer-events-none absolute inset-0 inline-flex-center">
+		<div v-if="showBufferIndicator" class="pointer-events-none absolute inset-0 z-30 inline-flex-center">
 			<div class="size-14 rounded-full bg-black/45 inline-flex-center text-white">
 				<div class="colibri-primary-animation"></div>
 			</div>
 		</div>
 
-		<div class="absolute left-0 right-0 bottom-0 h-0.5 bg-white/20">
+		<div class="absolute left-0 right-0 bottom-0 z-30 h-0.5 bg-white/20">
 			<span class="block h-full bg-white" v-bind:style="{ width: `${displayProgress}%` }"></span>
 		</div>
 
-		<div class="absolute bottom-4 right-4">
+		<div class="absolute bottom-4 right-4 z-30">
 			<PrimaryIconButton
 				v-on:click.stop="toggleMute"
 				v-bind:iconName="state.isMuted ? 'volume-x' : 'volume-max'"
@@ -109,10 +126,11 @@
 			const state = reactive({
 				isMuted: true,
 				isLoaded: false,
-				isReadyForPlayback: false,
-				isPlaying: false,
-				isBuffering: false,
-				manualPaused: false,
+					isReadyForPlayback: false,
+					isPlaying: false,
+					isBuffering: false,
+					hasVisualFrame: false,
+					manualPaused: false,
 				playbackTime: 0,
 				durationSeconds: 0,
 				bufferedBar: 0,
@@ -155,12 +173,19 @@
 					return state.networkProfile.activeVideoPreload;
 				}
 
-				return props.isNear ? 'metadata' : 'none';
-			});
+					return props.isNear && state.networkProfile.allowVideoPrefetch ? 'auto' : (props.isNear ? 'metadata' : 'none');
+				});
 
-			const showBufferIndicator = computed(() => {
-				return props.active && state.isBuffering && ! props.blocked && ! state.manualPaused;
-			});
+				const showBufferIndicator = computed(() => {
+					return props.active && state.isBuffering && ! props.blocked && ! state.manualPaused;
+				});
+
+				const showPosterCover = computed(() => {
+					return Boolean(props.mediaItem?.thumbnail_url)
+						&& canRenderVideo.value
+						&& ! props.blocked
+						&& ! state.hasVisualFrame;
+				});
 
 			const displayProgress = computed(() => {
 				const durationSeconds = videoDurationSeconds();
@@ -258,7 +283,7 @@
 				updatePlaybackReadiness(false);
 			};
 
-			const syncProgress = () => {
+				const syncProgress = () => {
 				const videoElement = videoPlayerRef.value;
 
 				if(! videoElement) {
@@ -277,27 +302,39 @@
 				}
 
 				state.lastPlaybackTime = currentTime;
-				updatePlaybackReadiness(false);
-			};
+					updatePlaybackReadiness(false);
+				};
 
-			const handleLoadedMetadata = () => {
-				state.isLoaded = true;
-				updatePresentationMetadata();
-				state.durationSeconds = videoDurationSeconds();
-				syncProgress();
-				updatePlaybackReadiness(false);
-			};
+				const markVisualFrameReady = () => {
+					if(Number(videoPlayerRef.value?.readyState || 0) >= 2) {
+						state.hasVisualFrame = true;
+					}
+				};
 
-			const handleCanPlay = () => {
-				handleLoadedMetadata();
-				updatePlaybackReadiness(true);
+				const handleLoadedMetadata = () => {
+					state.isLoaded = true;
+					updatePresentationMetadata();
+					state.durationSeconds = videoDurationSeconds();
+					syncProgress();
+					updatePlaybackReadiness(false);
+					markVisualFrameReady();
+				};
 
-				if(props.active && ! props.blocked && ! state.manualPaused && ! state.isPlaying) {
-					nextTick(() => {
-						playVideo();
-					});
-				}
-			};
+				const handleLoadedData = () => {
+					handleLoadedMetadata();
+					state.hasVisualFrame = true;
+					updatePlaybackReadiness(true);
+
+					if(props.active && ! props.blocked && ! state.manualPaused && ! state.isPlaying) {
+						nextTick(() => {
+							playVideo();
+						});
+					}
+				};
+
+				const handleCanPlay = () => {
+					handleLoadedData();
+				};
 
 			const updatePresentationMetadata = () => {
 				const videoElement = videoPlayerRef.value;
@@ -402,10 +439,11 @@
 			const resetPlaybackState = (resetSession = false) => {
 				clearBufferRecoveryTimer();
 				state.isLoaded = false;
-				state.isReadyForPlayback = false;
-				state.isPlaying = false;
-				state.isBuffering = false;
-				state.playbackTime = 0;
+					state.isReadyForPlayback = false;
+					state.isPlaying = false;
+					state.isBuffering = false;
+					state.hasVisualFrame = false;
+					state.playbackTime = 0;
 				state.durationSeconds = 0;
 				state.totalWatchMs = 0;
 				state.watchMsSinceFlush = 0;
@@ -436,16 +474,20 @@
 					if(videoElement) {
 						videoElement.load();
 
-						if(videoElement.readyState >= 1) {
-							handleLoadedMetadata();
+							if(videoElement.readyState >= 1) {
+								handleLoadedMetadata();
+							}
+
+							if(videoElement.readyState >= 2) {
+								handleLoadedData();
+							}
 						}
-					}
-				});
+					});
 
 				return true;
 			};
 
-			const recoverPlayback = () => {
+				const recoverPlayback = () => {
 				clearBufferRecoveryTimer();
 
 				if(! props.active || props.blocked || state.manualPaused) {
@@ -471,13 +513,35 @@
 					}
 
 					playVideo();
-				}, state.networkProfile.stallRecoveryDelayMs);
-			};
+					}, state.networkProfile.stallRecoveryDelayMs);
+				};
 
-			const playVideo = () => {
-				if(! state.isLoaded || ! state.isReadyForPlayback || ! videoPlayerRef.value || props.blocked || ! props.active) {
-					return false;
-				}
+				const warmNativePlayback = () => {
+					const videoElement = videoPlayerRef.value;
+
+					if(! videoElement || ! state.nativeVideoUrl || (! props.active && ! props.isNear)) {
+						return;
+					}
+
+					videoElement.preload = videoPreload.value;
+
+					if(videoElement.networkState === 0 || (props.active && videoElement.readyState < 2)) {
+						try {
+							videoElement.load();
+						}
+						catch(error) {}
+					}
+				};
+
+				const playVideo = () => {
+					if(! state.isLoaded || ! state.isReadyForPlayback || ! videoPlayerRef.value || props.blocked || ! props.active) {
+						if(videoPlayerRef.value && props.active && ! props.blocked && ! state.manualPaused) {
+							state.isBuffering = true;
+							syncPlaybackWindow();
+						}
+
+						return false;
+					}
 
 				setMuted();
 
@@ -551,10 +615,11 @@
 				localStorage.setItem('videoPlayerMuted', state.isMuted ? '1' : '0');
 			};
 
-			const handlePlaying = () => {
-				state.isPlaying = true;
-				state.isBuffering = false;
-				updatePlaybackReadiness(true);
+				const handlePlaying = () => {
+					state.isPlaying = true;
+					state.isBuffering = false;
+					state.hasVisualFrame = true;
+					updatePlaybackReadiness(true);
 				startWatchSession();
 				startTelemetryTimer();
 			};
@@ -675,11 +740,15 @@
 
 					nextVideoElement.load();
 
-					if(nextVideoElement.readyState >= 1) {
-						handleLoadedMetadata();
-					}
-				});
-			};
+						if(nextVideoElement.readyState >= 1) {
+							handleLoadedMetadata();
+						}
+
+						if(nextVideoElement.readyState >= 2) {
+							handleLoadedData();
+						}
+					});
+				};
 
 			const syncPlaybackWindow = () => {
 				if(hlsInstance) {
@@ -692,10 +761,35 @@
 						}
 					}
 					catch(error) {}
-				}
-			};
+					}
 
-			watch(() => props.active, (isActive) => {
+					warmNativePlayback();
+				};
+
+				const releasePlaybackSource = () => {
+					pauseVideo(inactiveTelemetryEvent());
+					destroyHlsInstance();
+					state.nativeVideoUrl = '';
+					resetPlaybackState(false);
+				};
+
+				watch(canRenderVideo, (canRender) => {
+					if(canRender) {
+						nextTick(() => {
+							configurePlaybackSource();
+							syncPlaybackWindow();
+
+							if(props.active) {
+								playVideo();
+							}
+						});
+					}
+					else {
+						releasePlaybackSource();
+					}
+				});
+
+				watch(() => props.active, (isActive) => {
 				if(isActive) {
 					state.manualPaused = false;
 					syncPlaybackWindow();
@@ -759,14 +853,16 @@
 				videoPlayerRef: videoPlayerRef,
 				state: state,
 				sourceUrl: sourceUrl,
-				nativeVideoUrl: nativeVideoUrl,
-				videoPreload: videoPreload,
-				showBufferIndicator: showBufferIndicator,
-				canRenderVideo: canRenderVideo,
-				displayProgress: displayProgress,
-				handleSurfaceTap: handleSurfaceTap,
-				handleLoadedMetadata: handleLoadedMetadata,
-				handleCanPlay: handleCanPlay,
+					nativeVideoUrl: nativeVideoUrl,
+					videoPreload: videoPreload,
+					showBufferIndicator: showBufferIndicator,
+					showPosterCover: showPosterCover,
+					canRenderVideo: canRenderVideo,
+					displayProgress: displayProgress,
+					handleSurfaceTap: handleSurfaceTap,
+					handleLoadedMetadata: handleLoadedMetadata,
+					handleLoadedData: handleLoadedData,
+					handleCanPlay: handleCanPlay,
 				handlePlaying: handlePlaying,
 				handleWaiting: handleWaiting,
 				handleNativeError: handleNativeError,

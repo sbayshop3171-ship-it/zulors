@@ -57,31 +57,31 @@ const buildProfilePolicy = (profile, connection) => {
 				reelsMinBufferSeconds: 1.0,
 				stallRecoveryDelayMs: 1400
 			};
-		case 'normal':
-			return {
+			case 'normal':
+				return {
 				profile,
 				offline,
 				saveData,
 				effectiveType,
 				downlinkMbps,
 				allowVideoPrefetch: true,
-				reelsNearRadius: 1,
-				activeVideoPreload: 'auto',
-				reelsMinBufferSeconds: 0.65,
-				stallRecoveryDelayMs: 1100
+					reelsNearRadius: 2,
+					activeVideoPreload: 'auto',
+					reelsMinBufferSeconds: 0.65,
+					stallRecoveryDelayMs: 1100
 			};
 		default:
-			return {
+				return {
 				profile: 'fast',
 				offline,
 				saveData,
 				effectiveType,
 				downlinkMbps,
 				allowVideoPrefetch: true,
-				reelsNearRadius: 1,
-				activeVideoPreload: 'auto',
-				reelsMinBufferSeconds: 0.35,
-				stallRecoveryDelayMs: 900
+					reelsNearRadius: 2,
+					activeVideoPreload: 'auto',
+					reelsMinBufferSeconds: 0.35,
+					stallRecoveryDelayMs: 900
 			};
 	}
 };
