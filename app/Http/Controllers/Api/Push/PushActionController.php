@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Notifications\User\Chat\MessageReceivedNotification;
 use App\Rules\X\XRule;
 use App\Services\Calls\CallLifecycleService;
+use App\Services\Calls\CallPushNotificationService;
 use App\Services\Notifications\NotificationActionTokenService;
 use App\Services\Notifications\UnreadBadgeCountService;
 use App\Traits\Http\Api\SupportsApiResponses;
@@ -165,7 +166,7 @@ class PushActionController extends Controller
         ]);
     }
 
-    public function answerCall(Request $request, NotificationActionTokenService $tokens)
+    public function answerCall(Request $request, NotificationActionTokenService $tokens, CallPushNotificationService $callPushNotifications)
     {
         $validator = Validator::make($request->all(), [
             'token' => ['required', 'string'],
@@ -198,7 +199,9 @@ class PushActionController extends Controller
                 ]);
 
             try {
-                event(new CallSessionEvent('call.answered', $callSession->fresh(['chat', 'initiator', 'receiver'])));
+                $callSession = $callSession->fresh(['chat', 'initiator', 'receiver']);
+                $callPushNotifications->cancelIncomingNotification($callSession);
+                event(new CallSessionEvent('call.answered', $callSession));
             }
             catch(Throwable $exception) {
                 // Notification actions should not fail because realtime delivery is temporarily unavailable.
@@ -212,7 +215,7 @@ class PushActionController extends Controller
         ]);
     }
 
-    public function declineCall(Request $request, NotificationActionTokenService $tokens, CallLifecycleService $calls)
+    public function declineCall(Request $request, NotificationActionTokenService $tokens, CallLifecycleService $calls, CallPushNotificationService $callPushNotifications)
     {
         $validator = Validator::make($request->all(), [
             'token' => ['required', 'string'],
@@ -235,7 +238,9 @@ class PushActionController extends Controller
             $calls->finalize($callSession, CallStatus::DECLINED, 'declined', $user->id);
 
             try {
-                event(new CallSessionEvent('call.declined', $callSession->fresh(['chat', 'initiator', 'receiver']), [
+                $callSession = $callSession->fresh(['chat', 'initiator', 'receiver']);
+                $callPushNotifications->cancelIncomingNotification($callSession);
+                event(new CallSessionEvent('call.declined', $callSession, [
                     'reason' => 'declined',
                 ]));
             }

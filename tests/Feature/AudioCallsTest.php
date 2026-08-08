@@ -14,6 +14,7 @@ use App\Models\Block;
 use App\Models\CallSession;
 use App\Models\Chat;
 use App\Models\User;
+use App\Notifications\User\Call\CancelCallNotification;
 use App\Notifications\User\Call\IncomingCallNotification;
 use App\Notifications\User\Call\MissedCallNotification;
 use App\Services\Calls\CallLifecycleService;
@@ -255,6 +256,60 @@ class AudioCallsTest extends TestCase
         $this->assertSame($receiver->id, $verifiedToken['user_id']);
         $this->assertSame($chat->chat_id, $verifiedToken['chat_uuid']);
         $this->assertSame($call->call_uuid, $verifiedToken['call_uuid']);
+    }
+
+    public function test_android_call_cancel_push_payload_clears_incoming_notification(): void
+    {
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+        $call = $this->createRingingCall($caller, $receiver, $chat, [
+            'status' => CallStatus::ENDED,
+            'end_reason' => 'canceled',
+            'ended_at' => now(),
+        ])->load(['chat', 'initiator', 'receiver']);
+        $payload = (new CancelCallNotification($call))->toPush($receiver);
+
+        $this->assertSame('call.cancel', $payload['type']);
+        $this->assertSame('zulors_calls', $payload['channel_id']);
+        $this->assertSame('', $payload['title']);
+        $this->assertSame('', $payload['body']);
+        $this->assertSame($call->call_uuid, $payload['data']['call_id']);
+        $this->assertSame($chat->chat_id, $payload['data']['chat_id']);
+        $this->assertSame('true', $payload['data']['cancel_notification']);
+    }
+
+    public function test_answering_call_sends_cancel_push_for_incoming_notification(): void
+    {
+        Notification::fake();
+        Config::set('notifications.push.enabled', true);
+
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+        $call = $this->createRingingCall($caller, $receiver, $chat);
+
+        Sanctum::actingAs($receiver);
+
+        $this->postJson("/api/messenger/calls/{$call->call_uuid}/answer")
+            ->assertOk()
+            ->assertJsonPath('data.call.status', 'accepted');
+
+        Notification::assertSentTo($receiver, CancelCallNotification::class);
+    }
+
+    public function test_ending_call_sends_cancel_push_for_incoming_notification(): void
+    {
+        Notification::fake();
+        Config::set('notifications.push.enabled', true);
+
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+        $call = $this->createRingingCall($caller, $receiver, $chat);
+
+        Sanctum::actingAs($caller);
+
+        $this->postJson("/api/messenger/calls/{$call->call_uuid}/end", [
+            'reason' => 'canceled',
+        ])->assertOk()
+            ->assertJsonPath('data.call.status', 'ended');
+
+        Notification::assertSentTo($receiver, CancelCallNotification::class);
     }
 
     public function test_authenticated_user_receives_short_lived_turn_ice_servers(): void

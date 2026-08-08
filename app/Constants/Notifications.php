@@ -35,6 +35,7 @@ class Notifications
 	public const CHAT_MESSAGE_RECEIVED = 'chat.message-received';
 	public const CALL_INCOMING = 'call.incoming';
 	public const CALL_MISSED = 'call.missed';
+	public const CALL_CANCEL = 'call.cancel';
 
 	// Important notifications
 		public const ACCOUNT_LINKED = 'important.account-linked';

@@ -13,6 +13,7 @@ use App\Models\Chat;
 use App\Models\User;
 use App\Notifications\User\Call\IncomingCallNotification;
 use App\Services\Calls\CallLifecycleService;
+use App\Services\Calls\CallPushNotificationService;
 use App\Services\Relations\BlockService;
 use App\Traits\Http\Api\SupportsApiResponses;
 use Illuminate\Http\Request;
@@ -137,7 +138,7 @@ class CallController extends Controller
         ]);
     }
 
-    public function answer(string $callUuid)
+    public function answer(string $callUuid, CallPushNotificationService $callPushNotifications)
     {
         $callSession = $this->resolveCallForMe($callUuid);
 
@@ -172,6 +173,7 @@ class CallController extends Controller
             ]);
 
         $callSession = $callSession->fresh(['chat', 'initiator', 'receiver']);
+        $callPushNotifications->cancelIncomingNotification($callSession);
         event(new CallSessionEvent('call.answered', $callSession));
 
         return $this->responseSuccess([
@@ -181,7 +183,7 @@ class CallController extends Controller
         ]);
     }
 
-    public function decline(string $callUuid, CallLifecycleService $calls)
+    public function decline(string $callUuid, CallLifecycleService $calls, CallPushNotificationService $callPushNotifications)
     {
         $callSession = $this->resolveCallForMe($callUuid);
 
@@ -197,6 +199,7 @@ class CallController extends Controller
 
         $calls->finalize($callSession, CallStatus::DECLINED, 'declined', me()->id);
         $callSession = $callSession->fresh(['chat', 'initiator', 'receiver']);
+        $callPushNotifications->cancelIncomingNotification($callSession);
 
         event(new CallSessionEvent('call.declined', $callSession, [
             'reason' => 'declined',
@@ -209,7 +212,7 @@ class CallController extends Controller
         ]);
     }
 
-    public function end(Request $request, string $callUuid, CallLifecycleService $calls)
+    public function end(Request $request, string $callUuid, CallLifecycleService $calls, CallPushNotificationService $callPushNotifications)
     {
         $validator = Validator::make($request->all(), [
             'reason' => ['nullable', 'string', Rule::in(['user_ended', 'canceled', 'connection_lost', 'connection_timeout', 'ice_failed'])],
@@ -235,6 +238,7 @@ class CallController extends Controller
 
         $calls->finalize($callSession, $finalStatus, $reason, me()->id);
         $callSession = $callSession->fresh(['chat', 'initiator', 'receiver']);
+        $callPushNotifications->cancelIncomingNotification($callSession);
 
         event(new CallSessionEvent('call.ended', $callSession, [
             'reason' => $reason,
