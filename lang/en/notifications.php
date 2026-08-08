@@ -11,6 +11,7 @@ return [
 		'comment_mentioned' => 'You were mentioned in a comment.',
 		'post_mentioned' => 'You were mentioned in a post.',
 		'story_mentioned' => 'You were mentioned in a story.',
+		'story_liked' => 'Someone liked your story.',
 		'message_received' => 'New message.',
 		'account_linked' => 'Your accounts have been successfully linked.',
 		'deposit_success' => 'Your deposit has been successfully completed.',
@@ -33,6 +34,7 @@ return [
 		'comment_mentioned' => 'has mentioned you in a comment',
 		'post_mentioned' => 'has mentioned you in a post',
 		'story_mentioned' => 'has mentioned you in a story',
+		'story_liked' => 'liked your story',
 	],
 		'important' => [
 			'account_linked' => 'has linked your account to their account',

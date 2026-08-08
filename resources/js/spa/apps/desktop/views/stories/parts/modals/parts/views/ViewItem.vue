@@ -7,6 +7,9 @@
 			<span class="text-lab-pr ml-2 font-medium text-par-n">
 				{{ viewItem.relations.user.name }} <VerificationBadge v-if="viewItem.relations.user.verified" size="xs"></VerificationBadge>
 			</span>
+			<span v-if="viewItem.activity.has_liked" class="ml-2 inline-flex text-red-900">
+				<SvgIcon name="heart-rounded" type="solid" classes="size-4"></SvgIcon>
+			</span>
 			<span class="text-lab-sc text-par-n ml-auto">
 				{{ viewItem.date.time_ago }}
 			</span>

@@ -1,6 +1,6 @@
 <template>
-    <div class="px-4 cursor-pointer" v-on:click="showViews">
-        <div class="inline-flex items-center flex-1 gap-1 opacity-70 hover:opacity-100">
+    <div class="px-4 flex items-center gap-4">
+        <div class="inline-flex items-center flex-1 gap-1 opacity-70 hover:opacity-100 cursor-pointer" v-on:click="showViews">
             <PrimaryIconButton
                 iconName="eye"
                 buttonColor="text-white"
@@ -8,6 +8,18 @@
             
             <span class="text-par-s text-white/90">
                 {{ $t('story.views_number', { n: storyViewsCount.formatted }, storyViewsCount.raw) }}
+            </span>
+        </div>
+        <div class="inline-flex items-center gap-1 opacity-70">
+            <PrimaryIconButton
+                iconName="heart-rounded"
+                buttonColor="text-red-900"
+                hoverBg=""
+                hoverText=""
+            ></PrimaryIconButton>
+
+            <span class="text-par-s text-white/90">
+                {{ $t('story.likes_number', { n: storyLikesCount.formatted }, storyLikesCount.raw) }}
             </span>
         </div>
     </div>
@@ -29,6 +41,9 @@
                 },
                 storyViewsCount: computed(() => {
                     return playerState.frameData.views_count;
+                }),
+                storyLikesCount: computed(() => {
+                    return playerState.frameData.likes_count;
                 }),
                 storyViews: computed(() => {
                     return playerState.frameData.relations.views;

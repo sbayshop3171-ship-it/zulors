@@ -28,6 +28,9 @@ class ViewResource extends JsonResource
             'relations' => [
                 'user' => UserPreviewResource::make($this->user)
             ],
+            'activity' => [
+                'has_liked' => (bool) $this->getAttribute('has_liked_story'),
+            ],
             'date' => [
                 'time_ago' => $this->viewed_at->getTimeAgo(),
                 'time' => $this->viewed_at->getTime(),

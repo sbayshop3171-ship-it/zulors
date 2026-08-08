@@ -12,6 +12,8 @@ use App\Models\Traits\Text\InteractsWithText;
 class StoryFrame extends Model
 {
     use InteractsWithText;
+
+    public const PRIVATE_LIKE_UNIFIED_ID = '2764-fe0f';
     
     public $timestamps = false;
 
@@ -45,6 +47,11 @@ class StoryFrame extends Model
     public function views()
     {
         return $this->hasMany(StoryView::class, 'story_frame_id', 'id');
+    }
+
+    public function reactions()
+    {
+        return $this->morphMany(Reaction::class, 'reactable', 'reactable_type', 'reactable_id', 'id');
     }
 
     public function media()

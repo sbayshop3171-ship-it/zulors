@@ -48,6 +48,26 @@ const useStoriesStore = defineStore('mobile_stories_store', {
         }
     },
     actions: {
+        applyStoryFrameLikeState: function(frameId, payload = {}) {
+            this.stories.forEach((storyItem) => {
+                const frameData = storyItem.relations.frames.find((frameItem) => {
+                    return frameItem.id === frameId;
+                });
+
+                if(frameData) {
+                    if(Object.prototype.hasOwnProperty.call(payload, 'likes_count')) {
+                        frameData.likes_count = payload.likes_count;
+                    }
+
+                    if(Object.prototype.hasOwnProperty.call(payload, 'activity')) {
+                        frameData.activity = {
+                            ...frameData.activity,
+                            ...payload.activity
+                        };
+                    }
+                }
+            });
+        },
         prependFeedItem: function(storyData) {
             if(! storyData) {
                 return;
@@ -134,6 +154,23 @@ const useStoriesStore = defineStore('mobile_stories_store', {
         },
         fetchAndReturnStoryViews: async function(frameId) {
             return await colibriAPI().stories().getFrom(`views/${frameId}`).then((response) => {
+                this.applyStoryFrameLikeState(frameId, {
+                    likes_count: response.data.meta?.likes_count
+                });
+
+                return response.data;
+            }).catch((error) => {
+                if(error.response) {
+                    throw new Error(error.response.data.message);
+                }
+            });
+        },
+        toggleStoryLike: async function(frameId) {
+            return await colibriAPI().stories().with({
+                frame_id: frameId
+            }).sendTo('likes/toggle').then((response) => {
+                this.applyStoryFrameLikeState(frameId, response.data.data);
+
                 return response.data.data;
             }).catch((error) => {
                 if(error.response) {

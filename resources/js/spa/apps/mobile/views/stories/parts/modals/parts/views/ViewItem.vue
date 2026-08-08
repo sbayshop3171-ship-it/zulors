@@ -10,6 +10,9 @@
 			<span class="text-lab-sc text-par-n ml-auto lowercase">
 				{{ viewItem.date.is_today ? $t('labels.today') : $t('labels.yesterday') }}
 			</span>
+			<span v-if="viewItem.activity.has_liked" class="ml-2 inline-flex text-red-900">
+				<SvgIcon name="heart-rounded" type="solid" classes="size-4"></SvgIcon>
+			</span>
 			<span class="text-lab-sc text-par-n w-12 text-right">
 				{{ viewItem.date.time }}
 			</span>

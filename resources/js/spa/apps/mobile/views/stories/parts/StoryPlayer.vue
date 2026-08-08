@@ -22,6 +22,7 @@
         <div v-if="playerState.isInitialized && ! isFrameProcessing" class="absolute bottom-0 left-0 right-0 z-10 text-white pt-8 pb-4 from-black/60 to-transparent bg-gradient-to-t">
             <StoryContent></StoryContent>
             <StoryViews v-if="playerState.isOwner"></StoryViews>
+            <StoryReply v-else></StoryReply>
         </div>
         
         <StoryModals v-if="playerState.isInitialized"></StoryModals>
@@ -37,6 +38,7 @@
     import StoryImage from '@M/views/stories/parts/media/StoryImage.vue';
     import StoryViews from '@M/views/stories/parts/footer/StoryViews.vue';
     import StoryContent from '@M/views/stories/parts/footer/StoryContent.vue';
+    import StoryReply from '@M/views/stories/parts/footer/StoryReply.vue';
     import StoryPlayback from '@M/views/stories/parts/header/StoryPlayback.vue';
     import StoryHeader from '@M/views/stories/parts/header/StoryHeader.vue';
     import StoryModals from '@M/views/stories/parts/modals/StoryModals.vue';
@@ -286,6 +288,7 @@
             StoryVideo: StoryVideo,
             StoryImage: StoryImage,
             StoryViews: StoryViews,
+            StoryReply: StoryReply,
             StoryContent: StoryContent,
             StoryModals: StoryModals
         }

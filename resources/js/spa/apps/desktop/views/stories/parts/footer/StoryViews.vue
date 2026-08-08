@@ -11,6 +11,18 @@
                 {{ $t('story.views_number', { n: storyViewsCount.formatted }, storyViewsCount.raw) }}
             </span>
         </div>
+        <div class="inline-flex items-center gap-1 opacity-70">
+            <PrimaryIconButton
+                iconName="heart-rounded"
+                buttonColor="text-red-900"
+                hoverBg=""
+                hoverText=""
+            ></PrimaryIconButton>
+
+            <span class="text-par-s text-white/90">
+                {{ $t('story.likes_number', { n: storyLikesCount.formatted }, storyLikesCount.raw) }}
+            </span>
+        </div>
         <div class="shrink-0">
             <StoryShareButton></StoryShareButton>
         </div>
@@ -34,6 +46,9 @@
                 },
                 storyViewsCount: computed(() => {
                     return playerState.frameData.views_count;
+                }),
+                storyLikesCount: computed(() => {
+                    return playerState.frameData.likes_count;
                 }),
                 storyViews: computed(() => {
                     return playerState.frameData.relations.views;

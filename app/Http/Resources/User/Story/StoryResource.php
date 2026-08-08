@@ -51,6 +51,7 @@ class StoryResource extends JsonResource
                             'raw' => $frameItem->views_count,
                             'formatted' => $frameItem->views_count,
                         ],
+                        'likes_count' => $this->getStoryFrameLikesCount($frameItem),
                         'relations' => [
                             'views' => []
                         ],
@@ -58,7 +59,8 @@ class StoryResource extends JsonResource
                             'time_ago' => $this->getPublishedAt($frameItem)->shortAbsoluteDiffForHumans()
                         ],
                         'activity' => [
-                            'is_seen' => $this->checkIfStoryFrameSeen($frameItem)
+                            'is_seen' => $this->checkIfStoryFrameSeen($frameItem),
+                            'has_liked' => $this->checkIfStoryFrameLiked($frameItem),
                         ]
                     ];
                 })
@@ -76,7 +78,32 @@ class StoryResource extends JsonResource
 
     private function checkIfStoryFrameSeen($frameItem)
     {
+        if($frameItem->relationLoaded('views')) {
+            return $frameItem->views->contains('user_id', me()->id);
+        }
+
         return $frameItem->views()->where('user_id', me()->id)->exists();
+    }
+
+    private function checkIfStoryFrameLiked($frameItem): bool
+    {
+        if($frameItem->relationLoaded('reactions')) {
+            return collect($frameItem->reactions->firstWhere('unified_id', $frameItem::PRIVATE_LIKE_UNIFIED_ID)?->users ?? [])->contains(me()->id);
+        }
+
+        return $frameItem->reactions()->where('unified_id', $frameItem::PRIVATE_LIKE_UNIFIED_ID)->whereJsonContains('users', me()->id)->exists();
+    }
+
+    private function getStoryFrameLikesCount($frameItem): array
+    {
+        $likesCount = $frameItem->relationLoaded('reactions')
+            ? ($frameItem->reactions->firstWhere('unified_id', $frameItem::PRIVATE_LIKE_UNIFIED_ID)?->reactions_count ?? 0)
+            : ($frameItem->reactions()->where('unified_id', $frameItem::PRIVATE_LIKE_UNIFIED_ID)->value('reactions_count') ?? 0);
+
+        return [
+            'raw' => $likesCount,
+            'formatted' => $likesCount,
+        ];
     }
 
     private function getStoryMedia($frameItem)

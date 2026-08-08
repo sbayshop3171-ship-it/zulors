@@ -77,9 +77,9 @@
                         }
                     }
                 }
-                else if(['story.mentioned'].includes(props.notificationData.type)) {
+                else if(['story.mentioned', 'story.liked'].includes(props.notificationData.type)) {
                     return {
-                        name: 'stories_index_page',
+                        name: 'stories_index',
                         params: {
                             story_uuid: props.notificationData.entity.story_uuid
                         }
@@ -121,7 +121,7 @@
                 },
                 metadata: metadata,
                 isReaction: computed(() => {
-                    if(['post.reacted', 'comment.reacted'].includes(props.notificationData.type)) {
+                    if(['post.reacted', 'comment.reacted', 'story.liked'].includes(props.notificationData.type)) {
                         return true;
                     }
 

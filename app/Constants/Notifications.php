@@ -30,6 +30,7 @@ class Notifications
 	public const COMMENT_MENTIONED = 'comment.mentioned';
 
 	public const STORY_MENTIONED = 'story.mentioned';
+	public const STORY_LIKED = 'story.liked';
 
 	public const CHAT_MESSAGE_RECEIVED = 'chat.message-received';
 	public const CALL_INCOMING = 'call.incoming';

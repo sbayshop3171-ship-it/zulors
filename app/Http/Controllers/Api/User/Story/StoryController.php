@@ -27,11 +27,14 @@ use App\Http\Resources\User\Story\StoryCollection;
 use App\Http\Resources\User\Story\ViewCollection;
 use App\Models\Story;
 use App\Models\StoryFrame;
+use App\Notifications\User\Story\StoryLikedNotification;
 use App\Rules\X\XRule;
+use App\Services\Reaction\ReactionService;
 use App\Traits\Http\Api\SupportsApiResponses;
 use App\Traits\Http\Controllers\Api\User\Story\InteractsWithDraftStoryFrame;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -139,22 +142,66 @@ class StoryController extends Controller
         $storyFrameId = $request->integer('frame_id');
 
         if(is_positive($storyFrameId)) {
-            $frameData = StoryFrame::relevantStories()->where('id', $storyFrameId)->first();
+            $frameData = $this->findVisibleStoryFrame($storyFrameId);
 
             if($frameData) {
-                $isSeen = $frameData->views()->where('user_id', me()->id)->exists();
-
-                if(empty($isSeen)) {
-                    $frameData->views()->create([
-                        'user_id' => me()->id,
-                        'viewed_at' => now()
-                    ]);
-
-                    $frameData->increment('views_count');
-                }
+                $this->ensureStoryFrameViewed($frameData);
 
                 return $this->responseSuccess([
                    'data' => null
+                ]);
+            }
+        }
+
+        return $this->responseResourceNotFoundError('StoryFrame', $storyFrameId);
+    }
+
+    public function toggleLike(Request $request, ReactionService $reactionService)
+    {
+        $storyFrameId = $request->integer('frame_id');
+
+        if(is_positive($storyFrameId)) {
+            $frameData = $this->findVisibleStoryFrame($storyFrameId, [
+                'story.user.pushNotificationSettings',
+                'media',
+                'reactions',
+            ]);
+
+            if($frameData) {
+                if($frameData->story->user_id === me()->id) {
+                    return $this->responseError([
+                        'message' => __('api/story.cannot_like_own_story'),
+                        'errors' => [
+                            'frame_id' => [
+                                __('api/story.cannot_like_own_story'),
+                            ],
+                        ],
+                    ], 403);
+                }
+
+                $this->ensureStoryFrameViewed($frameData);
+
+                $hasLiked = $reactionService
+                    ->setReactable($frameData)
+                    ->setUserId(me()->id)
+                    ->setUnifiable(StoryFrame::PRIVATE_LIKE_UNIFIED_ID)
+                    ->handleReaction();
+
+                $frameData->load('reactions');
+
+                if($hasLiked) {
+                    $frameData->story->user?->notify(new StoryLikedNotification($frameData));
+                }
+
+                return $this->responseSuccess([
+                    'data' => [
+                        'frame_id' => $frameData->id,
+                        'likes_count' => $this->getStoryFrameLikesCount($frameData),
+                        'activity' => [
+                            'has_liked' => $hasLiked,
+                            'is_seen' => true,
+                        ],
+                    ],
                 ]);
             }
         }
@@ -196,13 +243,36 @@ class StoryController extends Controller
     public function getStoryViews(Request $request, $frameId)
     {
         if(is_positive($frameId)) {
-            $frameData = StoryFrame::relevantStories()->where('id', $frameId)->first();
+            $frameData = $this->findVisibleStoryFrame($frameId, [
+                'story',
+                'reactions',
+            ]);
 
             if($frameData) {
-                $frameViews = $frameData->views()->withUser()->get();
+                if(! me()->isRoot() && ($frameData->story?->user_id !== me()->id)) {
+                    return $this->responseError([
+                        'message' => __('errors.unauthorized'),
+                    ], 403);
+                }
+
+                $likedUserIds = $this->getStoryFrameLikedUserIds($frameData);
+                $frameViews = $frameData->views()->withUser()->get()->map(function($viewItem) use ($likedUserIds) {
+                    $viewItem->setAttribute('has_liked_story', $likedUserIds->contains($viewItem->user_id));
+
+                    return $viewItem;
+                })->sortByDesc(function($viewItem) {
+                    return (int) $viewItem->getAttribute('has_liked_story');
+                })->values();
 
                 return $this->responseSuccess([
-                   'data' => ViewCollection::make($frameViews)
+                   'data' => ViewCollection::make($frameViews),
+                   'meta' => [
+                        'likes_count' => $this->getStoryFrameLikesCount($frameData),
+                        'views_count' => [
+                            'raw' => $frameData->views_count,
+                            'formatted' => $frameData->views_count,
+                        ],
+                   ],
                 ]);
             }
         }
@@ -235,6 +305,7 @@ class StoryController extends Controller
                 $this->applyVisibleStoryFrameQuery($withQuery);
             },
             'frames.views',
+            'frames.reactions',
             'frames.media'
         ];
     }
@@ -249,6 +320,47 @@ class StoryController extends Controller
             'frames.views',
             'frames.media'
         ];
+    }
+
+    private function findVisibleStoryFrame(int $frameId, array $relations = [])
+    {
+        return StoryFrame::query()->relevantStories()->where('id', $frameId)->whereHas('story', function($storyQuery) {
+            $storyQuery->whereIn('id', $this->visibleStoriesQuery()->select('id'));
+        })->with($relations)->first();
+    }
+
+    private function ensureStoryFrameViewed(StoryFrame $frameData): bool
+    {
+        $isSeen = $frameData->views()->where('user_id', me()->id)->exists();
+
+        if($isSeen) {
+            return false;
+        }
+
+        $frameData->views()->create([
+            'user_id' => me()->id,
+            'viewed_at' => now(),
+        ]);
+
+        $frameData->increment('views_count');
+        $frameData->views_count += 1;
+
+        return true;
+    }
+
+    private function getStoryFrameLikesCount(StoryFrame $frameData): array
+    {
+        $likesCount = $frameData->reactions->firstWhere('unified_id', StoryFrame::PRIVATE_LIKE_UNIFIED_ID)?->reactions_count ?? 0;
+
+        return [
+            'raw' => $likesCount,
+            'formatted' => $likesCount,
+        ];
+    }
+
+    private function getStoryFrameLikedUserIds(StoryFrame $frameData): Collection
+    {
+        return collect($frameData->reactions->firstWhere('unified_id', StoryFrame::PRIVATE_LIKE_UNIFIED_ID)?->users ?? []);
     }
 
     private function applyVisibleStoryFrameQuery($query): void

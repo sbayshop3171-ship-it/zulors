@@ -1,9 +1,11 @@
 <template>
-    <div class="flex items-center gap-2 px-3">
-        <div v-on:click="replyToStory"
-            class="smoothing border border-white px-4 h-8 flex items-center overflow-hidden rounded-full flex-1" 
-        v-bind:class="[state.sendingMessage ? 'opacity-40 cursor-not-allowed' : 'opacity-70 cursor-pointer hover:opacity-100']">
-            <span class="text-cap-l text-white leading-none block truncate">
+    <div class="flex items-center gap-2 px-4">
+        <div
+            v-on:click="replyToStory"
+            class="smoothing border border-white px-4 h-10 flex items-center overflow-hidden rounded-full flex-1"
+            v-bind:class="[state.sendingMessage ? 'opacity-40 cursor-not-allowed' : 'opacity-80 cursor-pointer active:opacity-100']"
+        >
+            <span class="text-par-s text-white leading-none block truncate">
                 {{ state.sendingMessage ? $t('story.reply_story_author_sending') : $t('story.reply_story_author', { name: playerState.storyAuthor.name }) }}
             </span>
         </div>
@@ -16,9 +18,6 @@
                 v-bind:hoverText="hasLiked ? 'hover:text-red-900' : 'hover:text-white'"
             ></PrimaryIconButton>
         </div>
-        <div class="shrink-0">
-            <StoryShareButton></StoryShareButton>
-        </div>
     </div>
 </template>
 
@@ -26,19 +25,12 @@
     import { computed, defineComponent, inject, reactive } from 'vue';
     import { useRouter } from 'vue-router';
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
-    import { useStoriesStore } from '@D/store/stories/stories.store.js';
+    import { useStoriesStore } from '@M/store/stories/stories.store.js';
 
-    import PrimaryIconButton from '@D/components/inter-ui/buttons/PrimaryIconButton.vue';
-    import StoryShareButton from '@D/views/stories/parts/StoryShareButton.vue';
+    import PrimaryIconButton from '@M/components/inter-ui/buttons/PrimaryIconButton.vue';
 
     export default defineComponent({
         setup: function() {
-            // TODO: Implement reply to story.
-            // 1. Open a message form.
-            // 2. Send a message to the story author.
-            // 3. Attach a story snapshot to the message. Use LQIP for the image. Base64 encoded image.
-            // 4. Redirect to the chat page.
-            
             const playerState = inject('playerState');
             const storiesStore = useStoriesStore();
             const router = useRouter();
@@ -57,28 +49,27 @@
                     if(state.sendingMessage) {
                         return false;
                     }
-                    else {
-                        state.sendingMessage = true;
 
-                        await colibriAPI().messenger().with({
-                            user_id: playerState.storyAuthor.id
-                        }).sendTo('chats/create').then((response) => {
-                            let chatData = response.data.data;
-    
-                            router.push({
-                                name: 'messenger_chat',
-                                params: {
-                                    chat_id: chatData.chat_id
-                                }
-                            });
-                        }).catch((error) => {
-                            if(error.response) {
-                                alert(error.response.data.message);
+                    state.sendingMessage = true;
+
+                    await colibriAPI().messenger().with({
+                        user_id: playerState.storyAuthor.id
+                    }).sendTo('chats/create').then((response) => {
+                        const chatData = response.data.data;
+
+                        router.push({
+                            name: 'messenger_chat',
+                            params: {
+                                chat_id: chatData.chat_id
                             }
-                        }).finally(() => {
-                            state.sendingMessage = false;
                         });
-                    }
+                    }).catch((error) => {
+                        if(error.response) {
+                            alert(error.response.data.message);
+                        }
+                    }).finally(() => {
+                        state.sendingMessage = false;
+                    });
                 },
                 toggleStoryLike: async () => {
                     if(state.togglingLike || ! playerState.frameData?.id) {
@@ -96,8 +87,7 @@
             }
         },
         components: {
-            PrimaryIconButton: PrimaryIconButton,
-            StoryShareButton: StoryShareButton
+            PrimaryIconButton: PrimaryIconButton
         }
     });
 </script>

@@ -2,6 +2,9 @@
     <ActionSheet v-on:close="$emit('hide')">
         <div class="pb-2 px-4">
             <SheetTitle v-bind:title="`${$t('story.who_watched_story')} ${views.length}`"></SheetTitle>
+            <p v-if="! state.isLoading" class="text-lab-sc text-par-s mt-1">
+                {{ $t('story.likes_number', { n: meta.likes_count.formatted }, meta.likes_count.raw) }}
+            </p>
         </div>
         <Border></Border>
         <div v-if="state.isLoading" class="block">
@@ -40,16 +43,26 @@
             });
 
             const views = ref([]);
+            const meta = ref({
+                likes_count: {
+                    raw: 0,
+                    formatted: 0
+                }
+            });
 
             onMounted(async () => {
-                views.value = await storiesStore.fetchAndReturnStoryViews(playerState.frameData.id);
+                const response = await storiesStore.fetchAndReturnStoryViews(playerState.frameData.id);
+
+                views.value = response.data;
+                meta.value = response.meta;
 
                 state.isLoading = false;
             });
 
             return {
                 state: state,
-                views: views
+                views: views,
+                meta: meta
             }
         },
         components: {
