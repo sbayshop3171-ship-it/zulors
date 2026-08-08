@@ -2,9 +2,15 @@
 	<ApplicationHeader v-if="! hideHeader"></ApplicationHeader>
 
 	<div class="mobile-app-content" v-bind:class="{ 'mobile-app-content--no-navbar': hideNavbar }">
-		<RouterView v-slot="{ Component, route }">
-			<component v-bind:is="Component" v-bind:key="route.fullPath"></component>
-		</RouterView>
+		<div class="mobile-app-stage">
+			<RouterView v-slot="{ Component, route }">
+				<Transition v-bind:name="routeTransition.name">
+					<div v-bind:key="route.fullPath" class="mobile-route-view">
+						<component v-bind:is="Component"></component>
+					</div>
+				</Transition>
+			</RouterView>
+		</div>
 	</div>
 
 	<LightboxPlayer></LightboxPlayer>
@@ -29,6 +35,7 @@
 	import useToastNotificationStore from '@M/store/toast/toast.store.js';
 	import { colibriSounds } from '@/kernel/services/sounds/index.js';
 	import { usePostEditorStore } from '@M/store/timeline/editor.store.js';
+	import { useMobileRouteTransition } from '@M/core/services/route-transition/index.js';
 
 	import ApplicationHeader from '@M/components/layout/ApplicationHeader.vue';
 	import ApplicationNavbar from '@M/components/layout/ApplicationNavbar.vue';
@@ -45,6 +52,7 @@
 			const inboxStore = useInboxStore();
 			const toastStore = useToastNotificationStore();
 			const postEditorStore = usePostEditorStore();
+			const routeTransition = useMobileRouteTransition();
 			const router = useRouter();
 			const route = useRoute();
 			let isListening = false;
@@ -119,7 +127,8 @@
 				}),
 				hideHeader: computed(() => {
 					return route.meta.hideHeader || false;
-				})
+				}),
+				routeTransition: routeTransition
 			};
 		},
 		components: {
@@ -132,3 +141,85 @@
 		}
 	});
 </script>
+
+<style scoped>
+	.mobile-app-stage {
+		position: relative;
+		min-height: 100%;
+		overflow-x: hidden;
+	}
+
+	.mobile-route-view {
+		min-height: 100%;
+		background: var(--bg-pr);
+	}
+
+	.mobile-route-slide-next-enter-active,
+	.mobile-route-slide-next-leave-active,
+	.mobile-route-slide-prev-enter-active,
+	.mobile-route-slide-prev-leave-active,
+	.mobile-route-fade-enter-active,
+	.mobile-route-fade-leave-active {
+		will-change: transform, opacity;
+		backface-visibility: hidden;
+		transform: translate3d(0, 0, 0);
+	}
+
+	.mobile-route-slide-next-enter-active,
+	.mobile-route-slide-next-leave-active,
+	.mobile-route-slide-prev-enter-active,
+	.mobile-route-slide-prev-leave-active {
+		transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease-out;
+	}
+
+	.mobile-route-fade-enter-active,
+	.mobile-route-fade-leave-active {
+		transition: opacity 160ms ease-out, transform 160ms ease-out;
+	}
+
+	.mobile-route-slide-next-leave-active,
+	.mobile-route-slide-prev-leave-active,
+	.mobile-route-fade-leave-active {
+		position: absolute;
+		inset: 0;
+		width: 100%;
+		pointer-events: none;
+	}
+
+	.mobile-route-slide-next-enter-from {
+		transform: translate3d(14%, 0, 0);
+		opacity: 0.8;
+	}
+
+	.mobile-route-slide-next-leave-to {
+		transform: translate3d(-8%, 0, 0);
+		opacity: 0.94;
+	}
+
+	.mobile-route-slide-prev-enter-from {
+		transform: translate3d(-14%, 0, 0);
+		opacity: 0.8;
+	}
+
+	.mobile-route-slide-prev-leave-to {
+		transform: translate3d(8%, 0, 0);
+		opacity: 0.94;
+	}
+
+	.mobile-route-fade-enter-from,
+	.mobile-route-fade-leave-to {
+		transform: translate3d(0, 0.35rem, 0);
+		opacity: 0;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.mobile-route-slide-next-enter-active,
+		.mobile-route-slide-next-leave-active,
+		.mobile-route-slide-prev-enter-active,
+		.mobile-route-slide-prev-leave-active,
+		.mobile-route-fade-enter-active,
+		.mobile-route-fade-leave-active {
+			transition-duration: 1ms;
+		}
+	}
+</style>

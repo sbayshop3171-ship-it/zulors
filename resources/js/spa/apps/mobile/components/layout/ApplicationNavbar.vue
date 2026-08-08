@@ -5,12 +5,12 @@
 
 		<div class="grid grid-cols-5 h-14">
 			<div class="flex items-center justify-center">
-				<RouterLink v-bind:to="{ name: 'home_index' }">
+				<RouterLink v-bind:to="{ name: 'home_index' }" class="block rounded-full transform-gpu transition-transform duration-150 ease-out active:scale-[0.94]">
 					<PrimaryIconButton buttonColor="text-lab-pr" iconName="home-smile" iconType="line"></PrimaryIconButton>
 				</RouterLink>
 			</div>
 			<div class="flex items-center justify-center">
-				<RouterLink v-bind:to="{ name: 'explore_index' }">
+				<RouterLink v-bind:to="{ name: 'explore_index' }" class="block rounded-full transform-gpu transition-transform duration-150 ease-out active:scale-[0.94]">
 					<PrimaryIconButton buttonColor="text-lab-pr" iconName="search-lg" iconType="solid"></PrimaryIconButton>
 				</RouterLink>
 			</div>
@@ -19,7 +19,7 @@
 			</div>
 			<div class="flex items-center justify-center">
 				<div class="relative">
-					<RouterLink v-bind:to="{ name: 'messenger_index' }">
+					<RouterLink v-bind:to="{ name: 'messenger_index' }" class="block rounded-full transform-gpu transition-transform duration-150 ease-out active:scale-[0.94]">
 						<PrimaryIconButton buttonColor="text-lab-pr" iconName="message-chat-circle" iconType="line"></PrimaryIconButton>
 					</RouterLink>
 					<span class="absolute -top-1.5 -right-1">
@@ -28,8 +28,8 @@
 				</div>
 			</div>
 			<div class="flex items-center justify-center leading-zero">
-				<RouterLink v-bind:to="profileRoute">
-					<div class="inline-flex border border-bord-card items-center justify-center size-6 rounded-full overflow-hidden">
+				<RouterLink v-bind:to="profileRoute" class="block rounded-full transform-gpu transition-transform duration-150 ease-out active:scale-[0.94]">
+					<div class="inline-flex border border-bord-card items-center justify-center size-6 rounded-full overflow-hidden transition-opacity duration-150 ease-out active:opacity-90">
 						<img v-bind:src="userData.avatar_url" v-bind:alt="userData.username || 'Profile'" class="size-full object-cover">
 					</div>
 				</RouterLink>

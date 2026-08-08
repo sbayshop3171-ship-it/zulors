@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router';
 
 import { Layouts } from '@M/core/constants/layouts.js';
+import { syncMobileRouteTransition } from '@M/core/services/route-transition/index.js';
 
 const Router = createRouter({
 	history: createWebHistory(),
@@ -514,6 +515,11 @@ const Router = createRouter({
             }
         },
 	]
+});
+
+Router.beforeEach((to, from, next) => {
+	syncMobileRouteTransition(to, from);
+	next();
 });
 
 export default Router;

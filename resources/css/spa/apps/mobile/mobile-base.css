@@ -205,6 +205,30 @@ html.zulors-android-app {
     @apply relative after:content-[''] after:absolute after:-bottom-px after:left-0 after:w-full after:right-0 after:h-[3px] after:bg-brand-900;
 }
 
+.mobile-tab-link{
+    position: relative;
+    transform: translate3d(0, 0, 0);
+}
+
+.mobile-tab-link::after{
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 3px;
+    background: var(--brand-900);
+    opacity: 0;
+    transform: scaleX(0.35);
+    transform-origin: center;
+    transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease-out;
+}
+
+.mobile-tab-link--active::after{
+    opacity: 1;
+    transform: scaleX(1);
+}
+
 .markdown-text a {
     @apply text-brand-900 hover:opacity-80 font-medium;
 }
