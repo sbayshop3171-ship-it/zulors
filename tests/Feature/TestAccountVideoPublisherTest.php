@@ -87,6 +87,36 @@ class TestAccountVideoPublisherTest extends TestCase
         }
     }
 
+    public function test_preview_can_select_test_accounts_in_stable_random_order(): void
+    {
+        $users = collect(range(1, 8))->map(function (int $index) {
+            return $this->createUser("video-random-{$index}", "video-random-{$index}@gmail.test");
+        });
+
+        foreach (range(3, 8) as $index) {
+            File::put($this->sourceDirectory . "/random-{$index}.mp4", "video-{$index}");
+        }
+
+        $orderedPreview = app(TestAccountVideoPublisher::class)->previewForDirectories([$this->sourceDirectory]);
+        $firstRandomPreview = app(TestAccountVideoPublisher::class)->previewForDirectories(
+            [$this->sourceDirectory],
+            0,
+            true,
+            'stable-test-seed',
+        );
+        $secondRandomPreview = app(TestAccountVideoPublisher::class)->previewForDirectories(
+            [$this->sourceDirectory],
+            0,
+            true,
+            'stable-test-seed',
+        );
+
+        $this->assertSame($users->pluck('id')->all(), $orderedPreview['user_ids']);
+        $this->assertSame($firstRandomPreview['user_ids'], $secondRandomPreview['user_ids']);
+        $this->assertEqualsCanonicalizing($orderedPreview['user_ids'], $firstRandomPreview['user_ids']);
+        $this->assertNotSame($orderedPreview['user_ids'], $firstRandomPreview['user_ids']);
+    }
+
     public function test_command_dry_run_requires_explicit_confirmation_before_writing(): void
     {
         $this->createUser('video-command-one', 'video-command-one@gmail.test');

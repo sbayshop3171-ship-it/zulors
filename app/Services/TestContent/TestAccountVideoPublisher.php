@@ -77,7 +77,12 @@ class TestAccountVideoPublisher
      * @param array<int, string> $sourceDirectories
      * @return array{user_ids: array<int, int>, source_files: array<int, string>, eligible_count: int, source_count: int}
      */
-    public function previewForDirectories(array $sourceDirectories, int $limit = 0): array
+    public function previewForDirectories(
+        array $sourceDirectories,
+        int $limit = 0,
+        bool $randomizeUsers = false,
+        ?string $selectionSeed = null,
+    ): array
     {
         $sourceFiles = $this->sourceFilesForDirectories($sourceDirectories);
         $eligibleUserIds = $this->eligibleUsers()
@@ -85,6 +90,11 @@ class TestAccountVideoPublisher
             ->pluck('id')
             ->map(fn ($id) => (int) $id)
             ->all();
+
+        if ($randomizeUsers) {
+            $eligibleUserIds = $this->stableShuffle($eligibleUserIds, $selectionSeed ?: 'test-content-video-publisher');
+        }
+
         $targetCount = min(count($eligibleUserIds), count($sourceFiles));
 
         if ($limit > 0) {
@@ -415,5 +425,23 @@ class TestAccountVideoPublisher
         $height = (int) ($dimensions['height'] ?? 0);
 
         return $width > 0 && $height > 0 && $width < $height;
+    }
+
+    /**
+     * @param array<int, int> $values
+     * @return array<int, int>
+     */
+    private function stableShuffle(array $values, string $seed): array
+    {
+        $weightedValues = array_map(function (int $value) use ($seed) {
+            return [
+                'value' => $value,
+                'weight' => hash('sha256', $seed . '|' . $value),
+            ];
+        }, $values);
+
+        usort($weightedValues, fn (array $left, array $right) => $left['weight'] <=> $right['weight']);
+
+        return array_column($weightedValues, 'value');
     }
 }

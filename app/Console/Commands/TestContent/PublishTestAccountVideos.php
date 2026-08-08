@@ -13,6 +13,8 @@ class PublishTestAccountVideos extends Command
         {--campaign=test-video-gallery-v1 : A unique campaign key. Rerunning the same campaign resumes without duplicates.}
         {--source=* : Absolute video directory. Repeat this option to merge multiple video libraries.}
         {--limit=0 : Maximum number of active .test users and videos to process. Use 0 for all.}
+        {--random : Select eligible .test accounts in a stable random order.}
+        {--seed= : Optional stable random seed. Defaults to the campaign key.}
         {--dry-run : Show the target count without writing posts or uploading media.}
         {--confirm= : Required value ALL_TEST_VIDEO_POSTS before any video post is written.}';
 
@@ -28,11 +30,18 @@ class PublishTestAccountVideos extends Command
             ->all();
 
         if ($sourceDirectories === []) {
-            $sourceDirectories = [storage_path('app/test-content/video-gallery-v1')];
+            $sourceDirectories = $this->defaultSourceDirectories();
         }
 
         $limit = max(0, (int) $this->option('limit'));
-        $preview = $publisher->previewForDirectories($sourceDirectories, $limit);
+        $randomizeUsers = (bool) $this->option('random');
+        $selectionSeed = trim((string) $this->option('seed'));
+        $preview = $publisher->previewForDirectories(
+            $sourceDirectories,
+            $limit,
+            $randomizeUsers,
+            $selectionSeed !== '' ? $selectionSeed : $campaignKey,
+        );
         $targetCount = count($preview['user_ids']);
 
         if ($campaignKey === '') {
@@ -57,6 +66,11 @@ class PublishTestAccountVideos extends Command
         $this->line("Eligible active .test accounts: {$preview['eligible_count']}");
         $this->line("Video posts targeted in this run: {$targetCount}");
         $this->line("Already published for this campaign: {$alreadyPublished}");
+        $this->line('User selection: ' . ($randomizeUsers ? 'stable random' : 'oldest active .test accounts'));
+
+        if ($randomizeUsers) {
+            $this->line('Selection seed: ' . ($selectionSeed !== '' ? $selectionSeed : $campaignKey));
+        }
 
         if ($this->option('dry-run')) {
             $this->comment('Dry run complete. No posts or media were created.');
@@ -113,5 +127,22 @@ class PublishTestAccountVideos extends Command
         } finally {
             $lock->release();
         }
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function defaultSourceDirectories(): array
+    {
+        $localSiblingVideoFolder = dirname(base_path()) . DIRECTORY_SEPARATOR . 'video main ';
+        $fallbackDirectory = storage_path('app/test-content/video-gallery-v1');
+
+        foreach ([$localSiblingVideoFolder, $fallbackDirectory] as $candidate) {
+            if (is_dir($candidate)) {
+                return [$candidate];
+            }
+        }
+
+        return [$fallbackDirectory];
     }
 }
