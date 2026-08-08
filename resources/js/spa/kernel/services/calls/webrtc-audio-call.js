@@ -1,6 +1,29 @@
 const defaultIceServers = [
     { urls: 'stun:stun.l.google.com:19302' }
 ];
+const defaultAudioBitrate = 64000;
+const preferredSampleRate = 48000;
+const preferredAudioLatency = 0.02;
+
+const parseBooleanEnv = (value, defaultValue = true) => {
+    if(value === undefined || value === null || value === '') {
+        return defaultValue;
+    }
+
+    return ! ['false', '0', 'off', 'no'].includes(String(value).toLowerCase());
+};
+
+const parsePositiveInteger = (value, defaultValue) => {
+    const parsedValue = Number.parseInt(value, 10);
+
+    return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : defaultValue;
+};
+
+const preferredAudioBitrate = parsePositiveInteger(
+    import.meta.env.VITE_CALL_AUDIO_BITRATE,
+    defaultAudioBitrate
+);
+const enableVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_AUDIO_PROCESSING, true);
 
 const parseIceServers = () => {
     const rawConfig = import.meta.env.VITE_CALL_ICE_SERVERS;
@@ -49,6 +72,90 @@ const normalizeSessionDescription = (description) => {
     };
 };
 
+const mergeFmtpParameters = (existingParams = '') => {
+    const params = new Map();
+
+    String(existingParams)
+        .split(';')
+        .map((param) => param.trim())
+        .filter(Boolean)
+        .forEach((param) => {
+            const [key, ...valueParts] = param.split('=');
+
+            if(key) {
+                params.set(key, valueParts.join('=') || '1');
+            }
+        });
+
+    params.set('minptime', '10');
+    params.set('useinbandfec', '1');
+    params.set('usedtx', '1');
+    params.set('maxaveragebitrate', String(preferredAudioBitrate));
+    params.set('stereo', '0');
+    params.set('sprop-stereo', '0');
+
+    return Array.from(params.entries())
+        .map(([key, value]) => `${key}=${value}`)
+        .join(';');
+};
+
+const tuneOpusSessionDescription = (description) => {
+    const normalizedDescription = normalizeSessionDescription(description);
+
+    if(! normalizedDescription?.sdp) {
+        return normalizedDescription;
+    }
+
+    const opusMatch = normalizedDescription.sdp.match(/a=rtpmap:(\d+) opus\/48000(?:\/2)?\r\n/i);
+
+    if(! opusMatch) {
+        return normalizedDescription;
+    }
+
+    const opusPayload = opusMatch[1];
+    let sdp = normalizedDescription.sdp;
+
+    sdp = sdp.replace(/^m=audio ([^\r\n]+)/m, (line, audioLine) => {
+        const parts = audioLine.trim().split(/\s+/);
+
+        if(parts.length < 3) {
+            return line;
+        }
+
+        const [port, protocol, ...payloads] = parts;
+        const preferredPayloads = [
+            opusPayload,
+            ...payloads.filter((payload) => payload !== opusPayload)
+        ];
+
+        return `m=audio ${port} ${protocol} ${preferredPayloads.join(' ')}`;
+    });
+
+    const fmtpRegex = new RegExp(`a=fmtp:${opusPayload} ([^\\r\\n]*)\\r\\n`, 'i');
+
+    if(fmtpRegex.test(sdp)) {
+        sdp = sdp.replace(fmtpRegex, (line, params) => {
+            return `a=fmtp:${opusPayload} ${mergeFmtpParameters(params)}\r\n`;
+        });
+    }
+    else {
+        sdp = sdp.replace(opusMatch[0], `${opusMatch[0]}a=fmtp:${opusPayload} ${mergeFmtpParameters()}\r\n`);
+    }
+
+    if(! /\r\na=ptime:\d+\r\n/i.test(sdp)) {
+        sdp = sdp.replace(opusMatch[0], `${opusMatch[0]}a=ptime:20\r\n`);
+    }
+
+    if(! /\r\na=maxptime:\d+\r\n/i.test(sdp)) {
+        sdp = sdp.replace(opusMatch[0], `${opusMatch[0]}a=maxptime:60\r\n`);
+    }
+
+    return {
+        type: normalizedDescription.type,
+        sdp: sdp
+    };
+};
+
 const userFriendlyMediaError = (error) => {
     const errorName = error?.name || '';
     const errorMessage = error?.message || '';
@@ -74,7 +181,20 @@ const userFriendlyMediaError = (error) => {
 
 const requestLocalMediaStream = async (mediaType = 'audio') => {
     const wantsVideo = mediaType === 'video';
+    const voiceAudioConstraints = {
+        echoCancellation: { ideal: true },
+        noiseSuppression: { ideal: true },
+        autoGainControl: { ideal: true },
+        channelCount: { ideal: 1 },
+        sampleRate: { ideal: preferredSampleRate },
+        sampleSize: { ideal: 16 },
+        latency: { ideal: preferredAudioLatency }
+    };
     const attempts = [
+        {
+            audio: voiceAudioConstraints,
+            video: wantsVideo
+        },
         {
             audio: {
                 echoCancellation: true,
@@ -106,10 +226,149 @@ const requestLocalMediaStream = async (mediaType = 'audio') => {
     throw userFriendlyMediaError(lastError);
 };
 
+const applySpeechTrackHints = (stream) => {
+    stream?.getAudioTracks()?.forEach((track) => {
+        try {
+            track.contentHint = 'speech';
+        }
+        catch(error) {}
+    });
+};
+
+const createInteractiveAudioContext = () => {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+
+    if(! AudioContext) {
+        return null;
+    }
+
+    try {
+        return new AudioContext({
+            latencyHint: 'interactive',
+            sampleRate: preferredSampleRate
+        });
+    }
+    catch(error) {
+        try {
+            return new AudioContext({
+                latencyHint: 'interactive'
+            });
+        }
+        catch(innerError) {
+            return null;
+        }
+    }
+};
+
+const createVoiceProcessedStream = async (rawStream) => {
+    const audioTracks = rawStream?.getAudioTracks?.() || [];
+
+    if(! enableVoiceProcessing || ! audioTracks.length) {
+        return {
+            stream: rawStream,
+            cleanup: () => {}
+        };
+    }
+
+    const context = createInteractiveAudioContext();
+
+    if(! context) {
+        return {
+            stream: rawStream,
+            cleanup: () => {}
+        };
+    }
+
+    try {
+        await context.resume?.().catch(() => {});
+
+        const source = context.createMediaStreamSource(new MediaStream(audioTracks));
+        const highPassFilter = context.createBiquadFilter();
+        const lowPassFilter = context.createBiquadFilter();
+        const compressor = context.createDynamicsCompressor();
+        const gain = context.createGain();
+        const destination = context.createMediaStreamDestination();
+
+        highPassFilter.type = 'highpass';
+        highPassFilter.frequency.value = 90;
+        highPassFilter.Q.value = 0.7;
+
+        lowPassFilter.type = 'lowpass';
+        lowPassFilter.frequency.value = 12000;
+        lowPassFilter.Q.value = 0.7;
+
+        compressor.threshold.value = -24;
+        compressor.knee.value = 24;
+        compressor.ratio.value = 3;
+        compressor.attack.value = 0.003;
+        compressor.release.value = 0.25;
+
+        gain.gain.value = 1;
+
+        source
+            .connect(highPassFilter)
+            .connect(lowPassFilter)
+            .connect(compressor)
+            .connect(gain)
+            .connect(destination);
+
+        applySpeechTrackHints(destination.stream);
+
+        return {
+            stream: new MediaStream([
+                ...destination.stream.getAudioTracks(),
+                ...rawStream.getVideoTracks()
+            ]),
+            cleanup: () => {
+                try {
+                    source.disconnect();
+                    highPassFilter.disconnect();
+                    lowPassFilter.disconnect();
+                    compressor.disconnect();
+                    gain.disconnect();
+                    destination.disconnect?.();
+                    context.close?.().catch(() => {});
+                }
+                catch(error) {}
+            }
+        };
+    }
+    catch(error) {
+        context.close?.().catch(() => {});
+
+        return {
+            stream: rawStream,
+            cleanup: () => {}
+        };
+    }
+};
+
+const configureAudioSender = async (sender) => {
+    if(sender?.track?.kind !== 'audio' || typeof sender.getParameters !== 'function') {
+        return;
+    }
+
+    try {
+        const parameters = sender.getParameters();
+
+        parameters.encodings = parameters.encodings?.length ? parameters.encodings : [{}];
+        parameters.encodings[0].maxBitrate = preferredAudioBitrate;
+
+        if('priority' in parameters.encodings[0]) {
+            parameters.encodings[0].priority = 'high';
+        }
+
+        await sender.setParameters(parameters);
+    }
+    catch(error) {}
+};
+
 const createAudioCallPeer = (callbacks = {}) => {
     let peerConnection = null;
     let localStream = null;
+    let rawLocalStream = null;
     let remoteStream = null;
+    let voiceProcessingCleanup = null;
     let pendingIceCandidates = [];
     let connectedNotified = false;
 
@@ -153,15 +412,33 @@ const createAudioCallPeer = (callbacks = {}) => {
             throw new Error('Audio call is not supported in this browser.');
         }
 
-        localStream = await requestLocalMediaStream(mediaType);
+        rawLocalStream = await requestLocalMediaStream(mediaType);
+        applySpeechTrackHints(rawLocalStream);
+
+        const processedStream = await createVoiceProcessedStream(rawLocalStream);
+
+        localStream = processedStream.stream;
+        voiceProcessingCleanup = processedStream.cleanup;
 
         remoteStream = new MediaStream();
         peerConnection = new RTCPeerConnection({
-            iceServers: parseIceServers()
+            iceServers: parseIceServers(),
+            bundlePolicy: 'max-bundle',
+            rtcpMuxPolicy: 'require',
+            iceCandidatePoolSize: 4
         });
 
         localStream.getTracks().forEach((track) => {
-            peerConnection.addTrack(track, localStream);
+            if(track.kind === 'audio') {
+                try {
+                    track.contentHint = 'speech';
+                }
+                catch(error) {}
+            }
+
+            const sender = peerConnection.addTrack(track, localStream);
+
+            configureAudioSender(sender);
         });
 
         peerConnection.onicecandidate = (event) => {
@@ -208,7 +485,7 @@ const createAudioCallPeer = (callbacks = {}) => {
             offerToReceiveVideo: mediaType === 'video'
         });
 
-        await pc.setLocalDescription(offer);
+        await pc.setLocalDescription(new RTCSessionDescription(tuneOpusSessionDescription(offer)));
         emit('onSignal', 'offer', normalizeSessionDescription(pc.localDescription.toJSON()));
     };
 
@@ -220,7 +497,7 @@ const createAudioCallPeer = (callbacks = {}) => {
 
         const answer = await pc.createAnswer();
 
-        await pc.setLocalDescription(answer);
+        await pc.setLocalDescription(new RTCSessionDescription(tuneOpusSessionDescription(answer)));
         emit('onSignal', 'answer', normalizeSessionDescription(pc.localDescription.toJSON()));
     };
 
@@ -258,6 +535,9 @@ const createAudioCallPeer = (callbacks = {}) => {
         localStream?.getAudioTracks()?.forEach((track) => {
             track.enabled = ! isMuted;
         });
+        rawLocalStream?.getAudioTracks()?.forEach((track) => {
+            track.enabled = ! isMuted;
+        });
     };
 
     const close = () => {
@@ -270,12 +550,16 @@ const createAudioCallPeer = (callbacks = {}) => {
         }
         catch(error) {}
 
+        voiceProcessingCleanup?.();
         localStream?.getTracks()?.forEach((track) => track.stop());
+        rawLocalStream?.getTracks()?.forEach((track) => track.stop());
         remoteStream?.getTracks()?.forEach((track) => track.stop());
 
         peerConnection = null;
         localStream = null;
+        rawLocalStream = null;
         remoteStream = null;
+        voiceProcessingCleanup = null;
         pendingIceCandidates = [];
         connectedNotified = false;
     };
