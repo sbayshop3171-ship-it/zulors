@@ -75,6 +75,8 @@ class Table
     public const USER_NOTIFICATION_SETTINGS = 'user_notification_settings';
     public const USER_PUSH_TOKENS = 'user_push_tokens';
     public const USER_SECURITY_SETTINGS = 'user_security_settings';
+    public const CALL_SESSIONS = 'call_sessions';
+    public const CALL_PARTICIPANTS = 'call_participants';
     public const GROUPS = 'groups';
     public const CHAT_INVITES = 'chat_invites';
     public const ARCHIVED_CHATS = 'archived_chats';

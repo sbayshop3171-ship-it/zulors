@@ -11,6 +11,12 @@ export default {
         CHAT_MESSAGE_REACTIONS_UPDATED: ".chat.message.reactions.updated",
         CHAT_MESSAGE_READ: ".chat.message.read",
         CHAT_MESSAGE_TYPING: ".chat.message.typing",
+        CALL_INCOMING: ".call.incoming",
+        CALL_ANSWERED: ".call.answered",
+        CALL_DECLINED: ".call.declined",
+        CALL_ENDED: ".call.ended",
+        CALL_BUSY: ".call.busy",
+        CALL_SIGNAL: ".call.signal",
     },
     channels: {
         PUBLIC_TIMELINE: "timeline.public",

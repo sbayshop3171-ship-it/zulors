@@ -12,13 +12,16 @@
 	<ToastNotification></ToastNotification>
 
     <LightboxPlayer></LightboxPlayer>
+
+    <CallOverlay v-bind:callStore="callStore"></CallOverlay>
 </template>
 
 <script>
-	import { defineComponent, onMounted, onUnmounted } from 'vue';
+	import { defineComponent, onMounted, onUnmounted, watch } from 'vue';
 	import { useRoute } from 'vue-router';
 	import { useAuthStore } from '@D/store/auth/auth.store.js';
 	import { useInboxStore } from '@D/store/chats/inbox.store.js';
+	import { useCallStore } from '@D/store/calls/call.store.js';
 	import useToastNotificationStore from '@D/store/toast/toast.store.js';
 	import { colibriSounds } from '@/kernel/services/sounds/index.js';
 	import BRD from '@/kernel/websockets/brd/index.js';
@@ -28,11 +31,13 @@
 	import ToastNotification from '@D/components/notifications/toast/ToastNotification.vue';
 	import AccountSwitcherModal from '@D/components/accounts/AccountSwitcherModal.vue';
     import LightboxPlayer from '@D/components/lightbox/LightboxPlayer.vue';
+    import CallOverlay from '@/kernel/vue/components/calls/CallOverlay.vue';
 
 	export default defineComponent({
 		setup: function() {
 			const authStore = useAuthStore();
 			const inboxStore = useInboxStore();
+			const callStore = useCallStore();
 			const toastStore = useToastNotificationStore();
 			const route = useRoute();
 			let isListening = false;
@@ -54,6 +59,12 @@
 			};
 
 			const syncMessengerInbox = (event) => {
+				if(event.type === 'call.notification') {
+					callStore.handleNotification(event.data);
+
+					return;
+				}
+
 				if(event.type !== 'chat.notification') {
 					return;
 				}
@@ -67,6 +78,18 @@
 						colibriSounds.backgroundChatMessageReceived();
 					}
 				}
+			};
+
+			const syncCallFromRoute = () => {
+				const callUuid = route.query.call;
+
+				if(! callUuid || callStore.call?.call_uuid === callUuid) {
+					return;
+				}
+
+				callStore.fetchCall(callUuid, {
+					action: route.query.action
+				}).catch(() => {});
 			};
 
 			const attachRealtimeListener = () => {
@@ -124,6 +147,7 @@
 				}
 
 				attachRealtimeListener();
+				syncCallFromRoute();
 				window.addEventListener('colibri:ws-status', handleWSStatus);
 				window.addEventListener('focus', handleFocus);
 				document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -139,6 +163,12 @@
 					window.clearTimeout(unreadRefreshTimer);
 				}
 			});
+
+			watch(() => route.fullPath, syncCallFromRoute);
+
+			return {
+				callStore: callStore
+			};
 		},
 		components: {
 			AccountSwitcherModal: AccountSwitcherModal,
@@ -146,6 +176,7 @@
 			ReportModal: ReportModal,
 			ToastNotification: ToastNotification,
             LightboxPlayer: LightboxPlayer,
+            CallOverlay: CallOverlay,
 		}
 	});
 </script>

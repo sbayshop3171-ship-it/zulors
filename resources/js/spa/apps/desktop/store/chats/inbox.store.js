@@ -468,6 +468,9 @@ const useInboxStore = defineStore('chats_inbox', {
             else if(messageData.type === 'location') {
                 previewText = __t('labels.location');
             }
+            else if(messageData.type === 'call') {
+                previewText = messageData.content || 'Voice call';
+            }
 
             if(isSender && previewText) {
                 return `${__t('labels.you')}: ${previewText}`;

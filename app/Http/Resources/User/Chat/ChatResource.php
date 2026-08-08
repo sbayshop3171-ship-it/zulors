@@ -106,6 +106,7 @@ class ChatResource extends JsonResource
                 'video_circle', 'video' => trans('labels.video'),
                 'document' => trans('labels.document'),
                 'location' => trans('labels.location'),
+                'call' => $this->lastMessage->content,
                 default => null
             };
         }

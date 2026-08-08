@@ -37,7 +37,10 @@
 			</p>
 		</div>
 		<div class="shrink-0">
-			<PrimaryIconButton v-on:click="openInfo" iconType="line" v-bind:iconName="chatData.is_group ? 'info-circle' : 'info-circle'"></PrimaryIconButton>
+			<div class="flex items-center gap-1">
+				<PrimaryIconButton v-if="canStartCall" v-on:click="startAudioCall" iconType="line" iconName="phone"></PrimaryIconButton>
+				<PrimaryIconButton v-on:click="openInfo" iconType="line" v-bind:iconName="chatData.is_group ? 'info-circle' : 'info-circle'"></PrimaryIconButton>
+			</div>
 		</div>
 	</div>
 </template>
@@ -45,6 +48,7 @@
 <script>
 	import { defineComponent, computed } from 'vue';
 	import { useRouter } from 'vue-router';
+	import { useCallStore } from '@M/store/calls/call.store.js';
 
 	import AvatarExtraSmall from '@M/components/general/avatars/AvatarExtraSmall.vue';
 	import PrimaryIconButton from '@M/components/inter-ui/buttons/PrimaryIconButton.vue';
@@ -66,6 +70,7 @@
 		},
 		setup: function(props, context) {
 			const router = useRouter();
+			const callStore = useCallStore();
 
 			return {
 				isTyping: computed(() => {
@@ -92,6 +97,14 @@
 
 					return '';
 				}),
+				canStartCall: computed(() => {
+					return callStore.canStartCall(props.chatData);
+				}),
+				startAudioCall: () => {
+					callStore.startCall(props.chatData).catch((error) => {
+						toastError(error.message || 'Unable to start audio call.');
+					});
+				},
 				openInfo: () => {
 					if(props.chatData.is_group) {
 						router.push({ name: 'messenger_group', params: { chat_id: props.chatData.id } });

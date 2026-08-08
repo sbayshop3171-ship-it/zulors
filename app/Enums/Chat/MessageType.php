@@ -11,6 +11,7 @@ enum MessageType: string
     case VIDEO_CIRCLE = 'video_circle';
     case DOCUMENT = 'document';
     case LOCATION = 'location';
+    case CALL = 'call';
 
     public function isText():bool
     {
@@ -45,5 +46,10 @@ enum MessageType: string
     public function isLocation():bool
     {
         return $this == self::LOCATION;
+    }
+
+    public function isCall():bool
+    {
+        return $this == self::CALL;
     }
 }

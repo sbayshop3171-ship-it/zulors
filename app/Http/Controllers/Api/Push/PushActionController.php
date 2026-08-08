@@ -2,20 +2,26 @@
 
 namespace App\Http\Controllers\Api\Push;
 
+use App\Enums\Call\CallStatus;
 use App\Enums\Chat\MessageType;
+use App\Events\User\Chat\CallSessionEvent;
 use App\Events\User\Chat\MessageReadEvent;
 use App\Events\User\Chat\MessageReceivedEvent;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\User\Chat\CallSessionResource;
 use App\Http\Resources\User\Chat\MessageResource;
+use App\Models\CallSession;
 use App\Models\Chat;
 use App\Models\HiddenChat;
 use App\Models\User;
 use App\Notifications\User\Chat\MessageReceivedNotification;
 use App\Rules\X\XRule;
+use App\Services\Calls\CallLifecycleService;
 use App\Services\Notifications\NotificationActionTokenService;
 use App\Services\Notifications\UnreadBadgeCountService;
 use App\Traits\Http\Api\SupportsApiResponses;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Validator;
 use Throwable;
 
@@ -159,6 +165,92 @@ class PushActionController extends Controller
         ]);
     }
 
+    public function answerCall(Request $request, NotificationActionTokenService $tokens)
+    {
+        $validator = Validator::make($request->all(), [
+            'token' => ['required', 'string'],
+        ]);
+
+        if($validator->fails()) {
+            return $this->throwValidationError($validator);
+        }
+
+        $payload = $tokens->verify((string) $request->input('token'), 'answer');
+        [$user, $chat, $callSession] = $this->resolveCallActionContext($payload);
+
+        if($callSession->receiver_id !== $user->id) {
+            return $this->responseError([
+                'message' => 'Only the receiver can answer this call.',
+            ], Response::HTTP_FORBIDDEN);
+        }
+
+        if($callSession->status === CallStatus::RINGING) {
+            $callSession->forceFill([
+                'status' => CallStatus::ACCEPTED,
+                'answered_at' => now(),
+            ])->save();
+
+            $callSession->participants()
+                ->where('user_id', $user->id)
+                ->update([
+                    'status' => CallStatus::ACCEPTED,
+                    'joined_at' => now(),
+                ]);
+
+            try {
+                event(new CallSessionEvent('call.answered', $callSession->fresh(['chat', 'initiator', 'receiver'])));
+            }
+            catch(Throwable $exception) {
+                // Notification actions should not fail because realtime delivery is temporarily unavailable.
+            }
+        }
+
+        return $this->responseSuccess([
+            'data' => [
+                'call' => CallSessionResource::make($callSession->fresh(['chat', 'initiator', 'receiver'])),
+            ],
+        ]);
+    }
+
+    public function declineCall(Request $request, NotificationActionTokenService $tokens, CallLifecycleService $calls)
+    {
+        $validator = Validator::make($request->all(), [
+            'token' => ['required', 'string'],
+        ]);
+
+        if($validator->fails()) {
+            return $this->throwValidationError($validator);
+        }
+
+        $payload = $tokens->verify((string) $request->input('token'), 'decline');
+        [$user, $chat, $callSession] = $this->resolveCallActionContext($payload);
+
+        if($callSession->receiver_id !== $user->id) {
+            return $this->responseError([
+                'message' => 'Only the receiver can decline this call.',
+            ], Response::HTTP_FORBIDDEN);
+        }
+
+        if($callSession->status->isActive()) {
+            $calls->finalize($callSession, CallStatus::DECLINED, 'declined', $user->id);
+
+            try {
+                event(new CallSessionEvent('call.declined', $callSession->fresh(['chat', 'initiator', 'receiver']), [
+                    'reason' => 'declined',
+                ]));
+            }
+            catch(Throwable $exception) {
+                // Notification actions should not fail because realtime delivery is temporarily unavailable.
+            }
+        }
+
+        return $this->responseSuccess([
+            'data' => [
+                'call' => CallSessionResource::make($callSession->fresh(['chat', 'initiator', 'receiver'])),
+            ],
+        ]);
+    }
+
     private function resolveActionContext(array $payload): array
     {
         $user = User::query()->findOrFail((int) $payload['user_id']);
@@ -168,6 +260,20 @@ class PushActionController extends Controller
             ->firstOrFail();
 
         return [$user, $chat];
+    }
+
+    private function resolveCallActionContext(array $payload): array
+    {
+        [$user, $chat] = $this->resolveActionContext($payload);
+
+        $callSession = CallSession::query()
+            ->where('call_uuid', $payload['call_uuid'] ?? null)
+            ->where('chat_id', $chat->id)
+            ->whereHas('participants', fn ($query) => $query->where('user_id', $user->id))
+            ->with(['chat', 'initiator', 'receiver'])
+            ->firstOrFail();
+
+        return [$user, $chat, $callSession];
     }
 
     private function loadMessageRealtimeRelations($message)

@@ -8,11 +8,12 @@ use Illuminate\Validation\ValidationException;
 
 class NotificationActionTokenService
 {
-    public function make(int $userId, string $chatUuid, array $actions, ?int $messageId = null, int $ttlMinutes = 20): string
+    public function make(int $userId, string $chatUuid, array $actions, ?int $messageId = null, int $ttlMinutes = 20, ?string $callUuid = null): string
     {
         return Crypt::encryptString(json_encode([
             'user_id' => $userId,
             'chat_uuid' => $chatUuid,
+            'call_uuid' => $callUuid,
             'message_id' => $messageId,
             'actions' => array_values($actions),
             'expires_at' => now()->addMinutes($ttlMinutes)->timestamp,

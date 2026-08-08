@@ -32,6 +32,8 @@ class Notifications
 	public const STORY_MENTIONED = 'story.mentioned';
 
 	public const CHAT_MESSAGE_RECEIVED = 'chat.message-received';
+	public const CALL_INCOMING = 'call.incoming';
+	public const CALL_MISSED = 'call.missed';
 
 	// Important notifications
 		public const ACCOUNT_LINKED = 'important.account-linked';

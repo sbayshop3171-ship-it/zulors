@@ -33,6 +33,7 @@
 				</RouterLink>
 			</template>
 			<template v-else>
+				<PrimaryIconButton v-if="canStartCall" v-on:click="startAudioCall" iconName="phone" iconType="line"></PrimaryIconButton>
 				<PrimaryIconButton v-on:click="openInfo" iconName="info-circle" iconType="line"></PrimaryIconButton>
 			</template>
 		</div>
@@ -45,6 +46,7 @@
 <script>
 	import { defineComponent, ref, computed, onMounted, onBeforeUnmount } from 'vue';
 	import { useChatStore } from '@D/store/chats/chat.store.js';
+	import { useCallStore } from '@D/store/calls/call.store.js';
 	import { useRouter } from 'vue-router';
     import { useAudioStore } from '@D/store/audio/audio.store.js';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
@@ -66,6 +68,7 @@
 		setup: function (props, context) {
 			const chatStore = useChatStore();
 			const chatData = ref(chatStore.chatData);
+			const callStore = useCallStore();
 			const router = useRouter();
             const audioStore = useAudioStore();
 
@@ -103,6 +106,14 @@
 
 					return '';
 				}),
+				canStartCall: computed(() => {
+					return callStore.canStartCall(chatData.value);
+				}),
+				startAudioCall: () => {
+					callStore.startCall(chatData.value).catch((error) => {
+						toastError(error.message || 'Unable to start audio call.');
+					});
+				},
 				openInfo: () => {
 					if(chatData.value.type == 'group') {
 						router.push({ name: 'messenger_group_show', params: {

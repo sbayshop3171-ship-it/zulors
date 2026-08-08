@@ -106,6 +106,10 @@ class PushNotificationPayloadFactory
 
     private function channelId(string $type): string
     {
+        if(Str::startsWith($type, 'call.')) {
+            return 'zulors_calls';
+        }
+
         if(Str::startsWith($type, 'chat.')) {
             return 'zulors_messages';
         }

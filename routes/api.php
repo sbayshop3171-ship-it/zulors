@@ -51,6 +51,8 @@ Route::prefix('push-actions')->middleware(['throttle:120,1'])->group(function ()
     Route::post('/reply', [PushActionController::class, 'reply']);
     Route::post('/read', [PushActionController::class, 'read']);
     Route::post('/mute-chat', [PushActionController::class, 'muteChat']);
+    Route::post('/answer-call', [PushActionController::class, 'answerCall']);
+    Route::post('/decline-call', [PushActionController::class, 'declineCall']);
 });
 
 Route::prefix('bootstrap')->middleware(['auth:sanctum', $readApiThrottle])->group(base_path('routes/api/user/bootstrap.php'));
