@@ -1,58 +1,61 @@
 <template>
-	<TimelineContainer>
-		<div class="mobile-safe-overlay-top sticky top-0 popup-background-tr z-10">
-			<div class="px-4 pt-4">
-				<QuickSearch v-on:cancel="handleSearchCancel" v-model="peopleSearchQuery" v-bind:placeholder="$t('labels.search')"></QuickSearch>
+	<div ref="swipeSurfaceRef">
+		<TimelineContainer>
+			<div class="mobile-safe-overlay-top sticky top-0 popup-background-tr z-10">
+				<div class="px-4 pt-4">
+					<QuickSearch v-on:cancel="handleSearchCancel" v-model="peopleSearchQuery" v-bind:placeholder="$t('labels.search')"></QuickSearch>
+				</div>
+				<ExploreTabs></ExploreTabs>
+				<Border></Border>
 			</div>
-			<ExploreTabs></ExploreTabs>
-			<Border></Border>
-		</div>
-		<template v-if="state.isLoading">
-			<PeopleListItemSkeleton v-for="i in 15" v-bind:key="i"></PeopleListItemSkeleton>
-		</template>
-		<template v-else-if="state.isEmpty">
-			<div class="py-32">
-				<p class="text-lab-sc text-par-s text-center">
-					{{ $t('empty_state.empty') }}
-				</p>
-			</div>
-		</template>
-		<template v-else>
-			<template v-if="state.isSearchLoading">
+			<template v-if="state.isLoading">
 				<PeopleListItemSkeleton v-for="i in 15" v-bind:key="i"></PeopleListItemSkeleton>
 			</template>
-
-			<div v-else class="block">
-				<template v-if="people.length" v-for="(userData, index) in people" v-bind:key="userData.id">
-					<PeopleListItem v-bind:userData="userData"></PeopleListItem>
-
-					<!-- Show ad card every 15 posts -->
-                    <template v-if="(index + 1) % 15 === 0">
-						<AdCard v-bind:key="index"></AdCard>
-						<Border height="h-2" opacity="opacity-30"></Border>
-					</template>
-				</template>
-
-				<div v-else class="py-32">
+			<template v-else-if="state.isEmpty">
+				<div class="py-32">
 					<p class="text-lab-sc text-par-s text-center">
-						{{ $t('empty_state.explore.people.filter') }}
+						{{ $t('empty_state.empty') }}
 					</p>
 				</div>
-			</div>
+			</template>
+			<template v-else>
+				<template v-if="state.isSearchLoading">
+					<PeopleListItemSkeleton v-for="i in 15" v-bind:key="i"></PeopleListItemSkeleton>
+				</template>
 
-			<div v-if="state.isLoadingContent">
-				<div class="flex justify-center my-4">
-					<div class="colibri-primary-animation"></div>
+				<div v-else class="block">
+					<template v-if="people.length" v-for="(userData, index) in people" v-bind:key="userData.id">
+						<PeopleListItem v-bind:userData="userData"></PeopleListItem>
+
+						<!-- Show ad card every 15 posts -->
+	                    <template v-if="(index + 1) % 15 === 0">
+							<AdCard v-bind:key="index"></AdCard>
+							<Border height="h-2" opacity="opacity-30"></Border>
+						</template>
+					</template>
+
+					<div v-else class="py-32">
+						<p class="text-lab-sc text-par-s text-center">
+							{{ $t('empty_state.explore.people.filter') }}
+						</p>
+					</div>
 				</div>
-			</div>
-		</template>
-	</TimelineContainer>
+
+				<div v-if="state.isLoadingContent">
+					<div class="flex justify-center my-4">
+						<div class="colibri-primary-animation"></div>
+					</div>
+				</div>
+			</template>
+		</TimelineContainer>
+	</div>
 </template>
 
 <script>
 	import { defineComponent, reactive, onMounted, onUnmounted, ref, watch, computed } from 'vue';
 	import { useExplorePeopleStore } from '@M/store/explore/people.store.js';
 	import { useInfiniteScroll } from '@/kernel/vue/composables/infinite-scroll/index.js';
+	import { mobileExploreSwipeSequence, useSwipeRouteNavigation } from '@/kernel/vue/composables/swipe-route-navigation/index.js';
 
 	import TimelineContainer from '@M/components/timeline/feed/TimelineContainer.vue';
 	import PeopleListItem from '@M/components/people/PeopleListItem.vue';
@@ -65,6 +68,7 @@
 	export default defineComponent({
 		setup: function() {
 			const peopleSearchQuery = ref('');
+			const swipeSurfaceRef = ref(null);
 			let searchTimeoutId = null;
 			
 			const state = reactive({
@@ -80,6 +84,8 @@
 			});
 
 			const explorePeopleStore = useExplorePeopleStore();
+
+			useSwipeRouteNavigation(swipeSurfaceRef, mobileExploreSwipeSequence);
 
 			onMounted(async () => {
 				// Reset filter on mount.
@@ -148,6 +154,7 @@
 				people: people,
 				state: state,
 				peopleSearchQuery: peopleSearchQuery,
+				swipeSurfaceRef: swipeSurfaceRef,
 				handleSearchCancel: () => {
 					peopleSearchQuery.value = '';
 				}

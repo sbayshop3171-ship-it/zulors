@@ -1,51 +1,53 @@
 <template>
-	<TimelineContainer>
-		<div class="mobile-safe-overlay-top sticky top-0 popup-background-tr z-10">
-            <Soundbar></Soundbar>
-			<div class="px-4 pt-4">
-				<QuickSearch v-on:cancel="handleSearchCancel" v-model.lazy="postSearchQuery" v-bind:placeholder="$t('labels.search')"></QuickSearch>
-			</div>
-			<ExploreTabs></ExploreTabs>
-			<FeedUpdate v-if="newPosts.length" v-bind:posts="newPosts" v-on:click="applyNewPosts"></FeedUpdate>
-			<Border></Border>
-		</div>
-		<template v-if="state.isLoading">
-			<TimelinePublicationSkeleton v-for="i in 15" v-bind:key="i"></TimelinePublicationSkeleton>
-		</template>
-		<div v-else>
-			<div v-if="state.isSearchLoading">
-				<TimelinePublicationSkeleton v-for="i in 15" v-bind:key="i"></TimelinePublicationSkeleton>
-			</div>
-			<div v-else-if="posts.length">
-				<template v-for="(postData, index) in posts" v-bind:key="postData.id">
-					<TimelinePublication v-bind:postData="postData" v-bind:feedSessionId="feedSessionId" v-bind:feedType="feedType" v-bind:position="index + 1" source="explore_posts" v-bind:refreshReason="refreshReason" v-on:delete="handlePostDelete(postData)"></TimelinePublication>
-
-					<!-- Show follow recommendation every 35 posts -->
-					<template v-if="(index + 1) % 35 === 0">
-						<FollowRecommendation v-bind:key="index"></FollowRecommendation>
-					</template>
-
-					<!-- Show ad card every 10 posts -->
-					<template v-if="(index + 1) % 10 === 0">
-						<AdCard v-bind:key="index"></AdCard>
-						<Border height="h-2" opacity="opacity-30"></Border>
-					</template>
-				</template>
-			</div>
-			<div v-else class="py-32">
-				<p class="text-lab-sc text-par-s text-center">
-					{{ $t('empty_state.empty') }}
-				</p>
-			</div>
-
-			<div v-if="state.isLoadingContent">
+	<div ref="swipeSurfaceRef">
+		<TimelineContainer>
+			<div class="mobile-safe-overlay-top sticky top-0 popup-background-tr z-10">
+	            <Soundbar></Soundbar>
+				<div class="px-4 pt-4">
+					<QuickSearch v-on:cancel="handleSearchCancel" v-model.lazy="postSearchQuery" v-bind:placeholder="$t('labels.search')"></QuickSearch>
+				</div>
+				<ExploreTabs></ExploreTabs>
+				<FeedUpdate v-if="newPosts.length" v-bind:posts="newPosts" v-on:click="applyNewPosts"></FeedUpdate>
 				<Border></Border>
-				<div class="flex justify-center my-4">
-					<div class="colibri-primary-animation"></div>
+			</div>
+			<template v-if="state.isLoading">
+				<TimelinePublicationSkeleton v-for="i in 15" v-bind:key="i"></TimelinePublicationSkeleton>
+			</template>
+			<div v-else>
+				<div v-if="state.isSearchLoading">
+					<TimelinePublicationSkeleton v-for="i in 15" v-bind:key="i"></TimelinePublicationSkeleton>
+				</div>
+				<div v-else-if="posts.length">
+					<template v-for="(postData, index) in posts" v-bind:key="postData.id">
+						<TimelinePublication v-bind:postData="postData" v-bind:feedSessionId="feedSessionId" v-bind:feedType="feedType" v-bind:position="index + 1" source="explore_posts" v-bind:refreshReason="refreshReason" v-on:delete="handlePostDelete(postData)"></TimelinePublication>
+
+						<!-- Show follow recommendation every 35 posts -->
+						<template v-if="(index + 1) % 35 === 0">
+							<FollowRecommendation v-bind:key="index"></FollowRecommendation>
+						</template>
+
+						<!-- Show ad card every 10 posts -->
+						<template v-if="(index + 1) % 10 === 0">
+							<AdCard v-bind:key="index"></AdCard>
+							<Border height="h-2" opacity="opacity-30"></Border>
+						</template>
+					</template>
+				</div>
+				<div v-else class="py-32">
+					<p class="text-lab-sc text-par-s text-center">
+						{{ $t('empty_state.empty') }}
+					</p>
+				</div>
+
+				<div v-if="state.isLoadingContent">
+					<Border></Border>
+					<div class="flex justify-center my-4">
+						<div class="colibri-primary-animation"></div>
+					</div>
 				</div>
 			</div>
-		</div>
-	</TimelineContainer>
+		</TimelineContainer>
+	</div>
 </template>
 
 <script>
@@ -54,6 +56,7 @@
     import { useInfiniteScroll } from '@/kernel/vue/composables/infinite-scroll/index.js';
 	import { useDeletePost } from '@/kernel/vue/composables/delete-post/index.js';
 	import { useInstantRevalidation } from '@/kernel/vue/composables/instant-revalidation/index.js';
+	import { mobileExploreSwipeSequence, useSwipeRouteNavigation } from '@/kernel/vue/composables/swipe-route-navigation/index.js';
 	import BRD from '@/kernel/websockets/brd/index.js';
 
     import TimelineContainer from '@M/components/timeline/feed/TimelineContainer.vue';
@@ -69,6 +72,7 @@
     export default defineComponent({
         setup: function() {
 			const postSearchQuery = ref('');
+			const swipeSurfaceRef = ref(null);
 
 			const state = reactive({
 				isLoading: true,
@@ -100,9 +104,11 @@
 				return explorePostsStore.feedType;
 			});
 
-			const refreshReason = computed(() => {
+            const refreshReason = computed(() => {
 				return explorePostsStore.refreshReason;
 			});
+
+			useSwipeRouteNavigation(swipeSurfaceRef, mobileExploreSwipeSequence);
 
 			const isSearchActive = computed(() => {
 				return postSearchQuery.value.trim().length > 0;
@@ -209,6 +215,7 @@
 
             return {
                 state: state,
+				swipeSurfaceRef: swipeSurfaceRef,
 				posts: posts,
 				feedSessionId: feedSessionId,
 				feedType: feedType,

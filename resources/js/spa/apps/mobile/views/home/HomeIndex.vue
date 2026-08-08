@@ -3,64 +3,67 @@
 		<img v-bind:src="$embedder('assets.logos.url')" alt="Logo" class="zulors-boot-logo">
 	</div>
 
-	<TimelineContainer v-else>
-        <div class="px-4 pb-3 pt-1">
-            <StoriesFeed></StoriesFeed>
-        </div>
-        <Border height="h-2" opacity="opacity-30"></Border>
-		<div class="pb-6">
-            <FeedUpdate v-if="timelineNewPosts.length" v-bind:posts="timelineNewPosts" v-on:click="applyTimelineUpdate"></FeedUpdate>
-			<div v-if="timelinePosts.length">
-                <template v-for="(postData, index) in timelinePosts" v-bind:key="postData.hash_id">
-                    <TimelinePublication
-                        v-bind:postData="postData"
-                        v-bind:feedSessionId="timelineFeedSessionId"
-                        v-bind:feedType="timelineFeedType"
-                        v-bind:position="index + 1"
-                        v-bind:refreshReason="timelineRefreshReason"
-                        source="home"
-                    v-on:delete="handlePostDelete(postData)"></TimelinePublication>
-                    
-                    <!-- Show follow recommendation every 10 posts -->
-                    <template v-if="(index + 1) % 35 === 0">
-                        <FollowRecommendation v-bind:key="index"></FollowRecommendation>
-                    </template>
+	<div v-else ref="swipeSurfaceRef">
+		<TimelineContainer>
+	        <div class="px-4 pb-3 pt-1">
+	            <StoriesFeed></StoriesFeed>
+	        </div>
+	        <Border height="h-2" opacity="opacity-30"></Border>
+			<div class="pb-6">
+	            <FeedUpdate v-if="timelineNewPosts.length" v-bind:posts="timelineNewPosts" v-on:click="applyTimelineUpdate"></FeedUpdate>
+				<div v-if="timelinePosts.length">
+	                <template v-for="(postData, index) in timelinePosts" v-bind:key="postData.hash_id">
+	                    <TimelinePublication
+	                        v-bind:postData="postData"
+	                        v-bind:feedSessionId="timelineFeedSessionId"
+	                        v-bind:feedType="timelineFeedType"
+	                        v-bind:position="index + 1"
+	                        v-bind:refreshReason="timelineRefreshReason"
+	                        source="home"
+	                    v-on:delete="handlePostDelete(postData)"></TimelinePublication>
+	                    
+	                    <!-- Show follow recommendation every 10 posts -->
+	                    <template v-if="(index + 1) % 35 === 0">
+	                        <FollowRecommendation v-bind:key="index"></FollowRecommendation>
+	                    </template>
 
-                    <!-- Show ad card every 10 posts -->
-                    <template v-if="(index + 1) % 10 === 0">
-                        <AdCard v-bind:key="index"></AdCard>
-                        <Border height="h-2" opacity="opacity-30"></Border>
-                    </template>
-                </template>
+	                    <!-- Show ad card every 10 posts -->
+	                    <template v-if="(index + 1) % 10 === 0">
+	                        <AdCard v-bind:key="index"></AdCard>
+	                        <Border height="h-2" opacity="opacity-30"></Border>
+	                    </template>
+	                </template>
 
-				<div v-if="state.isLoadingContent">
-					<div class="flex justify-center my-4">
+					<div v-if="state.isLoadingContent">
+						<div class="flex justify-center my-4">
+							<div class="colibri-primary-animation"></div>
+						</div>
+					</div>
+				</div>
+				<div v-else-if="state.isLoadingContent">
+					<div class="flex justify-center py-20">
 						<div class="colibri-primary-animation"></div>
 					</div>
 				</div>
-			</div>
-			<div v-else-if="state.isLoadingContent">
-				<div class="flex justify-center py-20">
-					<div class="colibri-primary-animation"></div>
+				<div v-else>
+					<div class="py-32">
+						<p class="text-lab-sc text-par-s text-center">
+							{{ $t('empty_state.home.posts') }}
+						</p>
+					</div>
 				</div>
 			</div>
-			<div v-else>
-				<div class="py-32">
-					<p class="text-lab-sc text-par-s text-center">
-						{{ $t('empty_state.home.posts') }}
-					</p>
-				</div>
-			</div>
-		</div>
-	</TimelineContainer>
+		</TimelineContainer>
+	</div>
 </template>
 
 <script>
-    import { defineComponent, reactive, onMounted, computed, onUnmounted } from 'vue';
+    import { defineComponent, reactive, onMounted, computed, onUnmounted, ref } from 'vue';
     import { useTimelineStore } from '@M/store/timeline/timeline.store.js';
     import { useDeletePost } from '@/kernel/vue/composables/delete-post/index.js';
     import { useInfiniteScroll } from '@/kernel/vue/composables/infinite-scroll/index.js';
     import { useInstantRevalidation } from '@/kernel/vue/composables/instant-revalidation/index.js';
+    import { mobileHomeSwipeSequence, useSwipeRouteNavigation } from '@/kernel/vue/composables/swipe-route-navigation/index.js';
     import BRD from '@/kernel/websockets/brd/index.js';
 
     import TimelinePublication from '@M/components/timeline/feed/TimelinePublication.vue';
@@ -74,6 +77,7 @@
 
     export default defineComponent({
         setup: function() {
+            const swipeSurfaceRef = ref(null);
             const state = reactive({
                 isLoading: true,
                 isLoadingContent: false,
@@ -111,6 +115,8 @@
             const timelineRefreshReason = computed(() => {
                 return timelineStore.refreshReason;
             });
+
+            useSwipeRouteNavigation(swipeSurfaceRef, mobileHomeSwipeSequence);
 
             const refreshLatestFeed = async () => {
                 if(state.isUpdating) {
@@ -234,6 +240,7 @@
             });
 
             return {
+                swipeSurfaceRef: swipeSurfaceRef,
                 timelinePosts: timelinePosts,
                 timelineFeedSessionId: timelineFeedSessionId,
                 timelineFeedType: timelineFeedType,

@@ -1,5 +1,5 @@
 <template>
-	<div class="mobile-reels-viewport relative overflow-hidden bg-black text-white">
+	<div ref="swipeSurfaceRef" class="mobile-reels-viewport relative overflow-hidden bg-black text-white">
 		<div class="mobile-safe-overlay-top pointer-events-none absolute inset-x-0 top-0 z-40 bg-gradient-to-b from-black/90 via-black/55 to-transparent">
 			<div class="pointer-events-auto flex h-11 items-center px-2">
 				<button type="button" v-on:click="goBack" class="size-10 rounded-full inline-flex-center text-white hover:bg-white/10">
@@ -51,6 +51,7 @@
 	import { useRouter } from 'vue-router';
 	import { getNetworkProfileSnapshot, subscribeNetworkProfile } from '@/kernel/services/network/index.js';
 	import { useExploreReelsStore } from '@M/store/explore/reels.store.js';
+	import { mobileExploreSwipeSequence, useSwipeRouteNavigation } from '@/kernel/vue/composables/swipe-route-navigation/index.js';
 
 	import ReelItem from '@M/components/reels/ReelItem.vue';
 	import ExploreTabs from '@M/views/explore/parts/ExploreTabs.vue';
@@ -66,6 +67,7 @@
 		setup: function(props) {
 			const router = useRouter();
 			const reelsStore = useExploreReelsStore();
+			const swipeSurfaceRef = ref(null);
 			const scrollerRef = ref(null);
 			const activeIndex = ref(0);
 			const state = reactive({
@@ -89,6 +91,8 @@
 			const nearRadius = computed(() => {
 				return state.networkProfile.reelsNearRadius;
 			});
+
+			useSwipeRouteNavigation(swipeSurfaceRef, mobileExploreSwipeSequence);
 
 			const updateActiveIndex = () => {
 				const scroller = scrollerRef.value;
@@ -195,6 +199,7 @@
 				posts: posts,
 				feedSessionId: feedSessionId,
 				nearRadius: nearRadius,
+				swipeSurfaceRef: swipeSurfaceRef,
 				scrollerRef: scrollerRef,
 				activeIndex: activeIndex,
 				handleScroll: handleScroll,
