@@ -36,6 +36,7 @@ use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 use Throwable;
 
 class StoryController extends Controller
@@ -158,7 +159,17 @@ class StoryController extends Controller
 
     public function toggleLike(Request $request, ReactionService $reactionService)
     {
+        $request->merge([
+            'unified_id' => StoryFrame::PRIVATE_LIKE_UNIFIED_ID,
+        ]);
+
+        return $this->toggleReaction($request, $reactionService);
+    }
+
+    public function toggleReaction(Request $request, ReactionService $reactionService)
+    {
         $storyFrameId = $request->integer('frame_id');
+        $reactionUnifiedId = strtolower((string) $request->string('unified_id', StoryFrame::PRIVATE_LIKE_UNIFIED_ID));
 
         if(is_positive($storyFrameId)) {
             $frameData = $this->findVisibleStoryFrame($storyFrameId, [
@@ -170,10 +181,10 @@ class StoryController extends Controller
             if($frameData) {
                 if($frameData->story->user_id === me()->id) {
                     return $this->responseError([
-                        'message' => __('api/story.cannot_like_own_story'),
+                        'message' => __('api/story.cannot_react_own_story'),
                         'errors' => [
                             'frame_id' => [
-                                __('api/story.cannot_like_own_story'),
+                                __('api/story.cannot_react_own_story'),
                             ],
                         ],
                     ], 403);
@@ -181,27 +192,32 @@ class StoryController extends Controller
 
                 $this->ensureStoryFrameViewed($frameData);
 
-                $hasLiked = $reactionService
-                    ->setReactable($frameData)
-                    ->setUserId(me()->id)
-                    ->setUnifiable(StoryFrame::PRIVATE_LIKE_UNIFIED_ID)
-                    ->handleReaction();
+                try {
+                    $hasReacted = $reactionService
+                        ->setReactable($frameData)
+                        ->setUserId(me()->id)
+                        ->setUnifiable($reactionUnifiedId)
+                        ->handleReaction();
+                }
+                catch (InvalidArgumentException $exception) {
+                    return $this->responseError([
+                        'message' => __('api/story.invalid_reaction'),
+                        'errors' => [
+                            'unified_id' => [
+                                __('api/story.invalid_reaction'),
+                            ],
+                        ],
+                    ], 422);
+                }
 
                 $frameData->load('reactions');
 
-                if($hasLiked) {
-                    $frameData->story->user?->notify(new StoryLikedNotification($frameData));
+                if($hasReacted) {
+                    $frameData->story->user?->notify(new StoryLikedNotification($frameData, $reactionUnifiedId));
                 }
 
                 return $this->responseSuccess([
-                    'data' => [
-                        'frame_id' => $frameData->id,
-                        'likes_count' => $this->getStoryFrameLikesCount($frameData),
-                        'activity' => [
-                            'has_liked' => $hasLiked,
-                            'is_seen' => true,
-                        ],
-                    ],
+                    'data' => $this->buildStoryFrameReactionPayload($frameData),
                 ]);
             }
         }
@@ -255,19 +271,27 @@ class StoryController extends Controller
                     ], 403);
                 }
 
-                $likedUserIds = $this->getStoryFrameLikedUserIds($frameData);
-                $frameViews = $frameData->views()->withUser()->get()->map(function($viewItem) use ($likedUserIds) {
-                    $viewItem->setAttribute('has_liked_story', $likedUserIds->contains($viewItem->user_id));
+                $viewerReactionMap = $this->getStoryFrameViewerReactionMap($frameData);
+                $frameViews = $frameData->views()->withUser()->get()->map(function($viewItem) use ($viewerReactionMap) {
+                    $reactionItem = $viewerReactionMap->get((int) $viewItem->user_id);
+                    $reactionUnifiedId = $reactionItem?->unified_id;
+
+                    $viewItem->setAttribute('has_liked_story', $reactionUnifiedId === StoryFrame::PRIVATE_LIKE_UNIFIED_ID);
+                    $viewItem->setAttribute('has_reacted_story', ! empty($reactionUnifiedId));
+                    $viewItem->setAttribute('story_reaction_unified_id', $reactionUnifiedId);
+                    $viewItem->setAttribute('story_reaction_image_url', $reactionUnifiedId ? reaction_image_url($reactionUnifiedId) : null);
 
                     return $viewItem;
                 })->sortByDesc(function($viewItem) {
-                    return (int) $viewItem->getAttribute('has_liked_story');
+                    return (int) $viewItem->getAttribute('has_reacted_story');
                 })->values();
 
                 return $this->responseSuccess([
                    'data' => ViewCollection::make($frameViews),
                    'meta' => [
                         'likes_count' => $this->getStoryFrameLikesCount($frameData),
+                        'reactions_count' => $this->getStoryFrameReactionsCount($frameData),
+                        'reactions_summary' => $this->getStoryFrameReactionsSummary($frameData),
                         'views_count' => [
                             'raw' => $frameData->views_count,
                             'formatted' => $frameData->views_count,
@@ -350,7 +374,8 @@ class StoryController extends Controller
 
     private function getStoryFrameLikesCount(StoryFrame $frameData): array
     {
-        $likesCount = $frameData->reactions->firstWhere('unified_id', StoryFrame::PRIVATE_LIKE_UNIFIED_ID)?->reactions_count ?? 0;
+        $likesCount = $this->getStoryFrameReactionsCollection($frameData)
+            ->firstWhere('unified_id', StoryFrame::PRIVATE_LIKE_UNIFIED_ID)?->reactions_count ?? 0;
 
         return [
             'raw' => $likesCount,
@@ -358,9 +383,80 @@ class StoryController extends Controller
         ];
     }
 
-    private function getStoryFrameLikedUserIds(StoryFrame $frameData): Collection
+    private function getStoryFrameReactionsCount(StoryFrame $frameData): array
     {
-        return collect($frameData->reactions->firstWhere('unified_id', StoryFrame::PRIVATE_LIKE_UNIFIED_ID)?->users ?? []);
+        $reactionsCount = (int) $this->getStoryFrameReactionsCollection($frameData)->sum('reactions_count');
+
+        return [
+            'raw' => $reactionsCount,
+            'formatted' => $reactionsCount,
+        ];
+    }
+
+    private function getStoryFrameReactionsSummary(StoryFrame $frameData): array
+    {
+        return $this->getStoryFrameReactionsCollection($frameData)->sortByDesc('reactions_count')->values()->map(function($reactionItem) {
+            return [
+                'unified_id' => $reactionItem->unified_id,
+                'image_url' => reaction_image_url($reactionItem->unified_id),
+                'total' => (int) $reactionItem->reactions_count,
+                'has_reacted' => collect($reactionItem->users ?? [])->contains(me()->id),
+            ];
+        })->toArray();
+    }
+
+    private function getStoryFrameViewerReactionMap(StoryFrame $frameData): Collection
+    {
+        return $this->getStoryFrameReactionsCollection($frameData)->reduce(function(Collection $carry, $reactionItem) {
+            collect($reactionItem->users ?? [])->each(function($userId) use ($carry, $reactionItem) {
+                $carry->put((int) $userId, $reactionItem);
+            });
+
+            return $carry;
+        }, collect());
+    }
+
+    private function getStoryFrameReactionForUser(StoryFrame $frameData, int $userId)
+    {
+        return $this->getStoryFrameReactionsCollection($frameData)->first(function($reactionItem) use ($userId) {
+            return collect($reactionItem->users ?? [])->contains($userId);
+        });
+    }
+
+    private function getStoryFrameReactionsCollection(StoryFrame $frameData): Collection
+    {
+        if($frameData->relationLoaded('reactions')) {
+            return $frameData->reactions;
+        }
+
+        return $frameData->reactions()->get();
+    }
+
+    private function buildStoryFrameReactionPayload(StoryFrame $frameData): array
+    {
+        return [
+            'frame_id' => $frameData->id,
+            'likes_count' => $this->getStoryFrameLikesCount($frameData),
+            'reactions_count' => $this->getStoryFrameReactionsCount($frameData),
+            'reactions_summary' => $this->getStoryFrameReactionsSummary($frameData),
+            'activity' => [
+                ...$this->getStoryFrameActivity($frameData),
+                'is_seen' => true,
+            ],
+        ];
+    }
+
+    private function getStoryFrameActivity(StoryFrame $frameData): array
+    {
+        $reactionItem = $this->getStoryFrameReactionForUser($frameData, me()->id);
+        $reactionUnifiedId = $reactionItem?->unified_id;
+
+        return [
+            'has_liked' => $reactionUnifiedId === StoryFrame::PRIVATE_LIKE_UNIFIED_ID,
+            'has_reacted' => ! empty($reactionUnifiedId),
+            'reaction_unified_id' => $reactionUnifiedId,
+            'reaction_image_url' => $reactionUnifiedId ? reaction_image_url($reactionUnifiedId) : null,
+        ];
     }
 
     private function applyVisibleStoryFrameQuery($query): void

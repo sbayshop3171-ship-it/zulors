@@ -11,7 +11,17 @@
             </span>
         </div>
         <div class="inline-flex items-center gap-1 opacity-70">
+            <div v-if="storyReactionsSummary.length" class="inline-flex items-center -space-x-1">
+                <img
+                    v-for="reactionItem in storyReactionsSummary"
+                    v-bind:key="reactionItem.unified_id"
+                    class="size-4 rounded-full ring-1 ring-black/30 bg-black/10"
+                    v-bind:src="reactionItem.image_url"
+                    alt="Reaction"
+                >
+            </div>
             <PrimaryIconButton
+                v-else
                 iconName="heart-rounded"
                 buttonColor="text-red-900"
                 hoverBg=""
@@ -19,7 +29,7 @@
             ></PrimaryIconButton>
 
             <span class="text-par-s text-white/90">
-                {{ $t('story.likes_number', { n: storyLikesCount.formatted }, storyLikesCount.raw) }}
+                {{ $t('story.reactions_number', { n: storyReactionsCount.formatted }, storyReactionsCount.raw) }}
             </span>
         </div>
     </div>
@@ -42,8 +52,11 @@
                 storyViewsCount: computed(() => {
                     return playerState.frameData.views_count;
                 }),
-                storyLikesCount: computed(() => {
-                    return playerState.frameData.likes_count;
+                storyReactionsCount: computed(() => {
+                    return playerState.frameData.reactions_count || playerState.frameData.likes_count;
+                }),
+                storyReactionsSummary: computed(() => {
+                    return (playerState.frameData.reactions_summary || []).slice(0, 3);
                 }),
                 storyViews: computed(() => {
                     return playerState.frameData.relations.views;

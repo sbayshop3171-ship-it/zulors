@@ -23,11 +23,13 @@ class StoryLikedNotification extends Notification implements ShouldQueue
     public $notificationType = Notifications::STORY_LIKED;
 
     private StoryFrame $frameData;
+    private string $reactionUnifiedId;
 
-    public function __construct(StoryFrame $frameData)
+    public function __construct(StoryFrame $frameData, string $reactionUnifiedId = StoryFrame::PRIVATE_LIKE_UNIFIED_ID)
     {
         $this->actorData = $this->getUserActor();
         $this->frameData = $frameData;
+        $this->reactionUnifiedId = strtolower($reactionUnifiedId);
     }
 
     public function via(object $notifiable): array
@@ -57,7 +59,7 @@ class StoryLikedNotification extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
-        return (new MailMessage())->subject(__('notifications.subjects.story_liked', locale: $notifiable->language))->view($this->notificationViewPath, [
+        return (new MailMessage())->subject(__($this->getNotificationSubjectKey(), locale: $notifiable->language))->view($this->notificationViewPath, [
             'notifiable' => $notifiable,
             'data' => $this->getData(),
             'notificationType' => $this->notificationType,
@@ -83,10 +85,10 @@ class StoryLikedNotification extends Notification implements ShouldQueue
 
         return [
             'message_group' => 'user',
-            'message_key' => 'story_liked',
+            'message_key' => $this->isLikeReaction() ? 'story_liked' : 'story_reacted',
             'message_params' => [],
             'metadata' => [
-                'reaction_unified_id' => StoryFrame::PRIVATE_LIKE_UNIFIED_ID,
+                'reaction_unified_id' => $this->reactionUnifiedId,
             ],
             'entity' => [
                 'story_uuid' => $this->frameData->story->story_uuid,
@@ -100,5 +102,17 @@ class StoryLikedNotification extends Notification implements ShouldQueue
     protected function getDestinationLink(): string
     {
         return url("/stories/{$this->frameData->story->story_uuid}");
+    }
+
+    private function isLikeReaction(): bool
+    {
+        return $this->reactionUnifiedId === StoryFrame::PRIVATE_LIKE_UNIFIED_ID;
+    }
+
+    private function getNotificationSubjectKey(): string
+    {
+        return $this->isLikeReaction()
+            ? 'notifications.subjects.story_liked'
+            : 'notifications.subjects.story_reacted';
     }
 }

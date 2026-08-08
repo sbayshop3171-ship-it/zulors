@@ -2,9 +2,18 @@
         <ModalBackdrop>
         <ModalContent>
             <ModalHeader v-bind:title="$t('story.who_watched_story')" v-bind:buttonText="$t('labels.close')" v-on:cancel="$emit('hide')"></ModalHeader>
-            <div v-if="! state.isLoading" class="px-3 pb-2">
+            <div v-if="! state.isLoading" class="px-3 pb-2 flex items-center gap-2">
+                <div v-if="meta.reactions_summary.length" class="inline-flex items-center -space-x-1">
+                    <img
+                        v-for="reactionItem in meta.reactions_summary.slice(0, 3)"
+                        v-bind:key="reactionItem.unified_id"
+                        class="size-4 rounded-full ring-1 ring-fill-sc bg-bg-pr"
+                        v-bind:src="reactionItem.image_url"
+                        alt="Reaction"
+                    >
+                </div>
                 <p class="text-lab-sc text-par-s">
-                    {{ $t('story.likes_number', { n: meta.likes_count.formatted }, meta.likes_count.raw) }}
+                    {{ $t('story.reactions_number', { n: meta.reactions_count.formatted }, meta.reactions_count.raw) }}
                 </p>
             </div>
             <div v-if="state.isLoading" class="block">
@@ -44,6 +53,11 @@
 
             const views = ref([]);
             const meta = ref({
+                reactions_count: {
+                    raw: 0,
+                    formatted: 0
+                },
+                reactions_summary: [],
                 likes_count: {
                     raw: 0,
                     formatted: 0

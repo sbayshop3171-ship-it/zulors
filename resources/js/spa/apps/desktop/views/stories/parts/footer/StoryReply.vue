@@ -8,13 +8,20 @@
             </span>
         </div>
         <div class="shrink-0">
-            <PrimaryIconButton
-                v-on:click="toggleStoryLike"
-                iconName="heart-rounded"
-                iconType="line"
-                v-bind:buttonColor="hasLiked ? 'text-red-900' : 'text-white'"
-                v-bind:hoverText="hasLiked ? 'hover:text-red-900' : 'hover:text-white'"
-            ></PrimaryIconButton>
+            <div ref="reactionMenuRef" class="relative">
+                <button
+                    type="button"
+                    v-on:click.stop="toggleReactionPicker"
+                    class="outline-hidden transition-transform duration-300 inline-flex items-center justify-center rounded-full leading-none size-8 hover:bg-fill-tr"
+                    v-bind:class="[selectedReactionImageUrl ? 'text-white' : hasLiked ? 'text-red-900' : 'text-white']"
+                >
+                    <img v-if="selectedReactionImageUrl" class="size-5" v-bind:src="selectedReactionImageUrl" alt="Reaction">
+                    <SvgIcon v-else name="heart-rounded" type="line" classes="size-6"></SvgIcon>
+                </button>
+                <div v-if="state.showReactionPicker" v-on:click.stop class="absolute bottom-full right-0 mb-2 z-20">
+                    <ReactionsPicker v-on:add="reactToStory"></ReactionsPicker>
+                </div>
+            </div>
         </div>
         <div class="shrink-0">
             <StoryShareButton></StoryShareButton>
@@ -23,12 +30,12 @@
 </template>
 
 <script>
-    import { computed, defineComponent, inject, reactive } from 'vue';
+    import { computed, defineComponent, inject, onMounted, onUnmounted, reactive, ref } from 'vue';
     import { useRouter } from 'vue-router';
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
     import { useStoriesStore } from '@D/store/stories/stories.store.js';
 
-    import PrimaryIconButton from '@D/components/inter-ui/buttons/PrimaryIconButton.vue';
+    import ReactionsPicker from '@D/components/reactions/ReactionsPicker.vue';
     import StoryShareButton from '@D/views/stories/parts/StoryShareButton.vue';
 
     export default defineComponent({
@@ -44,14 +51,42 @@
             const router = useRouter();
             const state = reactive({
                 sendingMessage: false,
-                togglingLike: false
+                togglingReaction: false,
+                showReactionPicker: false
+            });
+            const reactionMenuRef = ref(null);
+
+            const closeReactionPicker = () => {
+                state.showReactionPicker = false;
+            };
+
+            const handleOutsideClick = (event) => {
+                if(! state.showReactionPicker || ! reactionMenuRef.value) {
+                    return;
+                }
+
+                if(! reactionMenuRef.value.contains(event.target)) {
+                    closeReactionPicker();
+                }
+            };
+
+            onMounted(() => {
+                window.addEventListener('click', handleOutsideClick);
+            });
+
+            onUnmounted(() => {
+                window.removeEventListener('click', handleOutsideClick);
             });
 
             return {
                 playerState: playerState,
                 state: state,
+                reactionMenuRef: reactionMenuRef,
                 hasLiked: computed(() => {
                     return !! playerState.frameData?.activity?.has_liked;
+                }),
+                selectedReactionImageUrl: computed(() => {
+                    return playerState.frameData?.activity?.reaction_image_url || null;
                 }),
                 replyToStory: async () => {
                     if(state.sendingMessage) {
@@ -80,23 +115,28 @@
                         });
                     }
                 },
-                toggleStoryLike: async () => {
-                    if(state.togglingLike || ! playerState.frameData?.id) {
+                toggleReactionPicker: () => {
+                    state.showReactionPicker = ! state.showReactionPicker;
+                },
+                reactToStory: async (reactionId) => {
+                    if(state.togglingReaction || ! playerState.frameData?.id) {
                         return;
                     }
 
-                    state.togglingLike = true;
+                    state.togglingReaction = true;
 
-                    await storiesStore.toggleStoryLike(playerState.frameData.id).catch((error) => {
+                    await storiesStore.toggleStoryReaction(playerState.frameData.id, reactionId).then(() => {
+                        closeReactionPicker();
+                    }).catch((error) => {
                         alert(error.message);
                     }).finally(() => {
-                        state.togglingLike = false;
+                        state.togglingReaction = false;
                     });
                 }
             }
         },
         components: {
-            PrimaryIconButton: PrimaryIconButton,
+            ReactionsPicker: ReactionsPicker,
             StoryShareButton: StoryShareButton
         }
     });

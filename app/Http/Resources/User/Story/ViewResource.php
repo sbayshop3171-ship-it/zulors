@@ -30,6 +30,9 @@ class ViewResource extends JsonResource
             ],
             'activity' => [
                 'has_liked' => (bool) $this->getAttribute('has_liked_story'),
+                'has_reacted' => (bool) $this->getAttribute('has_reacted_story'),
+                'reaction_unified_id' => $this->getAttribute('story_reaction_unified_id'),
+                'reaction_image_url' => $this->getAttribute('story_reaction_image_url'),
             ],
             'date' => [
                 'time_ago' => $this->viewed_at->getTimeAgo(),

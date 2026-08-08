@@ -19,5 +19,6 @@ Route::get('/feed', [App\Http\Controllers\Api\User\Story\StoryController::class,
 Route::get('/stories/{storyId}', [App\Http\Controllers\Api\User\Story\StoryController::class, 'getStories']);
 Route::get('/views/{frameId}', [App\Http\Controllers\Api\User\Story\StoryController::class, 'getStoryViews']);
 Route::post('/views/record', [App\Http\Controllers\Api\User\Story\StoryController::class, 'recordView']);
+Route::post('/reactions/toggle', [App\Http\Controllers\Api\User\Story\StoryController::class, 'toggleReaction']);
 Route::post('/likes/toggle', [App\Http\Controllers\Api\User\Story\StoryController::class, 'toggleLike']);
 Route::delete('/delete', [App\Http\Controllers\Api\User\Story\StoryController::class, 'deleteStory']);

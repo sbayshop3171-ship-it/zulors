@@ -10,15 +10,22 @@
             </span>
         </div>
         <div class="shrink-0">
-            <PrimaryIconButton
-                v-on:click="toggleStoryLike"
-                iconName="heart-rounded"
-                iconType="line"
-                v-bind:buttonColor="hasLiked ? 'text-red-900' : 'text-white'"
-                v-bind:hoverText="hasLiked ? 'hover:text-red-900' : 'hover:text-white'"
-            ></PrimaryIconButton>
+            <button
+                type="button"
+                v-on:click="toggleReactionPicker"
+                class="outline-hidden cursor-pointer inline-flex min-h-11 min-w-11 touch-manipulation select-none active:bg-fill-tr items-center justify-center rounded-full leading-zero"
+                v-bind:class="[selectedReactionImageUrl ? 'text-white' : hasLiked ? 'text-red-900' : 'text-white']"
+            >
+                <img v-if="selectedReactionImageUrl" class="size-6" v-bind:src="selectedReactionImageUrl" alt="Reaction">
+                <SvgIcon v-else name="heart-rounded" type="line" classes="size-6"></SvgIcon>
+            </button>
         </div>
     </div>
+    <PublicationReactions
+        v-if="state.showReactionPicker"
+        v-on:close="closeReactionPicker"
+        v-on:add="reactToStory"
+    ></PublicationReactions>
 </template>
 
 <script>
@@ -27,7 +34,7 @@
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
     import { useStoriesStore } from '@M/store/stories/stories.store.js';
 
-    import PrimaryIconButton from '@M/components/inter-ui/buttons/PrimaryIconButton.vue';
+    import PublicationReactions from '@M/components/timeline/feed/parts/reactions/PublicationReactions.vue';
 
     export default defineComponent({
         setup: function() {
@@ -36,7 +43,8 @@
             const router = useRouter();
             const state = reactive({
                 sendingMessage: false,
-                togglingLike: false
+                togglingReaction: false,
+                showReactionPicker: false
             });
 
             return {
@@ -44,6 +52,9 @@
                 state: state,
                 hasLiked: computed(() => {
                     return !! playerState.frameData?.activity?.has_liked;
+                }),
+                selectedReactionImageUrl: computed(() => {
+                    return playerState.frameData?.activity?.reaction_image_url || null;
                 }),
                 replyToStory: async () => {
                     if(state.sendingMessage) {
@@ -71,23 +82,31 @@
                         state.sendingMessage = false;
                     });
                 },
-                toggleStoryLike: async () => {
-                    if(state.togglingLike || ! playerState.frameData?.id) {
+                closeReactionPicker: () => {
+                    state.showReactionPicker = false;
+                },
+                toggleReactionPicker: () => {
+                    state.showReactionPicker = ! state.showReactionPicker;
+                },
+                reactToStory: async (reactionId) => {
+                    if(state.togglingReaction || ! playerState.frameData?.id) {
                         return;
                     }
 
-                    state.togglingLike = true;
+                    state.togglingReaction = true;
 
-                    await storiesStore.toggleStoryLike(playerState.frameData.id).catch((error) => {
+                    await storiesStore.toggleStoryReaction(playerState.frameData.id, reactionId).then(() => {
+                        state.showReactionPicker = false;
+                    }).catch((error) => {
                         alert(error.message);
                     }).finally(() => {
-                        state.togglingLike = false;
+                        state.togglingReaction = false;
                     });
                 }
             }
         },
         components: {
-            PrimaryIconButton: PrimaryIconButton
+            PublicationReactions: PublicationReactions
         }
     });
 </script>

@@ -3,6 +3,8 @@ import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 import { readCache, writeCache } from '@/kernel/services/cache/index.js';
 import { useAuthStore } from '@D/store/auth/auth.store.js';
 
+const DEFAULT_STORY_REACTION_ID = '2764-fe0f';
+
 const getStoriesFeedCacheKey = function() {
     const authStore = useAuthStore();
 
@@ -48,7 +50,7 @@ const useStoriesStore = defineStore('stories_store', {
         }
     },
     actions: {
-        applyStoryFrameLikeState: function(frameId, payload = {}) {
+        applyStoryFrameReactionState: function(frameId, payload = {}) {
             this.stories.forEach((storyItem) => {
                 const frameData = storyItem.relations.frames.find((frameItem) => {
                     return frameItem.id === frameId;
@@ -59,6 +61,14 @@ const useStoriesStore = defineStore('stories_store', {
                         frameData.likes_count = payload.likes_count;
                     }
 
+                    if(Object.prototype.hasOwnProperty.call(payload, 'reactions_count')) {
+                        frameData.reactions_count = payload.reactions_count;
+                    }
+
+                    if(Object.prototype.hasOwnProperty.call(payload, 'reactions_summary')) {
+                        frameData.reactions_summary = payload.reactions_summary;
+                    }
+
                     if(Object.prototype.hasOwnProperty.call(payload, 'activity')) {
                         frameData.activity = {
                             ...frameData.activity,
@@ -67,6 +77,9 @@ const useStoriesStore = defineStore('stories_store', {
                     }
                 }
             });
+        },
+        applyStoryFrameLikeState: function(frameId, payload = {}) {
+            this.applyStoryFrameReactionState(frameId, payload);
         },
         prependFeedItem: function(storyData) {
             if(! storyData) {
@@ -158,8 +171,10 @@ const useStoriesStore = defineStore('stories_store', {
         },
         fetchAndReturnStoryViews: async function(frameId) {
             return await colibriAPI().stories().getFrom(`views/${frameId}`).then((response) => {
-                this.applyStoryFrameLikeState(frameId, {
-                    likes_count: response.data.meta?.likes_count
+                this.applyStoryFrameReactionState(frameId, {
+                    likes_count: response.data.meta?.likes_count,
+                    reactions_count: response.data.meta?.reactions_count,
+                    reactions_summary: response.data.meta?.reactions_summary
                 });
 
                 return response.data;
@@ -169,11 +184,12 @@ const useStoriesStore = defineStore('stories_store', {
                 }
             });
         },
-        toggleStoryLike: async function(frameId) {
+        toggleStoryReaction: async function(frameId, unifiedId = DEFAULT_STORY_REACTION_ID) {
             return await colibriAPI().stories().with({
-                frame_id: frameId
-            }).sendTo('likes/toggle').then((response) => {
-                this.applyStoryFrameLikeState(frameId, response.data.data);
+                frame_id: frameId,
+                unified_id: unifiedId
+            }).sendTo('reactions/toggle').then((response) => {
+                this.applyStoryFrameReactionState(frameId, response.data.data);
 
                 return response.data.data;
             }).catch((error) => {
@@ -181,6 +197,9 @@ const useStoriesStore = defineStore('stories_store', {
                     throw new Error(error.response.data.message);
                 }
             });
+        },
+        toggleStoryLike: async function(frameId) {
+            return this.toggleStoryReaction(frameId, DEFAULT_STORY_REACTION_ID);
         },
         recordStoryView: async function(storyUUID, frameId) {
             const frameData = this.stories.find((storyItem) => {

@@ -41,7 +41,9 @@ class StoryLikesTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.frame_id', $frame->id)
             ->assertJsonPath('data.activity.has_liked', true)
+            ->assertJsonPath('data.activity.has_reacted', true)
             ->assertJsonPath('data.activity.is_seen', true)
+            ->assertJsonPath('data.activity.reaction_unified_id', StoryFrame::PRIVATE_LIKE_UNIFIED_ID)
             ->assertJsonPath('data.likes_count.raw', 1);
 
         $this->assertDatabaseHas(Table::REACTIONS, [
@@ -62,6 +64,45 @@ class StoryLikesTest extends TestCase
         ]);
 
         Notification::assertSentTo($owner, StoryLikedNotification::class);
+    }
+
+    public function test_viewer_can_toggle_custom_story_reaction_and_owner_receives_reaction_notification(): void
+    {
+        Notification::fake();
+
+        $owner = $this->createUser('story-react-owner');
+        $viewer = $this->createUser('story-react-viewer');
+        $story = $this->createStory($owner);
+        $frame = $this->createStoryFrame($story);
+        $reactionUnifiedId = '1f525';
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->postJson('/api/stories/reactions/toggle', [
+                'frame_id' => $frame->id,
+                'unified_id' => strtoupper($reactionUnifiedId),
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.activity.has_liked', false)
+            ->assertJsonPath('data.activity.has_reacted', true)
+            ->assertJsonPath('data.activity.reaction_unified_id', $reactionUnifiedId)
+            ->assertJsonPath('data.likes_count.raw', 0)
+            ->assertJsonPath('data.reactions_count.raw', 1)
+            ->assertJsonPath('data.reactions_summary.0.unified_id', $reactionUnifiedId);
+
+        $this->assertDatabaseHas(Table::REACTIONS, [
+            'reactable_type' => StoryFrame::class,
+            'reactable_id' => $frame->id,
+            'unified_id' => $reactionUnifiedId,
+            'reactions_count' => 1,
+        ]);
+
+        Notification::assertSentTo($owner, StoryLikedNotification::class, function(StoryLikedNotification $notification) use ($reactionUnifiedId) {
+            $payload = $notification->toDatabase();
+
+            return $payload['message_key'] === 'story_reacted'
+                && $payload['metadata']['reaction_unified_id'] === $reactionUnifiedId;
+        });
     }
 
     public function test_second_toggle_removes_private_story_like(): void
@@ -85,7 +126,10 @@ class StoryLikesTest extends TestCase
             ])
             ->assertOk()
             ->assertJsonPath('data.activity.has_liked', false)
-            ->assertJsonPath('data.likes_count.raw', 0);
+            ->assertJsonPath('data.activity.has_reacted', false)
+            ->assertJsonPath('data.activity.reaction_unified_id', null)
+            ->assertJsonPath('data.likes_count.raw', 0)
+            ->assertJsonPath('data.reactions_count.raw', 0);
 
         $this->assertDatabaseMissing(Table::REACTIONS, [
             'reactable_type' => StoryFrame::class,
@@ -106,7 +150,7 @@ class StoryLikesTest extends TestCase
                 'frame_id' => $frame->id,
             ])
             ->assertStatus(403)
-            ->assertJsonPath('message', __('api/story.cannot_like_own_story'));
+            ->assertJsonPath('message', __('api/story.cannot_react_own_story'));
     }
 
     public function test_owner_story_views_include_private_like_state_and_counts(): void
@@ -130,9 +174,53 @@ class StoryLikesTest extends TestCase
             ->getJson("/api/stories/views/{$frame->id}")
             ->assertOk()
             ->assertJsonPath('meta.likes_count.raw', 1)
+            ->assertJsonPath('meta.reactions_count.raw', 1)
             ->assertJsonPath('meta.views_count.raw', 1)
             ->assertJsonPath('data.0.relations.user.id', $viewer->id)
-            ->assertJsonPath('data.0.activity.has_liked', true);
+            ->assertJsonPath('data.0.activity.has_liked', true)
+            ->assertJsonPath('data.0.activity.has_reacted', true)
+            ->assertJsonPath('data.0.activity.reaction_unified_id', StoryFrame::PRIVATE_LIKE_UNIFIED_ID);
+    }
+
+    public function test_switching_story_reaction_replaces_previous_reaction_for_the_same_viewer(): void
+    {
+        $owner = $this->createUser('story-switch-owner');
+        $viewer = $this->createUser('story-switch-viewer');
+        $story = $this->createStory($owner);
+        $frame = $this->createStoryFrame($story);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->postJson('/api/stories/reactions/toggle', [
+                'frame_id' => $frame->id,
+                'unified_id' => '1F60D',
+            ])
+            ->assertOk();
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->postJson('/api/stories/reactions/toggle', [
+                'frame_id' => $frame->id,
+                'unified_id' => '1F525',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.likes_count.raw', 0)
+            ->assertJsonPath('data.reactions_count.raw', 1)
+            ->assertJsonPath('data.activity.has_liked', false)
+            ->assertJsonPath('data.activity.reaction_unified_id', '1f525');
+
+        $this->assertDatabaseMissing(Table::REACTIONS, [
+            'reactable_type' => StoryFrame::class,
+            'reactable_id' => $frame->id,
+            'unified_id' => '1f60d',
+        ]);
+
+        $this->assertDatabaseHas(Table::REACTIONS, [
+            'reactable_type' => StoryFrame::class,
+            'reactable_id' => $frame->id,
+            'unified_id' => '1f525',
+            'reactions_count' => 1,
+        ]);
     }
 
     private function createStory(User $user): Story

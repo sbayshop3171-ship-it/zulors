@@ -6,12 +6,12 @@
 					<AvatarSmall v-bind:avatarSrc="viewItem.relations.user.avatar_url"></AvatarSmall>
 				</div>
 				<Name v-bind:name="viewItem.relations.user.name" v-bind:isVerified="viewItem.relations.user.verified || true"></Name>
+                <span v-if="viewItem.activity.reaction_image_url" class="inline-flex">
+                    <img class="size-4" v-bind:src="viewItem.activity.reaction_image_url" alt="Reaction">
+                </span>
 			</div>
 			<span class="text-lab-sc text-par-n ml-auto lowercase">
 				{{ viewItem.date.is_today ? $t('labels.today') : $t('labels.yesterday') }}
-			</span>
-			<span v-if="viewItem.activity.has_liked" class="ml-2 inline-flex text-red-900">
-				<SvgIcon name="heart-rounded" type="solid" classes="size-4"></SvgIcon>
 			</span>
 			<span class="text-lab-sc text-par-n w-12 text-right">
 				{{ viewItem.date.time }}
