@@ -17,6 +17,7 @@
         height: 100%;
         min-height: 100%;
         width: 100%;
+        max-width: none;
         margin: 0;
         padding: 0;
         overflow-x: hidden;
@@ -28,12 +29,14 @@
         min-height: 100dvh;
         width: 100%;
         min-width: 0;
+        max-width: none;
         background: var(--color-bg-pr, {{ $bootBackgroundColor }});
     }
 
     .zulors-boot-shell {
         min-height: 100dvh;
         width: 100%;
+        max-width: none;
         background: var(--color-bg-pr, {{ $bootBackgroundColor }});
         color: var(--color-lab-pr2, {{ $bootTextColor }});
         display: flex;

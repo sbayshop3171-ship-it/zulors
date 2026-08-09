@@ -8,6 +8,7 @@ html {
     font-kerning: normal;
     width: 100%;
     min-width: 0;
+    max-width: none;
     min-height: 100%;
     margin: 0;
     padding: 0;
@@ -24,6 +25,7 @@ body,
 #zulors-mobile-app {
     width: 100%;
     min-width: 0;
+    max-width: none;
     min-height: 100vh;
     margin: 0;
     padding: 0;
@@ -125,6 +127,7 @@ html.zulors-android-app {
 .mobile-app-content {
     width: 100%;
     min-width: 0;
+    max-width: none;
     min-height: calc(100vh - var(--mobile-header-bar-height));
     padding-bottom: calc(var(--mobile-navbar-height) + var(--mobile-safe-bottom));
     background: var(--color-bg-pr);
