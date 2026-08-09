@@ -18,6 +18,15 @@ class SocialLoginDrivers
         })->toArray();
     }
 
+    public function getActivePublicDrivers(): array
+    {
+        return collect($this->getActiveDrivers())->map(function($item) {
+            return [
+                'meta' => $item['meta'] ?? [],
+            ];
+        })->toArray();
+    }
+
     public function getDriver(string $name):array
     {
         return $this->socialLoginOptions[$name] ?? [];

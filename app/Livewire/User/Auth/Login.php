@@ -26,7 +26,7 @@ class Login extends Component
             'remember' => true
         ];
 
-        $this->activeSocialDrivers = $socialLoginDrivers->getActiveDrivers();
+        $this->activeSocialDrivers = $socialLoginDrivers->getActivePublicDrivers();
     }
 
     public function render()

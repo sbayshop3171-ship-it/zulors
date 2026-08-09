@@ -17,7 +17,7 @@ class Signup extends Component
 
     public function mount(SocialLoginDrivers $socialLoginDrivers)
     {
-        $this->activeSocialDrivers = $socialLoginDrivers->getActiveDrivers();
+        $this->activeSocialDrivers = $socialLoginDrivers->getActivePublicDrivers();
     }
 
     public function showAllSocialLoginOptions()
