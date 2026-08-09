@@ -155,7 +155,7 @@
 		width: 100%;
 		min-width: 0;
 		min-height: 100%;
-		background: var(--bg-pr);
+		background: var(--color-bg-pr);
 	}
 
 	.mobile-route-slide-next-enter-active,

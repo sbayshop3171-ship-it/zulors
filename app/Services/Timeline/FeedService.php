@@ -2,12 +2,15 @@
 
 namespace App\Services\Timeline;
 
+use App\Database\Configs\Table;
 use App\Enums\Post\PostStatus;
+use App\Enums\User\FollowStatus;
 use App\Models\Post;
 use App\Models\User;
 use App\Services\Timeline\DTO\FeedResult;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class FeedService
 {
@@ -28,7 +31,7 @@ class FeedService
         $type = $this->normalizeType(data_get($filter, 'type'));
         $perPage = (int) config('post.paginate_per');
 
-        if($type === self::TYPE_LATEST) {
+        if($type === self::TYPE_LATEST || $this->shouldUseColdStartLatestFeed($user, $type, $filter)) {
             $timelinePosts = $this->candidateGenerationService
                 ->latestQuery($user, $filter)
                 ->simplePaginateManual($perPage, $page);
@@ -36,7 +39,7 @@ class FeedService
             $posts = $this->withProcessingPosts($user, $page, collect($timelinePosts->items()));
 
             return new FeedResult($posts, $this->meta($type, [
-                'strategy' => 'chronological',
+                'strategy' => $type === self::TYPE_LATEST ? 'chronological' : 'cold_start_chronological',
                 'candidate_count' => count($timelinePosts->items()),
                 'candidate_limit' => null,
                 'scored' => false,
@@ -120,6 +123,39 @@ class FeedService
                 'type' => $type,
             ], $meta),
         ];
+    }
+
+    private function shouldUseColdStartLatestFeed(User $user, string $type, array $filter): bool
+    {
+        if($type !== self::TYPE_FOR_YOU || data_get_integer($filter, 'onset', 0) > 0) {
+            return false;
+        }
+
+        $refreshReason = strtolower(substr(trim((string) data_get($filter, 'refresh_reason', '')), 0, 32));
+
+        if(! in_array($refreshReason, ['initial', 'open', 'warm', 'resume'], true)) {
+            return false;
+        }
+
+        return ! $this->hasPersonalizationSignals($user);
+    }
+
+    private function hasPersonalizationSignals(User $user): bool
+    {
+        if(DB::table(Table::FOLLOWS)
+            ->where('follower_id', $user->id)
+            ->where('status', FollowStatus::FOLLOWING->value)
+            ->exists()) {
+            return true;
+        }
+
+        if($user->interestScores()->where('score', '>', 0)->exists()) {
+            return true;
+        }
+
+        return DB::table(Table::FEED_EVENTS)
+            ->where('user_id', $user->id)
+            ->exists();
     }
 
     private function sessionId(array $filter): ?string

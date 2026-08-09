@@ -10,8 +10,10 @@ html {
     min-width: 0;
     max-width: none;
     min-height: 100%;
+    height: 100%;
     margin: 0;
     padding: 0;
+    overflow-x: hidden;
 }
 
 :root {
@@ -27,6 +29,7 @@ body,
     min-width: 0;
     max-width: none;
     min-height: 100vh;
+    height: auto;
     margin: 0;
     padding: 0;
     overflow-x: hidden;
@@ -43,6 +46,28 @@ body,
 html.zulors-android-app {
     --mobile-safe-top: 0px;
     --mobile-safe-bottom: 0px;
+}
+
+#zulors-mobile-app {
+    display: block;
+    position: relative;
+    isolation: isolate;
+}
+
+html.zulors-android-app,
+html.zulors-android-app body,
+html.zulors-android-app #zulors-mobile-app {
+    width: 100vw;
+    max-width: 100vw;
+}
+
+@supports (width: 100dvw) {
+    html.zulors-android-app,
+    html.zulors-android-app body,
+    html.zulors-android-app #zulors-mobile-app {
+        width: 100dvw;
+        max-width: 100dvw;
+    }
 }
 
 @supports (padding-top: constant(safe-area-inset-top)) {
@@ -125,11 +150,14 @@ html.zulors-android-app {
 }
 
 .mobile-app-content {
+    position: relative;
+    display: block;
     width: 100%;
     min-width: 0;
     max-width: none;
     min-height: calc(100vh - var(--mobile-header-bar-height));
     padding-bottom: calc(var(--mobile-navbar-height) + var(--mobile-safe-bottom));
+    overflow-x: hidden;
     background: var(--color-bg-pr);
 }
 
@@ -141,6 +169,21 @@ html.zulors-android-app {
 
 .mobile-app-content--no-navbar {
     padding-bottom: 0;
+}
+
+.mobile-app-stage,
+.mobile-route-view,
+.base-publication {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+}
+
+.mobile-app-stage,
+.mobile-route-view {
+    min-height: inherit;
+    overflow-x: hidden;
+    background: var(--color-bg-pr);
 }
 
 .mobile-safe-navbar {

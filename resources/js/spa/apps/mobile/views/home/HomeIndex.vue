@@ -41,9 +41,7 @@
 					</div>
 				</div>
 				<div v-else-if="state.isLoadingContent">
-					<div class="flex justify-center py-20">
-						<div class="colibri-primary-animation"></div>
-					</div>
+					<TimelinePublicationSkeleton v-for="i in 5" v-bind:key="i"></TimelinePublicationSkeleton>
 				</div>
 				<div v-else>
 					<div class="py-32">
@@ -67,6 +65,7 @@
     import BRD from '@/kernel/websockets/brd/index.js';
 
     import TimelinePublication from '@M/components/timeline/feed/TimelinePublication.vue';
+    import TimelinePublicationSkeleton from '@M/components/timeline/feed/TimelinePublicationSkeleton.vue';
     import TimelineContainer from '@M/components/timeline/feed/TimelineContainer.vue';
     import StoriesFeed from '@M/components/stories/feed/StoriesFeed.vue';
     import AdCard from '@M/components/ads/AdCard.vue';
@@ -171,8 +170,9 @@
 
                 try {
                     if(hasInstantPosts) {
-                        timelineStore.refreshFirstPage({
-                            refreshReason: 'resume'
+                        await timelineStore.refreshFirstPage({
+                            refreshReason: 'resume',
+                            attempts: 1
                         });
                     }
                     else {
@@ -228,10 +228,11 @@
 							}
 						});
 
-						state.isLoadingContent = false;
 					}
 				} catch (error) {
 					console.log(error);
+				} finally {
+					state.isLoadingContent = false;
 				}
 			}
 
@@ -259,6 +260,7 @@
         },
         components: {
             TimelinePublication: TimelinePublication,
+            TimelinePublicationSkeleton: TimelinePublicationSkeleton,
             TimelineContainer: TimelineContainer,
             StoriesFeed: StoriesFeed,
             AdCard: AdCard,

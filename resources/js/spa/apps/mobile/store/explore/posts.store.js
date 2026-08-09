@@ -99,9 +99,12 @@ const useExplorePostsStore = defineStore('mobile_explore_posts_store', {
 			this.startFeedSession(options.refreshReason || 'refresh');
 			this.filter.page = 1;
 
-			await this.fetchPosts();
-
-			this.filter.page = pageNumber;
+			try {
+				await this.fetchPosts();
+			}
+			finally {
+				this.filter.page = pageNumber;
+			}
 		},
 		loadMorePosts: async function() {
 			return await this.makeLoadRequest().then((response) => {

@@ -20,6 +20,12 @@ const createFeedSessionId = function() {
     return `feed-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 };
 
+const wait = function(timeout) {
+    return new Promise((resolve) => {
+        setTimeout(resolve, timeout);
+    });
+};
+
 const useTimelineStore = defineStore('mobile_timeline_store', {
     // This is used to tell the postDeleteListener to listen to this store
     // This is used only for timeline stores, on desktop and mobile with the same logic.
@@ -33,6 +39,7 @@ const useTimelineStore = defineStore('mobile_timeline_store', {
 		return {
 			posts: cachedPosts,
             update: [],
+            warmPromise: null,
             feedType: 'for_you',
             feedSessionId: createFeedSessionId(),
             refreshReason: 'initial',
@@ -89,14 +96,72 @@ const useTimelineStore = defineStore('mobile_timeline_store', {
         },
         initialLoad: async function() {
             if (! this.posts.length) {
-                await this.refreshFirstPage({
-                    refreshReason: 'initial'
-                });
+                if(this.warmPromise) {
+                    await this.warmPromise;
+                }
+
+                if(! this.posts.length) {
+                    await this.refreshFirstPage({
+                        refreshReason: 'initial',
+                        attempts: 2
+                    });
+                }
             }
         },
         refreshFirstPage: async function(options = {}) {
             this.startFeedSession(options.refreshReason || 'refresh');
 
+            return await this.fetchFirstPageWithRetry(options.attempts || 1);
+        },
+        warmFirstPage: function() {
+            if(this.posts.length) {
+                prefetchTimelineMedia(this.posts);
+
+                return Promise.resolve(this.posts);
+            }
+
+            if(this.warmPromise) {
+                return this.warmPromise;
+            }
+
+            this.startFeedSession('warm');
+
+            this.warmPromise = this.fetchFirstPageWithRetry(2)
+                .then((response) => {
+                    return response?.data?.data ?? this.posts;
+                })
+                .catch(() => {
+                    return this.posts;
+                })
+                .finally(() => {
+                    this.warmPromise = null;
+                });
+
+            return this.warmPromise;
+        },
+        fetchFirstPageWithRetry: async function(attempts = 1) {
+            const requestAttempts = Math.max(1, attempts);
+            let lastError = null;
+
+            for(let attempt = 1; attempt <= requestAttempts; attempt++) {
+                try {
+                    return await this.fetchFirstPage();
+                } catch (error) {
+                    lastError = error;
+
+                    if(attempt < requestAttempts) {
+                        await wait(350 * attempt);
+                    }
+                }
+            }
+
+            if(! this.posts.length) {
+                this.posts = [];
+            }
+
+            throw lastError;
+        },
+        fetchFirstPage: async function() {
             return await colibriAPI().userTimeline().params({
                 filter: {
                     page: 1,
@@ -114,16 +179,18 @@ const useTimelineStore = defineStore('mobile_timeline_store', {
                 this.persistFirstPage();
 
                 return response;
-            }).catch((error) => {
-                if(! this.posts.length) {
-                    this.posts = [];
-                }
             });
         },
         loadNextPage: async function() {
-            this.filter.page += 1;
+            const previousPage = this.filter.page;
+            this.filter.page = previousPage + 1;
 
-            return await this.load();
+            try {
+                return await this.load();
+            } catch (error) {
+                this.filter.page = previousPage;
+                throw error;
+            }
         },
         load: async function() {
             return await colibriAPI().userTimeline().params({

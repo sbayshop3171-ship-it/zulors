@@ -19,6 +19,7 @@
 	import { defineComponent, computed, ref, onMounted, onUnmounted } from 'vue';
 	import { useAppStore } from '@M/store/app/app.store.js';
 	import { useAuthStore } from '@M/store/auth/auth.store.js';
+	import { useTimelineStore } from '@M/store/timeline/timeline.store.js';
 	import { useExploreReelsStore } from '@M/store/explore/reels.store.js';
 	import { useRoute, useRouter } from 'vue-router';
 	import { Layouts } from '@M/core/constants/layouts.js';
@@ -39,8 +40,9 @@
 			const router = useRouter();
 			const appStore = useAppStore();
 			const authStore = useAuthStore();
-			const reelsStore = useExploreReelsStore();
 			const hasCachedBootstrap = appStore.hydrateCachedBootstrap();
+			const timelineStore = useTimelineStore();
+			const reelsStore = useExploreReelsStore();
 			const appLoading = ref(! hasCachedBootstrap);
 			let realtimeChannel = null;
 			let appShellReady = false;
@@ -77,11 +79,18 @@
 				}
 
 				appShellReady = true;
+				primeHomeFeed();
 				appLoading.value = false;
 
 				colibriEventBus.on('auth:logout', logoutUser);
 				setupRealtimePostUpdates();
 				scheduleReelsWarmup();
+			};
+
+			const primeHomeFeed = () => {
+				if(authStore.authCheck) {
+					timelineStore.warmFirstPage().catch(() => {});
+				}
 			};
 
 			const clearReelsWarmup = () => {

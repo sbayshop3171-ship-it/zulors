@@ -158,11 +158,14 @@
                     if(! state.isLoadingContent && ! state.noMoreContent && posts.value.length) {
                         state.isLoadingContent = true;
 
-                        explorePostsStore.filter.page += 1;
+						try {
+							explorePostsStore.filter.page += 1;
 
-                        state.noMoreContent = (! await explorePostsStore.loadMorePosts());
-
-                        state.isLoadingContent = false;
+							state.noMoreContent = (! await explorePostsStore.loadMorePosts());
+						}
+						finally {
+							state.isLoadingContent = false;
+						}
                     }
                 }
             });
@@ -186,10 +189,14 @@
 				explorePostsStore.resetFilter();
 				state.isLoading = true;
 
-				await explorePostsStore.refreshFirstPage({
-					refreshReason: 'open'
-				});
-				state.isLoading = false;
+				try {
+					await explorePostsStore.refreshFirstPage({
+						refreshReason: 'open'
+					});
+				}
+				finally {
+					state.isLoading = false;
+				}
 
 				setupFeedUpdateInterval();
 				setupRealtimeFeedUpdates();
