@@ -24,7 +24,7 @@ normalize_permissions() {
     chmod -R a+rX storage/app/public 2>/dev/null || true
 }
 
-mkdir -p bootstrap/cache storage/frontend storage/framework/cache storage/framework/sessions storage/framework/views storage/logs
+mkdir -p bootstrap/cache storage/app/public storage/frontend storage/framework/cache storage/framework/sessions storage/framework/views storage/logs
 if [ ! -s storage/frontend/build.num ]; then
 	date +%s > storage/frontend/build.num
 fi

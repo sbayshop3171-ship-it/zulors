@@ -143,23 +143,17 @@ rsync_permissions=(
 
 deployment_down=0
 
-assert_deploy_target_writable() {
-	unwritable_dir="$(find "$LIVE_PATH" \
-		-path "$LIVE_PATH/storage/app" -prune -o \
-		-path "$LIVE_PATH/storage/logs" -prune -o \
-		-path "$LIVE_PATH/storage/framework/cache" -prune -o \
-		-path "$LIVE_PATH/storage/framework/sessions" -prune -o \
-		-path "$LIVE_PATH/storage/framework/views" -prune -o \
-		-type d ! -writable -print -quit)"
+assert_deploy_parent_writable() {
+	live_parent="$(dirname "$LIVE_PATH")"
 
-	if [ -n "$unwritable_dir" ]; then
-		echo "Live deployment refused: deploy user cannot write to ${unwritable_dir}."
-		echo "Fix ownership of ${LIVE_PATH} before deploying again."
+	if [ ! -w "$live_parent" ]; then
+		echo "Live deployment refused: deploy user cannot write to ${live_parent}."
+		echo "Fix ownership of ${live_parent} before deploying again."
 		exit 1
 	fi
 
-	touch "$LIVE_PATH/.deploy-write-test"
-	rm -f "$LIVE_PATH/.deploy-write-test"
+	touch "$live_parent/.deploy-write-test"
+	rm -f "$live_parent/.deploy-write-test"
 }
 
 put_live_down() {
@@ -183,7 +177,8 @@ restore_live() {
 	echo "Promotion failed. Restoring previous live copy..."
 
 	if [ -d "$REMOTE_BACKUP" ]; then
-		rsync -a --delete "${rsync_permissions[@]}" "${rsync_excludes[@]}" "$REMOTE_BACKUP/" "$LIVE_PATH/"
+		rm -rf "$LIVE_PATH"
+		mv "$REMOTE_BACKUP" "$LIVE_PATH"
 		cd "$LIVE_PATH"
 		INSTALL_DEPS=0 BUILD_ASSETS=0 RUN_MIGRATIONS=0 bash deploy/live-deploy.sh || true
 	fi
@@ -197,14 +192,13 @@ trap restore_live ERR
 
 test -d "$LIVE_PATH"
 test -d "$REMOTE_RELEASE"
-assert_deploy_target_writable
+assert_deploy_parent_writable
 
 rm -rf "$REMOTE_BACKUP"
-mkdir -p "$REMOTE_BACKUP"
-rsync -a --delete "${rsync_permissions[@]}" "${rsync_excludes[@]}" "$LIVE_PATH/" "$REMOTE_BACKUP/"
 
 put_live_down
-rsync -a --delete "${rsync_permissions[@]}" "${rsync_excludes[@]}" "$REMOTE_RELEASE/" "$LIVE_PATH/"
+mv "$LIVE_PATH" "$REMOTE_BACKUP"
+mv "$REMOTE_RELEASE" "$LIVE_PATH"
 
 cd "$LIVE_PATH"
 INSTALL_DEPS=0 BUILD_ASSETS=0 RUN_MIGRATIONS=0 bash deploy/live-deploy.sh
