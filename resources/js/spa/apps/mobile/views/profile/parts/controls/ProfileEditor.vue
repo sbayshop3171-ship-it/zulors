@@ -24,8 +24,8 @@
                     <div class="h-full bg-green-900" v-bind:style="{ width: state.uploadProgress + '%' }"></div>
                 </div>
 
-                <div class="bg-black overflow-hidden relative min-h-26">
-                    <img class="w-full" v-bind:src="profileData.cover_url" alt="Cover">
+                <div class="bg-fill-fv overflow-hidden relative h-36">
+                    <img class="block h-full w-full object-cover" v-on:error="onCoverError" v-bind:src="coverSrc" alt="Cover">
                     <button v-on:click="$refs.coverInput.click()" class="cursor-pointer absolute top-2 right-2 bg-black/50 hover:bg-black/30 smoothing size-10 inline-flex-center rounded-full">
                         <SvgIcon name="pencil-02" type="line" classes="size-icon-small text-white/90"></SvgIcon>
                     </button>
@@ -75,7 +75,7 @@
 </template>
 
 <script>
-    import { defineComponent, inject, reactive } from 'vue';
+    import { defineComponent, inject, reactive, ref, watch } from 'vue';
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
     import { useAuthStore } from '@M/store/auth/auth.store.js';
     import ImageCropper from '@/kernel/vue/components/media/image/ImageCropper.vue';
@@ -89,6 +89,8 @@
         setup: function() {
             const authStore = useAuthStore();
             const profileData = inject('profileData');
+            const fallbackCoverUrl = config('user.default_cover', '');
+            const coverSrc = ref(profileData.value.cover_url || fallbackCoverUrl);
             const state = reactive({
 				uploadProgress: 0,
                 cropper: {
@@ -97,6 +99,12 @@
                     file: null
                 }
 			});
+
+            watch(() => {
+                return profileData.value.cover_url;
+            }, (coverUrl) => {
+                coverSrc.value = coverUrl || fallbackCoverUrl;
+            });
 
             const closeCropper = () => {
                 state.cropper.isOpen = false;
@@ -130,7 +138,13 @@
 
             return {
                 profileData: profileData,
+                coverSrc: coverSrc,
                 state: state,
+                onCoverError: function() {
+                    if(coverSrc.value !== fallbackCoverUrl) {
+                        coverSrc.value = fallbackCoverUrl;
+                    }
+                },
                 openCropper: (event, mode) => {
                     event.preventDefault();
 

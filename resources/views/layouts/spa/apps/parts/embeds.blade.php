@@ -81,7 +81,8 @@
 				}
 			},
 			user: {
-				default_avatar: '{{ asset(config('user.avatar')) }}'
+				default_avatar: '{{ asset(config('user.avatar')) }}',
+				default_cover: '{{ asset(config('user.cover')) }}'
 			},
 			wallet: {
 				name: '{{ config('wallet.name') }}',

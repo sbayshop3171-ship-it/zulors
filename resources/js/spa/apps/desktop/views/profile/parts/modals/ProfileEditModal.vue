@@ -19,8 +19,8 @@
 
 				<template v-else>
 					<div class="block mb-4">
-						<div class="bg-black overflow-hidden relative min-h-[180px]">
-							<img class="w-full" v-bind:src="userData.cover_url" alt="Cover">
+						<div class="bg-fill-fv overflow-hidden relative h-[220px]">
+							<img class="block h-full w-full object-cover" v-on:error="onCoverError" v-bind:src="coverSrc" alt="Cover">
 							<button v-on:click="$refs.coverInput.click()" class="cursor-pointer absolute top-2 right-2 bg-black/50 hover:bg-black/30 smoothing size-10 inline-flex-center rounded-full">
 								<SvgIcon name="pencil-02" type="line" classes="size-icon-small text-white/90"></SvgIcon>
 							</button>
@@ -74,7 +74,7 @@
 </template>
 
 <script>
-	import { defineComponent, reactive, computed } from 'vue';
+	import { defineComponent, reactive, computed, ref, watch } from 'vue';
 	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 	import { useAuthStore } from '@D/store/auth/auth.store.js';
 	import ImageCropper from '@/kernel/vue/components/media/image/ImageCropper.vue';
@@ -98,6 +98,14 @@
 			});
 
 			const authStore = useAuthStore();
+			const fallbackCoverUrl = config('user.default_cover', '');
+			const coverSrc = ref(authStore.userData.cover_url || fallbackCoverUrl);
+
+			watch(() => {
+				return authStore.userData.cover_url;
+			}, (coverUrl) => {
+				coverSrc.value = coverUrl || fallbackCoverUrl;
+			});
 
 			const closeCropper = () => {
 				state.cropper.isOpen = false;
@@ -130,9 +138,15 @@
 
 			return {
 				state: state,
+				coverSrc: coverSrc,
 				userData: computed(() => {
 					return authStore.userData;
 				}),
+				onCoverError: function() {
+					if(coverSrc.value !== fallbackCoverUrl) {
+						coverSrc.value = fallbackCoverUrl;
+					}
+				},
 				openCropper: (event, mode) => {
 					event.preventDefault();
 

@@ -1,6 +1,6 @@
 <template>
-    <div class="relative overflow-hidden cursor-pointer min-h-26 bg-fill-fv mb-4">
-        <img class="w-full" v-bind:src="profileData.cover_url" alt="Cover">
+    <div class="relative overflow-hidden cursor-pointer h-36 bg-fill-fv mb-4">
+        <img class="block h-full w-full object-cover" v-on:error="onCoverError" v-bind:src="coverSrc" alt="Cover">
     </div>
 	<div class="flex items-center gap-3 px-4">
 		<div v-on:click="lightboxAvatar" class="cursor-pointer">
@@ -21,7 +21,7 @@
 </template>
 
 <script>
-    import { defineComponent, inject } from 'vue';
+    import { defineComponent, inject, ref, watch } from 'vue';
 	import { useLightboxStore } from '@M/store/lightbox/lightbox.store.js';
 
 	import AvatarLarge from '@M/components/general/avatars/AvatarLarge.vue';
@@ -30,9 +30,23 @@
 		setup: function() {
 			const profileData = inject('profileData');
 			const lightboxStore = useLightboxStore();
+			const fallbackCoverUrl = config('user.default_cover', '');
+			const coverSrc = ref(profileData.value.cover_url || fallbackCoverUrl);
+
+			watch(() => {
+				return profileData.value.cover_url;
+			}, (coverUrl) => {
+				coverSrc.value = coverUrl || fallbackCoverUrl;
+			});
 
 			return {
 				profileData: profileData,
+				coverSrc: coverSrc,
+				onCoverError: function() {
+					if(coverSrc.value !== fallbackCoverUrl) {
+						coverSrc.value = fallbackCoverUrl;
+					}
+				},
 				lightboxAvatar: function() {
 					lightboxStore.add({
 						albumName: `${profileData.value.name} ${profileData.value.caption}`,
