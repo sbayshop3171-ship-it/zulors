@@ -31,16 +31,17 @@
 	import MessengerLayout from '@M/layouts/MessengerLayout.vue';
 	import FlatLayout from '@M/layouts/FlatLayout.vue';
 
-	const maxBootScreenMs = 900;
+	const maxBootScreenMs = 650;
 
 	export default defineComponent({
 		setup: function() {
 			const route = useRoute();
 			const router = useRouter();
-			const appLoading = ref(true);
 			const appStore = useAppStore();
 			const authStore = useAuthStore();
 			const reelsStore = useExploreReelsStore();
+			const hasCachedBootstrap = appStore.hydrateCachedBootstrap();
+			const appLoading = ref(! hasCachedBootstrap);
 			let realtimeChannel = null;
 			let appShellReady = false;
 			let bootDeadlineTimer = null;
@@ -141,9 +142,7 @@
 			};
 
 			onMounted(async () => {
-				appStore.hydrateCachedBootstrap();
-
-				if(authStore.authCheck) {
+				if(hasCachedBootstrap || authStore.authCheck) {
 					revealAppShell();
 				}
 

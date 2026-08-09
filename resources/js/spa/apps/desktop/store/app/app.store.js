@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia';
 import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
-import { resolveAppBaseUrl } from '@/kernel/services/axios/index.js';
 import { readCache, writeCache } from '@/kernel/services/cache/index.js';
 import { useAuthStore } from '@D/store/auth/auth.store.js';
 
@@ -18,6 +17,23 @@ const refreshApplication = () => {
     refreshUrl.searchParams.set('bootstrap_refresh', Date.now().toString());
 
     window.location.replace(refreshUrl.toString());
+};
+
+const takeBootBootstrapRequest = async () => {
+    if(typeof window === 'undefined' || ! window.__zulorsBoot?.bootstrapRequest) {
+        return null;
+    }
+
+    const pendingRequest = window.__zulorsBoot.bootstrapRequest;
+
+    try {
+        return await pendingRequest;
+    }
+    finally {
+        if(window.__zulorsBoot?.bootstrapRequest === pendingRequest) {
+            window.__zulorsBoot.bootstrapRequest = null;
+        }
+    }
 };
 
 const useAppStore = defineStore('app', {
@@ -65,12 +81,10 @@ const useAppStore = defineStore('app', {
                 }
 
                 try {
-                    await fetch(`${resolveAppBaseUrl()}/sanctum/csrf-cookie`, {
-                        method: 'GET',
-                        credentials: 'include'
-                    }).catch(() => null);
-
-                    const response = await colibriAPI().bootstrap().getFrom('bootstrap');
+                    const prefetchedResponse = attemptIndex === 0
+                        ? await takeBootBootstrapRequest()
+                        : null;
+                    const response = prefetchedResponse ?? await colibriAPI().bootstrap().getFrom('bootstrap');
                     const bootstrapData = response?.data?.data;
 
                     if(! bootstrapData) {

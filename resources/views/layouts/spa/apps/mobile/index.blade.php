@@ -15,6 +15,7 @@
         @include('layouts.parts.meta')
         @include('layouts.parts.favicons')
         @include('layouts.spa.apps.parts.boot-shell-styles')
+        @include('layouts.spa.apps.parts.boot-shell-hints', ['variant' => 'mobile'])
 
         @vite([
             'resources/js/spa/apps/mobile/bootstrap/application.js',

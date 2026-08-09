@@ -66,14 +66,28 @@
 
     .zulors-boot-logo {
         display: block;
-        width: 64px;
-        height: 64px;
+        width: 52px;
+        height: 52px;
         object-fit: contain;
     }
 
     .zulors-boot-shell--mobile .zulors-boot-logo {
-        width: 40px;
-        height: 40px;
+        width: 32px;
+        height: 32px;
+    }
+
+    html[data-zulors-boot-cache='hit'] .zulors-boot-logo {
+        width: 36px;
+        height: 36px;
+    }
+
+    html[data-zulors-boot-cache='hit'] .zulors-boot-shell--mobile .zulors-boot-logo {
+        width: 26px;
+        height: 26px;
+    }
+
+    html[data-zulors-boot-cache='hit'] .zulors-boot-corner {
+        opacity: 0;
     }
 
     .zulors-boot-corner {

@@ -36,16 +36,17 @@
     import ApplicationMainLayout from '@D/layouts/ApplicationMainLayout.vue';
     import NetworkStatusBar from '@D/components/layout/parts/network/NetworkStatusBar.vue';
 
-    const maxBootScreenMs = 900;
+    const maxBootScreenMs = 650;
     
     export default defineComponent({
         setup: function(_, context) {
-            const appLoading = ref(true);
             const route = useRoute();
             const router = useRouter();
             const appStore = useAppStore();
             const authStore = useAuthStore();
             const reelsStore = useExploreReelsStore();
+            const hasCachedBootstrap = appStore.hydrateCachedBootstrap();
+            const appLoading = ref(! hasCachedBootstrap);
             let realtimeChannel = null;
             let appShellReady = false;
             let bootDeadlineTimer = null;
@@ -171,9 +172,7 @@
             };
 
             onMounted(async () => {
-                appStore.hydrateCachedBootstrap();
-
-                if(authStore.authCheck) {
+                if(hasCachedBootstrap || authStore.authCheck) {
                     revealAppShell();
                 }
 
