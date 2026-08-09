@@ -28,12 +28,8 @@ class SendSignupOtpEmail implements ShouldQueue
             return;
         }
 
-        if(empty($confirmation->code)) {
+        if(empty($confirmation->code) || $confirmation->otpCodeExpired()) {
             $confirmation->refreshOtpCode();
-        }
-
-        if($confirmation->otpCodeExpired()) {
-            return;
         }
 
         Mail::to($confirmation->email)->send(new VerifyEmailMail([

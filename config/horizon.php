@@ -182,12 +182,35 @@ return [
     */
 
     'defaults' => [
-        'supervisor-1' => [
+        'supervisor-default' => [
             'connection' => 'redis',
-            'queue' => ['default', 'high', 'low'],
-            'balance' => 'auto',
-            'autoScalingStrategy' => 'time',
-            'maxProcesses' => 15,
+            'queue' => ['default'],
+            'balance' => 'simple',
+            'maxProcesses' => (int) env('QUEUE_DEFAULT_MAX_PROCESSES', 6),
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 128,
+            'tries' => 1,
+            'timeout' => 60,
+            'nice' => 0,
+        ],
+        'supervisor-high' => [
+            'connection' => 'redis',
+            'queue' => ['high'],
+            'balance' => 'simple',
+            'maxProcesses' => (int) env('QUEUE_HIGH_MAX_PROCESSES', 3),
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 128,
+            'tries' => 1,
+            'timeout' => 60,
+            'nice' => 0,
+        ],
+        'supervisor-low' => [
+            'connection' => 'redis',
+            'queue' => ['low'],
+            'balance' => 'simple',
+            'maxProcesses' => (int) env('QUEUE_LOW_MAX_PROCESSES', 2),
             'maxTime' => 0,
             'maxJobs' => 0,
             'memory' => 128,
@@ -223,10 +246,14 @@ return [
 
     'environments' => [
         'production' => [
-            'supervisor-1' => [
-                'maxProcesses' => 10,
-                'balanceMaxShift' => 1,
-                'balanceCooldown' => 3,
+            'supervisor-default' => [
+                'maxProcesses' => (int) env('QUEUE_DEFAULT_MAX_PROCESSES', 6),
+            ],
+            'supervisor-high' => [
+                'maxProcesses' => (int) env('QUEUE_HIGH_MAX_PROCESSES', 3),
+            ],
+            'supervisor-low' => [
+                'maxProcesses' => (int) env('QUEUE_LOW_MAX_PROCESSES', 2),
             ],
             'supervisor-media-video' => [
                 'maxProcesses' => (int) env('MEDIA_VIDEO_MAX_PROCESSES', 1),
@@ -237,8 +264,14 @@ return [
         ],
 
         'local' => [
-            'supervisor-1' => [
-                'maxProcesses' => 3,
+            'supervisor-default' => [
+                'maxProcesses' => 2,
+            ],
+            'supervisor-high' => [
+                'maxProcesses' => 1,
+            ],
+            'supervisor-low' => [
+                'maxProcesses' => 1,
             ],
         ],
     ],

@@ -128,6 +128,29 @@ class SignupOtpVerificationTest extends TestCase
         });
     }
 
+    public function test_signup_otp_email_job_refreshes_expired_code_before_sending(): void
+    {
+        Mail::fake();
+
+        $confirmation = $this->createConfirmation([
+            'code' => '1111',
+            'code_expires_at' => now()->subMinute(),
+        ]);
+
+        $job = new SendSignupOtpEmail($confirmation->id, $confirmation->token);
+
+        $job->handle();
+
+        $confirmation->refresh();
+
+        $this->assertNotSame('1111', $confirmation->code);
+        $this->assertFalse($confirmation->otpCodeExpired());
+
+        Mail::assertSent(VerifyEmailMail::class, function (VerifyEmailMail $mail) use ($confirmation): bool {
+            return $mail->hasTo($confirmation->email) && $mail->data['code'] === $confirmation->code;
+        });
+    }
+
     public function test_signup_otp_email_job_does_not_send_deleted_confirmation_code(): void
     {
         Mail::fake();
