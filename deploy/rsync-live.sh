@@ -262,7 +262,9 @@ curl -fsSL --max-time 20 "$LIVE_URL/auth/signup" -o /dev/null
 
 trap - ERR
 
-rm -rf "$REMOTE_RELEASE"
+if ! rm -rf "$REMOTE_RELEASE"; then
+	echo "Staged release folder could not be removed by the deploy user. Continuing because live promotion and health checks passed."
+fi
 if ! find "$(dirname "$LIVE_PATH")" -maxdepth 1 -type d -name "$(basename "$LIVE_PATH").backup-*" | sort | head -n -3 | xargs -r rm -rf; then
 	echo "Some stale backup folders could not be removed by the deploy user. Continuing because live promotion and health checks passed."
 fi
