@@ -16,6 +16,8 @@ use Illuminate\Support\Facades\File;
 
 class DatabaseSeeder extends Seeder
 {
+    private const LOCAL_TEST_VIDEO_USER_COUNT = 1120;
+
     public function run(): void
     {
         (new CategorySeeder())->run();
@@ -49,8 +51,26 @@ class DatabaseSeeder extends Seeder
             'role' => UserRole::USER->value,
         ]);
 
+        $this->seedLocalTestVideoUsers();
         $this->configureLocalMail();
         $this->configureLocalFFMpeg();
+    }
+
+    private function seedLocalTestVideoUsers(): void
+    {
+        foreach (range(1, self::LOCAL_TEST_VIDEO_USER_COUNT) as $index) {
+            $suffix = str_pad((string) $index, 4, '0', STR_PAD_LEFT);
+
+            $this->upsertLocalUser([
+                'first_name' => 'Video',
+                'last_name' => 'Test ' . $suffix,
+                'username' => 'video-test-' . $suffix,
+                'email' => 'video-test-' . $suffix . '@zulors.test',
+                'role' => UserRole::USER->value,
+                'caption' => 'Testing media account ' . $suffix,
+                'bio' => 'Local testing profile for seeded video publishing and feed validation.',
+            ]);
+        }
     }
 
     private function upsertLocalUser(array $attributes): void

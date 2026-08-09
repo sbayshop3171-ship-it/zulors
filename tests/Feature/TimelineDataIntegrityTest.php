@@ -21,6 +21,7 @@ use App\Models\Mute;
 use App\Models\Post;
 use App\Models\User;
 use App\Services\Filesystem\Stats\StorageMetricsService;
+use App\Services\Media\Cloudflare\CloudflareStreamService;
 use App\Services\Media\Cloudflare\R2DirectUploadService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
@@ -212,6 +213,155 @@ class TimelineDataIntegrityTest extends TestCase
             'type' => MediaKind::VIDEO->value,
             'status' => MediaStatus::PROCESSING->value,
             'source_path' => 'uploads/posts/videos/retry-direct.mp4',
+        ]);
+    }
+
+    public function test_cloudflare_stream_upload_is_preferred_for_supported_videos_when_enabled(): void
+    {
+        config()->set('media.cloudflare.stream.prefer_video_direct_uploads', true);
+        config()->set('media.cloudflare.stream.basic_upload_max_bytes', 200 * 1024 * 1024);
+
+        $author = $this->createUser('cloudflare-stream-author');
+
+        app()->instance(R2DirectUploadService::class, new class extends R2DirectUploadService {
+            public function isConfigured(): bool
+            {
+                return true;
+            }
+
+            public function createVideoUpload(array $fileData = []): array
+            {
+                return [
+                    'provider' => 'r2_direct',
+                    'uid' => 'uploads/posts/videos/r2-should-not-win.mp4',
+                    'path' => 'uploads/posts/videos/r2-should-not-win.mp4',
+                    'disk' => 'r2_final',
+                    'final_disk' => 'r2_final',
+                    'upload_url' => 'https://uploads.example.test/r2-should-not-win.mp4',
+                    'upload_method' => 'PUT',
+                    'upload_type' => 'raw',
+                    'upload_headers' => [],
+                    'expires_at' => now()->addMinutes(30)->toIso8601String(),
+                ];
+            }
+        });
+
+        app()->instance(CloudflareStreamService::class, new class extends CloudflareStreamService {
+            public function isConfigured(): bool
+            {
+                return true;
+            }
+
+            public function createDirectUpload(array $metadata = []): array
+            {
+                return [
+                    'uid' => 'stream-video-uid',
+                    'upload_url' => 'https://upload.videodelivery.net/direct',
+                    'expires_at' => now()->addMinutes(30)->toIso8601String(),
+                    'playback' => [
+                        'hls' => 'https://videodelivery.net/stream-video-uid/manifest/video.m3u8',
+                        'dash' => 'https://videodelivery.net/stream-video-uid/manifest/video.mpd',
+                        'thumbnail' => 'https://videodelivery.net/stream-video-uid/thumbnails/thumbnail.jpg',
+                        'watch' => 'https://videodelivery.net/stream-video-uid',
+                    ],
+                ];
+            }
+        });
+
+        $this->actingAs($author)
+            ->withoutMiddleware()
+            ->postJson('/api/post/editor/media/video/direct/create', [
+                'name' => 'stream.mp4',
+                'size' => 20 * 1024 * 1024,
+                'mime' => 'video/mp4',
+                'extension' => 'mp4',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.direct_upload', true)
+            ->assertJsonPath('data.provider', 'cloudflare_stream')
+            ->assertJsonPath('data.uid', 'stream-video-uid')
+            ->assertJsonPath('data.upload_method', 'POST')
+            ->assertJsonPath('data.upload_type', 'form');
+
+        $this->assertDatabaseHas('media', [
+            'type' => MediaKind::VIDEO->value,
+            'disk' => 'cloudflare_stream',
+            'source_path' => 'stream-video-uid',
+        ]);
+
+        $this->assertDatabaseMissing('media', [
+            'source_path' => 'uploads/posts/videos/r2-should-not-win.mp4',
+        ]);
+    }
+
+    public function test_large_videos_stay_on_r2_when_stream_basic_upload_limit_is_exceeded(): void
+    {
+        config()->set('media.cloudflare.stream.prefer_video_direct_uploads', true);
+        config()->set('media.cloudflare.stream.basic_upload_max_bytes', 10);
+
+        $author = $this->createUser('cloudflare-stream-large-video-author');
+
+        app()->instance(R2DirectUploadService::class, new class extends R2DirectUploadService {
+            public function isConfigured(): bool
+            {
+                return true;
+            }
+
+            public function createVideoUpload(array $fileData = []): array
+            {
+                return [
+                    'provider' => 'r2_direct',
+                    'uid' => 'uploads/posts/videos/r2-large-video.mp4',
+                    'path' => 'uploads/posts/videos/r2-large-video.mp4',
+                    'disk' => 'r2_final',
+                    'final_disk' => 'r2_final',
+                    'upload_url' => 'https://uploads.example.test/r2-large-video.mp4',
+                    'upload_method' => 'PUT',
+                    'upload_type' => 'raw',
+                    'upload_headers' => [],
+                    'expires_at' => now()->addMinutes(30)->toIso8601String(),
+                ];
+            }
+        });
+
+        app()->instance(CloudflareStreamService::class, new class extends CloudflareStreamService {
+            public function isConfigured(): bool
+            {
+                return true;
+            }
+
+            public function createDirectUpload(array $metadata = []): array
+            {
+                return [
+                    'uid' => 'stream-large-video-uid',
+                    'upload_url' => 'https://upload.videodelivery.net/direct',
+                    'expires_at' => now()->addMinutes(30)->toIso8601String(),
+                    'playback' => [],
+                ];
+            }
+        });
+
+        $this->actingAs($author)
+            ->withoutMiddleware()
+            ->postJson('/api/post/editor/media/video/direct/create', [
+                'name' => 'large.mp4',
+                'size' => 1024,
+                'mime' => 'video/mp4',
+                'extension' => 'mp4',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.direct_upload', true)
+            ->assertJsonPath('data.provider', 'r2_direct')
+            ->assertJsonPath('data.uid', 'uploads/posts/videos/r2-large-video.mp4');
+
+        $this->assertDatabaseHas('media', [
+            'type' => MediaKind::VIDEO->value,
+            'disk' => 'r2_final',
+            'source_path' => 'uploads/posts/videos/r2-large-video.mp4',
+        ]);
+
+        $this->assertDatabaseMissing('media', [
+            'source_path' => 'stream-large-video-uid',
         ]);
     }
 

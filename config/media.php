@@ -46,6 +46,8 @@ return [
             'api_token' => env('CLOUDFLARE_STREAM_API_TOKEN'),
             'webhook_secret' => env('CLOUDFLARE_STREAM_WEBHOOK_SECRET'),
             'customer_subdomain' => env('CLOUDFLARE_STREAM_CUSTOMER_SUBDOMAIN'),
+            'prefer_video_direct_uploads' => env('CLOUDFLARE_STREAM_PREFER_VIDEO_DIRECT_UPLOADS', true),
+            'basic_upload_max_bytes' => (int) env('CLOUDFLARE_STREAM_BASIC_UPLOAD_MAX_BYTES', 200 * 1024 * 1024),
             'require_signed_urls' => env('CLOUDFLARE_STREAM_REQUIRE_SIGNED_URLS', false),
             'direct_upload_expiry_minutes' => env('CLOUDFLARE_STREAM_DIRECT_UPLOAD_EXPIRY_MINUTES', 60),
             'max_duration_seconds' => env('CLOUDFLARE_STREAM_MAX_DURATION_SECONDS', 36000),

@@ -74,101 +74,20 @@ class DirectMediaUploadController extends Controller
             $this->draftPost->type = PostType::VIDEO;
             $this->draftPost->save();
 
-            if($r2DirectUploadService->isConfigured()) {
-                $uploadData = $r2DirectUploadService->createVideoUpload([
-                    'name' => (string) $request->input('name'),
-                    'size' => $request->integer('size', 0),
-                    'mime' => (string) $request->input('mime', 'video/mp4'),
-                    'extension' => (string) $request->input('extension', 'mp4'),
-                ]);
-
-                $media = $this->draftPost->media()->create([
-                    'source_path' => $uploadData['path'],
-                    'type' => MediaType::VIDEO,
-                    'status' => MediaStatus::PROCESSING,
-                    'disk' => $uploadData['disk'],
-                    'extension' => $request->input('extension', 'mp4'),
-                    'mime' => $request->input('mime', 'video/mp4'),
-                    'size' => $request->integer('size', 0),
-                    'metadata' => array_merge($presentationMetadata, [
-                        'provider' => $uploadData['provider'],
-                        'temp_disk' => $uploadData['disk'],
-                        'upload_disk' => $uploadData['upload_disk'] ?? $uploadData['disk'],
-                        'final_disk' => $uploadData['final_disk'],
-                        'temp_path' => $uploadData['path'],
-                        'upload_state' => 'waiting_for_upload',
-                        'upload_url_expires_at' => $uploadData['expires_at'],
-                        'upload_method' => $uploadData['upload_method'],
-                        'upload_type' => $uploadData['upload_type'],
-                        'upload_id' => $uploadData['upload_id'] ?? null,
-                        'part_size' => $uploadData['part_size'] ?? null,
-                        'parts_count' => count($uploadData['parts'] ?? []),
-                        'upload_progress' => 0,
-                        'processing_progress' => 0,
-                        'processing_state' => 'waiting_for_upload',
-                        'original_name' => (string) $request->input('name'),
-                    ])
-                ]);
-
+            if($this->shouldUseCloudflareStreamUpload($request, $cloudflareStreamService)) {
                 return $this->responseSuccess([
-                    'data' => [
-                        'direct_upload' => true,
-                        'provider' => $uploadData['provider'],
-                        'uid' => $uploadData['uid'],
-                        'upload_url' => $uploadData['upload_url'],
-                        'upload_method' => $uploadData['upload_method'],
-                        'upload_type' => $uploadData['upload_type'],
-                        'upload_headers' => $uploadData['upload_headers'],
-                        'upload_id' => $uploadData['upload_id'] ?? null,
-                        'part_size' => $uploadData['part_size'] ?? null,
-                        'parts' => $uploadData['parts'] ?? [],
-                        'upload_concurrency' => $uploadData['upload_concurrency'] ?? null,
-                        'upload_stall_timeout_ms' => $uploadData['upload_stall_timeout_ms'] ?? null,
-                        'raw_fallback_max_bytes' => $uploadData['raw_fallback_max_bytes'] ?? null,
-                        'part_fallback_max_bytes' => $uploadData['part_fallback_max_bytes'] ?? null,
-                        'expires_at' => $uploadData['expires_at'],
-                        'media' => MediaResource::make($media),
-                    ]
+                    'data' => $this->startCloudflareStreamVideoUpload($request, $cloudflareStreamService, $presentationMetadata),
                 ]);
             }
 
-            $uploadData = $cloudflareStreamService->createDirectUpload([
-                'post_id' => (string) $this->draftPost->id,
-                'user_id' => (string) me()->id,
-                'original_name' => (string) $request->input('name'),
-            ]);
-
-            $media = $this->draftPost->media()->create([
-                'source_path' => $uploadData['uid'],
-                'type' => MediaType::VIDEO,
-                'status' => MediaStatus::PROCESSING,
-                'disk' => 'cloudflare_stream',
-                'extension' => $request->input('extension', 'mp4'),
-                'mime' => $request->input('mime', 'video/mp4'),
-                'size' => $request->integer('size', 0),
-                'thumbnail_path' => $uploadData['playback']['thumbnail'] ?? null,
-                'thumbnail_disk' => 'cloudflare_stream',
-                'metadata' => array_merge($presentationMetadata, [
-                    'provider' => 'cloudflare_stream',
-                    'cloudflare_uid' => $uploadData['uid'],
-                    'upload_state' => 'waiting_for_upload',
-                    'upload_url_expires_at' => $uploadData['expires_at'],
-                    'upload_progress' => 0,
-                    'processing_progress' => 0,
-                    'processing_state' => 'waiting_for_upload',
-                    'playback' => $uploadData['playback'],
-                    'original_name' => (string) $request->input('name'),
-                ])
-            ]);
+            if($r2DirectUploadService->isConfigured()) {
+                return $this->responseSuccess([
+                    'data' => $this->startR2VideoUpload($request, $r2DirectUploadService, $presentationMetadata),
+                ]);
+            }
 
             return $this->responseSuccess([
-                'data' => [
-                    'direct_upload' => true,
-                    'uid' => $uploadData['uid'],
-                    'upload_url' => $uploadData['upload_url'],
-                    'expires_at' => $uploadData['expires_at'],
-                    'media' => MediaResource::make($media),
-                ]
+                'data' => $this->startCloudflareStreamVideoUpload($request, $cloudflareStreamService, $presentationMetadata),
             ]);
         }
         catch (Exception $e) {
@@ -183,6 +102,125 @@ class DirectMediaUploadController extends Controller
                 ]
             ]);
         }
+    }
+
+    private function shouldUseCloudflareStreamUpload(Request $request, CloudflareStreamService $cloudflareStreamService): bool
+    {
+        if(! $cloudflareStreamService->isConfigured()) {
+            return false;
+        }
+
+        if(! (bool) config('media.cloudflare.stream.prefer_video_direct_uploads', true)) {
+            return false;
+        }
+
+        $size = max(0, $request->integer('size', 0));
+        $basicUploadMaxBytes = max(0, (int) config('media.cloudflare.stream.basic_upload_max_bytes', 200 * 1024 * 1024));
+
+        return $size > 0 && ($basicUploadMaxBytes === 0 || $size <= $basicUploadMaxBytes);
+    }
+
+    private function startR2VideoUpload(Request $request, R2DirectUploadService $r2DirectUploadService, array $presentationMetadata): array
+    {
+        $uploadData = $r2DirectUploadService->createVideoUpload([
+            'name' => (string) $request->input('name'),
+            'size' => $request->integer('size', 0),
+            'mime' => (string) $request->input('mime', 'video/mp4'),
+            'extension' => (string) $request->input('extension', 'mp4'),
+        ]);
+
+        $media = $this->draftPost->media()->create([
+            'source_path' => $uploadData['path'],
+            'type' => MediaType::VIDEO,
+            'status' => MediaStatus::PROCESSING,
+            'disk' => $uploadData['disk'],
+            'extension' => $request->input('extension', 'mp4'),
+            'mime' => $request->input('mime', 'video/mp4'),
+            'size' => $request->integer('size', 0),
+            'metadata' => array_merge($presentationMetadata, [
+                'provider' => $uploadData['provider'],
+                'temp_disk' => $uploadData['disk'],
+                'upload_disk' => $uploadData['upload_disk'] ?? $uploadData['disk'],
+                'final_disk' => $uploadData['final_disk'],
+                'temp_path' => $uploadData['path'],
+                'upload_state' => 'waiting_for_upload',
+                'upload_url_expires_at' => $uploadData['expires_at'],
+                'upload_method' => $uploadData['upload_method'],
+                'upload_type' => $uploadData['upload_type'],
+                'upload_id' => $uploadData['upload_id'] ?? null,
+                'part_size' => $uploadData['part_size'] ?? null,
+                'parts_count' => count($uploadData['parts'] ?? []),
+                'upload_progress' => 0,
+                'processing_progress' => 0,
+                'processing_state' => 'waiting_for_upload',
+                'original_name' => (string) $request->input('name'),
+            ])
+        ]);
+
+        return [
+            'direct_upload' => true,
+            'provider' => $uploadData['provider'],
+            'uid' => $uploadData['uid'],
+            'upload_url' => $uploadData['upload_url'],
+            'upload_method' => $uploadData['upload_method'],
+            'upload_type' => $uploadData['upload_type'],
+            'upload_headers' => $uploadData['upload_headers'],
+            'upload_id' => $uploadData['upload_id'] ?? null,
+            'part_size' => $uploadData['part_size'] ?? null,
+            'parts' => $uploadData['parts'] ?? [],
+            'upload_concurrency' => $uploadData['upload_concurrency'] ?? null,
+            'upload_stall_timeout_ms' => $uploadData['upload_stall_timeout_ms'] ?? null,
+            'raw_fallback_max_bytes' => $uploadData['raw_fallback_max_bytes'] ?? null,
+            'part_fallback_max_bytes' => $uploadData['part_fallback_max_bytes'] ?? null,
+            'expires_at' => $uploadData['expires_at'],
+            'media' => MediaResource::make($media),
+        ];
+    }
+
+    private function startCloudflareStreamVideoUpload(Request $request, CloudflareStreamService $cloudflareStreamService, array $presentationMetadata): array
+    {
+        $uploadData = $cloudflareStreamService->createDirectUpload([
+            'post_id' => (string) $this->draftPost->id,
+            'user_id' => (string) me()->id,
+            'original_name' => (string) $request->input('name'),
+        ]);
+
+        $media = $this->draftPost->media()->create([
+            'source_path' => $uploadData['uid'],
+            'type' => MediaType::VIDEO,
+            'status' => MediaStatus::PROCESSING,
+            'disk' => 'cloudflare_stream',
+            'extension' => $request->input('extension', 'mp4'),
+            'mime' => $request->input('mime', 'video/mp4'),
+            'size' => $request->integer('size', 0),
+            'thumbnail_path' => $uploadData['playback']['thumbnail'] ?? null,
+            'thumbnail_disk' => 'cloudflare_stream',
+            'metadata' => array_merge($presentationMetadata, [
+                'provider' => 'cloudflare_stream',
+                'cloudflare_uid' => $uploadData['uid'],
+                'upload_state' => 'waiting_for_upload',
+                'upload_url_expires_at' => $uploadData['expires_at'],
+                'upload_method' => 'POST',
+                'upload_type' => 'form',
+                'upload_progress' => 0,
+                'processing_progress' => 0,
+                'processing_state' => 'waiting_for_upload',
+                'playback' => $uploadData['playback'],
+                'original_name' => (string) $request->input('name'),
+            ])
+        ]);
+
+        return [
+            'direct_upload' => true,
+            'provider' => 'cloudflare_stream',
+            'uid' => $uploadData['uid'],
+            'upload_url' => $uploadData['upload_url'],
+            'upload_method' => 'POST',
+            'upload_type' => 'form',
+            'upload_headers' => [],
+            'expires_at' => $uploadData['expires_at'],
+            'media' => MediaResource::make($media),
+        ];
     }
 
     public function updateVideoUploadProgress(Request $request)

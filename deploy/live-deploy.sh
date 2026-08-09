@@ -8,6 +8,8 @@ BUILD_ASSETS="${BUILD_ASSETS:-1}"
 RUN_MIGRATIONS="${RUN_MIGRATIONS:-1}"
 SHARED_STORAGE_PUBLIC_PATH="${SHARED_STORAGE_PUBLIC_PATH:-}"
 MEDIA_GUARD_MIN_USER_FILES="${MEDIA_GUARD_MIN_USER_FILES:-0}"
+APP_RUNTIME_USER="${APP_RUNTIME_USER:-$(stat -c '%U' .env 2>/dev/null || id -un)}"
+APP_RUNTIME_GROUP="${APP_RUNTIME_GROUP:-www-data}"
 
 if [ ! -f ".env" ]; then
 	echo "Missing .env on live server. Deployment stopped."
@@ -63,7 +65,10 @@ ensure_shared_public_storage() {
 
 normalize_permissions() {
 	chmod 755 . || true
+    chown -R "${APP_RUNTIME_USER}:${APP_RUNTIME_GROUP}" storage bootstrap/cache 2>/dev/null || true
     chmod -R ug+rwX storage bootstrap/cache 2>/dev/null || true
+    find storage bootstrap/cache -type d -exec chmod 2775 {} + 2>/dev/null || true
+    find storage bootstrap/cache -type f -exec chmod 664 {} + 2>/dev/null || true
     chmod -R a+rX public bootstrap config database deploy lang resources routes scripts services var vendor 2>/dev/null || true
     chmod -R a+rX storage/app/public 2>/dev/null || true
 }
