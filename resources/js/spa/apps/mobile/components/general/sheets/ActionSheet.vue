@@ -1,8 +1,8 @@
 <template>
 	<Teleport to="body">
-		<div v-on:click.stop.self="close" class="fixed inset-0 z-100 flex flex-col bg-black/70 pt-14 bg-cover">
+		<div v-on:click.stop.self="close" class="zulors-action-sheet-overlay fixed inset-0 z-100 flex w-screen max-w-none flex-col bg-black/70 pt-14 bg-cover">
 			<Transition name="slide-up">
-				<div v-if="renderActionSheet" class="relative max-h-full flex flex-col mt-auto rounded-t-3xl"
+				<div v-if="renderActionSheet" class="zulors-action-sheet relative mt-auto flex max-h-full w-screen max-w-none flex-col rounded-t-3xl"
 				v-bind:class="[isMuted ? 'bg-bg-sc' : 'bg-bg-pr']">
 					<div v-on:click.stop.self="close"
 					v-on:touchstart.stop.self="close"
