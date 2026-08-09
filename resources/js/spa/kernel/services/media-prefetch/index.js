@@ -76,7 +76,7 @@ function prefetchPostMedia(postData, state, networkProfile, options = {}) {
 		if(mediaItem.type === 'video') {
 			prefetchImage(mediaItem.thumbnail_url);
 
-			if(networkProfile.allowVideoPrefetch) {
+			if(networkProfile.allowVideoPrefetch || options.forceVideoPrefetch) {
 				const playbackSource = buildAdaptiveVideoSource(mediaItem);
 				const preloadMode = options.videoPreload || 'metadata';
 
@@ -183,6 +183,16 @@ function prefetchReelsPlaybackWindow(posts = [], activeIndex = 0) {
     const safeActiveIndex = Math.max(0, Math.min(posts.length - 1, Number(activeIndex || 0)));
     const forwardRadius = Math.max(0, Number(networkProfile.reelsPrefetchAhead || 0));
     const orderedPosts = [];
+    const activePost = posts[safeActiveIndex];
+
+    if(activePost) {
+        prefetchTimelineMedia([activePost], 1, {
+            immediate: true,
+            forceVideoPrefetch: true,
+            videoPreload: networkProfile.activeVideoPreload || 'auto',
+            includeFallbackSource: false
+        });
+    }
 
     for(let offset = 1; offset <= forwardRadius; offset++) {
         const postData = posts[safeActiveIndex + offset];
@@ -198,6 +208,7 @@ function prefetchReelsPlaybackWindow(posts = [], activeIndex = 0) {
 
     prefetchTimelineMedia(orderedPosts, orderedPosts.length || 1, {
         immediate: true,
+        forceVideoPrefetch: true,
         videoPreload: networkProfile.reelsAdjacentVideoPreload || 'metadata',
         includeFallbackSource: false
     });

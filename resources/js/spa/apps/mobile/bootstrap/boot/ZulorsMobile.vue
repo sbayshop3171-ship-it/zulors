@@ -19,6 +19,7 @@
 	import { defineComponent, computed, ref, onMounted, onUnmounted } from 'vue';
 	import { useAppStore } from '@M/store/app/app.store.js';
 	import { useAuthStore } from '@M/store/auth/auth.store.js';
+	import { useExploreReelsStore } from '@M/store/explore/reels.store.js';
 	import { useRoute, useRouter } from 'vue-router';
 	import { Layouts } from '@M/core/constants/layouts.js';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
@@ -39,9 +40,12 @@
 			const appLoading = ref(true);
 			const appStore = useAppStore();
 			const authStore = useAuthStore();
+			const reelsStore = useExploreReelsStore();
 			let realtimeChannel = null;
 			let appShellReady = false;
 			let bootDeadlineTimer = null;
+			let reelsWarmupHandle = null;
+			let reelsWarmupScheduled = false;
 
 			const fetchUpdatedPost = async (event) => {
                 const hashId = event?.data?.hash_id;
@@ -76,6 +80,44 @@
 
 				colibriEventBus.on('auth:logout', logoutUser);
 				setupRealtimePostUpdates();
+				scheduleReelsWarmup();
+			};
+
+			const clearReelsWarmup = () => {
+				if(! reelsWarmupHandle || typeof window === 'undefined') {
+					return;
+				}
+
+				if(typeof reelsWarmupHandle === 'number') {
+					window.clearTimeout(reelsWarmupHandle);
+				}
+				else if('cancelIdleCallback' in window) {
+					window.cancelIdleCallback(reelsWarmupHandle);
+				}
+
+				reelsWarmupHandle = null;
+			};
+
+			const scheduleReelsWarmup = () => {
+				if(reelsWarmupScheduled || ! authStore.authCheck || typeof window === 'undefined') {
+					return;
+				}
+
+				reelsWarmupScheduled = true;
+
+				const runWarmup = () => {
+					reelsWarmupHandle = null;
+					reelsStore.prefetchFirstPage().catch(() => {});
+				};
+
+				if('requestIdleCallback' in window) {
+					reelsWarmupHandle = window.requestIdleCallback(runWarmup, {
+						timeout: 1800
+					});
+				}
+				else {
+					reelsWarmupHandle = window.setTimeout(runWarmup, 1100);
+				}
 			};
 
 			const finishBootstrap = async (isBootstrapped) => {
@@ -145,6 +187,8 @@
 				if(bootDeadlineTimer) {
 					window.clearTimeout(bootDeadlineTimer);
 				}
+
+				clearReelsWarmup();
 
 				colibriEventBus.off('auth:logout', logoutUser);
 

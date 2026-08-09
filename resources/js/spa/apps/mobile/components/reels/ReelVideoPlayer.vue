@@ -701,7 +701,7 @@
 						capLevelToPlayerSize: true,
 						lowLatencyMode: false,
 						backBufferLength: state.networkProfile.reelsBackBufferLength,
-						startLevel: isSlowNetworkProfile(state.networkProfile) ? 0 : -1,
+						startLevel: 0,
 						maxBufferLength: state.networkProfile.reelsMaxBufferLength,
 						maxMaxBufferLength: state.networkProfile.reelsMaxMaxBufferLength
 					});

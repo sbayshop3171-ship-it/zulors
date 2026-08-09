@@ -6,7 +6,13 @@
 			</span>
 		</RouterLink>
 		<RouterLink v-bind:to="{ name: 'explore_reels' }" v-slot="{ isActive }" class="block">
-			<span v-bind:class="isActive ? 'text-white border-white' : 'text-white/55 border-transparent'" class="h-12 inline-flex-center w-full border-b-2 text-par-m font-semibold">
+			<span
+				v-on:mouseenter="warmReelsFeed"
+				v-on:focus="warmReelsFeed"
+				v-on:touchstart.passive="warmReelsFeed"
+				v-bind:class="isActive ? 'text-white border-white' : 'text-white/55 border-transparent'"
+				class="h-12 inline-flex-center w-full border-b-2 text-par-m font-semibold"
+			>
 				{{ $t('labels.reels') }}
 			</span>
 		</RouterLink>
@@ -31,6 +37,7 @@
 
 <script>
 	import { defineComponent } from 'vue';
+	import { useExploreReelsStore } from '@D/store/explore/reels.store.js';
 
 	import ContentTabs from '@D/components/general/tabs/content/ContentTabs.vue';
 	import TabsLink from '@D/components/general/tabs/content/parts/TabsLink.vue';
@@ -41,6 +48,15 @@
 				type: String,
 				default: 'light'
 			}
+		},
+		setup: function() {
+			const reelsStore = useExploreReelsStore();
+
+			return {
+				warmReelsFeed: () => {
+					reelsStore.prefetchFirstPage().catch(() => {});
+				}
+			};
 		},
 		components: {
 			ContentTabs: ContentTabs,

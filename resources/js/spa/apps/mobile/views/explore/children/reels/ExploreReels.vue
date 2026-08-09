@@ -15,7 +15,7 @@
 			</div>
 		</div>
 
-		<div v-if="state.isLoading" class="size-full inline-flex-center">
+		<div v-if="showInitialLoader" class="size-full inline-flex-center">
 			<div class="colibri-primary-animation"></div>
 		</div>
 
@@ -88,6 +88,10 @@
 
 			const feedSessionId = computed(() => {
 				return reelsStore.feedSessionId;
+			});
+
+			const showInitialLoader = computed(() => {
+				return state.isLoading && ! posts.value.length;
 			});
 
 				const nearRadius = computed(() => {
@@ -222,6 +226,7 @@
 			return {
 				state: state,
 				posts: posts,
+				showInitialLoader: showInitialLoader,
 				feedSessionId: feedSessionId,
 				nearRadius: nearRadius,
 				swipeSurfaceRef: swipeSurfaceRef,

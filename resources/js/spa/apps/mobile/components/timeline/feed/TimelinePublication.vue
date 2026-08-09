@@ -180,6 +180,7 @@
     import ActionSheetGroup from '@M/components/general/sheets/ActionSheetGroup.vue';
     import ActionSheetReactions from '@M/components/general/sheets/ActionSheetReactions.vue';
     import PublicationComments from '@M/components/timeline/feed/parts/comments/PublicationComments.vue';
+    import { useExploreReelsStore } from '@M/store/explore/reels.store.js';
 
     // This component is used to display a publication in the timeline feed.
     // It is used in the BookmarksPostsPage component.
@@ -216,6 +217,7 @@
         setup: function(props) {
             const router = useRouter();
             const lightboxStore = useLightboxStore();
+            const reelsStore = useExploreReelsStore();
             const publicationRootRef = ref(null);
 
             const state = reactive({
@@ -396,6 +398,8 @@
                     if(isOptimisticPost.value || ! postData.value.hash_id) {
                         return false;
                     }
+
+                    reelsStore.prefetchFirstPage(postData.value.hash_id).catch(() => {});
 
                     router.push({
                         name: 'explore_reels',

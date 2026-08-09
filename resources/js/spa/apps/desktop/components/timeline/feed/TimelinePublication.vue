@@ -228,6 +228,7 @@
     import TextTranslateButton from '@D/components/inter-ui/buttons/TextTranslateButton.vue';
     import TranslationService from '@D/components/general/TranslationService.vue';
     import PublicationQuote from '@D/components/timeline/feed/parts/quote/PublicationQuote.vue';
+    import { useExploreReelsStore } from '@D/store/explore/reels.store.js';
 
     // This component is used to display a publication in the timeline feed.
     // It is used in the BookmarksPostsPage component.
@@ -282,6 +283,7 @@
             const publicationRootRef = ref(null);
 
             const lightboxStore = useLightboxStore();
+            const reelsStore = useExploreReelsStore();
 
             useFeedPostTelemetry({
                 targetRef: publicationRootRef,
@@ -326,6 +328,8 @@
                     if(! postData.value?.hash_id) {
                         return;
                     }
+
+                    reelsStore.prefetchFirstPage(postData.value.hash_id).catch(() => {});
 
                     router.push({
                         name: 'explore_reels',

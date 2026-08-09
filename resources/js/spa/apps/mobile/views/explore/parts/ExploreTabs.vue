@@ -8,7 +8,13 @@
 			</div>
 		</RouterLink>
 		<RouterLink v-bind:to="{ name: 'explore_reels' }" v-slot="{ isActive }" class="block flex-1">
-			<div v-bind:class="isActive ? 'explore-tabs__link--active' : ''" class="explore-tabs__link py-4 cursor-pointer w-full px-3 text-center overflow-hidden truncate leading-4">
+			<div
+				v-on:mouseenter="warmReelsFeed"
+				v-on:focus="warmReelsFeed"
+				v-on:touchstart.passive="warmReelsFeed"
+				v-bind:class="isActive ? 'explore-tabs__link--active' : ''"
+				class="explore-tabs__link py-4 cursor-pointer w-full px-3 text-center overflow-hidden truncate leading-4"
+			>
 				<span v-bind:class="isActive ? 'text-white' : 'text-white/55'" class="text-par-m font-semibold transition-colors duration-200 ease-out">
 					{{ $t('labels.reels') }}
 				</span>
@@ -37,6 +43,7 @@
 
 <script>
 	import { defineComponent } from 'vue';
+	import { useExploreReelsStore } from '@M/store/explore/reels.store.js';
 
 	import ContentTabs from '@M/components/general/tabs/content/ContentTabs.vue';
 	import TabsLink from '@M/components/general/tabs/content/parts/TabsLink.vue';
@@ -47,6 +54,15 @@
 				type: String,
 				default: 'default'
 			}
+		},
+		setup: function() {
+			const reelsStore = useExploreReelsStore();
+
+			return {
+				warmReelsFeed: () => {
+					reelsStore.prefetchFirstPage().catch(() => {});
+				}
+			};
 		},
 		components: {
 			ContentTabs: ContentTabs,

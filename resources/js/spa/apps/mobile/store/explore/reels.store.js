@@ -6,6 +6,7 @@ import { useAuthStore } from '@M/store/auth/auth.store.js';
 
 const reelsCacheLimit = 20;
 const reelsPerPage = 30;
+const warmRequests = new Map();
 
 const normalizeSeedHash = function(seedHashId = '') {
 	return String(seedHashId || '').trim().slice(0, 80);
@@ -20,6 +21,16 @@ const getExploreReelsCacheKey = function(seedHashId = '') {
 	const seed = normalizeSeedHash(seedHashId) || 'default';
 
 	return `colibri.mobile.explore.reels.first_page.v1.${authStore.userData?.id || 'guest'}.${seed}`;
+};
+
+const buildWarmRequestFilter = function(seedHashId = '', refreshReason = 'warm') {
+	return {
+		page: 1,
+		type: 'reels',
+		session_id: createFeedSessionId(),
+		refresh_reason: refreshReason,
+		seed_hash_id: normalizeSeedHash(seedHashId)
+	};
 };
 
 const useExploreReelsStore = defineStore('mobile_explore_reels_store', {
@@ -47,6 +58,17 @@ const useExploreReelsStore = defineStore('mobile_explore_reels_store', {
 			}
 
 			if(! this.posts.length) {
+				const warmedPosts = await this.prefetchFirstPage(nextSeedHashId, {
+					refreshReason: 'initial'
+				}).catch(() => []);
+
+				if(warmedPosts.length) {
+					this.posts = warmedPosts;
+					this.persistFirstPage();
+
+					return;
+				}
+
 				await this.refreshFirstPage({
 					refreshReason: 'initial'
 				});
@@ -96,6 +118,48 @@ const useExploreReelsStore = defineStore('mobile_explore_reels_store', {
 			return await colibriAPI().userTimeline().params({
 				filter: this.requestFilter()
 			}).getFrom('feed');
+		},
+		prefetchFirstPage: async function(seedHashId = '', options = {}) {
+			const normalizedSeedHashId = normalizeSeedHash(seedHashId);
+			const cacheKey = getExploreReelsCacheKey(normalizedSeedHashId);
+			const cachedPosts = readCache(cacheKey, []);
+
+			if(cachedPosts.length && ! options.force) {
+				prefetchReelsPlaybackWindow(cachedPosts, 0);
+
+				if(this.filter.seed_hash_id === normalizedSeedHashId && ! this.posts.length) {
+					this.posts = cachedPosts;
+				}
+
+				return cachedPosts;
+			}
+
+			if(warmRequests.has(cacheKey)) {
+				return warmRequests.get(cacheKey);
+			}
+
+			const warmPromise = colibriAPI().userTimeline().params({
+				filter: buildWarmRequestFilter(normalizedSeedHashId, options.refreshReason || 'warm')
+			}).getFrom('feed').then((response) => {
+				const posts = response.data.data || [];
+
+				writeCache(cacheKey, posts.slice(0, reelsCacheLimit));
+				prefetchReelsPlaybackWindow(posts, 0);
+
+				if(this.filter.seed_hash_id === normalizedSeedHashId && ! this.posts.length) {
+					this.posts = posts;
+				}
+
+				return posts;
+			}).catch(() => {
+				return [];
+			}).finally(() => {
+				warmRequests.delete(cacheKey);
+			});
+
+			warmRequests.set(cacheKey, warmPromise);
+
+			return warmPromise;
 		},
 		appendPosts: function(posts) {
 			const existingIds = new Set(this.posts.map((postData) => postData.id));

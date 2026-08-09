@@ -46,7 +46,7 @@
 			v-on:scroll.passive="handleScroll"
 			class="relative z-10 h-[100dvh] snap-y snap-mandatory overflow-y-auto overscroll-contain bg-transparent hidden-scroll"
 		>
-			<div v-if="state.isLoading" class="h-[100dvh] inline-flex-center text-white">
+			<div v-if="showInitialLoader" class="h-[100dvh] inline-flex-center text-white">
 				<div class="colibri-primary-animation"></div>
 			</div>
 
@@ -117,6 +117,10 @@
 
 			const canGoPrevious = computed(() => {
 				return state.activeIndex > 0;
+			});
+
+			const showInitialLoader = computed(() => {
+				return state.isLoading && ! posts.value.length;
 			});
 
 			const canGoNext = computed(() => {
@@ -305,6 +309,7 @@
 			return {
 				state: state,
 				posts: posts,
+				showInitialLoader: showInitialLoader,
 				scrollerRef: scrollerRef,
 				reelsStore: reelsStore,
 				nearRadius: nearRadius,

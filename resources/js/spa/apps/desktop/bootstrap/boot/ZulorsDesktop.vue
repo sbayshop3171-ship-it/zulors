@@ -26,6 +26,7 @@
     import { useRoute, useRouter } from 'vue-router';
     import { useAppStore } from '@D/store/app/app.store.js';
     import { useAuthStore } from '@D/store/auth/auth.store.js';
+    import { useExploreReelsStore } from '@D/store/explore/reels.store.js';
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
     import BRD from '@/kernel/websockets/brd/index.js';
@@ -44,9 +45,12 @@
             const router = useRouter();
             const appStore = useAppStore();
             const authStore = useAuthStore();
+            const reelsStore = useExploreReelsStore();
             let realtimeChannel = null;
             let appShellReady = false;
             let bootDeadlineTimer = null;
+            let reelsWarmupHandle = null;
+            let reelsWarmupScheduled = false;
 
             const layoutType = computed(() => {
                 return route.meta.layout;
@@ -106,6 +110,44 @@
 
                 setupInteractionListeners();
                 setupRealtimePostUpdates();
+                scheduleReelsWarmup();
+            };
+
+            const clearReelsWarmup = () => {
+                if(! reelsWarmupHandle || typeof window === 'undefined') {
+                    return;
+                }
+
+                if(typeof reelsWarmupHandle === 'number') {
+                    window.clearTimeout(reelsWarmupHandle);
+                }
+                else if('cancelIdleCallback' in window) {
+                    window.cancelIdleCallback(reelsWarmupHandle);
+                }
+
+                reelsWarmupHandle = null;
+            };
+
+            const scheduleReelsWarmup = () => {
+                if(reelsWarmupScheduled || ! authStore.authCheck || typeof window === 'undefined') {
+                    return;
+                }
+
+                reelsWarmupScheduled = true;
+
+                const runWarmup = () => {
+                    reelsWarmupHandle = null;
+                    reelsStore.prefetchFirstPage().catch(() => {});
+                };
+
+                if('requestIdleCallback' in window) {
+                    reelsWarmupHandle = window.requestIdleCallback(runWarmup, {
+                        timeout: 1800
+                    });
+                }
+                else {
+                    reelsWarmupHandle = window.setTimeout(runWarmup, 1100);
+                }
             };
 
             const finishBootstrap = async (isBootstrapped) => {
@@ -165,6 +207,7 @@
                 }
 
                 removeInteractionListeners();
+                clearReelsWarmup();
 
                 if(realtimeChannel) {
                     realtimeChannel.stopListening(BRD.getEvent('TIMELINE_POST_UPDATED'));
