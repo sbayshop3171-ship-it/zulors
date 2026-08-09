@@ -46,9 +46,10 @@ class BulkTestAccountEngagementPublisher
 		int $commentMax,
 		bool $testPostsOnly = true,
 		?PostType $postType = null,
+		string $sourceCampaign = '',
 	): array {
 		$users = $this->testUserIds($userLimit);
-		$posts = $this->activePostsAfter($afterId, $postLimit, $testPostsOnly, $postType);
+		$posts = $this->activePostsAfter($afterId, $postLimit, $testPostsOnly, $postType, $sourceCampaign);
 		$targets = [];
 
 		foreach ($posts as $post) {
@@ -410,12 +411,18 @@ class BulkTestAccountEngagementPublisher
 		int $postLimit,
 		bool $testPostsOnly = true,
 		?PostType $postType = null,
+		string $sourceCampaign = '',
 	): Collection
 	{
 		return Post::query()
 			->active()
 			->where('id', '>', $afterId)
 			->when($postType !== null, fn ($query) => $query->where('type', $postType))
+			->when($sourceCampaign !== '', function ($query) use ($sourceCampaign) {
+				$query->whereHas('media', function ($mediaQuery) use ($sourceCampaign) {
+					$mediaQuery->where('metadata->test_content_campaign', $sourceCampaign);
+				});
+			})
 			->when(
 				$testPostsOnly,
 				fn ($query) => $query->whereHas('user', fn ($userQuery) => $userQuery->whereRaw('LOWER(email) LIKE ?', ['%.test'])),

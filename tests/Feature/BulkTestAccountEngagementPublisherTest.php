@@ -5,6 +5,8 @@ namespace Tests\Feature;
 use App\Enums\Post\PostStatus;
 use App\Enums\Post\PostType;
 use App\Enums\User\UserStatus;
+use App\Enums\Media\MediaStatus;
+use App\Enums\Media\MediaType;
 use App\Models\Comment;
 use App\Models\Post;
 use App\Models\Reaction;
@@ -121,6 +123,35 @@ class BulkTestAccountEngagementPublisherTest extends TestCase
 		$this->assertSame([$imagePost->id], $preview['posts']->modelKeys());
 	}
 
+	public function test_it_can_scope_preview_to_a_source_media_campaign(): void
+	{
+		foreach (range(1, 5) as $number) {
+			$this->createUser("bulk-source-{$number}", "bulk-source-{$number}@gmail.test");
+		}
+
+		$author = $this->createUser('source-author', 'source-author@gmail.test');
+		$targetPost = $this->createPost($author, 'A campaign video update', PostType::VIDEO);
+		$otherPost = $this->createPost($author, 'Another campaign video update', PostType::VIDEO);
+		$this->attachCampaignVideo($targetPost, 'video-campaign-target');
+		$this->attachCampaignVideo($otherPost, 'video-campaign-other');
+
+		$preview = app(BulkTestAccountEngagementPublisher::class)->preview(
+			'bulk-source-test',
+			0,
+			0,
+			10,
+			3,
+			3,
+			2,
+			2,
+			true,
+			PostType::VIDEO,
+			'video-campaign-target',
+		);
+
+		$this->assertSame([$targetPost->id], $preview['posts']->modelKeys());
+	}
+
 	public function test_preview_can_limit_the_number_of_active_test_accounts(): void
 	{
 		foreach (range(1, 6) as $number) {
@@ -165,6 +196,25 @@ class BulkTestAccountEngagementPublisherTest extends TestCase
 			'status' => PostStatus::ACTIVE,
 			'type' => $type,
 			'text_language' => 'en',
+		]);
+	}
+
+	private function attachCampaignVideo(Post $post, string $campaign): void
+	{
+		$post->media()->create([
+			'source_path' => "test/{$campaign}.mp4",
+			'type' => MediaType::VIDEO,
+			'status' => MediaStatus::PROCESSED,
+			'disk' => 'public',
+			'extension' => 'mp4',
+			'mime' => 'video/mp4',
+			'size' => 123,
+			'thumbnail_path' => "test/{$campaign}.jpg",
+			'thumbnail_size' => 45,
+			'thumbnail_disk' => 'public',
+			'metadata' => [
+				'test_content_campaign' => $campaign,
+			],
 		]);
 	}
 

@@ -16,6 +16,7 @@ class BulkEngageTestAccountContent extends Command
 		{--posts=25 : Number of active posts to process, unless --all is supplied}
 		{--all : Process every remaining active post in controlled batches}
 		{--type=any : Limit targeted posts by type. Supported: any, text, image, video, audio, document, poll, gif}
+		{--source-campaign= : Limit targeted posts to media published by a specific test-content campaign}
 		{--include-non-test-posts : Also process active posts authored by non-.test accounts}
 		{--reaction-min=1000 : Minimum unique .test reactions per post}
 		{--reaction-max=2000 : Maximum unique .test reactions per post}
@@ -37,6 +38,7 @@ class BulkEngageTestAccountContent extends Command
 		$commentMin = max(0, (int) $this->option('comment-min'));
 		$commentMax = max(0, (int) $this->option('comment-max'));
 		$postType = $this->postTypeOption((string) $this->option('type'));
+		$sourceCampaign = trim((string) $this->option('source-campaign'));
 		$testPostsOnly = ! (bool) $this->option('include-non-test-posts');
 
 		if ($campaign === '' || $reactionMin > $reactionMax || $commentMin > $commentMax) {
@@ -62,6 +64,7 @@ class BulkEngageTestAccountContent extends Command
 			$commentMax,
 			$testPostsOnly,
 			$postType,
+			$sourceCampaign,
 		);
 		$users = $preview['users'];
 		$posts = $preview['posts'];
@@ -73,6 +76,7 @@ class BulkEngageTestAccountContent extends Command
 		$this->line('Eligible active .test accounts: '.count($users));
 		$this->line('Post scope: '.($testPostsOnly ? 'active .test-authored posts only' : 'all active posts'));
 		$this->line('Post type: '.($postType?->value ?? 'any'));
+		$this->line('Source campaign: '.($sourceCampaign !== '' ? $sourceCampaign : 'any'));
 		$this->line("Active posts in this batch: {$posts->count()}");
 		$this->line("Planned unique reactions: {$plannedReactions}");
 		$this->line("Planned unique comments: {$plannedComments}");
@@ -127,6 +131,7 @@ class BulkEngageTestAccountContent extends Command
 				(bool) $this->option('all'),
 				$testPostsOnly,
 				$postType,
+				$sourceCampaign,
 			);
 		} finally {
 			$lock->release();
@@ -161,6 +166,7 @@ class BulkEngageTestAccountContent extends Command
 		bool $all,
 		bool $testPostsOnly,
 		?PostType $postType,
+		string $sourceCampaign,
 	): array {
 		$summary = [
 			'posts' => 0,
@@ -203,7 +209,7 @@ class BulkEngageTestAccountContent extends Command
 			$lastPost = $posts->last();
 			$afterId = $lastPost?->id ?? $afterId;
 			$preview = $all
-				? $publisher->preview($campaign, $userLimit, $afterId, $postLimit, $reactionMin, $reactionMax, $commentMin, $commentMax, $testPostsOnly, $postType)
+				? $publisher->preview($campaign, $userLimit, $afterId, $postLimit, $reactionMin, $reactionMax, $commentMin, $commentMax, $testPostsOnly, $postType, $sourceCampaign)
 				: ['posts' => collect()];
 		} while ($all && $preview['posts']->isNotEmpty());
 
