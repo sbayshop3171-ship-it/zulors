@@ -8,6 +8,7 @@ LIVE_PORT="${LIVE_PORT:-22}"
 LIVE_PATH="${LIVE_PATH:-/var/www/zulors/data/www/zulors.com}"
 LIVE_SSH_KEY="${LIVE_SSH_KEY:-$HOME/.ssh/zulors_live_deploy}"
 LIVE_URL="${LIVE_URL:-https://zulors.com}"
+SHARED_STORAGE_PUBLIC="${SHARED_STORAGE_PUBLIC:-${LIVE_PATH}.shared/storage/app/public}"
 
 if [ ! -f "$LIVE_SSH_KEY" ]; then
 	echo "Missing SSH key: $LIVE_SSH_KEY"
@@ -79,6 +80,10 @@ RSYNC_PERMISSIONS=(
 echo "Preparing remote release ${REMOTE_RELEASE}"
 ssh "${SSH_OPTS[@]}" "${LIVE_USER}@${LIVE_HOST}" "set -e && \
 	mkdir -p '$REMOTE_RELEASE' && \
+	mkdir -p '$SHARED_STORAGE_PUBLIC' && \
+	if [ -d '$LIVE_PATH/storage/app/public' ] && [ \"\$(readlink -f '$LIVE_PATH/storage/app/public' 2>/dev/null || true)\" != \"\$(readlink -f '$SHARED_STORAGE_PUBLIC' 2>/dev/null || true)\" ]; then \
+		rsync -a '$LIVE_PATH/storage/app/public/' '$SHARED_STORAGE_PUBLIC/'; \
+	fi && \
 	chmod 755 '$REMOTE_RELEASE' && \
 	test -f '$LIVE_PATH/.env' && \
 	cp '$LIVE_PATH/.env' '$REMOTE_RELEASE/.env'"
@@ -94,17 +99,18 @@ echo "Building staged release..."
 ssh "${SSH_OPTS[@]}" "${LIVE_USER}@${LIVE_HOST}" "set -e && \
 	cp '$LIVE_PATH/.env' '$REMOTE_RELEASE/.env' && \
 	cd '$REMOTE_RELEASE' && \
-	bash deploy/live-deploy.sh && \
+	SHARED_STORAGE_PUBLIC_PATH='$SHARED_STORAGE_PUBLIC' bash deploy/live-deploy.sh && \
 	php artisan about --only=environment --no-ansi >/dev/null"
 
 echo "Promoting staged release to live..."
-ssh "${SSH_OPTS[@]}" "${LIVE_USER}@${LIVE_HOST}" "bash -s" -- "$LIVE_PATH" "$REMOTE_RELEASE" "$REMOTE_BACKUP" "$LIVE_URL" <<'REMOTE'
+ssh "${SSH_OPTS[@]}" "${LIVE_USER}@${LIVE_HOST}" "bash -s" -- "$LIVE_PATH" "$REMOTE_RELEASE" "$REMOTE_BACKUP" "$LIVE_URL" "$SHARED_STORAGE_PUBLIC" <<'REMOTE'
 set -euo pipefail
 
 LIVE_PATH="$1"
 REMOTE_RELEASE="$2"
 REMOTE_BACKUP="$3"
 LIVE_URL="$4"
+SHARED_STORAGE_PUBLIC="$5"
 
 exec 9>"${LIVE_PATH}.deploy.lock"
 if ! flock -n 9; then
@@ -143,6 +149,46 @@ rsync_permissions=(
 
 deployment_down=0
 
+count_user_media_files() {
+	local media_root="$1"
+
+	if [ ! -d "$media_root" ]; then
+		echo 0
+		return
+	fi
+
+	find "$media_root/uploads/users/avatars" "$media_root/uploads/users/covers" -type f 2>/dev/null | wc -l | tr -d ' '
+}
+
+sync_live_public_storage_to_shared() {
+	mkdir -p "$(dirname "$SHARED_STORAGE_PUBLIC")" "$SHARED_STORAGE_PUBLIC"
+
+	if [ -d "$LIVE_PATH/storage/app/public" ] && [ "$(readlink -f "$LIVE_PATH/storage/app/public" 2>/dev/null || true)" != "$(readlink -f "$SHARED_STORAGE_PUBLIC" 2>/dev/null || true)" ]; then
+		echo "Preserving live public uploads in shared media storage..."
+		rsync -a "$LIVE_PATH/storage/app/public/" "$SHARED_STORAGE_PUBLIC/"
+	fi
+}
+
+attach_shared_public_storage() {
+	local app_path="$1"
+
+	mkdir -p "$app_path/storage/app" "$SHARED_STORAGE_PUBLIC"
+	rm -rf "$app_path/storage/app/public"
+	ln -s "$SHARED_STORAGE_PUBLIC" "$app_path/storage/app/public"
+}
+
+assert_shared_media_ready() {
+	local expected_min="$1"
+	local actual_count
+
+	actual_count="$(count_user_media_files "$SHARED_STORAGE_PUBLIC")"
+
+	if [ "$expected_min" -gt 0 ] && [ "$actual_count" -lt "$expected_min" ]; then
+		echo "Live deployment refused: shared media storage has ${actual_count} user media files, expected at least ${expected_min}."
+		exit 1
+	fi
+}
+
 assert_deploy_parent_writable() {
 	live_parent="$(dirname "$LIVE_PATH")"
 
@@ -179,8 +225,9 @@ restore_live() {
 	if [ -d "$REMOTE_BACKUP" ]; then
 		rm -rf "$LIVE_PATH"
 		mv "$REMOTE_BACKUP" "$LIVE_PATH"
+		attach_shared_public_storage "$LIVE_PATH"
 		cd "$LIVE_PATH"
-		INSTALL_DEPS=0 BUILD_ASSETS=0 RUN_MIGRATIONS=0 bash deploy/live-deploy.sh || true
+		SHARED_STORAGE_PUBLIC_PATH="$SHARED_STORAGE_PUBLIC" INSTALL_DEPS=0 BUILD_ASSETS=0 RUN_MIGRATIONS=0 bash deploy/live-deploy.sh || true
 	fi
 
 	put_live_up
@@ -193,6 +240,10 @@ trap restore_live ERR
 test -d "$LIVE_PATH"
 test -d "$REMOTE_RELEASE"
 assert_deploy_parent_writable
+pre_media_count="$(count_user_media_files "$LIVE_PATH/storage/app/public")"
+sync_live_public_storage_to_shared
+assert_shared_media_ready "$pre_media_count"
+attach_shared_public_storage "$REMOTE_RELEASE"
 
 rm -rf "$REMOTE_BACKUP"
 
@@ -201,7 +252,8 @@ mv "$LIVE_PATH" "$REMOTE_BACKUP"
 mv "$REMOTE_RELEASE" "$LIVE_PATH"
 
 cd "$LIVE_PATH"
-INSTALL_DEPS=0 BUILD_ASSETS=0 RUN_MIGRATIONS=0 bash deploy/live-deploy.sh
+attach_shared_public_storage "$LIVE_PATH"
+SHARED_STORAGE_PUBLIC_PATH="$SHARED_STORAGE_PUBLIC" MEDIA_GUARD_MIN_USER_FILES="$pre_media_count" INSTALL_DEPS=0 BUILD_ASSETS=0 RUN_MIGRATIONS=0 bash deploy/live-deploy.sh
 put_live_up
 curl -fsSL --max-time 20 "$LIVE_URL/" -o /dev/null
 curl -fsSL --max-time 20 "$LIVE_URL/admin/login" -o /dev/null

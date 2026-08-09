@@ -37,3 +37,15 @@ The deploy job is ready but only runs when these repository secrets are configur
 - `LIVE_SSH_PRIVATE_KEY`
 
 Do not commit server passwords, `.env`, database dumps, SQLite files, private keys, or uploaded user media.
+
+## Live Media Storage Lock
+
+Uploaded user files must live outside disposable release folders. The live deploy script stores public uploads in:
+
+```bash
+/var/www/zulors/data/www/zulors.com.shared/storage/app/public
+```
+
+Every deploy links `storage/app/public` to that shared folder before the release is promoted. The deploy also refuses to continue if the shared media guard would reduce the number of existing user avatar/cover files.
+
+Do not manually delete, replace, or rsync `storage/app/public` with `--delete`. User uploads, profile photos, cover photos, post images, and videos are runtime data, not source code.

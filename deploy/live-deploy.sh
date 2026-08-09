@@ -6,6 +6,8 @@ cd "$(dirname "$0")/.."
 INSTALL_DEPS="${INSTALL_DEPS:-1}"
 BUILD_ASSETS="${BUILD_ASSETS:-1}"
 RUN_MIGRATIONS="${RUN_MIGRATIONS:-1}"
+SHARED_STORAGE_PUBLIC_PATH="${SHARED_STORAGE_PUBLIC_PATH:-}"
+MEDIA_GUARD_MIN_USER_FILES="${MEDIA_GUARD_MIN_USER_FILES:-0}"
 
 if [ ! -f ".env" ]; then
 	echo "Missing .env on live server. Deployment stopped."
@@ -17,6 +19,48 @@ if grep -q '^APP_ENV=local' .env; then
 	exit 1
 fi
 
+count_user_media_files() {
+	local media_root="$1"
+
+	if [ ! -d "$media_root" ]; then
+		echo 0
+		return
+	fi
+
+	find "$media_root/uploads/users/avatars" "$media_root/uploads/users/covers" -type f 2>/dev/null | wc -l | tr -d ' '
+}
+
+ensure_shared_public_storage() {
+	if [ -z "$SHARED_STORAGE_PUBLIC_PATH" ]; then
+		return
+	fi
+
+	mkdir -p "$(dirname "$SHARED_STORAGE_PUBLIC_PATH")" "$SHARED_STORAGE_PUBLIC_PATH" storage/app
+
+	local shared_target=""
+	local current_target=""
+	shared_target="$(readlink -f "$SHARED_STORAGE_PUBLIC_PATH" 2>/dev/null || true)"
+	current_target="$(readlink -f storage/app/public 2>/dev/null || true)"
+
+	if [ -d storage/app/public ] && [ "$current_target" != "$shared_target" ]; then
+		echo "Migrating existing public uploads into shared media storage..."
+		rsync -a storage/app/public/ "$SHARED_STORAGE_PUBLIC_PATH/"
+	fi
+
+	if [ "$current_target" != "$shared_target" ]; then
+		rm -rf storage/app/public
+		ln -s "$SHARED_STORAGE_PUBLIC_PATH" storage/app/public
+	fi
+
+	local shared_user_files
+	shared_user_files="$(count_user_media_files "$SHARED_STORAGE_PUBLIC_PATH")"
+
+	if [ "$MEDIA_GUARD_MIN_USER_FILES" -gt 0 ] && [ "$shared_user_files" -lt "$MEDIA_GUARD_MIN_USER_FILES" ]; then
+		echo "Deployment stopped: shared media guard expected at least ${MEDIA_GUARD_MIN_USER_FILES} user media files, found ${shared_user_files}."
+		exit 1
+	fi
+}
+
 normalize_permissions() {
 	chmod 755 . || true
     chmod -R ug+rwX storage bootstrap/cache 2>/dev/null || true
@@ -24,7 +68,11 @@ normalize_permissions() {
     chmod -R a+rX storage/app/public 2>/dev/null || true
 }
 
-mkdir -p bootstrap/cache storage/app/public storage/frontend storage/framework/cache storage/framework/sessions storage/framework/views storage/logs
+mkdir -p bootstrap/cache storage/app storage/frontend storage/framework/cache storage/framework/sessions storage/framework/views storage/logs
+if [ -z "$SHARED_STORAGE_PUBLIC_PATH" ]; then
+	mkdir -p storage/app/public
+fi
+ensure_shared_public_storage
 if [ ! -s storage/frontend/build.num ]; then
 	date +%s > storage/frontend/build.num
 fi
@@ -60,6 +108,7 @@ else
 	echo "Skipping database migrations."
 fi
 
+ensure_shared_public_storage
 php artisan storage:link || true
 php artisan livewire:publish --assets || true
 php artisan optimize:clear
@@ -68,5 +117,6 @@ php artisan optimize
 
 normalize_permissions
 chmod -R ug+rwX storage bootstrap/cache public/build 2>/dev/null || true
+ensure_shared_public_storage
 
 echo "Deployment finished."
