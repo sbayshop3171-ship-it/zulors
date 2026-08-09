@@ -165,8 +165,82 @@ body.sticky-bar-open .sticky-bar-bottom-fix{
     @apply relative after:content-[''] after:absolute after:-bottom-px after:left-0 after:w-full after:h-0.5 after:bg-lab-pr;
 }
 
-.auth-content{
-    width: 400px;
+body.auth-page {
+    width: 100%;
+    min-width: 320px;
+    min-height: 100vh;
+    margin: 0;
+    overflow-x: hidden;
+    padding-top: calc(3.5rem + env(safe-area-inset-top, 0px));
+}
+
+@supports (min-height: 100dvh) {
+    body.auth-page {
+        min-height: 100dvh;
+    }
+}
+
+body.auth-page > header {
+    min-width: 320px;
+    padding-top: env(safe-area-inset-top, 0px);
+}
+
+.auth-page-shell {
+    width: 100%;
+    min-height: calc(100vh - 3.5rem);
+    min-width: 0;
+}
+
+@supports (min-height: 100dvh) {
+    .auth-page-shell {
+        min-height: calc(100dvh - 3.5rem - env(safe-area-inset-top, 0px));
+    }
+}
+
+.auth-page-main {
+    width: 100%;
+    min-width: 0;
+    padding: clamp(3rem, 9vh, 6rem) 1rem clamp(1.75rem, 4vh, 3rem);
+}
+
+.auth-content {
+    width: min(100%, 400px);
+    max-width: 100%;
+    min-width: 0;
+}
+
+.auth-app-badges {
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), 2rem);
+}
+
+body.auth-page footer {
+    width: 100%;
+    min-width: 320px;
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), 1rem);
+}
+
+@media (max-width: 480px) {
+    .auth-page-main {
+        align-items: flex-start;
+        padding-top: clamp(2rem, 7vh, 3rem);
+        padding-bottom: 1.25rem;
+    }
+
+    .auth-content {
+        width: 100%;
+    }
+
+    .auth-app-badges {
+        padding-bottom: max(env(safe-area-inset-bottom, 0px), 1.25rem);
+    }
+}
+
+@media (max-width: 359px) {
+    body.auth-page,
+    body.auth-page > header,
+    body.auth-page footer {
+        min-width: 0 !important;
+    }
 }
 
 .backdrop-close-button-container-top-right{

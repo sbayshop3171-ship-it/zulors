@@ -2,7 +2,7 @@
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}" data-theme="{{ theme_name() }}">
     <head>
         <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
         <meta name="theme-color" content="{{ theme_name() == 'dark' ? '#111111' : '#ffffff' }}">
         <meta name="color-scheme" content="{{ theme_name() == 'dark' ? 'dark light' : 'light dark' }}">
 
@@ -31,18 +31,18 @@
 
         @include('layouts.parts.head-code')
     </head>
-    <body class="bg-bg-pr pt-14" data-theme="{{ theme_name() }}" style="min-width: 320px;">
+    <body class="bg-bg-pr auth-page" data-theme="{{ theme_name() }}">
         @include('layouts.mpa.parts.header')
 
-        <div class="flex-col flex min-h-screen">
-            <div class="flex justify-center py-12 md:py-24 px-4 flex-1">
+        <div class="auth-page-shell flex-col flex">
+            <main class="auth-page-main flex justify-center flex-1">
                 <div class="auth-content">
                     @yield('pageContent')
                 </div>
-            </div>
+            </main>
 
             @if(config('app.mobile_app_ios_link') || config('app.mobile_app_android_link'))
-                <div class="flex justify-center px-4 pb-8">
+                <div class="auth-app-badges flex justify-center px-4">
                     <div class="inline-flex items-center gap-3 rounded-md border border-fill-pr bg-bg-pr px-5 py-4">
                         @if(config('app.mobile_app_ios_link'))
                             <a href="{{ config('app.mobile_app_ios_link') }}" class="h-9">
