@@ -8,17 +8,26 @@
 <style>
     :root {
         background: {{ $bootBackgroundColor }};
+        --mobile-safe-top-runtime: env(safe-area-inset-top, 0px);
+        --mobile-safe-bottom-runtime: env(safe-area-inset-bottom, 0px);
     }
 
     html,
     body {
+        height: 100%;
         min-height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        overflow-x: hidden;
         background: var(--color-bg-pr, {{ $bootBackgroundColor }});
     }
 
     #zulors-mobile-app,
     #zulors-desktop-app {
         min-height: 100dvh;
+        width: 100%;
+        min-width: 0;
         background: var(--color-bg-pr, {{ $bootBackgroundColor }});
     }
 
@@ -59,9 +68,14 @@
     }
 
     .zulors-boot-shell--mobile.zulors-route-loader {
-        top: 56px;
-        bottom: calc(56px + env(safe-area-inset-bottom));
+        top: calc(56px + var(--mobile-safe-top-runtime, env(safe-area-inset-top, 0px)));
+        bottom: calc(56px + var(--mobile-safe-bottom-runtime, env(safe-area-inset-bottom, 0px)));
         min-height: 0;
+    }
+
+    html.zulors-android-app .zulors-boot-shell--mobile.zulors-route-loader {
+        top: 0;
+        bottom: 0;
     }
 
     .zulors-boot-logo {

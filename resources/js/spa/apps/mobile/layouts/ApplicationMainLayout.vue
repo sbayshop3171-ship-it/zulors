@@ -145,11 +145,15 @@
 <style scoped>
 	.mobile-app-stage {
 		position: relative;
+		width: 100%;
+		min-width: 0;
 		min-height: 100%;
 		overflow-x: hidden;
 	}
 
 	.mobile-route-view {
+		width: 100%;
+		min-width: 0;
 		min-height: 100%;
 		background: var(--bg-pr);
 	}

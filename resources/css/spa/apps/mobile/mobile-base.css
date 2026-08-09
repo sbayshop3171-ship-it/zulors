@@ -6,6 +6,11 @@ html {
     -webkit-text-size-adjust: 100%;
     text-rendering: optimizeLegibility;
     font-kerning: normal;
+    width: 100%;
+    min-width: 0;
+    min-height: 100%;
+    margin: 0;
+    padding: 0;
 }
 
 :root {
@@ -13,6 +18,24 @@ html {
     --mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
     --mobile-header-bar-height: 3.5rem;
     --mobile-navbar-height: 3.5rem;
+}
+
+body,
+#zulors-mobile-app {
+    width: 100%;
+    min-width: 0;
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    background: var(--color-bg-pr);
+}
+
+@supports (min-height: 100dvh) {
+    body,
+    #zulors-mobile-app {
+        min-height: 100dvh;
+    }
 }
 
 html.zulors-android-app {
@@ -100,7 +123,17 @@ html.zulors-android-app {
 }
 
 .mobile-app-content {
+    width: 100%;
+    min-width: 0;
+    min-height: calc(100vh - var(--mobile-header-bar-height));
     padding-bottom: calc(var(--mobile-navbar-height) + var(--mobile-safe-bottom));
+    background: var(--color-bg-pr);
+}
+
+@supports (min-height: 100dvh) {
+    .mobile-app-content {
+        min-height: calc(100dvh - var(--mobile-header-bar-height));
+    }
 }
 
 .mobile-app-content--no-navbar {
