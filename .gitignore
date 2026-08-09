@@ -46,6 +46,7 @@ yarn-error.log
 /bootstrap/cache/*
 !/bootstrap/cache/.gitignore
 /public/vendor/
+/resources/js/spa/client_secret_*.apps.googleusercontent.com.json
 /docker/database
 /services/ffmpeg/bin
 /refactor
