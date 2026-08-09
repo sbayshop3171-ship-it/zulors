@@ -15,6 +15,8 @@ class PublishTestAccountVideos extends Command
         {--limit=0 : Maximum number of active .test users and videos to process. Use 0 for all.}
         {--random : Select eligible .test accounts in a stable random order.}
         {--seed= : Optional stable random seed. Defaults to the campaign key.}
+        {--shards=1 : Split the selected video/user pairs across this many workers.}
+        {--shard=0 : Zero-based shard index to publish when --shards is greater than 1.}
         {--dry-run : Show the target count without writing posts or uploading media.}
         {--confirm= : Required value ALL_TEST_VIDEO_POSTS before any video post is written.}';
 
@@ -36,12 +38,25 @@ class PublishTestAccountVideos extends Command
         $limit = max(0, (int) $this->option('limit'));
         $randomizeUsers = (bool) $this->option('random');
         $selectionSeed = trim((string) $this->option('seed'));
+        $shards = max(1, (int) $this->option('shards'));
+        $shard = max(0, (int) $this->option('shard'));
         $preview = $publisher->previewForDirectories(
             $sourceDirectories,
             $limit,
             $randomizeUsers,
             $selectionSeed !== '' ? $selectionSeed : $campaignKey,
         );
+
+        if ($shard >= $shards) {
+            $this->error('The --shard value must be less than --shards.');
+
+            return self::FAILURE;
+        }
+
+        if ($shards > 1) {
+            $preview = $this->previewForShard($preview, $shards, $shard);
+        }
+
         $targetCount = count($preview['user_ids']);
 
         if ($campaignKey === '') {
@@ -72,6 +87,10 @@ class PublishTestAccountVideos extends Command
             $this->line('Selection seed: ' . ($selectionSeed !== '' ? $selectionSeed : $campaignKey));
         }
 
+        if ($shards > 1) {
+            $this->line('Shard: ' . ($shard + 1) . " of {$shards}");
+        }
+
         if ($this->option('dry-run')) {
             $this->comment('Dry run complete. No posts or media were created.');
 
@@ -90,7 +109,10 @@ class PublishTestAccountVideos extends Command
             return self::SUCCESS;
         }
 
-        $lock = Cache::lock('test-content-publish-videos:' . sha1($campaignKey), 21600);
+        $lockKey = $shards > 1
+            ? 'test-content-publish-videos:' . sha1("{$campaignKey}:shard:{$shard}:of:{$shards}")
+            : 'test-content-publish-videos:' . sha1($campaignKey);
+        $lock = Cache::lock($lockKey, 21600);
 
         if (! $lock->get()) {
             $this->error('This video campaign is already running.');
@@ -144,5 +166,31 @@ class PublishTestAccountVideos extends Command
         }
 
         return [$fallbackDirectory];
+    }
+
+    /**
+     * @param array{user_ids: array<int, int>, source_files: array<int, string>, eligible_count: int, source_count: int} $preview
+     * @return array{user_ids: array<int, int>, source_files: array<int, string>, eligible_count: int, source_count: int}
+     */
+    private function previewForShard(array $preview, int $shards, int $shard): array
+    {
+        $userIds = [];
+        $sourceFiles = [];
+
+        foreach ($preview['user_ids'] as $position => $userId) {
+            if ($position % $shards !== $shard) {
+                continue;
+            }
+
+            $userIds[] = $userId;
+            $sourceFiles[] = $preview['source_files'][$position];
+        }
+
+        return [
+            'user_ids' => $userIds,
+            'source_files' => $sourceFiles,
+            'eligible_count' => $preview['eligible_count'],
+            'source_count' => $preview['source_count'],
+        ];
     }
 }

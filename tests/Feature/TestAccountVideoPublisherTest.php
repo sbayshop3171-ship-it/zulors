@@ -131,6 +131,24 @@ class TestAccountVideoPublisherTest extends TestCase
             ->assertExitCode(1);
     }
 
+    public function test_command_can_preview_a_publish_shard(): void
+    {
+        foreach (range(1, 5) as $index) {
+            $this->createUser("video-shard-{$index}", "video-shard-{$index}@gmail.test");
+            File::put($this->sourceDirectory . "/shard-{$index}.mp4", "video-{$index}");
+        }
+
+        $this->artisan("test-content:publish-videos --source={$this->sourceDirectory} --shards=3 --shard=1 --dry-run")
+            ->expectsOutput('Video posts targeted in this run: 2')
+            ->expectsOutput('Shard: 2 of 3')
+            ->expectsOutput('Dry run complete. No posts or media were created.')
+            ->assertExitCode(0);
+
+        $this->artisan("test-content:publish-videos --source={$this->sourceDirectory} --shards=3 --shard=3 --dry-run")
+            ->expectsOutput('The --shard value must be less than --shards.')
+            ->assertExitCode(1);
+    }
+
     public function test_publish_creates_one_processed_video_post_for_a_test_user(): void
     {
         Storage::fake('public');
