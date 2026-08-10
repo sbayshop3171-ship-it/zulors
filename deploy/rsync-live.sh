@@ -157,7 +157,9 @@ count_user_media_files() {
 		return
 	fi
 
-	find "$media_root/uploads/users/avatars" "$media_root/uploads/users/covers" -type f 2>/dev/null | wc -l | tr -d ' '
+	{
+		find "$media_root/uploads/users/avatars" "$media_root/uploads/users/covers" -type f 2>/dev/null || true
+	} | wc -l | tr -d ' '
 }
 
 sync_live_public_storage_to_shared() {
