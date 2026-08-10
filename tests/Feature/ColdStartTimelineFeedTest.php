@@ -91,6 +91,31 @@ class ColdStartTimelineFeedTest extends TestCase
         $this->assertContains($olderPost->id, $postIds);
     }
 
+    public function test_bootstrap_payload_contains_initial_home_feed_for_authenticated_users(): void
+    {
+        $viewer = $this->createUser('bootstrap-feed-viewer');
+        $author = $this->createUser('bootstrap-feed-author');
+
+        $latestPost = $this->createPost($author, 'Latest bootstrap post', now());
+        $olderPost = $this->createPost($author, 'Older bootstrap post', now()->subMinutes(3));
+
+        $response = $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/bootstrap/bootstrap')
+            ->assertOk()
+            ->assertJsonPath('data.auth.status', true)
+            ->assertJsonPath('data.home_feed.type', 'for_you')
+            ->assertJsonPath('data.home_feed.refresh_reason', 'initial')
+            ->assertJsonPath('data.home_feed.meta.feed.scored', false);
+
+        $bootFeedPostIds = array_column($response->json('data.home_feed.posts'), 'id');
+        $bootFeedStrategy = $response->json('data.home_feed.meta.feed.strategy');
+
+        $this->assertSame($latestPost->id, $bootFeedPostIds[0]);
+        $this->assertContains($olderPost->id, $bootFeedPostIds);
+        $this->assertContains($bootFeedStrategy, ['cold_start_chronological', 'fast_start_chronological']);
+    }
+
     private function createUser(string $username, UserType $type = UserType::AUTHOR): User
     {
         $user = User::query()->create([

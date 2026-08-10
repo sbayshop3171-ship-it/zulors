@@ -16,8 +16,11 @@
 namespace App\Http\Controllers\Api\User\Bootstrap;
 
 use App\Info\Zulors;
+use Illuminate\Support\Str;
 use App\Http\Controllers\Controller;
+use App\Services\Timeline\FeedService;
 use App\Traits\Http\Api\SupportsApiResponses;
+use App\Http\Resources\User\Timeline\TimelineCollection;
 
 class BootstrapController extends Controller
 {
@@ -36,7 +39,8 @@ class BootstrapController extends Controller
                 'auth' => [
                     'status' => auth_check(),
                     'user' => $this->getUserData()
-                ]
+                ],
+                'home_feed' => $this->getHomeFeedData(),
             ]
         ]);
     }
@@ -79,5 +83,29 @@ class BootstrapController extends Controller
         }
         
         return null;
+    }
+
+    private function getHomeFeedData()
+    {
+        if(! auth_check()) {
+            return null;
+        }
+
+        $sessionId = 'boot-' . Str::lower(Str::random(18));
+        $feedResult = app(FeedService::class)->getFeed(me(), [
+            'type' => FeedService::TYPE_FOR_YOU,
+            'page' => 1,
+            'session_id' => $sessionId,
+            'refresh_reason' => 'initial',
+            'fast_start' => true,
+        ]);
+
+        return [
+            'type' => FeedService::TYPE_FOR_YOU,
+            'session_id' => $sessionId,
+            'refresh_reason' => 'initial',
+            'posts' => TimelineCollection::make($feedResult->posts),
+            'meta' => $feedResult->meta,
+        ];
     }
 }

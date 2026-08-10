@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 import { readCache, writeCache } from '@/kernel/services/cache/index.js';
 import { useAuthStore } from '@M/store/auth/auth.store.js';
+import { useTimelineStore } from '@M/store/timeline/timeline.store.js';
 
 const bootstrapCacheKey = 'colibri.mobile.bootstrap.v1';
 const bootstrapCacheTtl = 1000 * 60 * 15;
@@ -49,6 +50,7 @@ const useAppStore = defineStore('mobile_app_store', {
 
             if(userData) {
                 authStore.setUser(userData);
+                useTimelineStore().hydrateBootFeed(this.appData?.home_feed ?? null);
 
                 return true;
             }
@@ -57,9 +59,11 @@ const useAppStore = defineStore('mobile_app_store', {
         },
         applyBootstrapData: function(bootstrapData) {
             const authStore = useAuthStore();
+            const timelineStore = useTimelineStore();
 
             this.appData = bootstrapData;
             authStore.setUser(bootstrapData?.auth?.user ?? null);
+            timelineStore.hydrateBootFeed(bootstrapData?.home_feed ?? null);
             writeCache(bootstrapCacheKey, bootstrapData);
         },
         forgetBootstrapCache: function() {

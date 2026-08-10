@@ -2,10 +2,11 @@
 
 namespace App\Services\Auth\Social;
 
-use Throwable;
 use App\Models\Onboard;
+use App\Models\User;
 use App\Models\SocialAccount;
 use App\Support\SocialLoginDrivers;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use App\Actions\User\CreateUserAction;
 use App\Services\User\AutoVerifyUserService;
@@ -26,58 +27,74 @@ class SocialAuthService
 
     public function handle(SocialiteUser $socialiteUser)
     {
-        try {
-            $driver = $this->driver;
-            $this->socialUserId = $socialiteUser->getId();
-            $this->socialUserEmail = $socialiteUser->getEmail();
+        $driver = $this->driver;
+        $this->socialUserId = (string) $socialiteUser->getId();
+        $this->socialUserEmail = $socialiteUser->getEmail();
 
-            $this->restrictBlacklistedEmailOrSocialId();
+        $this->restrictBlacklistedEmailOrSocialId();
 
-            $socialAccount = SocialAccount::where('provider_id', $this->socialUserId)->first();
+        $socialAccount = SocialAccount::query()
+            ->where('provider_name', $driver)
+            ->where('provider_id', $this->socialUserId)
+            ->first();
 
-            if($socialAccount) {
-                Auth::login($socialAccount->user);
+        if($socialAccount) {
+            $this->loginUser($socialAccount->user);
 
-                app(AutoVerifyUserService::class)->verifyIfEnabled($socialAccount->user);
+            return [
+                'user' => $socialAccount->user,
+                'socialiteUser' => $socialiteUser,
+                'exists' => true,
+            ];
+        }
 
-                return [
-                    'user' => $socialAccount->user,
-                    'socialiteUser' => $socialiteUser,
-                    'exists' => true
-                ];
-            }
+        $existingUser = $this->existingUserByEmail();
 
-            else {
-                $now = time();
-
-                $userData = [
-                    'username' => "{$driver}_{$now}",
-                    'email' => (empty($this->socialUserEmail)) ? "{$now}@$driver.com" : $this->socialUserEmail,
-                ];
-
-                $newUser = (new CreateUserAction($userData))->execute();
-
-                $newUser->socialAccounts()->create([
+        if($existingUser) {
+            DB::transaction(function() use ($driver, $existingUser) {
+                $existingUser->socialAccounts()->firstOrCreate([
                     'provider_name' => $driver,
                     'provider_id' => $this->socialUserId,
                 ]);
+            });
 
-                Onboard::create([
-                    'user_id' => $newUser->id,
-                    'step' => 'one'
-                ]);
+            $this->loginUser($existingUser);
 
-                return [
-                    'user' => $newUser,
-                    'socialiteUser' => $socialiteUser,
-                    'exists' => false
-                ];
-            }
-
-
-        } catch (Throwable $th) {
-            throw $th;
+            return [
+                'user' => $existingUser,
+                'socialiteUser' => $socialiteUser,
+                'exists' => true,
+            ];
         }
+
+        $newUser = DB::transaction(function() use ($driver) {
+            $now = time();
+
+            $userData = [
+                'username' => "{$driver}_{$now}",
+                'email' => empty($this->socialUserEmail) ? "{$now}@{$driver}.com" : $this->socialUserEmail,
+            ];
+
+            $createdUser = (new CreateUserAction($userData))->execute();
+
+            $createdUser->socialAccounts()->create([
+                'provider_name' => $driver,
+                'provider_id' => $this->socialUserId,
+            ]);
+
+            Onboard::create([
+                'user_id' => $createdUser->id,
+                'step' => 'one',
+            ]);
+
+            return $createdUser;
+        });
+
+        return [
+            'user' => $newUser,
+            'socialiteUser' => $socialiteUser,
+            'exists' => false,
+        ];
     }
 
     public function getCredentials(): array
@@ -113,5 +130,25 @@ class SocialAuthService
         if($isEmailBlacklisted) {
             abort(403, __('auth.email_blocked'));
         }
+    }
+
+    private function existingUserByEmail(): ?User
+    {
+        $email = trim((string) $this->socialUserEmail);
+
+        if($email === '') {
+            return null;
+        }
+
+        return User::query()
+            ->whereRaw('LOWER(email) = ?', [mb_strtolower($email)])
+            ->first();
+    }
+
+    private function loginUser(User $user): void
+    {
+        Auth::login($user);
+
+        app(AutoVerifyUserService::class)->verifyIfEnabled($user);
     }
 }

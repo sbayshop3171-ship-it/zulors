@@ -30,6 +30,22 @@ const wait = function(timeout) {
     });
 };
 
+const waitForBootBootstrap = async function(timeout = 260) {
+    if(typeof window === 'undefined' || ! window.__zulorsBoot?.bootstrapRequest) {
+        return;
+    }
+
+    try {
+        await Promise.race([
+            window.__zulorsBoot.bootstrapRequest,
+            wait(timeout)
+        ]);
+    }
+    catch (error) {
+        //
+    }
+};
+
 const useTimelineStore = defineStore('mobile_timeline_store', {
     // This is used to tell the postDeleteListener to listen to this store
     // This is used only for timeline stores, on desktop and mobile with the same logic.
@@ -103,6 +119,10 @@ const useTimelineStore = defineStore('mobile_timeline_store', {
             if (! this.posts.length) {
                 if(this.warmPromise) {
                     await this.warmPromise;
+                }
+
+                if(! this.posts.length) {
+                    await waitForBootBootstrap();
                 }
 
                 if(! this.posts.length) {
@@ -186,6 +206,24 @@ const useTimelineStore = defineStore('mobile_timeline_store', {
 
                 return response;
             });
+        },
+        hydrateBootFeed: function(homeFeed) {
+            const posts = Array.isArray(homeFeed?.posts) ? homeFeed.posts : [];
+
+            if(! posts.length) {
+                return false;
+            }
+
+            prefetchTimelineMedia(posts);
+
+            this.feedType = homeFeed?.type || this.feedType;
+            this.feedSessionId = homeFeed?.session_id || this.feedSessionId;
+            this.refreshReason = homeFeed?.refresh_reason || this.refreshReason;
+            this.filter.page = 1;
+            this.posts = this.mergeOptimisticPosts(posts);
+            this.persistFirstPage();
+
+            return true;
         },
         loadNextPage: async function() {
             const previousPage = this.filter.page;
