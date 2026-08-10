@@ -86,6 +86,21 @@ class GoogleSocialLoginFlowTest extends TestCase
         ]);
     }
 
+    public function test_google_callback_redirects_to_login_when_google_rejects_callback(): void
+    {
+        $provider = Mockery::mock();
+        $provider->shouldReceive('stateless')->once()->andReturnSelf();
+        $provider->shouldReceive('user')->once()->andThrow(new \RuntimeException('Invalid OAuth callback.'));
+
+        Socialite::shouldReceive('buildProvider')->once()->andReturn($provider);
+
+        $response = $this->get(route('social-login.google.callback'));
+
+        $response->assertRedirect(route('user.auth.index'));
+        $response->assertSessionHasErrors('google');
+        $this->assertGuest();
+    }
+
     private function makeGoogleUser(): SocialiteUser
     {
         return (new SocialiteUser())

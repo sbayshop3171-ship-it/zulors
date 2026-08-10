@@ -52,7 +52,15 @@ class GoogleAuthController extends Controller
 
     public function callbackHandler()
     {
-        $socialiteUser = $this->fetchUserData();
+        try {
+            $socialiteUser = $this->fetchUserData();
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return redirect()->route('user.auth.index')->withErrors([
+                'google' => __('We could not complete Google sign in. Please try again.'),
+            ]);
+        }
 
         $result = $this->socialAuthService->setDriver($this->driverName)->handle($socialiteUser);
 
