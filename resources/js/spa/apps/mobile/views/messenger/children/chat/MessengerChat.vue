@@ -110,12 +110,12 @@
 
 			const state = reactive({
                 isLoading: true,
-                typing: {
-                    is_typing: false,
-                    user: null
-                },
+                typing: BRD.createEmptyTypingState(),
                 realtimeReady: false
             });
+			const remoteTyping = BRD.createIncomingTypingController((nextState) => {
+				state.typing = nextState;
+			});
 
 			const initializeRouteChat = () => {
 				let chatId = route.params.chat_id;
@@ -214,19 +214,15 @@
                 }
             }
 
-			const whisperToChat = (isTyping) => {
+			const whisperToChat = (payload) => {
 				if(chatChannel.value && window.ColibriBRD) {
-					ColibriBRD.private(chatChannel.value).whisper(BRD.getEvent('CHAT_MESSAGE_TYPING'), {
-						data: {
-							user: {
-								name: userData.value.name,
-								avatar_url: userData.value.avatar_url
-							},
-							is_typing: isTyping
-						}
-					});
+					ColibriBRD.private(chatChannel.value).whisper(BRD.getEvent('CHAT_MESSAGE_TYPING'), payload);
 				}
             }
+
+			const outgoingTyping = BRD.createOutgoingTypingController((payload) => {
+				whisperToChat(payload);
+			});
 
 			const detachRealtimeListeners = () => {
 				if(state.realtimeReady) {
@@ -238,6 +234,8 @@
 					if(chatChannel.value && window.ColibriBRD) {
 						ColibriBRD.private(chatChannel.value).stopListeningForWhisper(BRD.getEvent('CHAT_MESSAGE_TYPING'));
 					}
+
+					remoteTyping.stop();
 
 					state.realtimeReady = false;
 				}
@@ -284,9 +282,7 @@
 					scrollHistoryDownSettled();
 				});
 
-				ColibriBRD.private(chatChannel.value).listenForWhisper(BRD.getEvent('CHAT_MESSAGE_TYPING'), function (event) {
-					state.typing = event.data;
-				});
+				ColibriBRD.private(chatChannel.value).listenForWhisper(BRD.getEvent('CHAT_MESSAGE_TYPING'), remoteTyping.receive);
 
 				listenEventInChat(BRD.getEvent('CHAT_MESSAGE_READ'), function (event) {
 					chatStore.updateLastReadMessageForParticipant(event.data);
@@ -322,10 +318,8 @@
 			}
 
 			const prepareChatForRoute = (chatId) => {
-				state.typing = {
-					is_typing: false,
-					user: null
-				};
+				state.typing = BRD.createEmptyTypingState();
+				remoteTyping.stop();
 
 				if(chatStore.chatId !== chatId) {
 					chatStore.chatData = {};
@@ -425,6 +419,8 @@
 				window.removeEventListener('colibri:ws-status', handleWSStatus);
 				document.removeEventListener('visibilitychange', handleVisibilityRefresh);
 				window.removeEventListener('focus', refreshActiveChat);
+				outgoingTyping.stop(null, { silent: true });
+				remoteTyping.stop();
                 detachRealtimeListeners();
 				clearScrollTimers();
 
@@ -501,11 +497,10 @@
 				},
 				handleMessageTyping: () => {
                     if(window.ColibriBRConnected) {
-                        whisperToChat(true);
-
-                        debounce(() => {
-                            whisperToChat(false);
-                        }, 1000);
+                        outgoingTyping.bump({
+							name: userData.value.name,
+							avatar_url: userData.value.avatar_url
+						});
                     }
                 }
 			};

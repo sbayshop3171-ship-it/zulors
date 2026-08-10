@@ -1,10 +1,12 @@
 import { ref, onMounted, onUnmounted } from 'vue';
 
 const useWSConnectionStatus = function() {
-    const isWSEstablished = ref(window.ColibriBRConnected !== false);
+    const isWSEstablished = ref(Boolean(window.ColibriBRState?.connected ?? window.ColibriBRConnected));
+    const wsState = ref(window.ColibriBRState ?? null);
 
     const updateStatus = (event) => {
-        isWSEstablished.value = event.detail.connected !== false;
+        isWSEstablished.value = Boolean(event.detail?.connected);
+        wsState.value = event.detail ?? null;
     };
 
     onMounted(() => {
@@ -16,7 +18,8 @@ const useWSConnectionStatus = function() {
     });
 
     return {
-        isWSEstablished: isWSEstablished
+        isWSEstablished: isWSEstablished,
+        wsState: wsState
     };
 };
 

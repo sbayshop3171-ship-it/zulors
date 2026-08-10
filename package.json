@@ -10,7 +10,8 @@
         "dev": "vite",
         "build:vite": "vite build",
         "build": "npm-run-all build:vite build:dark-desktop build:dark-mobile build:dark-auth build:dark-business build:dark-admin",
-        "build:dark": "npm-run-all build:dark-desktop build:dark-mobile build:dark-auth build:dark-business build:dark-admin"
+        "build:dark": "npm-run-all build:dark-desktop build:dark-mobile build:dark-auth build:dark-business build:dark-admin",
+        "test:ws": "node --test tests/node/brd-package.test.mjs"
     },
     "dependencies": {
         "@fontsource/outfit": "^5.2.8",
@@ -21,6 +22,7 @@
         "@tailwindcss/postcss": "^4.1.8",
         "@tailwindcss/vite": "^4.1.8",
         "@vitejs/plugin-vue": "^6.0",
+        "agora-rtc-sdk-ng": "^4.24.7",
         "alpinejs": "^3.14.3",
         "apexcharts": "^5.0",
         "autolinker": "^4.0.0",

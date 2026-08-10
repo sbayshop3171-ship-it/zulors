@@ -78,15 +78,16 @@
 			});
 
 			const state = reactive({
-				typing: {
-                    is_typing: false,
-                    user: null
-                },
+				typing: BRD.createEmptyTypingState(),
 				realtimeReady: false
+			});
+			const remoteTyping = BRD.createIncomingTypingController((nextState) => {
+				state.typing = nextState;
 			});
 
 			onUnmounted(() => {
 				window.removeEventListener('colibri:ws-status', handleWSStatus);
+				remoteTyping.stop();
 				detachRealtimeListeners();
 			});
 
@@ -104,6 +105,7 @@
 					ColibriBRD.private(getChatChannel()).stopListeningForWhisper(BRD.getEvent('CHAT_MESSAGE_TYPING'));
 					ColibriBRD.private(getChatChannel()).stopListening(BRD.getEvent('CHAT_MESSAGE_RECEIVED'));
 					ColibriBRD.private(getChatChannel()).stopListening(BRD.getEvent('CHAT_MESSAGE_DELETED'));
+					remoteTyping.stop();
 
 					state.realtimeReady = false;
 				}
@@ -114,9 +116,7 @@
 					return false;
 				}
 
-				ColibriBRD.private(getChatChannel()).listenForWhisper(BRD.getEvent('CHAT_MESSAGE_TYPING'), function (event) {
-					state.typing = event.data;
-				});
+				ColibriBRD.private(getChatChannel()).listenForWhisper(BRD.getEvent('CHAT_MESSAGE_TYPING'), remoteTyping.receive);
 
 				ColibriBRD.private(getChatChannel()).listen(BRD.getEvent('CHAT_MESSAGE_RECEIVED'), function (event) {
 					inboxStore.updateChatFromMessage(event.data, authStore.userData.id, selectedChatData.value?.chat_id);

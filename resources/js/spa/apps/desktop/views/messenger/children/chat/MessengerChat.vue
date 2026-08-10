@@ -91,10 +91,7 @@
         setup: function(props, context) {
             const state = reactive({
                 isLoading: true,
-                typing: {
-                    is_typing: false,
-                    user: null
-                },
+                typing: BRD.createEmptyTypingState(),
                 realtimeReady: false
             });
 
@@ -117,6 +114,9 @@
             });
 
             const chatContainerBlock = ref(null);
+            const remoteTyping = BRD.createIncomingTypingController((nextState) => {
+                state.typing = nextState;
+            });
 
             const scrollHistoryDown = function() {
                 nextTick(() => {
@@ -156,6 +156,8 @@
 
             onUnmounted(() => {
                 window.removeEventListener('colibri:ws-status', handleWSStatus);
+                outgoingTyping.stop(null, { silent: true });
+                remoteTyping.stop();
                 detachRealtimeListeners();
             });
 
@@ -241,6 +243,7 @@
                     stopListenEventInChat(BRD.getEvent('CHAT_MESSAGE_DELETED'));
                     stopListenEventInChat(BRD.getEvent('CHAT_MESSAGE_REACTIONS_UPDATED'));
                     stopListeningForWhisperInChat(BRD.getEvent('CHAT_MESSAGE_TYPING'));
+                    remoteTyping.stop();
 
                     state.realtimeReady = false;
                 }
@@ -286,9 +289,7 @@
                     chatStore.syncMessageReactions(event.data.message_id, event.data.reactions, event.data.actor_user_id);
                 });
 
-                listenWhisperInChat(BRD.getEvent('CHAT_MESSAGE_TYPING'), function (event) {
-                    state.typing = event.data;
-                });
+                listenWhisperInChat(BRD.getEvent('CHAT_MESSAGE_TYPING'), remoteTyping.receive);
 
                 listenEventInChat(BRD.getEvent('CHAT_MESSAGE_READ'), function (event) {
                     chatStore.updateLastReadMessageForParticipant(event.data);
@@ -305,17 +306,9 @@
                 }
             }
 
-            const broadcastTyping = (isTyping) => {
-                whisperToChat(BRD.getEvent('CHAT_MESSAGE_TYPING'), {
-                    data: {
-                        user: {
-                            name: userData.value.name,
-                            avatar_url: userData.value.avatar_url
-                        },
-                        is_typing: isTyping
-                    }
-                });
-            }
+            const outgoingTyping = BRD.createOutgoingTypingController((payload) => {
+                whisperToChat(BRD.getEvent('CHAT_MESSAGE_TYPING'), payload);
+            });
 
             return {
                 state: state,
@@ -360,11 +353,10 @@
                 },
                 handleMessageTyping: () => {
                     if(window.ColibriBRConnected) {
-                        broadcastTyping(true);
-
-                        debounce(() => {
-                            broadcastTyping(false);
-                        }, 1000);
+                        outgoingTyping.bump({
+                            name: userData.value.name,
+                            avatar_url: userData.value.avatar_url
+                        });
                     }
                 },
                 showDateSeparator: (messageIndex) => {
