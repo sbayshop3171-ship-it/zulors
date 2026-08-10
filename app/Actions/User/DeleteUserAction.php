@@ -114,7 +114,6 @@ class DeleteUserAction
 
             if (! $this->userData->hasDefaultAvatar() && ! empty($this->userData->avatar)) {
                 Storage::disk(static_storage_disk())->delete($this->userData->avatar);
-                Storage::disk(static_storage_disk())->delete($this->userData->cover);
             }
 
             if (! $this->userData->hasDefaultCover() && ! empty($this->userData->cover)) {

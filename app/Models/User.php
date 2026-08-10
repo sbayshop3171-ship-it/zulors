@@ -13,7 +13,6 @@ use App\Services\World\WorldService;
 use Illuminate\Notifications\Notifiable;
 use App\Models\Traits\User\FetchesDrafts;
 use App\Support\Casts\ModelTimestampCast;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use App\Models\Traits\Pagination\SupportsManualPagination;
@@ -296,9 +295,19 @@ class User extends Authenticatable
         return $this->cover == config('user.cover');
     }
 
+    public function hasCustomAvatar()
+    {
+        return ! empty($this->avatar) && ! $this->hasDefaultAvatar();
+    }
+
+    public function hasCustomCover()
+    {
+        return ! empty($this->cover) && ! $this->hasDefaultCover();
+    }
+
     public function getAvatarUrlAttribute()
     {
-        if (empty($this->avatar) || $this->hasDefaultAvatar() || ! Storage::disk(static_storage_disk())->exists($this->avatar)) {
+        if (! $this->hasCustomAvatar()) {
             return asset(config('user.avatar'));
         }
 
@@ -307,7 +316,7 @@ class User extends Authenticatable
 
     public function getCoverUrlAttribute()
     {
-        if (empty($this->cover) || $this->hasDefaultCover() || ! Storage::disk(static_storage_disk())->exists($this->cover)) {
+        if (! $this->hasCustomCover()) {
             return asset(config('user.cover'));
         }
 
