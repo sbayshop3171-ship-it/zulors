@@ -97,6 +97,9 @@ class AudioCallsTest extends TestCase
             'signal_type' => 'offer',
             'signal' => ['type' => 'offer', 'sdp' => 'test'],
         ])->assertNotFound();
+
+        $this->getJson("/api/messenger/calls/{$call->call_uuid}/media-token")
+            ->assertNotFound();
     }
 
     public function test_blocked_direct_chat_user_cannot_start_call(): void
@@ -336,6 +339,67 @@ class AudioCallsTest extends TestCase
         $this->assertStringEndsWith(':' . $user->id, $turnServer['username']);
         $this->assertSame($expectedCredential, $turnServer['credential']);
         $this->assertNotEmpty($response->json('data.expires_at'));
+    }
+
+    public function test_call_media_token_is_blocked_until_call_is_answered(): void
+    {
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+        $call = $this->createRingingCall($caller, $receiver, $chat);
+
+        Config::set('services.calls.agora.app_id', '970CA35de60c44645bbae8a215061b33');
+        Config::set('services.calls.agora.app_certificate', '5CFd2fd1755d40ecb72977518be15d3b');
+
+        Sanctum::actingAs($receiver);
+
+        $this->getJson("/api/messenger/calls/{$call->call_uuid}/media-token")
+            ->assertConflict();
+    }
+
+    public function test_answered_call_receives_agora_media_token_when_configured(): void
+    {
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+        $call = $this->createRingingCall($caller, $receiver, $chat, [
+            'status' => CallStatus::ACCEPTED,
+            'answered_at' => now(),
+        ]);
+
+        Config::set('services.calls.media_provider', 'auto');
+        Config::set('services.calls.agora.app_id', '970CA35de60c44645bbae8a215061b33');
+        Config::set('services.calls.agora.app_certificate', '5CFd2fd1755d40ecb72977518be15d3b');
+        Config::set('services.calls.agora.token_ttl_seconds', 600);
+
+        Sanctum::actingAs($caller);
+
+        $response = $this->getJson("/api/messenger/calls/{$call->call_uuid}/media-token")
+            ->assertOk()
+            ->assertJsonPath('data.media.provider', 'agora')
+            ->assertJsonPath('data.media.app_id', '970CA35de60c44645bbae8a215061b33')
+            ->assertJsonPath('data.media.channel', 'zulors_call_' . str_replace('-', '', $call->call_uuid))
+            ->assertJsonPath('data.media.uid', $caller->id)
+            ->assertJsonPath('data.media.token_ttl_seconds', 600);
+
+        $this->assertStringStartsWith('007', $response->json('data.media.token'));
+        $this->assertNotEmpty($response->json('data.media.expires_at'));
+    }
+
+    public function test_answered_call_uses_webrtc_fallback_when_agora_is_not_configured(): void
+    {
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+        $call = $this->createRingingCall($caller, $receiver, $chat, [
+            'status' => CallStatus::ACCEPTED,
+            'answered_at' => now(),
+        ]);
+
+        Config::set('services.calls.media_provider', 'auto');
+        Config::set('services.calls.agora.app_id', null);
+        Config::set('services.calls.agora.app_certificate', null);
+
+        Sanctum::actingAs($receiver);
+
+        $this->getJson("/api/messenger/calls/{$call->call_uuid}/media-token")
+            ->assertOk()
+            ->assertJsonPath('data.media.provider', 'webrtc')
+            ->assertJsonPath('data.media.reason', 'agora_not_configured');
     }
 
     public function test_call_quality_report_updates_call_metadata(): void

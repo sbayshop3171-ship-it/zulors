@@ -152,8 +152,11 @@
                     remoteAudioRef.value.srcObject = props.callStore.remoteStream;
                 }
 
-                remoteAudioRef.value.volume = props.callStore.speakerEnabled ? 1 : 0;
+                remoteAudioRef.value.volume = remoteVolume();
                 remoteAudioRef.value.play?.().catch(() => {});
+            };
+            const remoteVolume = () => {
+                return props.callStore.hasNativeAudioBridge ? 1 : (props.callStore.speakerEnabled ? 1 : 0);
             };
 
             watch(() => props.callStore.remoteStream, attachRemoteStream, {
@@ -166,7 +169,7 @@
             });
             watch(() => props.callStore.speakerEnabled, () => {
                 if(remoteAudioRef.value) {
-                    remoteAudioRef.value.volume = props.callStore.speakerEnabled ? 1 : 0;
+                    remoteAudioRef.value.volume = remoteVolume();
                 }
             });
             onBeforeUnmount(detachRemoteStream);

@@ -60,11 +60,17 @@ return [
         'url' => env('TRANSLATION_SERVICE_URL'),
     ],
     'calls' => [
+        'media_provider' => env('CALL_MEDIA_PROVIDER', 'auto'),
         'stun_urls' => array_filter(array_map('trim', explode(',', env('CALL_STUN_URLS', 'stun:stun.l.google.com:19302')))),
         'turn_urls' => array_filter(array_map('trim', explode(',', env('CALL_TURN_URLS', '')))),
         'turn_username' => env('CALL_TURN_USERNAME'),
         'turn_credential' => env('CALL_TURN_CREDENTIAL'),
         'turn_secret' => env('CALL_TURN_SECRET'),
         'turn_ttl_seconds' => (int) env('CALL_TURN_TTL_SECONDS', 3600),
+        'agora' => [
+            'app_id' => env('AGORA_APP_ID'),
+            'app_certificate' => env('AGORA_APP_CERTIFICATE'),
+            'token_ttl_seconds' => (int) env('AGORA_TOKEN_TTL_SECONDS', 3600),
+        ],
     ],
 ];

@@ -28,6 +28,7 @@ Route::delete('/search/recent', [App\Http\Controllers\Api\User\Chat\ChatControll
 Route::post('/calls/start', [App\Http\Controllers\Api\User\Chat\CallController::class, 'start'])->middleware('throttle:120,1');
 Route::get('/calls/ice-servers', [App\Http\Controllers\Api\User\Chat\CallController::class, 'iceServers'])->middleware('throttle:30,1');
 Route::get('/calls/{callUuid}', [App\Http\Controllers\Api\User\Chat\CallController::class, 'show']);
+Route::get('/calls/{callUuid}/media-token', [App\Http\Controllers\Api\User\Chat\CallController::class, 'mediaToken'])->middleware('throttle:120,1');
 Route::post('/calls/{callUuid}/answer', [App\Http\Controllers\Api\User\Chat\CallController::class, 'answer']);
 Route::post('/calls/{callUuid}/decline', [App\Http\Controllers\Api\User\Chat\CallController::class, 'decline']);
 Route::post('/calls/{callUuid}/end', [App\Http\Controllers\Api\User\Chat\CallController::class, 'end']);

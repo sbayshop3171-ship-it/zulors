@@ -12,6 +12,7 @@ use App\Models\CallSession;
 use App\Models\Chat;
 use App\Models\User;
 use App\Notifications\User\Call\IncomingCallNotification;
+use App\Services\Calls\AgoraRtcTokenService;
 use App\Services\Calls\CallLifecycleService;
 use App\Services\Calls\CallPushNotificationService;
 use App\Services\Relations\BlockService;
@@ -51,6 +52,46 @@ class CallController extends Controller
             'data' => [
                 'ice_servers' => $iceServers,
                 'expires_at' => $expiresAt?->toIso8601String(),
+            ],
+        ]);
+    }
+
+    public function mediaToken(string $callUuid, AgoraRtcTokenService $agoraTokens)
+    {
+        $callSession = $this->resolveCallForMe($callUuid);
+
+        if(empty($callSession)) {
+            return $this->responseResourceNotFoundError('Call', $callUuid);
+        }
+
+        if($callSession->status === CallStatus::RINGING) {
+            return $this->responseError([
+                'message' => 'Call media can only start after the call is answered.',
+            ], Response::HTTP_CONFLICT);
+        }
+
+        if(! $callSession->status->isActive()) {
+            return $this->responseError([
+                'message' => 'This call is no longer active.',
+            ], Response::HTTP_GONE);
+        }
+
+        if(! $agoraTokens->enabled()) {
+            return $this->responseSuccess([
+                'data' => [
+                    'media' => [
+                        'provider' => 'webrtc',
+                        'reason' => 'agora_not_configured',
+                    ],
+                ],
+            ]);
+        }
+
+        $media = $agoraTokens->make($callSession, me()->id);
+
+        return $this->responseSuccess([
+            'data' => [
+                'media' => $media,
             ],
         ]);
     }
