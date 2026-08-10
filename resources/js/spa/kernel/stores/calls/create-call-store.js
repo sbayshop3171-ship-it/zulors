@@ -16,6 +16,7 @@ const rateLimitedCallStartCooldownMs = 15000;
 const busyCallMessage = 'User is busy on another call.';
 const incomingRingIntervalMs = 3200;
 const outgoingRingIntervalMs = 4200;
+const speakerRouteSettleMs = 260;
 
 const getErrorStatus = (error) => {
     return Number(error?.response?.status || 0);
@@ -90,6 +91,8 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             ringToneTimeouts: [],
             ringToneNodes: [],
             nativeRingtoneActive: false,
+            audioRouteSettling: false,
+            audioRouteSettleTimer: null,
             networkState: 'stable',
             qualityNotice: '',
             lastQualityReportAt: 0,
@@ -762,6 +765,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         },
         toggleSpeaker: function() {
             this.speakerEnabled = ! this.speakerEnabled;
+            this.quietRemoteOutputForRouteChange();
             this.setNativeSpeakerEnabled(this.speakerEnabled);
         },
         minimize: function() {
@@ -817,6 +821,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.stopReconnectTimeoutTimer();
             this.stopDurationTimer();
             this.stopStartCooldown();
+            this.stopAudioRouteSettling();
             this.cleanupMediaSession();
             this.detachRealtimeChannel();
 
@@ -849,6 +854,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         cleanupMediaSession: function() {
             const peer = this.peer;
 
+            this.stopAudioRouteSettling();
             this.peer = null;
             this.peerSetupPromise = null;
 
@@ -1035,6 +1041,39 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 window.clearTimeout(this.reconnectTimeoutTimer);
                 this.reconnectTimeoutTimer = null;
             }
+        },
+        quietRemoteOutputForRouteChange: function() {
+            if(typeof window === 'undefined') {
+                return;
+            }
+
+            this.audioRouteSettling = true;
+            this.setRemoteOutputVolume(0);
+
+            if(this.audioRouteSettleTimer) {
+                window.clearTimeout(this.audioRouteSettleTimer);
+            }
+
+            this.audioRouteSettleTimer = window.setTimeout(() => {
+                this.audioRouteSettleTimer = null;
+                this.audioRouteSettling = false;
+                this.setRemoteOutputVolume(1);
+            }, speakerRouteSettleMs);
+        },
+        stopAudioRouteSettling: function() {
+            if(this.audioRouteSettleTimer) {
+                window.clearTimeout(this.audioRouteSettleTimer);
+                this.audioRouteSettleTimer = null;
+            }
+
+            this.audioRouteSettling = false;
+            this.setRemoteOutputVolume(1);
+        },
+        setRemoteOutputVolume: function(volume) {
+            try {
+                this.peer?.setRemoteOutputVolume?.(volume);
+            }
+            catch(error) {}
         },
         unlockAudioFeedback: function() {
             this.ensureRingToneContext();

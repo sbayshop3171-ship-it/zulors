@@ -106,6 +106,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     let latestNetworkQuality = null;
     let consecutiveWeakSamples = 0;
     let consecutivePoorSamples = 0;
+    let remoteOutputVolume = 100;
 
     const emit = (event, ...payload) => {
         try {
@@ -191,6 +192,13 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         }
     };
 
+    const applyRemoteOutputVolume = () => {
+        try {
+            remoteAudioTrack?.setVolume?.(remoteOutputVolume);
+        }
+        catch(error) {}
+    };
+
     const classifyNetworkQuality = ({ rtt, jitter, packetLossPercent }) => {
         if(packetLossPercent >= 12 || rtt >= 900 || jitter >= 180) {
             return 'poor';
@@ -244,6 +252,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                 await client.subscribe(user, mediaType);
                 remoteUid = user.uid;
                 remoteAudioTrack = user.audioTrack;
+                applyRemoteOutputVolume();
                 remoteAudioTrack?.play?.();
                 emit('onConnected');
                 startQualityTimer();
@@ -413,6 +422,12 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         setMuted: async (muted) => {
             isMuted = Boolean(muted);
             await localAudioTrack?.setEnabled?.(! isMuted);
+        },
+        setRemoteOutputVolume: (volume) => {
+            const normalizedVolume = Number(volume);
+
+            remoteOutputVolume = Math.max(0, Math.min(100, Math.round((Number.isFinite(normalizedVolume) ? normalizedVolume : 1) * 100)));
+            applyRemoteOutputVolume();
         },
         close: close
     };

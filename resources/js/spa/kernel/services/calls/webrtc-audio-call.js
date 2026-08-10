@@ -44,6 +44,11 @@ const reconnectGraceMs = parsePositiveInteger(
     defaultReconnectGraceMs
 );
 const enableVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_AUDIO_PROCESSING, true);
+const enableNativeAppVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_NATIVE_APP_AUDIO_PROCESSING, false);
+
+const hasNativeCallAudioBridge = () => {
+    return typeof window !== 'undefined' && Boolean(window.ZulorsCallAudio);
+};
 
 const normalizeIceServers = (config) => {
     if(Array.isArray(config) && config.length) {
@@ -309,7 +314,7 @@ const createInteractiveAudioContext = () => {
 const createVoiceProcessedStream = async (rawStream) => {
     const audioTracks = rawStream?.getAudioTracks?.() || [];
 
-    if(! enableVoiceProcessing || ! audioTracks.length) {
+    if(! enableVoiceProcessing || ! audioTracks.length || (hasNativeCallAudioBridge() && ! enableNativeAppVoiceProcessing)) {
         return {
             stream: rawStream,
             cleanup: () => {}

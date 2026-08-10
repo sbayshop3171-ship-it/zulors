@@ -156,6 +156,10 @@
                 remoteAudioRef.value.play?.().catch(() => {});
             };
             const remoteVolume = () => {
+                if(props.callStore.audioRouteSettling) {
+                    return 0;
+                }
+
                 return props.callStore.hasNativeAudioBridge ? 1 : (props.callStore.speakerEnabled ? 1 : 0);
             };
 
@@ -168,6 +172,11 @@
                 }
             });
             watch(() => props.callStore.speakerEnabled, () => {
+                if(remoteAudioRef.value) {
+                    remoteAudioRef.value.volume = remoteVolume();
+                }
+            });
+            watch(() => props.callStore.audioRouteSettling, () => {
                 if(remoteAudioRef.value) {
                     remoteAudioRef.value.volume = remoteVolume();
                 }
