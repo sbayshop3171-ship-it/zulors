@@ -78,6 +78,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             mediaSession: null,
             activeChannel: null,
             offerSent: false,
+            mediaReadySent: false,
             connectedSignalSent: false,
             isAnswering: false,
             durationSeconds: 0,
@@ -354,10 +355,24 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 return false;
             }
 
-            await colibriAPI().messenger().with({
+            const response = await colibriAPI().messenger().with({
                 signal_type: signalType,
                 signal: signal || {}
             }).sendTo(`calls/${this.call.call_uuid}/signal`);
+
+            const call = response.data?.data?.call;
+
+            if(call?.call_uuid === this.call?.call_uuid) {
+                this.setCall(call, {
+                    status: call.status || this.status
+                });
+
+                if(call.status === 'connected') {
+                    this.markConnected(false);
+                }
+            }
+
+            return response;
         },
         handleNotification: function(payload = {}) {
             const data = payload?.data || payload || {};
@@ -565,7 +580,31 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             await this.peer.ensurePeerConnection(this.call?.media_type || 'audio');
             this.enterNativeAudioMode();
 
+            if(isAgora) {
+                await this.sendMediaReadySignal();
+            }
+
             return this.peer;
+        },
+        sendMediaReadySignal: async function() {
+            if(this.mediaReadySent || ! this.call?.call_uuid || this.mediaProvider !== 'agora') {
+                return false;
+            }
+
+            this.mediaReadySent = true;
+
+            try {
+                await this.sendSignal('ready', {
+                    provider: 'agora'
+                });
+
+                return true;
+            }
+            catch(error) {
+                this.mediaReadySent = false;
+
+                return false;
+            }
         },
         createOffer: async function() {
             if(this.mediaProvider === 'agora') {
@@ -835,6 +874,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.mediaProvider = 'webrtc';
             this.mediaSession = null;
             this.offerSent = false;
+            this.mediaReadySent = false;
             this.connectedSignalSent = false;
             this.isAnswering = false;
             this.durationSeconds = 0;
@@ -867,6 +907,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.mediaProvider = 'webrtc';
             this.mediaSession = null;
             this.offerSent = false;
+            this.mediaReadySent = false;
             this.connectedSignalSent = false;
             this.exitNativeAudioMode();
             this.closeRingToneContext();

@@ -29,6 +29,8 @@ class CallController extends Controller
 {
     use SupportsApiResponses;
 
+    private const HANDSHAKE_TIMEOUT_SECONDS = 90;
+
     public function show(string $callUuid)
     {
         $callSession = $this->resolveCallForMe($callUuid);
@@ -96,7 +98,7 @@ class CallController extends Controller
         ]);
     }
 
-    public function start(Request $request)
+    public function start(Request $request, CallLifecycleService $calls)
     {
         $validator = Validator::make($request->all(), [
             'chat_id' => ['required', 'uuid'],
@@ -126,6 +128,8 @@ class CallController extends Controller
                 'message' => 'Calls are not available for this conversation.',
             ], Response::HTTP_FORBIDDEN);
         }
+
+        $this->finalizeStaleHandshakeCallsForUsers([me()->id, $receiver->id], $calls);
 
         if($this->hasActiveCall(me()->id) || $this->hasActiveCall($receiver->id)) {
             return $this->responseBusy($chat);
@@ -193,6 +197,12 @@ class CallController extends Controller
             ], Response::HTTP_FORBIDDEN);
         }
 
+        if($callSession->status->isFinal()) {
+            return $this->responseError([
+                'message' => 'This call is no longer active.',
+            ], Response::HTTP_GONE);
+        }
+
         if($callSession->status !== CallStatus::RINGING) {
             return $this->responseSuccess([
                 'data' => [
@@ -201,19 +211,28 @@ class CallController extends Controller
             ]);
         }
 
-        $callSession->forceFill([
-            'status' => CallStatus::ACCEPTED,
-            'answered_at' => now(),
-        ])->save();
+        $callSession = DB::transaction(function () use ($callSession) {
+            $lockedCallSession = CallSession::query()
+                ->whereKey($callSession->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        $callSession->participants()
-            ->where('user_id', me()->id)
-            ->update([
-                'status' => CallStatus::ACCEPTED,
-                'joined_at' => now(),
-            ]);
+            if($lockedCallSession->status === CallStatus::RINGING) {
+                $lockedCallSession->forceFill([
+                    'status' => CallStatus::ACCEPTED,
+                    'answered_at' => now(),
+                ])->save();
 
-        $callSession = $callSession->fresh(['chat', 'initiator', 'receiver']);
+                $lockedCallSession->participants()
+                    ->where('user_id', me()->id)
+                    ->update([
+                        'status' => CallStatus::ACCEPTED,
+                        'joined_at' => now(),
+                    ]);
+            }
+
+            return $lockedCallSession->fresh(['chat', 'initiator', 'receiver']);
+        });
         $callPushNotifications->cancelIncomingNotification($callSession);
         event(new CallSessionEvent('call.answered', $callSession));
 
@@ -430,27 +449,91 @@ class CallController extends Controller
             ], Response::HTTP_GONE);
         }
 
-        if(in_array($request->input('signal_type'), ['ready', 'offer', 'answer'], true)
-            && $callSession->status === CallStatus::ACCEPTED) {
-            $callSession->forceFill([
-                'status' => CallStatus::CONNECTING,
-            ])->save();
-        }
+        $signalType = (string) $request->input('signal_type');
+        $signalPayload = $request->input('signal', []);
+        $broadcastConnected = false;
 
-        if($request->input('signal_type') === 'connected') {
-            $callSession->forceFill([
-                'status' => CallStatus::CONNECTED,
-                'connected_at' => $callSession->connected_at ?: now(),
-            ])->save();
-        }
+        $callSession = DB::transaction(function () use ($callSession, $signalType, $signalPayload, &$broadcastConnected) {
+            $lockedCallSession = CallSession::query()
+                ->whereKey($callSession->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        $callSession = $callSession->fresh(['chat', 'initiator', 'receiver']);
+            if(! $lockedCallSession->status->isActive()) {
+                return $lockedCallSession->fresh(['chat', 'initiator', 'receiver']);
+            }
+
+            $this->recordParticipantSignalState($lockedCallSession, $signalType, $signalPayload);
+
+            $metadata = $lockedCallSession->metadata ?: [];
+            $latestSignals = data_get($metadata, 'signaling.latest', []);
+            $signalProvider = $this->signalProvider($signalPayload);
+            $latestSignals[(string) me()->id] = array_filter([
+                'type' => $signalType,
+                'provider' => $signalProvider,
+                'reported_at' => now()->toIso8601String(),
+            ]);
+
+            data_set($metadata, 'signaling.latest', $latestSignals);
+
+            if(filled($signalProvider)) {
+                data_set($metadata, 'media.provider', $signalProvider);
+            }
+
+            $attributes = [
+                'metadata' => $metadata,
+            ];
+
+            if(in_array($signalType, ['ready', 'offer', 'answer'], true)
+                && $lockedCallSession->status === CallStatus::ACCEPTED) {
+                $attributes['status'] = CallStatus::CONNECTING;
+            }
+
+            if($signalType === 'connected') {
+                $attributes['status'] = CallStatus::CONNECTED;
+                $attributes['connected_at'] = $lockedCallSession->connected_at ?: now();
+            }
+
+            $lockedCallSession->forceFill($attributes)->save();
+            $lockedCallSession = $lockedCallSession->fresh(['participants']);
+
+            if($signalType === 'ready'
+                && $signalProvider === 'agora'
+                && $this->allParticipantsMediaReady($lockedCallSession, 'agora')
+                && empty($lockedCallSession->connected_at)) {
+                $lockedCallSession->forceFill([
+                    'status' => CallStatus::CONNECTED,
+                    'connected_at' => now(),
+                ])->save();
+
+                $broadcastConnected = true;
+            }
+
+            return $lockedCallSession->fresh(['chat', 'initiator', 'receiver']);
+        });
+
+        if(! $callSession->status->isActive()) {
+            return $this->responseError([
+                'message' => 'This call is no longer active.',
+            ], Response::HTTP_GONE);
+        }
 
         event(new CallSessionEvent('call.signal', $callSession, [
             'sender_user_id' => me()->id,
-            'signal_type' => (string) $request->input('signal_type'),
-            'signal' => $request->input('signal', []),
+            'signal_type' => $signalType,
+            'signal' => $signalPayload,
         ]));
+
+        if($broadcastConnected) {
+            event(new CallSessionEvent('call.signal', $callSession, [
+                'sender_user_id' => me()->id,
+                'signal_type' => 'connected',
+                'signal' => [
+                    'provider' => 'agora',
+                    'reason' => 'participants_ready',
+                ],
+            ]));
+        }
 
         return $this->responseSuccess([
             'data' => [
@@ -500,6 +583,112 @@ class CallController extends Controller
             ->active()
             ->whereHas('participants', fn ($query) => $query->where('user_id', $userId))
             ->exists();
+    }
+
+    private function finalizeStaleHandshakeCallsForUsers(array $userIds, CallLifecycleService $calls): void
+    {
+        $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds))));
+
+        if(empty($userIds)) {
+            return;
+        }
+
+        $threshold = now()->subSeconds(self::HANDSHAKE_TIMEOUT_SECONDS);
+
+        CallSession::query()
+            ->whereIn('status', [CallStatus::ACCEPTED->value, CallStatus::CONNECTING->value])
+            ->whereNull('connected_at')
+            ->where(function ($query) use ($threshold) {
+                $query->where('answered_at', '<=', $threshold)
+                    ->orWhere(function ($query) use ($threshold) {
+                        $query->whereNull('answered_at')
+                            ->where('started_at', '<=', $threshold);
+                    });
+            })
+            ->whereHas('participants', fn ($query) => $query->whereIn('user_id', $userIds))
+            ->limit(20)
+            ->get()
+            ->each(function (CallSession $callSession) use ($calls) {
+                try {
+                    $calls->finalize($callSession, CallStatus::FAILED, 'connection_timeout');
+                }
+                catch(Throwable $exception) {
+                    // A stale call should never block a fresh call attempt.
+                }
+            });
+    }
+
+    private function recordParticipantSignalState(CallSession $callSession, string $signalType, array $signalPayload): void
+    {
+        $participant = $callSession->participants()
+            ->where('user_id', me()->id)
+            ->first();
+
+        if(empty($participant)) {
+            return;
+        }
+
+        $metadata = $participant->metadata ?: [];
+        $signaling = $metadata['signaling'] ?? [];
+        $reportedAt = now()->toIso8601String();
+        $signalProvider = $this->signalProvider($signalPayload);
+
+        $signaling["{$signalType}_at"] = $reportedAt;
+        $signaling['last_signal_type'] = $signalType;
+        $signaling['last_signal_at'] = $reportedAt;
+        $metadata['signaling'] = $signaling;
+
+        if(filled($signalProvider)) {
+            $metadata['media_provider'] = $signalProvider;
+        }
+
+        $participantStatus = in_array($signalType, ['ready', 'offer', 'answer'], true)
+            ? CallStatus::CONNECTING
+            : $participant->status;
+
+        if($signalType === 'ready') {
+            $metadata['media_ready_at'] = $reportedAt;
+        }
+
+        if($signalType === 'connected') {
+            $metadata['media_connected_at'] = $reportedAt;
+            $participantStatus = CallStatus::CONNECTED;
+        }
+
+        $participant->forceFill([
+            'status' => $participantStatus,
+            'joined_at' => $participant->joined_at ?: now(),
+            'metadata' => $metadata,
+        ])->save();
+    }
+
+    private function allParticipantsMediaReady(CallSession $callSession, string $provider): bool
+    {
+        $participants = $callSession->relationLoaded('participants')
+            ? $callSession->participants
+            : $callSession->participants()->get();
+
+        if($participants->count() < 2) {
+            return false;
+        }
+
+        return $participants->every(function ($participant) use ($provider) {
+            return filled(data_get($participant->metadata ?: [], 'media_ready_at'))
+                && data_get($participant->metadata ?: [], 'media_provider') === $provider;
+        });
+    }
+
+    private function signalProvider(array $signalPayload): ?string
+    {
+        $provider = data_get($signalPayload, 'provider');
+
+        if(! is_string($provider)) {
+            return null;
+        }
+
+        $provider = Str::lower(trim($provider));
+
+        return in_array($provider, ['agora', 'webrtc'], true) ? $provider : null;
     }
 
     private function responseBusy(Chat $chat)

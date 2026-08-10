@@ -110,6 +110,8 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     let consecutiveWeakSamples = 0;
     let consecutivePoorSamples = 0;
     let remoteOutputVolume = 100;
+    let remoteUserSweepTimer = null;
+    let remoteUserSweepAttempts = 0;
 
     const emit = (event, ...payload) => {
         try {
@@ -284,27 +286,91 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         return 'good';
     };
 
+    const subscribeToRemoteAudio = async (user) => {
+        if(closing || ! user || user.uid === currentMediaSession?.uid) {
+            return false;
+        }
+
+        if(! user.audioTrack && user.hasAudio !== true) {
+            return false;
+        }
+
+        try {
+            if(! user.audioTrack) {
+                await client.subscribe(user, 'audio');
+            }
+            else if(user.hasAudio === true) {
+                await client.subscribe(user, 'audio').catch(() => {});
+            }
+
+            if(! user.audioTrack) {
+                return false;
+            }
+
+            remoteUid = user.uid;
+            stopRemoteAudioTrackPlayback();
+            remoteAudioTrack = user.audioTrack;
+            playRemoteAudio();
+            emit('onConnected');
+            startQualityTimer();
+
+            return true;
+        }
+        catch(error) {
+            emit('onReconnectState', 'failed');
+
+            return false;
+        }
+    };
+
+    const subscribeToPublishedRemoteUsers = async () => {
+        const remoteUsers = Array.isArray(client?.remoteUsers) ? client.remoteUsers : [];
+
+        for(const user of remoteUsers) {
+            if(await subscribeToRemoteAudio(user)) {
+                return true;
+            }
+        }
+
+        return false;
+    };
+
+    const stopRemoteUserSweep = () => {
+        if(remoteUserSweepTimer) {
+            window.clearInterval(remoteUserSweepTimer);
+            remoteUserSweepTimer = null;
+        }
+
+        remoteUserSweepAttempts = 0;
+    };
+
+    const startRemoteUserSweep = () => {
+        stopRemoteUserSweep();
+
+        if(typeof window === 'undefined') {
+            return;
+        }
+
+        remoteUserSweepTimer = window.setInterval(async () => {
+            if(closing || remoteAudioTrack) {
+                stopRemoteUserSweep();
+
+                return;
+            }
+
+            remoteUserSweepAttempts += 1;
+            await subscribeToPublishedRemoteUsers();
+
+            if(remoteAudioTrack || remoteUserSweepAttempts >= 15) {
+                stopRemoteUserSweep();
+            }
+        }, 1000);
+    };
+
     const setupClientEvents = () => {
         client.on('user-published', async (user, mediaType) => {
-            if(closing) {
-                return;
-            }
-
-            if(mediaType !== 'audio') {
-                return;
-            }
-
-            try {
-                await client.subscribe(user, mediaType);
-                remoteUid = user.uid;
-                stopRemoteAudioTrackPlayback();
-                remoteAudioTrack = user.audioTrack;
-                playRemoteAudio();
-                emit('onConnected');
-                startQualityTimer();
-            }
-            catch(error) {
-                emit('onReconnectState', 'failed');
+            if(mediaType === 'audio') {
+                await subscribeToRemoteAudio(user);
             }
         });
 
@@ -426,6 +492,8 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         await client.publish([localAudioTrack]);
         joined = true;
         emit('onStateChange', 'connected');
+        await subscribeToPublishedRemoteUsers();
+        startRemoteUserSweep();
         startQualityTimer();
 
         return true;
@@ -434,6 +502,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     const close = () => {
         closing = true;
         stopQualityTimer();
+        stopRemoteUserSweep();
 
         try {
             remoteAudioTrack?.stop?.();
