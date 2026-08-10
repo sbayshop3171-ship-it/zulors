@@ -60,6 +60,32 @@ class GoogleSocialLoginFlowTest extends TestCase
         $this->assertSame(1, DB::table(Table::SOCIAL_ACCOUNTS)->count());
     }
 
+    public function test_google_callback_creates_user_when_family_name_is_missing(): void
+    {
+        $provider = Mockery::mock();
+        $provider->shouldReceive('stateless')->once()->andReturnSelf();
+        $provider->shouldReceive('user')->once()->andReturn($this->makeGoogleUserWithoutFamilyName());
+
+        Socialite::shouldReceive('buildProvider')->once()->andReturn($provider);
+
+        $response = $this->get(route('social-login.google.callback'));
+
+        $response->assertRedirect(route('user.desktop.index'));
+
+        $user = User::query()->where('email', 'sierracode0@example.com')->firstOrFail();
+
+        $this->assertAuthenticatedAs($user);
+        $this->assertSame('sierracode0', $user->username);
+        $this->assertSame('Sierracode', $user->first_name);
+        $this->assertSame('', $user->last_name);
+        $this->assertNotNull($user->email_verified_at);
+        $this->assertDatabaseHas(Table::SOCIAL_ACCOUNTS, [
+            'user_id' => $user->id,
+            'provider_name' => 'google',
+            'provider_id' => 'google-user-no-family-name',
+        ]);
+    }
+
     private function makeGoogleUser(): SocialiteUser
     {
         return (new SocialiteUser())
@@ -74,6 +100,25 @@ class GoogleSocialLoginFlowTest extends TestCase
                 'email' => 'google-existing@example.com',
                 'given_name' => 'Google',
                 'family_name' => 'Existing',
+                'picture' => null,
+            ]);
+    }
+
+    private function makeGoogleUserWithoutFamilyName(): SocialiteUser
+    {
+        return (new SocialiteUser())
+            ->map([
+                'id' => 'google-user-no-family-name',
+                'nickname' => null,
+                'name' => 'Sierracode',
+                'email' => 'sierracode0@example.com',
+                'avatar' => null,
+            ])
+            ->setRaw([
+                'email' => 'sierracode0@example.com',
+                'email_verified' => true,
+                'given_name' => 'Sierracode',
+                'name' => 'Sierracode',
                 'picture' => null,
             ]);
     }
