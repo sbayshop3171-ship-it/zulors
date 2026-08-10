@@ -106,14 +106,13 @@ class ColdStartTimelineFeedTest extends TestCase
             ->assertJsonPath('data.auth.status', true)
             ->assertJsonPath('data.home_feed.type', 'for_you')
             ->assertJsonPath('data.home_feed.refresh_reason', 'initial')
+            ->assertJsonPath('data.home_feed.meta.feed.strategy', 'bootstrap_public_seed')
             ->assertJsonPath('data.home_feed.meta.feed.scored', false);
 
         $bootFeedPostIds = array_column($response->json('data.home_feed.posts'), 'id');
-        $bootFeedStrategy = $response->json('data.home_feed.meta.feed.strategy');
 
         $this->assertSame($latestPost->id, $bootFeedPostIds[0]);
         $this->assertContains($olderPost->id, $bootFeedPostIds);
-        $this->assertContains($bootFeedStrategy, ['cold_start_chronological', 'fast_start_chronological']);
     }
 
     public function test_public_home_feed_seed_is_available_without_authentication(): void
@@ -135,6 +134,18 @@ class ColdStartTimelineFeedTest extends TestCase
 
         $this->assertSame($latestPost->id, $postIds[0]);
         $this->assertContains($olderPost->id, $postIds);
+    }
+
+    public function test_public_home_feed_seed_route_is_public_with_middleware_enabled(): void
+    {
+        $author = $this->createUser('public-seed-live-author');
+
+        $this->createPost($author, 'Public middleware seed post', now());
+
+        $this->getJson('/api/bootstrap/home-feed-seed')
+            ->assertOk()
+            ->assertJsonPath('data.type', 'for_you')
+            ->assertJsonPath('data.meta.feed.strategy', 'public_seed_cache');
     }
 
     private function createUser(string $username, UserType $type = UserType::AUTHOR): User

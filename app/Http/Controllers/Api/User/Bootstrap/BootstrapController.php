@@ -28,6 +28,9 @@ class BootstrapController extends Controller
 {
     use SupportsApiResponses;
 
+    private const PUBLIC_HOME_FEED_SEED_CACHE_KEY = 'bootstrap.public_home_feed_seed.v2';
+    private const PUBLIC_HOME_FEED_SEED_TTL_SECONDS = 20;
+
     public function bootstrap()
     {
         return $this->responseSuccess([
@@ -49,41 +52,8 @@ class BootstrapController extends Controller
 
     public function homeFeedSeed()
     {
-        $cacheKey = 'bootstrap.public_home_feed_seed.v1';
-        $payload = Cache::remember($cacheKey, now()->addSeconds(20), function() {
-            $perPage = min((int) config('post.paginate_per'), 12);
-            $posts = Post::query()
-                ->timelineFormatPosts()
-                ->whereHas('user', function($query) {
-                    $query->active();
-                })
-                ->orderBy('created_at', 'desc')
-                ->orderBy('id', 'desc')
-                ->limit($perPage)
-                ->get();
-
-            return [
-                'type' => FeedService::TYPE_FOR_YOU,
-                'session_id' => 'public-seed',
-                'refresh_reason' => 'seed',
-                'posts' => TimelineCollection::make($posts)->resolve(request()),
-                'meta' => [
-                    'feed' => [
-                        'type' => FeedService::TYPE_FOR_YOU,
-                        'strategy' => 'public_seed_cache',
-                        'candidate_count' => $posts->count(),
-                        'candidate_limit' => null,
-                        'scored' => false,
-                        'page' => 1,
-                        'per_page' => $perPage,
-                        'session_id' => 'public-seed',
-                    ],
-                ],
-            ];
-        });
-
         return $this->responseSuccess([
-            'data' => $payload,
+            'data' => $this->resolvePublicHomeFeedSeedPayload(),
         ]);
     }
 
@@ -133,21 +103,58 @@ class BootstrapController extends Controller
             return null;
         }
 
-        $sessionId = 'boot-' . Str::lower(Str::random(18));
-        $feedResult = app(FeedService::class)->getFeed(me(), [
-            'type' => FeedService::TYPE_FOR_YOU,
-            'page' => 1,
-            'session_id' => $sessionId,
-            'refresh_reason' => 'initial',
-            'fast_start' => true,
-        ]);
+        return $this->resolvePublicHomeFeedSeedPayload(
+            sessionId: 'boot-' . Str::lower(Str::random(18)),
+            refreshReason: 'initial',
+            strategy: 'bootstrap_public_seed'
+        );
+    }
+
+    private function resolvePublicHomeFeedSeedPayload(
+        string $sessionId = 'public-seed',
+        string $refreshReason = 'seed',
+        string $strategy = 'public_seed_cache'
+    ): array {
+        $seedData = Cache::remember(
+            self::PUBLIC_HOME_FEED_SEED_CACHE_KEY,
+            now()->addSeconds(self::PUBLIC_HOME_FEED_SEED_TTL_SECONDS),
+            function() {
+                $perPage = min((int) config('post.paginate_per'), 12);
+                $posts = Post::query()
+                    ->timelineFormatPosts()
+                    ->whereHas('user', function($query) {
+                        $query->active();
+                    })
+                    ->orderBy('created_at', 'desc')
+                    ->orderBy('id', 'desc')
+                    ->limit($perPage)
+                    ->get();
+
+                return [
+                    'candidate_count' => $posts->count(),
+                    'per_page' => $perPage,
+                    'posts' => TimelineCollection::make($posts)->resolve(request()),
+                ];
+            }
+        );
 
         return [
             'type' => FeedService::TYPE_FOR_YOU,
             'session_id' => $sessionId,
-            'refresh_reason' => 'initial',
-            'posts' => TimelineCollection::make($feedResult->posts),
-            'meta' => $feedResult->meta,
+            'refresh_reason' => $refreshReason,
+            'posts' => $seedData['posts'],
+            'meta' => [
+                'feed' => [
+                    'type' => FeedService::TYPE_FOR_YOU,
+                    'strategy' => $strategy,
+                    'candidate_count' => $seedData['candidate_count'],
+                    'candidate_limit' => null,
+                    'scored' => false,
+                    'page' => 1,
+                    'per_page' => $seedData['per_page'],
+                    'session_id' => $sessionId,
+                ],
+            ],
         ];
     }
 }

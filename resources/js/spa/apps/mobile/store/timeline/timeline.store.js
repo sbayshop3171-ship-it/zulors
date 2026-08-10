@@ -40,7 +40,7 @@ const bootSharedFeed = function() {
     return Array.isArray(payload?.posts) && payload.posts.length ? payload : null;
 };
 
-const waitForBootBootstrap = async function(timeout = 260) {
+const waitForBootBootstrap = async function(timeout = 180) {
     if(typeof window === 'undefined' || ! window.__zulorsBoot?.bootstrapRequest) {
         return;
     }
@@ -56,7 +56,7 @@ const waitForBootBootstrap = async function(timeout = 260) {
     }
 };
 
-const waitForBootSharedFeed = async function(timeout = 420) {
+const waitForBootSharedFeed = async function(timeout = 160) {
     const seedFeed = bootSharedFeed();
 
     if(seedFeed) {
