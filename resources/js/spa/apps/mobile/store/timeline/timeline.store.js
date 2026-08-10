@@ -14,6 +14,10 @@ const getTimelineCacheKey = function() {
     return `colibri.mobile.timeline.public_feed.first_page.v2.${authStore.userData?.id || 'guest'}`;
 };
 
+const getPublicFeedCacheKey = function() {
+    return 'colibri.mobile.timeline.public_feed.first_page.shared.v1';
+};
+
 const timelineCacheLimit = 30;
 
 const createFeedSessionId = function() {
@@ -32,7 +36,8 @@ const useTimelineStore = defineStore('mobile_timeline_store', {
     
     deleteAware: true,
     state: function() {
-        const cachedPosts = readCache(getTimelineCacheKey(), []);
+        const sharedCachedPosts = readCache(getPublicFeedCacheKey(), [], (1000 * 60 * 20));
+        const cachedPosts = readCache(getTimelineCacheKey(), sharedCachedPosts);
 
         prefetchTimelineMedia(cachedPosts);
 
@@ -167,7 +172,8 @@ const useTimelineStore = defineStore('mobile_timeline_store', {
                     page: 1,
                     type: this.feedType,
                     session_id: this.feedSessionId,
-                    refresh_reason: this.refreshReason
+                    refresh_reason: this.refreshReason,
+                    fast_start: true
                 }
             }).getFrom('feed').then((response) => {
                 const posts = response.data.data;
@@ -318,9 +324,12 @@ const useTimelineStore = defineStore('mobile_timeline_store', {
             return missingOptimisticPosts.concat(posts);
         },
         persistFirstPage: function() {
-            writeCache(getTimelineCacheKey(), this.posts.filter((postData) => {
+            const posts = this.posts.filter((postData) => {
                 return ! isOptimisticPost(postData);
-            }).slice(0, timelineCacheLimit));
+            }).slice(0, timelineCacheLimit);
+
+            writeCache(getTimelineCacheKey(), posts);
+            writeCache(getPublicFeedCacheKey(), posts);
         },
         startFeedSession: function(refreshReason = 'refresh') {
             this.feedSessionId = createFeedSessionId();

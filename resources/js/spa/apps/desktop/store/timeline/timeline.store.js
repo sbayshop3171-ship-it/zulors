@@ -10,6 +10,10 @@ const getTimelineCacheKey = function() {
     return `colibri.desktop.timeline.public_feed.first_page.v2.${authStore.userData?.id || 'guest'}`;
 };
 
+const getPublicFeedCacheKey = function() {
+    return 'colibri.desktop.timeline.public_feed.first_page.shared.v1';
+};
+
 const timelineCacheLimit = 30;
 
 const createFeedSessionId = function() {
@@ -27,7 +31,8 @@ const useTimelineStore = defineStore('timeline_store', {
     // This is used only for timeline stores, on desktop and mobile with the same logic.
     deleteAware: true,
     state: function() {
-        const cachedPosts = readCache(getTimelineCacheKey(), []);
+        const sharedCachedPosts = readCache(getPublicFeedCacheKey(), [], (1000 * 60 * 20));
+        const cachedPosts = readCache(getTimelineCacheKey(), sharedCachedPosts);
 
         prefetchTimelineMedia(cachedPosts);
 
@@ -164,7 +169,8 @@ const useTimelineStore = defineStore('timeline_store', {
                     onset: null,
                     type: this.feedType,
                     session_id: this.feedSessionId,
-                    refresh_reason: this.refreshReason
+                    refresh_reason: this.refreshReason,
+                    fast_start: true
                 }
             }).getFrom('feed').then((response) => {
                 const posts = response.data.data;
@@ -257,7 +263,10 @@ const useTimelineStore = defineStore('timeline_store', {
             }
         },
         persistFirstPage: function() {
-            writeCache(getTimelineCacheKey(), this.posts.slice(0, timelineCacheLimit));
+            const posts = this.posts.slice(0, timelineCacheLimit);
+
+            writeCache(getTimelineCacheKey(), posts);
+            writeCache(getPublicFeedCacheKey(), posts);
         },
         startFeedSession: function(refreshReason = 'refresh') {
             this.feedSessionId = createFeedSessionId();

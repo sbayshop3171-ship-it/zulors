@@ -50,7 +50,7 @@ class FeedController extends Controller
             }
         }
 
-        foreach(['session_id', 'refresh_reason', 'seed_hash_id'] as $filterKey) {
+        foreach(['session_id', 'refresh_reason', 'seed_hash_id', 'fast_start'] as $filterKey) {
             if(request()->has($filterKey) && empty($filter[$filterKey])) {
                 $filter[$filterKey] = request()->string($filterKey)->toString();
             }

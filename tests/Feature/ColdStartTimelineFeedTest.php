@@ -3,8 +3,10 @@
 namespace Tests\Feature;
 
 use App\Enums\NotificationType;
+use App\Database\Configs\Table;
 use App\Enums\Post\PostStatus;
 use App\Enums\Post\PostType;
+use App\Enums\User\FollowStatus;
 use App\Enums\User\UserRole;
 use App\Enums\User\UserStatus;
 use App\Enums\User\UserType;
@@ -12,6 +14,7 @@ use App\Models\Post;
 use App\Models\User;
 use App\Models\UserNotificationSettings;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
@@ -56,6 +59,36 @@ class ColdStartTimelineFeedTest extends TestCase
         $postIds = array_column($response->json('data'), 'id');
 
         $this->assertContains($readerPost->id, $postIds);
+    }
+
+    public function test_fast_start_initial_feed_skips_ranking_for_personalized_users(): void
+    {
+        $viewer = $this->createUser('fast-start-viewer');
+        $followedAuthor = $this->createUser('fast-start-followed-author');
+        $latestAuthor = $this->createUser('fast-start-latest-author');
+
+        DB::table(Table::FOLLOWS)->insert([
+            'follower_id' => $viewer->id,
+            'following_id' => $followedAuthor->id,
+            'status' => FollowStatus::FOLLOWING->value,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $olderPost = $this->createPost($followedAuthor, 'Older followed post', now()->subMinutes(10));
+        $newerPost = $this->createPost($latestAuthor, 'Latest fast start post', now());
+
+        $response = $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/timeline/feed?type=for_you&refresh_reason=initial&fast_start=1')
+            ->assertOk()
+            ->assertJsonPath('meta.feed.strategy', 'fast_start_chronological')
+            ->assertJsonPath('meta.feed.scored', false);
+
+        $postIds = array_column($response->json('data'), 'id');
+
+        $this->assertSame($newerPost->id, $postIds[0]);
+        $this->assertContains($olderPost->id, $postIds);
     }
 
     private function createUser(string $username, UserType $type = UserType::AUTHOR): User

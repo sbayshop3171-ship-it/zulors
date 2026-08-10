@@ -18,6 +18,8 @@ class FeedService
     public const TYPE_FOLLOWING = 'following';
     public const TYPE_LATEST = 'latest';
     public const TYPE_REELS = 'reels';
+    private const FAST_START_PUBLIC_IDS_TTL_SECONDS = 30;
+    private const FAST_START_PUBLIC_IDS_MULTIPLIER = 2;
 
     public function __construct(
         private CandidateGenerationService $candidateGenerationService,
@@ -31,16 +33,14 @@ class FeedService
         $type = $this->normalizeType(data_get($filter, 'type'));
         $perPage = (int) config('post.paginate_per');
 
-        if($type === self::TYPE_LATEST || $this->shouldUseColdStartLatestFeed($user, $type, $filter)) {
-            $timelinePosts = $this->candidateGenerationService
-                ->latestQuery($user, $filter)
-                ->simplePaginateManual($perPage, $page);
+        if($type === self::TYPE_LATEST || $this->shouldUseFastStartLatestFeed($user, $type, $filter, $page)) {
+            $timelinePosts = $this->latestFeedPosts($user, $type, $filter, $perPage, $page);
 
-            $posts = $this->withProcessingPosts($user, $page, collect($timelinePosts->items()));
+            $posts = $this->withProcessingPosts($user, $page, $timelinePosts);
 
             return new FeedResult($posts, $this->meta($type, [
-                'strategy' => $type === self::TYPE_LATEST ? 'chronological' : 'cold_start_chronological',
-                'candidate_count' => count($timelinePosts->items()),
+                'strategy' => $type === self::TYPE_LATEST ? 'chronological' : $this->fastStartStrategy($user, $filter),
+                'candidate_count' => $timelinePosts->count(),
                 'candidate_limit' => null,
                 'scored' => false,
                 'page' => $page,
@@ -125,9 +125,9 @@ class FeedService
         ];
     }
 
-    private function shouldUseColdStartLatestFeed(User $user, string $type, array $filter): bool
+    private function shouldUseFastStartLatestFeed(User $user, string $type, array $filter, int $page): bool
     {
-        if($type !== self::TYPE_FOR_YOU || data_get_integer($filter, 'onset', 0) > 0) {
+        if($type !== self::TYPE_FOR_YOU || $page !== 1 || data_get_integer($filter, 'onset', 0) > 0) {
             return false;
         }
 
@@ -137,7 +137,25 @@ class FeedService
             return false;
         }
 
+        if($this->wantsFastStart($filter)) {
+            return true;
+        }
+
         return ! $this->hasPersonalizationSignals($user);
+    }
+
+    private function wantsFastStart(array $filter): bool
+    {
+        return filter_var(data_get($filter, 'fast_start', false), FILTER_VALIDATE_BOOLEAN);
+    }
+
+    private function fastStartStrategy(User $user, array $filter): string
+    {
+        if($this->wantsFastStart($filter) && $this->hasPersonalizationSignals($user)) {
+            return 'fast_start_chronological';
+        }
+
+        return 'cold_start_chronological';
     }
 
     private function hasPersonalizationSignals(User $user): bool
@@ -156,6 +174,69 @@ class FeedService
         return DB::table(Table::FEED_EVENTS)
             ->where('user_id', $user->id)
             ->exists();
+    }
+
+    private function latestFeedPosts(User $user, string $type, array $filter, int $perPage, int $page): Collection
+    {
+        if($this->canUsePublicFastStartIds($type, $filter, $page)) {
+            $postIds = $this->publicFastStartPostIds($perPage);
+
+            if(! empty($postIds)) {
+                $posts = $this->postsFromFastStartIds($user, $postIds)->take($perPage)->values();
+
+                if($posts->isNotEmpty()) {
+                    return $posts;
+                }
+            }
+        }
+
+        return collect($this->candidateGenerationService
+            ->latestQuery($user, $filter)
+            ->simplePaginateManual($perPage, $page)
+            ->items());
+    }
+
+    private function canUsePublicFastStartIds(string $type, array $filter, int $page): bool
+    {
+        return $type === self::TYPE_FOR_YOU
+            && $page === 1
+            && data_get_integer($filter, 'onset', 0) === 0
+            && $this->wantsFastStart($filter);
+    }
+
+    private function publicFastStartPostIds(int $perPage): array
+    {
+        $limit = max($perPage, $perPage * self::FAST_START_PUBLIC_IDS_MULTIPLIER);
+
+        return Cache::remember(
+            "timeline.feed.fast_start.public_post_ids.v1.{$limit}",
+            now()->addSeconds(self::FAST_START_PUBLIC_IDS_TTL_SECONDS),
+            function() use ($limit) {
+                return Post::query()
+                    ->active()
+                    ->whereHas('user', function($query) {
+                        $query->active();
+                    })
+                    ->orderBy('created_at', 'desc')
+                    ->orderBy('id', 'desc')
+                    ->limit($limit)
+                    ->pluck('id')
+                    ->map(fn($postId) => (int) $postId)
+                    ->all();
+            }
+        );
+    }
+
+    private function postsFromFastStartIds(User $user, array $postIds): Collection
+    {
+        $postIdOrder = array_flip($postIds);
+
+        return $this->candidateGenerationService
+            ->latestQuery($user)
+            ->whereIn('id', $postIds)
+            ->get()
+            ->sortBy(fn(Post $post) => $postIdOrder[$post->id] ?? PHP_INT_MAX)
+            ->values();
     }
 
     private function sessionId(array $filter): ?string
