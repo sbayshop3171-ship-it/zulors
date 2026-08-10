@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.zulors.app",
+      "sha256_cert_fingerprints": [
+        "5E:B6:41:E4:74:B6:6F:78:BE:6D:A3:A8:3B:27:33:8E:49:6B:26:FD:76:EA:48:4C:5D:73:4E:BA:D3:FF:FD:0B"
+      ]
+    }
+  }
+]
