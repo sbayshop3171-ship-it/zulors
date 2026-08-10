@@ -251,7 +251,6 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.isAnswering = true;
             this.status = 'connecting';
             this.stopRingingFeedback();
-            this.enterNativeAudioMode();
 
             try {
                 const response = await colibriAPI().messenger()
@@ -417,7 +416,6 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             if(call.initiator_id === this.currentUserId) {
                 try {
-                    this.enterNativeAudioMode();
                     await this.setupPeer();
 
                     if(this.mediaProvider === 'agora') {
@@ -469,7 +467,6 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 }
 
                 if(data.signal_type === 'offer') {
-                    this.enterNativeAudioMode();
                     await this.setupPeer();
                     await this.peer.handleOffer(data.signal || {}, this.call.media_type || 'audio');
                     this.markConnecting();
@@ -485,7 +482,6 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     this.markConnected(false);
                 }
                 else if(data.signal_type === 'ready' && this.call?.initiator_id === this.currentUserId) {
-                    this.enterNativeAudioMode();
                     await this.setupPeer();
 
                     if(this.mediaProvider !== 'agora') {
@@ -566,8 +562,8 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
 
             this.peer = markRaw(peer);
-            this.enterNativeAudioMode();
             await this.peer.ensurePeerConnection(this.call?.media_type || 'audio');
+            this.enterNativeAudioMode();
 
             return this.peer;
         },

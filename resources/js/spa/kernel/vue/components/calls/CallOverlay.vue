@@ -1,12 +1,15 @@
 <template>
     <audio ref="remoteAudioRef" autoplay playsinline></audio>
 
-    <div v-if="callStore.isVisible" class="fixed inset-0 z-[1200] pointer-events-none">
+    <div
+        v-if="callStore.isVisible"
+        class="call-overlay-root fixed inset-0 z-[1200]"
+        v-bind:class="isMini ? 'pointer-events-none' : 'pointer-events-auto'">
         <button
             v-if="isMini"
             type="button"
             class="pointer-events-auto fixed bottom-5 left-1/2 flex h-12 max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg border border-bord-pr bg-bg-pr px-4 text-left shadow-2xl"
-            v-on:click="callStore.expand">
+            v-on:click.stop.prevent="callStore.expand()">
             <span class="flex size-8 shrink-0 items-center justify-center rounded-full bg-green-600 text-white">
                 <SvgIcon name="phone" type="line" classes="size-4"></SvgIcon>
             </span>
@@ -16,38 +19,38 @@
             </span>
         </button>
 
-        <div v-else class="pointer-events-auto absolute inset-0 flex items-center justify-center bg-black/45 px-4 py-6 backdrop-blur-sm">
-            <div class="w-full max-w-[390px] rounded-lg border border-bord-pr bg-bg-pr shadow-2xl">
+        <div v-else class="call-overlay-backdrop absolute inset-0 flex items-center justify-center overflow-y-auto bg-black/45 px-4 py-6 backdrop-blur-sm">
+            <div class="call-overlay-card w-full max-w-[390px] rounded-lg border border-bord-pr bg-bg-pr shadow-2xl">
                 <div class="flex items-center justify-end px-4 pt-4">
                     <button
                         v-if="callStore.isActive"
                         type="button"
                         class="flex size-9 items-center justify-center rounded-full text-lab-sc hover:bg-fill-qt hover:text-lab-pr"
-                        v-on:click="callStore.minimize">
+                        v-on:click.stop.prevent="callStore.minimize()">
                         <SvgIcon name="chevron-down" type="solid" classes="size-5"></SvgIcon>
                     </button>
                 </div>
 
-                <div class="px-6 pb-6 text-center">
-                    <div class="mx-auto flex size-28 items-center justify-center overflow-hidden rounded-full bg-fill-qt text-lab-pr">
+                <div class="call-overlay-body px-6 pb-6 text-center">
+                    <div class="call-overlay-avatar mx-auto flex size-28 items-center justify-center overflow-hidden rounded-full bg-fill-qt text-lab-pr">
                         <img v-if="callStore.avatarUrl" v-bind:src="callStore.avatarUrl" class="size-full object-cover" alt="Avatar">
                         <span v-else class="text-title-1 font-bold">{{ avatarInitial }}</span>
                     </div>
 
-                    <h3 class="mt-4 truncate text-title-3 font-bold text-lab-pr">{{ callStore.title }}</h3>
+                    <h3 class="call-overlay-title mt-4 truncate text-title-3 font-bold text-lab-pr">{{ callStore.title }}</h3>
                     <p class="mt-1 text-par-s text-lab-sc">{{ statusText }}</p>
 
                     <p v-if="callStore.error" class="mt-3 rounded-lg bg-red-900/10 px-3 py-2 text-par-s font-medium text-red-900">
                         {{ callStore.error }}
                     </p>
 
-                    <div v-if="callStore.isIncoming" class="mt-8 grid grid-cols-2 gap-4">
+                    <div v-if="callStore.isIncoming" class="call-overlay-controls mt-8 grid grid-cols-2 gap-4">
                         <button
                             type="button"
                             class="flex flex-col items-center gap-2 text-par-s font-semibold text-lab-pr disabled:opacity-60"
                             v-bind:disabled="callStore.isFinalizing"
-                            v-on:click="callStore.declineCall">
-                            <span class="flex size-14 items-center justify-center rounded-full bg-red-900 text-white">
+                            v-on:click.stop.prevent="callStore.declineCall()">
+                            <span class="call-overlay-control-icon flex size-14 items-center justify-center rounded-full bg-red-900 text-white">
                                 <SvgIcon name="x" type="solid" classes="size-6"></SvgIcon>
                             </span>
                             <span>Decline</span>
@@ -56,31 +59,31 @@
                             type="button"
                             class="flex flex-col items-center gap-2 text-par-s font-semibold text-lab-pr disabled:opacity-60"
                             v-bind:disabled="callStore.isAnswering"
-                            v-on:click="callStore.answerCall">
-                            <span class="flex size-14 items-center justify-center rounded-full bg-green-600 text-white">
+                            v-on:click.stop.prevent="callStore.answerCall()">
+                            <span class="call-overlay-control-icon flex size-14 items-center justify-center rounded-full bg-green-600 text-white">
                                 <SvgIcon name="phone" type="line" classes="size-6"></SvgIcon>
                             </span>
                             <span>Answer</span>
                         </button>
                     </div>
 
-                    <div v-else class="mt-8 grid grid-cols-3 gap-4">
-                        <button type="button" class="flex flex-col items-center gap-2 text-par-s font-semibold text-lab-pr" v-on:click="callStore.toggleSpeaker">
-                            <span class="flex size-14 items-center justify-center rounded-full bg-fill-qt text-lab-pr">
+                    <div v-else class="call-overlay-controls mt-8 grid grid-cols-3 gap-4">
+                        <button type="button" class="flex flex-col items-center gap-2 text-par-s font-semibold text-lab-pr" v-on:click.stop.prevent="callStore.toggleSpeaker()">
+                            <span class="call-overlay-control-icon flex size-14 items-center justify-center rounded-full bg-fill-qt text-lab-pr">
                                 <SvgIcon v-bind:name="callStore.speakerEnabled ? 'volume-max' : 'volume-x'" type="line" classes="size-6"></SvgIcon>
                             </span>
                             <span>Speaker</span>
                         </button>
 
                         <button type="button" class="flex flex-col items-center gap-2 text-par-s font-semibold text-lab-sc opacity-60" disabled>
-                            <span class="flex size-14 items-center justify-center rounded-full bg-fill-qt text-lab-sc">
+                            <span class="call-overlay-control-icon flex size-14 items-center justify-center rounded-full bg-fill-qt text-lab-sc">
                                 <SvgIcon name="video-recorder" type="line" classes="size-6"></SvgIcon>
                             </span>
                             <span>Video</span>
                         </button>
 
-                        <button type="button" class="flex flex-col items-center gap-2 text-par-s font-semibold text-lab-pr" v-on:click="callStore.toggleMute">
-                            <span class="flex size-14 items-center justify-center rounded-full bg-fill-qt text-lab-pr">
+                        <button type="button" class="flex flex-col items-center gap-2 text-par-s font-semibold text-lab-pr" v-on:click.stop.prevent="callStore.toggleMute()">
+                            <span class="call-overlay-control-icon flex size-14 items-center justify-center rounded-full bg-fill-qt text-lab-pr">
                                 <SvgIcon v-bind:name="callStore.isMuted ? 'volume-x' : 'microphone-01'" type="line" classes="size-6"></SvgIcon>
                             </span>
                             <span>{{ callStore.isMuted ? 'Unmute' : 'Mute' }}</span>
@@ -90,8 +93,8 @@
                             type="button"
                             class="col-start-2 flex flex-col items-center gap-2 text-par-s font-semibold text-lab-pr disabled:opacity-60"
                             v-bind:disabled="callStore.isFinalizing"
-                            v-on:click="callStore.endCall">
-                            <span class="flex size-14 items-center justify-center rounded-full bg-red-900 text-white">
+                            v-on:click.stop.prevent="callStore.endCall()">
+                            <span class="call-overlay-control-icon flex size-14 items-center justify-center rounded-full bg-red-900 text-white">
                                 <SvgIcon name="phone" type="line" classes="size-6 rotate-[135deg]"></SvgIcon>
                             </span>
                             <span>End</span>
@@ -258,3 +261,62 @@
         }
     });
 </script>
+
+<style scoped>
+    .call-overlay-root,
+    .call-overlay-backdrop {
+        touch-action: manipulation;
+    }
+
+    .call-overlay-backdrop {
+        padding-top: max(1rem, env(safe-area-inset-top));
+        padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    }
+
+    .call-overlay-card {
+        max-height: calc(100svh - 2rem);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+    }
+
+    @supports not (height: 100svh) {
+        .call-overlay-card {
+            max-height: calc(100vh - 2rem);
+        }
+    }
+
+    @media (orientation: landscape) and (max-height: 520px) {
+        .call-overlay-backdrop {
+            align-items: center;
+            padding: 0.75rem;
+        }
+
+        .call-overlay-card {
+            max-width: min(560px, calc(100vw - 1.5rem));
+            max-height: calc(100svh - 1.5rem);
+        }
+
+        .call-overlay-body {
+            padding-bottom: 1rem;
+        }
+
+        .call-overlay-avatar {
+            width: 4.25rem;
+            height: 4.25rem;
+        }
+
+        .call-overlay-title {
+            margin-top: 0.75rem;
+        }
+
+        .call-overlay-controls {
+            margin-top: 1rem;
+            gap: 0.75rem;
+        }
+
+        .call-overlay-control-icon {
+            width: 3rem;
+            height: 3rem;
+        }
+    }
+</style>
