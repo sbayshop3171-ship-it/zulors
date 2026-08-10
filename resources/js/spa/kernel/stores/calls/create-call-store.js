@@ -66,7 +66,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             error: '',
             minimized: false,
             isMuted: false,
-            speakerEnabled: true,
+            speakerEnabled: false,
             localStream: null,
             remoteStream: null,
             peer: null,
@@ -821,7 +821,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.error = '';
             this.minimized = false;
             this.isMuted = false;
-            this.speakerEnabled = true;
+            this.speakerEnabled = false;
             this.localStream = null;
             this.remoteStream = null;
             this.peer = null;

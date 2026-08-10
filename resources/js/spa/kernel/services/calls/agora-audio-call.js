@@ -1,4 +1,16 @@
-const qualityMonitorIntervalMs = Number(import.meta.env.VITE_CALL_QUALITY_MONITOR_INTERVAL || 3000);
+const parsePositiveNumber = (value, defaultValue) => {
+    const number = Number(value);
+
+    return Number.isFinite(number) && number > 0 ? number : defaultValue;
+};
+
+const qualityMonitorIntervalMs = parsePositiveNumber(import.meta.env.VITE_CALL_QUALITY_MONITOR_INTERVAL, 3000);
+const qualityWarningSamples = Math.max(1, parsePositiveNumber(import.meta.env.VITE_CALL_QUALITY_WARNING_SAMPLES, 2));
+const agoraSpeechEncoderConfig = {
+    sampleRate: parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_AUDIO_SAMPLE_RATE, 48000),
+    stereo: false,
+    bitrate: parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_AUDIO_BITRATE, 32)
+};
 let agoraRtcPromise = null;
 
 const isAgoraAudioCallSupported = () => {
@@ -34,6 +46,52 @@ const pickFirstValue = (...values) => {
     return values.find((value) => value !== undefined && value !== null && value !== '');
 };
 
+const normalizePacketLossPercent = (value) => {
+    const number = toNumber(value, 0);
+
+    if(number > 0 && number <= 1) {
+        return Number((number * 100).toFixed(2));
+    }
+
+    return number;
+};
+
+const normalizeMilliseconds = (value) => {
+    const number = toNumber(value, 0);
+
+    if(number > 0 && number < 10) {
+        return Number((number * 1000).toFixed(2));
+    }
+
+    return number;
+};
+
+const classifyAgoraNetworkQuality = (quality = null) => {
+    if(! quality) {
+        return null;
+    }
+
+    const uplink = Number(quality.uplinkNetworkQuality);
+    const downlink = Number(quality.downlinkNetworkQuality);
+    const scores = [uplink, downlink].filter((score) => Number.isFinite(score) && score > 0);
+
+    if(! scores.length) {
+        return null;
+    }
+
+    const worstScore = Math.max(...scores);
+
+    if(worstScore >= 5) {
+        return 'poor';
+    }
+
+    if(worstScore >= 3) {
+        return 'weak';
+    }
+
+    return 'good';
+};
+
 const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     let client = null;
     let localAudioTrack = null;
@@ -45,6 +103,9 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     let currentMediaSession = options.mediaSession || {};
     let remoteUid = null;
     let closing = false;
+    let latestNetworkQuality = null;
+    let consecutiveWeakSamples = 0;
+    let consecutivePoorSamples = 0;
 
     const emit = (event, ...payload) => {
         try {
@@ -94,14 +155,16 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             const localStats = client.getLocalAudioStats?.() || {};
             const remoteStatsMap = client.getRemoteAudioStats?.() || {};
             const remoteStats = remoteStatsMap[remoteUid] || Object.values(remoteStatsMap)[0] || {};
-            const rtt = toNumber(pickFirstValue(remoteStats.end2EndDelay, remoteStats.receiveDelay, rtcStats.RTT));
-            const jitter = toNumber(pickFirstValue(remoteStats.jitterBufferDelay, remoteStats.receiveJitterDelay, remoteStats.jitter));
-            const packetLossPercent = toNumber(pickFirstValue(remoteStats.packetLossRate, remoteStats.receivePacketLossRate, remoteStats.receivePacketLossRatePercent));
-            const networkQuality = classifyNetworkQuality({
+            const rtt = normalizeMilliseconds(pickFirstValue(remoteStats.end2EndDelay, remoteStats.receiveDelay, rtcStats.RTT));
+            const jitter = normalizeMilliseconds(pickFirstValue(remoteStats.receiveJitterDelay, remoteStats.jitter));
+            const packetLossPercent = normalizePacketLossPercent(pickFirstValue(remoteStats.packetLossRate, remoteStats.receivePacketLossRate, remoteStats.receivePacketLossRatePercent));
+            const statsNetworkQuality = classifyNetworkQuality({
                 rtt: rtt,
                 jitter: jitter,
                 packetLossPercent: packetLossPercent
             });
+            const sdkNetworkQuality = classifyAgoraNetworkQuality(latestNetworkQuality || client.getNetworkQuality?.());
+            const networkQuality = stabilizeNetworkQuality(sdkNetworkQuality || statsNetworkQuality);
 
             emit('onQualityStats', {
                 network_quality: networkQuality,
@@ -129,11 +192,38 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     };
 
     const classifyNetworkQuality = ({ rtt, jitter, packetLossPercent }) => {
-        if(packetLossPercent >= 10 || rtt >= 700 || jitter >= 120) {
+        if(packetLossPercent >= 12 || rtt >= 900 || jitter >= 180) {
             return 'poor';
         }
 
-        if(packetLossPercent >= 3 || rtt >= 400 || jitter >= 60) {
+        if(packetLossPercent >= 5 || rtt >= 500 || jitter >= 90) {
+            return 'weak';
+        }
+
+        return 'good';
+    };
+
+    const stabilizeNetworkQuality = (networkQuality) => {
+        if(networkQuality === 'poor') {
+            consecutivePoorSamples += 1;
+            consecutiveWeakSamples += 1;
+        }
+        else if(networkQuality === 'weak') {
+            consecutiveWeakSamples += 1;
+            consecutivePoorSamples = 0;
+        }
+        else {
+            consecutiveWeakSamples = 0;
+            consecutivePoorSamples = 0;
+
+            return 'good';
+        }
+
+        if(networkQuality === 'poor' && consecutivePoorSamples >= qualityWarningSamples) {
+            return 'poor';
+        }
+
+        if(consecutiveWeakSamples >= qualityWarningSamples) {
             return 'weak';
         }
 
@@ -213,6 +303,9 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
 
         client.on('token-privilege-will-expire', renewToken);
         client.on('token-privilege-did-expire', renewToken);
+        client.on('network-quality', (quality) => {
+            latestNetworkQuality = quality;
+        });
     };
 
     const ensurePeerConnection = async (mediaType = 'audio') => {
@@ -257,7 +350,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             AEC: true,
             AGC: true,
             ANS: true,
-            encoderConfig: 'speech_standard'
+            encoderConfig: agoraSpeechEncoderConfig
         });
 
         if(isMuted) {
@@ -300,6 +393,9 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         localStream = null;
         remoteUid = null;
         joined = false;
+        latestNetworkQuality = null;
+        consecutiveWeakSamples = 0;
+        consecutivePoorSamples = 0;
 
         if(activeClient) {
             Promise.resolve()

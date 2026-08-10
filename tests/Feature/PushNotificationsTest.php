@@ -17,6 +17,7 @@ use App\Notifications\Traits\BaseNotification;
 use App\Notifications\User\Chat\MessageReceivedNotification;
 use App\Services\Notifications\FirebaseCloudMessagingService;
 use App\Services\Notifications\NotificationActionTokenService;
+use Illuminate\Console\Command;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
@@ -213,6 +214,54 @@ class PushNotificationsTest extends TestCase
                 && $request['message']['notification']['title'] === 'New message'
                 && $request['message']['data']['url'] === 'https://zulors.com/notifications';
         });
+    }
+
+    public function test_push_test_command_sends_high_priority_test_notification(): void
+    {
+        Cache::flush();
+        Http::fake([
+            'oauth2.googleapis.com/token' => Http::response([
+                'access_token' => 'firebase-access-token',
+                'expires_in' => 3600,
+            ]),
+            'fcm.googleapis.com/*' => Http::response([
+                'name' => 'projects/zulors/messages/test-command-message',
+            ]),
+        ]);
+
+        $user = $this->createUser('fcm-command-user');
+        $this->createPushToken($user, 'command-fcm-token');
+
+        $this->configureFirebaseCredentials();
+
+        $this->artisan('notifications:test-push', [
+            'user' => $user->username,
+        ])->assertExitCode(Command::SUCCESS);
+
+        Http::assertSent(function ($request) {
+            return $request->url() === 'https://fcm.googleapis.com/v1/projects/zulors/messages:send'
+                && $request->hasHeader('Authorization', 'Bearer firebase-access-token')
+                && $request['message']['token'] === 'command-fcm-token'
+                && $request['message']['data']['type'] === 'test.notification'
+                && $request['message']['data']['channel_id'] === 'zulors_system'
+                && $request['message']['android']['priority'] === 'high';
+        });
+    }
+
+    public function test_push_test_command_dry_run_does_not_send_to_firebase(): void
+    {
+        Http::fake();
+        config(['notifications.push.enabled' => true]);
+
+        $user = $this->createUser('fcm-dry-run-user');
+        $this->createPushToken($user, 'dry-run-fcm-token');
+
+        $this->artisan('notifications:test-push', [
+            'user' => $user->id,
+            '--dry-run' => true,
+        ])->assertExitCode(Command::SUCCESS);
+
+        Http::assertNothingSent();
     }
 
     public function test_firebase_service_revokes_invalid_fcm_tokens(): void
