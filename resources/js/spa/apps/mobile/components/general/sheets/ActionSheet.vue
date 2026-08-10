@@ -1,8 +1,8 @@
 <template>
 	<Teleport to="body">
-		<div v-on:click.stop.self="close" class="zulors-action-sheet-overlay fixed inset-0 z-100 flex w-screen max-w-none flex-col bg-black/70 pt-14 bg-cover">
+		<div v-on:click.stop.self="close" class="zulors-action-sheet-overlay fixed inset-0 z-100 flex h-screen w-screen max-w-none flex-col bg-black/70 bg-cover p-0">
 			<Transition name="slide-up">
-				<div v-if="renderActionSheet" class="zulors-action-sheet relative mt-auto flex max-h-full w-screen max-w-none flex-col rounded-t-3xl"
+				<div v-if="renderActionSheet" class="zulors-action-sheet relative mt-auto flex max-h-full w-screen max-w-none flex-col rounded-none shadow-none"
 				v-bind:class="[isMuted ? 'bg-bg-sc' : 'bg-bg-pr']">
 					<div v-on:click.stop.self="close"
 					v-on:touchstart.stop.self="close"
@@ -12,7 +12,7 @@
 						<div class="w-1/10 h-[3px] bg-lab-sc rounded-full" v-bind:class="{'opacity-50': isLocked}"></div>
 					</div>
 					<div class="flex-1 overflow-hidden"
-					v-bind:class="['mb-4', $isStandalone() ? 'pb-4' : 'pb-safe-bottom']">
+					v-bind:class="{ 'pb-safe-bottom': $isStandalone() }">
 						<slot></slot>
 					</div>
 				</div>
