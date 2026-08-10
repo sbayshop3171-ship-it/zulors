@@ -1,11 +1,12 @@
 import { defineStore } from 'pinia';
 import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
-import { readCache, writeCache } from '@/kernel/services/cache/index.js';
+import { readCacheEntry, writeCache } from '@/kernel/services/cache/index.js';
 import { useAuthStore } from '@M/store/auth/auth.store.js';
 import { useTimelineStore } from '@M/store/timeline/timeline.store.js';
 
 const bootstrapCacheKey = 'colibri.mobile.bootstrap.v1';
 const bootstrapCacheTtl = 1000 * 60 * 15;
+const bootstrapHomeFeedTtl = 1000 * 45;
 
 const wait = (timeout) => {
     return new Promise((resolve) => {
@@ -39,18 +40,26 @@ const takeBootBootstrapRequest = async () => {
 
 const useAppStore = defineStore('mobile_app_store', {
     state: () => {
+        const cachedEntry = readCacheEntry(bootstrapCacheKey, bootstrapCacheTtl);
+
         return {
-            appData: readCache(bootstrapCacheKey, null, bootstrapCacheTtl)
+            appData: cachedEntry?.data ?? null,
+            appDataCachedAt: cachedEntry?.timestamp ?? 0
         };
     },
     actions: {
         hydrateCachedBootstrap: function() {
             const authStore = useAuthStore();
+            const timelineStore = useTimelineStore();
             const userData = this.appData?.auth?.user ?? null;
+            const hasFreshHomeFeed = this.appDataCachedAt && ((Date.now() - this.appDataCachedAt) <= bootstrapHomeFeedTtl);
 
             if(userData) {
                 authStore.setUser(userData);
-                useTimelineStore().hydrateBootFeed(this.appData?.home_feed ?? null);
+
+                if(hasFreshHomeFeed) {
+                    timelineStore.hydrateBootFeed(this.appData?.home_feed ?? null);
+                }
 
                 return true;
             }
@@ -62,6 +71,7 @@ const useAppStore = defineStore('mobile_app_store', {
             const timelineStore = useTimelineStore();
 
             this.appData = bootstrapData;
+            this.appDataCachedAt = Date.now();
             authStore.setUser(bootstrapData?.auth?.user ?? null);
             timelineStore.hydrateBootFeed(bootstrapData?.home_feed ?? null);
             writeCache(bootstrapCacheKey, bootstrapData);

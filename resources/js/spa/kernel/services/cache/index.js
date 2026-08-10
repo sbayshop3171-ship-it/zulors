@@ -31,6 +31,31 @@ function readCache(key, fallback = null, ttl = (1000 * 60 * 60)) {
     }
 }
 
+function readCacheEntry(key, ttl = (1000 * 60 * 60)) {
+    if(! canUseStorage()) {
+        return null;
+    }
+
+    try {
+        const cacheItem = JSON.parse(window.localStorage.getItem(key));
+
+        if(! cacheItem || ! cacheItem.timestamp) {
+            return null;
+        }
+
+        if((now() - cacheItem.timestamp) > ttl) {
+            window.localStorage.removeItem(key);
+
+            return null;
+        }
+
+        return cacheItem;
+    }
+    catch (error) {
+        return null;
+    }
+}
+
 function writeCache(key, data) {
     if(! canUseStorage()) {
         return;
@@ -47,4 +72,4 @@ function writeCache(key, data) {
     }
 }
 
-export { readCache, writeCache };
+export { readCache, readCacheEntry, writeCache };

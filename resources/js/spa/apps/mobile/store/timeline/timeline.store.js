@@ -19,6 +19,8 @@ const getPublicFeedCacheKey = function() {
 };
 
 const timelineCacheLimit = 30;
+const timelineCacheTtl = 1000 * 45;
+const sharedFeedCacheTtl = 1000 * 30;
 
 const createFeedSessionId = function() {
     return `feed-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -86,8 +88,8 @@ const useTimelineStore = defineStore('mobile_timeline_store', {
     
     deleteAware: true,
     state: function() {
-        const sharedCachedPosts = readCache(getPublicFeedCacheKey(), bootSharedFeed()?.posts ?? [], (1000 * 60 * 20));
-        const cachedPosts = readCache(getTimelineCacheKey(), sharedCachedPosts);
+        const sharedCachedPosts = readCache(getPublicFeedCacheKey(), bootSharedFeed()?.posts ?? [], sharedFeedCacheTtl);
+        const cachedPosts = readCache(getTimelineCacheKey(), sharedCachedPosts, timelineCacheTtl);
 
         prefetchTimelineMedia(cachedPosts);
 
@@ -101,6 +103,7 @@ const useTimelineStore = defineStore('mobile_timeline_store', {
             isRefreshingFirstPage: false,
             lastFirstPageLoadedAt: 0,
             lastVisibleRefreshAt: 0,
+            lastPreparedOpenAt: 0,
 			filter: {
 				page: 1
 			}
@@ -418,6 +421,54 @@ const useTimelineStore = defineStore('mobile_timeline_store', {
 
             writeCache(getTimelineCacheKey(), posts);
             writeCache(getPublicFeedCacheKey(), posts);
+        },
+        prefetchOpenFeed: async function(options = {}) {
+            const minIntervalMs = Number(options.minIntervalMs || 12000);
+            const now = Date.now();
+
+            if(this.isRefreshingFirstPage || this.warmPromise) {
+                return this.posts;
+            }
+
+            if((now - this.lastPreparedOpenAt) < minIntervalMs) {
+                return this.posts;
+            }
+
+            this.lastPreparedOpenAt = now;
+
+            const sessionId = createFeedSessionId();
+
+            try {
+                const response = await colibriAPI().userTimeline().params({
+                    filter: {
+                        page: 1,
+                        type: this.feedType,
+                        session_id: sessionId,
+                        refresh_reason: options.refreshReason || 'open',
+                        fast_start: false
+                    }
+                }).getFrom('feed');
+
+                const posts = Array.isArray(response?.data?.data) ? response.data.data : [];
+
+                if(! posts.length) {
+                    return this.posts;
+                }
+
+                prefetchTimelineMedia(posts);
+
+                const cachedPosts = posts.filter((postData) => {
+                    return ! isOptimisticPost(postData);
+                }).slice(0, timelineCacheLimit);
+
+                writeCache(getTimelineCacheKey(), cachedPosts);
+                writeCache(getPublicFeedCacheKey(), cachedPosts);
+
+                return cachedPosts;
+            }
+            catch (error) {
+                return this.posts;
+            }
         },
         refreshOnAppVisible: function(options = {}) {
             const minIntervalMs = Number(options.minIntervalMs || 4000);

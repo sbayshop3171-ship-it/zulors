@@ -188,6 +188,19 @@
 						});
 					}
 				}
+				else if(route.name === 'home_index') {
+					timelineStore.prefetchOpenFeed({
+						refreshReason: 'open'
+					});
+				}
+			};
+
+			const handlePageHide = () => {
+				if(route.name === 'home_index') {
+					timelineStore.prefetchOpenFeed({
+						refreshReason: 'open'
+					});
+				}
 			};
 
 			const warmPrimaryNavigation = () => {
@@ -222,6 +235,7 @@
 				inboxStore.fetchUnreadCount();
 				window.addEventListener('colibri:ws-status', handleWSStatus);
 				window.addEventListener('focus', handleFocus);
+				window.addEventListener('pagehide', handlePageHide);
 				document.addEventListener('visibilitychange', handleVisibilityChange);
 				attachRealtimeListener();
 				warmPrimaryNavigation();
@@ -230,6 +244,7 @@
 			onUnmounted(() => {
 				window.removeEventListener('colibri:ws-status', handleWSStatus);
 				window.removeEventListener('focus', handleFocus);
+				window.removeEventListener('pagehide', handlePageHide);
 				document.removeEventListener('visibilitychange', handleVisibilityChange);
 
 				if(unreadRefreshTimer) {
