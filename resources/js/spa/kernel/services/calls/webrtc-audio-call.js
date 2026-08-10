@@ -223,13 +223,23 @@ const userFriendlyMediaError = (error) => {
 const requestLocalMediaStream = async (mediaType = 'audio') => {
     const wantsVideo = mediaType === 'video';
     const voiceAudioConstraints = {
-        echoCancellation: { ideal: true },
-        noiseSuppression: { ideal: true },
-        autoGainControl: { ideal: true },
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
         channelCount: { ideal: 1 },
         sampleRate: { ideal: preferredSampleRate },
         sampleSize: { ideal: 16 },
-        latency: { ideal: preferredAudioLatency }
+        latency: { ideal: preferredAudioLatency },
+        voiceIsolation: { ideal: true },
+        googEchoCancellation: true,
+        googEchoCancellation2: true,
+        googDAEchoCancellation: true,
+        googAutoGainControl: true,
+        googAutoGainControl2: true,
+        googNoiseSuppression: true,
+        googNoiseSuppression2: true,
+        googHighpassFilter: true,
+        googTypingNoiseDetection: true
     };
     const attempts = [
         {
@@ -483,6 +493,7 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
     let currentNetworkQuality = 'unknown';
     let connectedNotified = false;
     let isClosed = false;
+    let activeRemoteAudioTrackId = null;
 
     const emit = (name, ...args) => {
         if(isClosed) {
@@ -658,6 +669,38 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
         }
     };
 
+    const replaceRemoteAudioTrack = (track) => {
+        if(! track || track.kind !== 'audio' || ! remoteStream) {
+            return;
+        }
+
+        if(activeRemoteAudioTrackId === track.id && remoteStream.getAudioTracks().some((remoteTrack) => remoteTrack.id === track.id)) {
+            return;
+        }
+
+        remoteStream.getAudioTracks().forEach((remoteTrack) => {
+            if(remoteTrack.id === track.id) {
+                return;
+            }
+
+            try {
+                remoteStream.removeTrack(remoteTrack);
+            }
+            catch(error) {}
+
+            try {
+                remoteTrack.stop?.();
+            }
+            catch(error) {}
+        });
+
+        if(! remoteStream.getAudioTracks().some((remoteTrack) => remoteTrack.id === track.id)) {
+            remoteStream.addTrack(track);
+        }
+
+        activeRemoteAudioTrackId = track.id;
+    };
+
     const ensurePeerConnection = async (mediaType = 'audio') => {
         if(peerConnection) {
             return peerConnection;
@@ -738,7 +781,17 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
                 return;
             }
 
-            event.streams?.[0]?.getTracks()?.forEach((track) => {
+            const tracks = event.streams?.[0]?.getTracks?.()?.length
+                ? event.streams[0].getTracks()
+                : [event.track].filter(Boolean);
+
+            tracks.forEach((track) => {
+                if(track.kind === 'audio') {
+                    replaceRemoteAudioTrack(track);
+
+                    return;
+                }
+
                 if(! remoteStream.getTracks().some((remoteTrack) => remoteTrack.id === track.id)) {
                     remoteStream.addTrack(track);
                 }
@@ -886,6 +939,7 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
         audioSenders = [];
         currentNetworkQuality = 'unknown';
         connectedNotified = false;
+        activeRemoteAudioTrackId = null;
     };
 
     return {

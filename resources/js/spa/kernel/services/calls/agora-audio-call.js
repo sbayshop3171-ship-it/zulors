@@ -97,6 +97,9 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     let localAudioTrack = null;
     let remoteAudioTrack = null;
     let localStream = null;
+    let remoteStream = null;
+    let remoteOutputElement = null;
+    let AgoraRTCModule = null;
     let joined = false;
     let isMuted = false;
     let qualityTimer = null;
@@ -199,6 +202,49 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         catch(error) {}
     };
 
+    const processRemoteOutputAEC = () => {
+        if(! remoteOutputElement || ! AgoraRTCModule?.processExternalMediaAEC) {
+            return;
+        }
+
+        try {
+            AgoraRTCModule.processExternalMediaAEC(remoteOutputElement);
+        }
+        catch(error) {}
+    };
+
+    const stopRemoteAudioTrackPlayback = () => {
+        try {
+            remoteAudioTrack?.stop?.();
+        }
+        catch(error) {}
+    };
+
+    const publishRemoteStream = () => {
+        remoteStream = streamFromTrack(remoteAudioTrack);
+
+        if(remoteStream) {
+            emit('onRemoteStream', remoteStream);
+        }
+    };
+
+    const playRemoteAudio = () => {
+        applyRemoteOutputVolume();
+        publishRemoteStream();
+        processRemoteOutputAEC();
+
+        if(remoteOutputElement && remoteStream) {
+            stopRemoteAudioTrackPlayback();
+
+            return;
+        }
+
+        try {
+            remoteAudioTrack?.play?.();
+        }
+        catch(error) {}
+    };
+
     const classifyNetworkQuality = ({ rtt, jitter, packetLossPercent }) => {
         if(packetLossPercent >= 12 || rtt >= 900 || jitter >= 180) {
             return 'poor';
@@ -251,9 +297,9 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             try {
                 await client.subscribe(user, mediaType);
                 remoteUid = user.uid;
+                stopRemoteAudioTrackPlayback();
                 remoteAudioTrack = user.audioTrack;
-                applyRemoteOutputVolume();
-                remoteAudioTrack?.play?.();
+                playRemoteAudio();
                 emit('onConnected');
                 startQualityTimer();
             }
@@ -270,6 +316,8 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             if(mediaType === 'audio' && user.uid === remoteUid) {
                 remoteAudioTrack?.stop?.();
                 remoteAudioTrack = null;
+                remoteStream = null;
+                emit('onRemoteStream', null);
                 emit('onReconnectState', 'reconnecting');
             }
         });
@@ -282,6 +330,8 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             if(user.uid === remoteUid) {
                 remoteAudioTrack?.stop?.();
                 remoteAudioTrack = null;
+                remoteStream = null;
+                emit('onRemoteStream', null);
                 emit('onReconnectState', 'reconnecting');
             }
         });
@@ -333,6 +383,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         }
 
         const AgoraRTC = await loadAgoraRTC();
+        AgoraRTCModule = AgoraRTC;
 
         if(! AgoraRTC?.createClient) {
             throw new Error('Agora audio SDK could not be loaded.');
@@ -400,6 +451,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         localAudioTrack = null;
         remoteAudioTrack = null;
         localStream = null;
+        remoteStream = null;
         remoteUid = null;
         joined = false;
         latestNetworkQuality = null;
@@ -411,6 +463,8 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                 .then(() => activeClient.leave?.())
                 .catch(() => {});
         }
+
+        emit('onRemoteStream', null);
     };
 
     return {
@@ -428,6 +482,14 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
 
             remoteOutputVolume = Math.max(0, Math.min(100, Math.round((Number.isFinite(normalizedVolume) ? normalizedVolume : 1) * 100)));
             applyRemoteOutputVolume();
+        },
+        attachRemoteOutputElement: (element) => {
+            remoteOutputElement = element || null;
+            processRemoteOutputAEC();
+
+            if(remoteAudioTrack) {
+                playRemoteAudio();
+            }
         },
         close: close
     };

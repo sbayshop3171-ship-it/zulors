@@ -1075,6 +1075,12 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
             catch(error) {}
         },
+        attachRemoteOutputElement: function(element) {
+            try {
+                this.peer?.attachRemoteOutputElement?.(element);
+            }
+            catch(error) {}
+        },
         unlockAudioFeedback: function() {
             this.ensureRingToneContext();
         },

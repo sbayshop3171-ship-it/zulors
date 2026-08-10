@@ -142,6 +142,8 @@
                     return;
                 }
 
+                props.callStore.attachRemoteOutputElement?.(remoteAudioRef.value);
+
                 if(! props.callStore.remoteStream) {
                     detachRemoteStream();
 
@@ -181,7 +183,15 @@
                     remoteAudioRef.value.volume = remoteVolume();
                 }
             });
-            onBeforeUnmount(detachRemoteStream);
+            watch(() => props.callStore.peer, () => {
+                if(remoteAudioRef.value) {
+                    props.callStore.attachRemoteOutputElement?.(remoteAudioRef.value);
+                }
+            });
+            onBeforeUnmount(() => {
+                props.callStore.attachRemoteOutputElement?.(null);
+                detachRemoteStream();
+            });
 
             const durationText = computed(() => {
                 return formatDuration(props.callStore.durationSeconds);
