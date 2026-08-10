@@ -18,6 +18,7 @@ class SocialAuthService
     private string $driver;
     private string $socialUserId;
     private string|null $socialUserEmail;
+    private bool $loginResolvedUsers = true;
 
     private BlacklistService $blacklistService;
 
@@ -117,6 +118,13 @@ class SocialAuthService
         return $this;
     }
 
+    public function withoutLogin(): self
+    {
+        $this->loginResolvedUsers = false;
+
+        return $this;
+    }
+
     private function restrictBlacklistedEmailOrSocialId()
     {
         // TOD0
@@ -147,6 +155,10 @@ class SocialAuthService
 
     private function loginUser(User $user): void
     {
+        if(! $this->loginResolvedUsers) {
+            return;
+        }
+
         Auth::login($user);
 
         app(AutoVerifyUserService::class)->verifyIfEnabled($user);

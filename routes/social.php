@@ -20,4 +20,6 @@ Route::name('social-login.')->prefix('social-login')->group(function() {
     Route::get('/auth/google', [App\Http\Controllers\User\Auth\Social\GoogleAuthController::class, 'index'])->name('google.redirect');
 
     Route::get('/callback/google',[App\Http\Controllers\User\Auth\Social\GoogleAuthController::class, 'callbackHandler'])->name('google.callback');
+
+    Route::get('/native/google/session/{token}', [App\Http\Controllers\Api\Auth\GoogleNativeAuthController::class, 'consume'])->name('google.native.consume');
 });

@@ -11,7 +11,9 @@ use App\Models\User;
 use App\Models\UserNotificationSettings;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Laravel\Socialite\Facades\Socialite;
 use Laravel\Socialite\Two\User as SocialiteUser;
 use Mockery;
@@ -99,6 +101,76 @@ class GoogleSocialLoginFlowTest extends TestCase
         $response->assertRedirect(route('user.auth.index'));
         $response->assertSessionHasErrors('google');
         $this->assertGuest();
+    }
+
+    public function test_native_google_sign_in_issues_handoff_and_consumes_it_once(): void
+    {
+        Http::fake([
+            'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
+                'iss' => 'https://accounts.google.com',
+                'aud' => 'test-google-client',
+                'sub' => 'native-google-user-123',
+                'email' => 'native-google@example.com',
+                'email_verified' => 'true',
+                'name' => 'Native Google',
+                'given_name' => 'Native',
+                'picture' => null,
+            ]),
+        ]);
+
+        $response = $this->postJson('/api/mobile-auth/google', [
+            'id_token' => 'valid-native-google-id-token',
+        ]);
+
+        $response->assertOk()->assertJsonStructure(['redirect_url']);
+
+        $user = User::query()->where('email', 'native-google@example.com')->firstOrFail();
+
+        $this->assertSame('native_google', $user->username);
+        $this->assertSame('Native', $user->first_name);
+        $this->assertNotNull($user->email_verified_at);
+        $this->assertDatabaseHas(Table::SOCIAL_ACCOUNTS, [
+            'user_id' => $user->id,
+            'provider_name' => 'google',
+            'provider_id' => 'native-google-user-123',
+        ]);
+
+        $handoffPath = parse_url($response->json('redirect_url'), PHP_URL_PATH);
+
+        $consumeResponse = $this->get($handoffPath);
+
+        $consumeResponse->assertRedirect(route('user.desktop.index'));
+        $this->assertAuthenticatedAs($user);
+
+        Auth::logout();
+
+        $secondConsumeResponse = $this->get($handoffPath);
+
+        $secondConsumeResponse->assertRedirect(route('user.auth.index'));
+        $secondConsumeResponse->assertSessionHasErrors('google');
+    }
+
+    public function test_native_google_sign_in_rejects_wrong_audience(): void
+    {
+        Http::fake([
+            'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
+                'iss' => 'https://accounts.google.com',
+                'aud' => 'another-client',
+                'sub' => 'native-google-user-123',
+                'email' => 'native-google@example.com',
+                'email_verified' => 'true',
+            ]),
+        ]);
+
+        $response = $this->postJson('/api/mobile-auth/google', [
+            'id_token' => 'valid-native-google-id-token',
+        ]);
+
+        $response->assertUnprocessable();
+        $this->assertDatabaseMissing(Table::SOCIAL_ACCOUNTS, [
+            'provider_name' => 'google',
+            'provider_id' => 'native-google-user-123',
+        ]);
     }
 
     private function makeGoogleUser(): SocialiteUser

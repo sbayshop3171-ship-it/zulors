@@ -34,6 +34,7 @@ class Table
     public const BOOKMARKS = 'bookmarks';
     public const DATA_STATS = 'data_stats';
     public const SOCIAL_ACCOUNTS = 'social_accounts';
+    public const NATIVE_AUTH_SESSIONS = 'native_auth_sessions';
     public const ONBOARDINGS = 'onboards';
     public const EMAIL_CONF = 'email_confirmations';
     public const MEDIA = 'media';
