@@ -2,6 +2,7 @@
 
 namespace App\Notifications\Traits;
 
+use App\Notifications\Channels\WebPushChannel;
 use App\Support\Num;
 use Illuminate\Support\Str;
 
@@ -47,6 +48,10 @@ trait BaseNotification
 	protected function getImportantNotificationChannels(): array
 	{
 		$channels = ['database'];
+
+		if($this->isPushEnabled()) {
+			array_push($channels, WebPushChannel::class);
+		}
 
 		if($this->isEmailEnabled()) {
 			array_push($channels, 'mail');

@@ -256,7 +256,8 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack({
             AEC: true,
             AGC: true,
-            ANS: true
+            ANS: true,
+            encoderConfig: 'speech_standard'
         });
 
         if(isMuted) {

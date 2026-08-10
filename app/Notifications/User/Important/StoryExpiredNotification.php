@@ -24,13 +24,7 @@ class StoryExpiredNotification extends Notification
 
     public function via(object $notifiable): array
     {
-        $channels = ['database'];
-
-        if($this->isBroadcastEnabled()) {
-            $channels[] = 'broadcast';
-        }
-
-        return $channels;
+        return $this->getImportantNotificationChannels();
     }
 
     public function toDatabase(): array

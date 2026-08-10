@@ -12,6 +12,8 @@ use App\Models\Message;
 use App\Models\User;
 use App\Models\UserNotificationSettings;
 use App\Models\UserPushToken;
+use App\Notifications\Channels\WebPushChannel;
+use App\Notifications\Traits\BaseNotification;
 use App\Notifications\User\Chat\MessageReceivedNotification;
 use App\Services\Notifications\FirebaseCloudMessagingService;
 use App\Services\Notifications\NotificationActionTokenService;
@@ -20,6 +22,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use Illuminate\Notifications\Notification;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -242,6 +245,29 @@ class PushNotificationsTest extends TestCase
 
         $this->assertFalse($sent);
         $this->assertNotNull($pushToken->fresh()->revoked_at);
+    }
+
+    public function test_important_notifications_include_web_push_channel_when_push_is_enabled(): void
+    {
+        config([
+            'notifications.push.enabled' => true,
+            'notifications.email.enabled' => false,
+            'notifications.broadcast.enabled' => false,
+        ]);
+
+        $notification = new class extends Notification {
+            use BaseNotification;
+
+            public function via(object $notifiable): array
+            {
+                return $this->getImportantNotificationChannels();
+            }
+        };
+
+        $this->assertSame([
+            'database',
+            WebPushChannel::class,
+        ], $notification->via($this->createUser('important-push-user')));
     }
 
     public function test_signed_push_reply_action_creates_a_chat_message(): void
