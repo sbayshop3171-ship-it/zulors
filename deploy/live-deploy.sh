@@ -65,6 +65,19 @@ ensure_shared_public_storage() {
 	fi
 }
 
+link_public_storage() {
+	mkdir -p public storage/app
+
+	if [ -L public/storage ]; then
+		unlink public/storage
+	elif [ -e public/storage ]; then
+		echo "Deployment stopped: public/storage exists and is not a symlink."
+		exit 1
+	fi
+
+	ln -s ../storage/app/public public/storage
+}
+
 normalize_permissions() {
 	chmod 755 . || true
     chown -R "${APP_RUNTIME_USER}:${APP_RUNTIME_GROUP}" storage bootstrap/cache 2>/dev/null || true
@@ -80,6 +93,7 @@ if [ -z "$SHARED_STORAGE_PUBLIC_PATH" ]; then
 	mkdir -p storage/app/public
 fi
 ensure_shared_public_storage
+link_public_storage
 if [ ! -s storage/frontend/build.num ]; then
 	date +%s > storage/frontend/build.num
 fi
@@ -116,7 +130,7 @@ else
 fi
 
 ensure_shared_public_storage
-php artisan storage:link || true
+link_public_storage
 php artisan livewire:publish --assets || true
 php artisan optimize:clear
 php artisan settings:discover
@@ -125,5 +139,6 @@ php artisan optimize
 normalize_permissions
 chmod -R ug+rwX storage bootstrap/cache public/build 2>/dev/null || true
 ensure_shared_public_storage
+link_public_storage
 
 echo "Deployment finished."
