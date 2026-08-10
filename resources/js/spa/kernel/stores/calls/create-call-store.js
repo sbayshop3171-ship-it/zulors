@@ -14,6 +14,8 @@ const iceServerRefreshSkewMs = 60000;
 const callStartCooldownMs = 3500;
 const rateLimitedCallStartCooldownMs = 15000;
 const busyCallMessage = 'User is busy on another call.';
+const incomingRingIntervalMs = 3200;
+const outgoingRingIntervalMs = 4200;
 
 const getErrorStatus = (error) => {
     return Number(error?.response?.status || 0);
@@ -85,6 +87,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             reconnectTimeoutTimer: null,
             ringToneContext: null,
             ringToneTimer: null,
+            ringToneTimeouts: [],
+            ringToneNodes: [],
+            nativeRingtoneActive: false,
             networkState: 'stable',
             qualityNotice: '',
             lastQualityReportAt: 0,
@@ -1060,7 +1065,6 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 return;
             }
 
-            const isIncoming = this.direction === 'incoming';
             const playTone = () => {
                 if(this.status !== 'ringing') {
                     this.stopRingingFeedback();
@@ -1068,11 +1072,19 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     return;
                 }
 
-                isIncoming ? this.playIncomingRingTone() : this.playOutgoingRingTone();
+                this.direction === 'incoming' ? this.playIncomingRingTone() : this.playOutgoingRingTone();
             };
+            const nativeBridgeHandled = this.startNativeRingtone(this.direction);
 
-            playTone();
-            this.ringToneTimer = window.setInterval(playTone, isIncoming ? 1700 : 2300);
+            if(! nativeBridgeHandled) {
+                playTone();
+            }
+
+            this.ringToneTimer = window.setInterval(() => {
+                if(! this.nativeRingtoneActive) {
+                    playTone();
+                }
+            }, this.direction === 'incoming' ? incomingRingIntervalMs : outgoingRingIntervalMs);
         },
         stopRingingFeedback: function() {
             if(this.ringToneTimer) {
@@ -1080,31 +1092,68 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 this.ringToneTimer = null;
             }
 
+            this.stopNativeRingtone();
+            this.clearRingToneTimeouts();
+            this.stopActiveRingToneNodes();
+
             if(typeof navigator !== 'undefined' && navigator.vibrate) {
                 navigator.vibrate(0);
             }
         },
         playOutgoingRingTone: function() {
-            this.playTone(470, 0.16, 0.055);
-            window.setTimeout(() => {
-                if(this.status === 'ringing') {
-                    this.playTone(520, 0.16, 0.055);
-                }
-            }, 280);
+            this.playDualTone([440, 480], 1.05, 0.07, 'sine');
         },
         playIncomingRingTone: function() {
-            this.playTone(860, 0.2, 0.075);
-            window.setTimeout(() => {
-                if(this.status === 'ringing') {
-                    this.playTone(690, 0.25, 0.075);
-                }
-            }, 290);
+            this.queueRingTone(0, () => this.playDualTone([880, 660], 0.36, 0.15, 'triangle'));
+            this.queueRingTone(520, () => this.playDualTone([980, 740], 0.36, 0.16, 'triangle'));
+            this.queueRingTone(1100, () => this.playDualTone([880, 660], 0.42, 0.15, 'triangle'));
 
             if(typeof navigator !== 'undefined' && navigator.vibrate) {
-                navigator.vibrate([260, 90, 260]);
+                navigator.vibrate([420, 140, 420, 520]);
             }
         },
-        playTone: function(frequency, duration, volume) {
+        queueRingTone: function(delayMs, callback) {
+            if(! delayMs) {
+                callback();
+
+                return;
+            }
+
+            const timeout = window.setTimeout(() => {
+                this.ringToneTimeouts = this.ringToneTimeouts.filter((item) => item !== timeout);
+
+                if(this.status === 'ringing') {
+                    callback();
+                }
+            }, delayMs);
+
+            this.ringToneTimeouts.push(timeout);
+        },
+        clearRingToneTimeouts: function() {
+            this.ringToneTimeouts.forEach((timeout) => window.clearTimeout(timeout));
+            this.ringToneTimeouts = [];
+        },
+        stopActiveRingToneNodes: function() {
+            this.ringToneNodes.forEach((node) => {
+                try {
+                    node.stop?.();
+                }
+                catch(error) {}
+
+                try {
+                    node.disconnect?.();
+                }
+                catch(error) {}
+            });
+
+            this.ringToneNodes = [];
+        },
+        playDualTone: function(frequencies, duration, volume, oscillatorType = 'sine') {
+            return frequencies
+                .map((frequency) => this.playTone(frequency, duration, volume / frequencies.length, oscillatorType))
+                .some(Boolean);
+        },
+        playTone: function(frequency, duration, volume, oscillatorType = 'sine') {
             const context = this.ensureRingToneContext();
 
             if(! context) {
@@ -1116,7 +1165,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 const gain = context.createGain();
                 const now = context.currentTime;
 
-                oscillator.type = 'sine';
+                oscillator.type = oscillatorType;
                 oscillator.frequency.setValueAtTime(frequency, now);
                 gain.gain.setValueAtTime(0.0001, now);
                 gain.gain.exponentialRampToValueAtTime(volume, now + 0.02);
@@ -1124,11 +1173,17 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
                 oscillator.connect(gain);
                 gain.connect(context.destination);
+                this.ringToneNodes.push(oscillator, gain);
                 oscillator.start(now);
                 oscillator.stop(now + duration + 0.03);
                 oscillator.onended = () => {
-                    oscillator.disconnect();
-                    gain.disconnect();
+                    try {
+                        oscillator.disconnect();
+                        gain.disconnect();
+                    }
+                    catch(error) {}
+
+                    this.ringToneNodes = this.ringToneNodes.filter((node) => node !== oscillator && node !== gain);
                 };
 
                 return true;
@@ -1158,6 +1213,36 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             try {
                 bridge?.leaveCall?.();
+            }
+            catch(error) {}
+        },
+        startNativeRingtone: function(direction) {
+            const bridge = this.getNativeCallBridge();
+
+            if(! bridge?.startRingtone) {
+                this.nativeRingtoneActive = false;
+
+                return false;
+            }
+
+            try {
+                this.nativeRingtoneActive = Boolean(bridge.startRingtone(direction || 'incoming'));
+
+                return this.nativeRingtoneActive;
+            }
+            catch(error) {
+                this.nativeRingtoneActive = false;
+
+                return false;
+            }
+        },
+        stopNativeRingtone: function() {
+            const bridge = this.getNativeCallBridge();
+
+            this.nativeRingtoneActive = false;
+
+            try {
+                bridge?.stopRingtone?.();
             }
             catch(error) {}
         },

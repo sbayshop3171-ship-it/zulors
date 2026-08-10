@@ -62,10 +62,17 @@ class IncomingCallNotification extends Notification
             'url' => url("/messenger/c/{$chatUuid}?call={$callUuid}"),
             'type' => $this->notificationType,
             'channel_id' => 'zulors_calls',
+            'android' => [
+                'priority' => 'high',
+                'ttl' => '45s',
+            ],
             'data' => [
                 'call_id' => $callUuid,
                 'chat_id' => $chatUuid,
                 'media_type' => $this->callSession->media_type->value,
+                'ringtone' => 'incoming_call',
+                'notification_category' => 'call',
+                'notification_visibility' => 'public',
                 'caller_id' => $caller?->id,
                 'caller_name' => $caller?->name,
                 'caller_username' => $caller?->username,

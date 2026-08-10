@@ -32,9 +32,9 @@ class PushNotificationPayloadFactory
                 'source' => 'push',
                 'channel_id' => $customPayload['channel_id'] ?? $this->channelId($type),
             ], Arr::get($customPayload, 'data', []))),
-            'android' => [
+            'android' => array_merge([
                 'priority' => 'high',
-            ],
+            ], Arr::get($customPayload, 'android', [])),
         ];
     }
 

@@ -18,6 +18,7 @@ use App\Notifications\User\Call\CancelCallNotification;
 use App\Notifications\User\Call\IncomingCallNotification;
 use App\Notifications\User\Call\MissedCallNotification;
 use App\Services\Calls\CallLifecycleService;
+use App\Services\Notifications\PushNotificationPayloadFactory;
 use App\Services\Notifications\NotificationActionTokenService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
@@ -250,9 +251,20 @@ class AudioCallsTest extends TestCase
 
         $this->assertSame('call.incoming', $payload['type']);
         $this->assertSame('zulors_calls', $payload['channel_id']);
+        $this->assertSame('high', $payload['android']['priority']);
+        $this->assertSame('45s', $payload['android']['ttl']);
         $this->assertSame($call->call_uuid, $payload['data']['call_id']);
         $this->assertSame($chat->chat_id, $payload['data']['chat_id']);
+        $this->assertSame('incoming_call', $payload['data']['ringtone']);
+        $this->assertSame('call', $payload['data']['notification_category']);
+        $this->assertSame('public', $payload['data']['notification_visibility']);
         $this->assertNotEmpty($payload['data']['action_token']);
+
+        $fcmMessage = app(PushNotificationPayloadFactory::class)->make($receiver, new IncomingCallNotification($call));
+
+        $this->assertSame('high', $fcmMessage['android']['priority']);
+        $this->assertSame('45s', $fcmMessage['android']['ttl']);
+        $this->assertSame('incoming_call', $fcmMessage['data']['ringtone']);
 
         $verifiedToken = app(NotificationActionTokenService::class)->verify($payload['data']['action_token'], 'decline');
 
