@@ -6,6 +6,7 @@ use App\Constants\Filesystem;
 use App\Enums\Chat\MessageType;
 use App\Enums\Media\MediaStatus;
 use App\Enums\Media\MediaType;
+use App\Jobs\User\Chat\ProcessChatVideo;
 use App\Models\Message;
 use App\Services\Filesystem\RoundRobin\RoundRobinService;
 use App\Services\Filesystem\Upload\AudioUploadService;
@@ -91,35 +92,82 @@ trait WithMediaUpload
     private function uploadVideo(UploadedFile $chatVideoFile)
     {
         try {
-            $videoStorageDisk = $this->roundRobinService->getNextDisk();
-
             $videoData = $this->videoUploadService
-                ->setStorageDisk($videoStorageDisk)
                 ->tempSaveLocally($chatVideoFile);
 
             $videoThumbnailPath = $this->videoThumbnailService
                 ->setSecondsOffset(1)
                 ->generateThumbnail($videoData['video_path']);
 
+            $videoPublicDisk = $this->chatVideoPublicDisk();
+
+            $imageData = $this->imageUploadService
+                ->load($videoThumbnailPath)
+                ->setNamespace(Filesystem::mediaNamespace('chats/video_thumbnails'))
+                ->setStorageDisk($videoPublicDisk)
+                ->compress(config('chat.processing.video_thumbnail.compress_rate'))
+                ->upload();
+
+            if(is_file($videoThumbnailPath)) {
+                unlink($videoThumbnailPath);
+            }
+
+            if($this->shouldUseR2ChatVideoPipeline()) {
+                $queuedVideo = $this->videoUploadService
+                    ->setStorageDisk($this->chatVideoTempDisk())
+                    ->setNamespace(Filesystem::mediaNamespace('chats/raw_videos'))
+                    ->setDefaultExtension($chatVideoFile->getClientOriginalExtension())
+                    ->upload(storage_local_path($videoData['video_path']));
+
+                $this->messageData->media()->create([
+                    'source_path' => $queuedVideo['video_path'],
+                    'type' => MediaType::VIDEO,
+                    'status' => MediaStatus::PROCESSING,
+                    'disk' => $queuedVideo['disk'],
+                    'extension' => $chatVideoFile->getClientOriginalExtension(),
+                    'mime' => $chatVideoFile->getClientMimeType(),
+                    'size' => (int) ($queuedVideo['video_size'] ?? $chatVideoFile->getSize()),
+                    'thumbnail_path' => $imageData['image_path'],
+                    'thumbnail_size' => $imageData['image_size'],
+                    'thumbnail_disk' => $imageData['disk'],
+                    'metadata' => [
+                        'duration' => parse_duration(intval($this->mediaDuration)),
+                        'duration_seconds' => (int) $this->mediaDuration,
+                        'is_portrait' => (bool) ($videoData['is_portrait'] ?? false),
+                        'dimensions' => $videoData['dimensions'] ?? [],
+                        'aspect_ratio' => $videoData['aspect_ratio'] ?? null,
+                        'provider' => 'r2_temp',
+                        'upload_state' => 'uploaded',
+                        'upload_completed_at' => now()->toIso8601String(),
+                        'temp_disk' => $queuedVideo['disk'],
+                        'final_disk' => $videoPublicDisk,
+                        'processing_progress' => 5,
+                        'processing_state' => 'queued',
+                        'processing_dispatched_at' => now()->toIso8601String(),
+                        'processing_updated_at' => now()->toIso8601String(),
+                        'original_size' => (int) ($queuedVideo['video_size'] ?? $chatVideoFile->getSize()),
+                    ]
+                ]);
+
+                $this->messageData->update([
+                    'type' => MessageType::VIDEO,
+                ]);
+
+                ProcessChatVideo::dispatchAfterResponse($this->messageData)
+                    ->onQueue(config('media.queues.video'));
+
+                return;
+            }
+
             if(config('chat.enable_video_compression')) {
-                // Compress video
                 $this->compressVideo(storage_local_path($videoData['video_path']));
             }
             else {
                 $this->videoUploadService->setDefaultExtension($chatVideoFile->getClientOriginalExtension());
             }
 
-            $imageData = $this->imageUploadService
-                ->load($videoThumbnailPath)
-                ->setNamespace(Filesystem::mediaNamespace('chats/video_thumbnails'))
-                ->setStorageDisk($videoStorageDisk)
-                ->compress(config('chat.processing.video_thumbnail.compress_rate'))
-                ->upload();
-
-            unlink($videoThumbnailPath);
-
             $videoData = $this->videoUploadService
-                ->setStorageDisk($videoStorageDisk)
+                ->setStorageDisk($videoPublicDisk)
                 ->setNamespace(Filesystem::mediaNamespace('chats/videos'))
                 ->upload(storage_local_path($videoData['video_path']));
 
@@ -127,7 +175,7 @@ trait WithMediaUpload
                 'source_path' => $videoData['video_path'],
                 'type' => MediaType::VIDEO,
                 'status' => MediaStatus::PROCESSED,
-                'disk' => $videoStorageDisk,
+                'disk' => $videoPublicDisk,
                 'extension' => $chatVideoFile->getClientOriginalExtension(),
                 'mime' => $chatVideoFile->getClientMimeType(),
                 'size' => $chatVideoFile->getSize(),
@@ -136,6 +184,7 @@ trait WithMediaUpload
                 'thumbnail_disk' => $imageData['disk'],
                 'metadata' => [
                     'duration' => parse_duration(intval($this->mediaDuration)),
+                    'duration_seconds' => (int) $this->mediaDuration,
                     'is_portrait' => false
                 ]
             ]);
@@ -304,5 +353,32 @@ trait WithMediaUpload
         $video->save($format, $videoTempNewPath);
 
         rename($videoTempNewPath, $videoPath);
+    }
+
+    private function shouldUseR2ChatVideoPipeline(): bool
+    {
+        return $this->diskEnabled($this->chatVideoTempDisk())
+            && $this->diskEnabled((string) config('media.cloudflare.r2.final_disk', 'r2_final'));
+    }
+
+    private function chatVideoTempDisk(): string
+    {
+        return (string) config('media.cloudflare.r2.temp_disk', 'r2_temp');
+    }
+
+    private function chatVideoPublicDisk(): string
+    {
+        $finalDisk = (string) config('media.cloudflare.r2.final_disk', 'r2_final');
+
+        if($this->diskEnabled($finalDisk)) {
+            return $finalDisk;
+        }
+
+        return $this->roundRobinService->getNextDisk();
+    }
+
+    private function diskEnabled(string $disk): bool
+    {
+        return (bool) data_get(config("filesystems.disks.{$disk}"), 'enabled', true);
     }
 }

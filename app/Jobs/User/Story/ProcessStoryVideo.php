@@ -11,6 +11,7 @@ use App\Enums\Media\MediaStatus;
 use App\Enums\Story\StoryStatus;
 use FFMpeg\Coordinate\Dimension;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use FFMpeg\Filters\Video\ResizeFilter;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -34,6 +35,7 @@ class ProcessStoryVideo implements ShouldQueue
     public function handle(): void
     {
         $frameMedia = null;
+        $videoTempOldPath = null;
 
         try {
             $videoUploadService = app(VideoUploadService::class);
@@ -52,7 +54,10 @@ class ProcessStoryVideo implements ShouldQueue
 
             $this->updateProcessingProgress($frameMedia, 5, 'processing');
 
-            $videoTempOldPath = $frameMedia->source_path;
+            $videoTempOldPath = $this->prepareLocalSourceVideo($frameMedia, $videoUploadService);
+            $oldDisk = $frameMedia->disk;
+            $oldPath = $frameMedia->source_path;
+            $oldSize = (int) $frameMedia->size;
 
             $videoTempNewPath = $videoUploadService->generateVideoTemporaryFilePath("processed.{$videoUploadService->videoDefaultExtension}");
 
@@ -107,26 +112,37 @@ class ProcessStoryVideo implements ShouldQueue
             }
 
             if(file_exists($videoNewAbsLocalPath)) {
+                $targetDisk = $this->targetStorageDisk($frameMedia);
                 $videoData = $videoUploadService
-                    ->setStorageDisk($frameMedia->disk)
+                    ->setStorageDisk($targetDisk)
                     ->setNamespace(Filesystem::mediaNamespace('stories/videos'))
                     ->upload($videoNewAbsLocalPath);
 
                 if(! $this->storyFrameStillExists($frameMedia)) {
-                    $fileDeleteService->setStorageDisk($frameMedia->disk)->deleteFile($videoData['video_path']);
+                    $fileDeleteService->setStorageDisk($targetDisk)->deleteFile($videoData['video_path']);
                     $fileDeleteService->setStorageDisk('local')->deleteFile($videoTempNewPath);
 
                     return;
                 }
 
                 $metadata = $frameMedia->metadata ?? [];
-                $metadata['processing_progress'] = 100;
-                $metadata['processing_state'] = 'processed';
-                $metadata['processing_updated_at'] = now()->toIso8601String();
-                $metadata['processed_at'] = now()->toIso8601String();
+                $metadata = array_merge($metadata, [
+                    'provider' => data_get($metadata, 'provider') === 'r2_temp' ? 'r2' : data_get($metadata, 'provider'),
+                    'processing_progress' => 100,
+                    'processing_state' => 'processed',
+                    'processing_updated_at' => now()->toIso8601String(),
+                    'processed_at' => now()->toIso8601String(),
+                    'original_size' => $oldSize,
+                    'optimized_size' => (int) ($videoData['video_size'] ?? $oldSize),
+                    'optimization_ratio' => $this->optimizationRatio($oldSize, (int) ($videoData['video_size'] ?? $oldSize)),
+                ]);
 
                 $frameMedia->source_path = $videoData['video_path'];
+                $frameMedia->disk = $videoData['disk'];
                 $frameMedia->status = MediaStatus::PROCESSED;
+                $frameMedia->extension = $videoUploadService->videoDefaultExtension;
+                $frameMedia->mime = 'video/mp4';
+                $frameMedia->size = $videoData['video_size'] ?? $oldSize;
                 $frameMedia->metadata = $metadata;
                 $frameMedia->save();
 
@@ -135,7 +151,7 @@ class ProcessStoryVideo implements ShouldQueue
 
                 $this->frameData->save();
 
-                $fileDeleteService->setStorageDisk('local')->deleteFile($videoTempOldPath);
+                $this->deleteOriginalSource($oldDisk, $oldPath, $videoTempOldPath, $fileDeleteService);
                 $fileDeleteService->setStorageDisk('local')->deleteFile($videoTempNewPath);
             }
         }
@@ -167,6 +183,48 @@ class ProcessStoryVideo implements ShouldQueue
         $storedDuration = (int) data_get($this->frameData->meta, 'video.duration_seconds', $this->frameData->duration_seconds);
 
         return max(1, min($configuredClipSize, $storedDuration ?: $configuredClipSize));
+    }
+
+    private function prepareLocalSourceVideo($frameMedia, VideoUploadService $videoUploadService): string
+    {
+        if(! in_array(data_get($frameMedia->metadata, 'provider'), ['r2_temp', 'r2_direct'], true)) {
+            return $frameMedia->source_path;
+        }
+
+        if(data_get($frameMedia->metadata, 'upload_state') !== 'uploaded') {
+            throw new Exception('Story video upload has not completed yet.');
+        }
+
+        $localPath = $videoUploadService->generateVideoTemporaryFilePath($frameMedia->extension ?: 'mp4');
+
+        Storage::disk('local')->makeDirectory(dirname($localPath));
+
+        $readStream = Storage::disk($frameMedia->disk)->readStream($frameMedia->source_path);
+
+        if(! is_resource($readStream)) {
+            throw new Exception('Unable to read the R2 temporary story video stream.');
+        }
+
+        $localAbsolutePath = storage_local_path($localPath);
+        $writeStream = fopen($localAbsolutePath, 'w+b');
+
+        if(! is_resource($writeStream)) {
+            fclose($readStream);
+
+            throw new Exception('Unable to create a local temporary story video file.');
+        }
+
+        stream_copy_to_stream($readStream, $writeStream);
+
+        fclose($readStream);
+        fclose($writeStream);
+
+        return $localPath;
+    }
+
+    private function targetStorageDisk($frameMedia): string
+    {
+        return (string) data_get($frameMedia->metadata, 'final_disk', $frameMedia->thumbnail_disk ?: $frameMedia->disk);
     }
 
     private function updateProcessingProgress($frameMedia, int $progress, string $state): void
@@ -213,5 +271,23 @@ class ProcessStoryVideo implements ShouldQueue
         }
 
         return true;
+    }
+
+    private function deleteOriginalSource(string $oldDisk, string $oldPath, string $localPath, FileDeleteService $fileDeleteService): void
+    {
+        $fileDeleteService->setStorageDisk('local')->deleteFile($localPath);
+
+        if($oldDisk !== 'local') {
+            $fileDeleteService->setStorageDisk($oldDisk)->deleteFile($oldPath);
+        }
+    }
+
+    private function optimizationRatio(int $oldSize, int $newSize): int
+    {
+        if($oldSize <= 0 || $newSize <= 0) {
+            return 0;
+        }
+
+        return max(0, min(100, (int) round((1 - ($newSize / $oldSize)) * 100)));
     }
 }

@@ -25,14 +25,14 @@
 	                                        <CircleVideoPlayer
 	                                            v-bind:thumbnailUrl="messageData.relations.media.thumbnail_url"
 	                                            v-bind:duration="messageData.relations.media.metadata.duration"
-	                                        v-bind:videoUrl="messageData.relations.media.source_url"></CircleVideoPlayer>
+	                                        v-bind:videoUrl="messageData.relations.media.preview_url || messageData.relations.media.source_url"></CircleVideoPlayer>
 	                                    </template>
 	                                    <template v-else-if="messageData.type === 'video'">
 	                                        <div class="w-[min(68vw,256px)] overflow-hidden rounded-xl bg-black">
 	                                            <VideoPlayer
 	                                                v-bind:thumbnailUrl="messageData.relations.media.thumbnail_url"
 	                                                v-bind:duration="messageData.relations.media.metadata.duration"
-	                                            v-bind:videoUrl="messageData.relations.media.source_url"></VideoPlayer>
+	                                            v-bind:videoUrl="messageData.relations.media.preview_url || messageData.relations.media.source_url"></VideoPlayer>
 	                                        </div>
 	                                    </template>
 

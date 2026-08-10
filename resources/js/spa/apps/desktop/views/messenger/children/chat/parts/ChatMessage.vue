@@ -52,7 +52,7 @@
 									<CircleVideoPlayer
 										v-bind:thumbnailUrl="messageData.relations.media.thumbnail_url"
 										v-bind:duration="messageData.relations.media.metadata.duration"
-									v-bind:videoUrl="messageData.relations.media.source_url"></CircleVideoPlayer>
+									v-bind:videoUrl="messageData.relations.media.preview_url || messageData.relations.media.source_url"></CircleVideoPlayer>
 								</div>
 							</template>
 							<template v-else-if="messageData.type === 'video'">
@@ -60,7 +60,7 @@
 									<VideoPlayer
 										v-bind:thumbnailUrl="messageData.relations.media.thumbnail_url"
 										v-bind:duration="messageData.relations.media.metadata.duration"
-									v-bind:videoUrl="messageData.relations.media.source_url"></VideoPlayer>
+									v-bind:videoUrl="messageData.relations.media.preview_url || messageData.relations.media.source_url"></VideoPlayer>
 								</div>
 							</template>
 							<template v-else-if="messageData.type === 'audio'">

@@ -100,10 +100,9 @@ class StoryMediaController extends Controller
                 $videoStorageDisk = $storyMedia->disk;
 
                 if($this->draftStoryFrame->status->isDraft()) {
-                    // Set the video disk as local, since the video has not
-                    // yet been processed or uploaded to public disks.
-
-                    $videoStorageDisk = 'local';
+                    $videoStorageDisk = in_array(data_get($storyMedia->metadata, 'provider'), ['r2_temp', 'r2_direct'], true)
+                        ? $storyMedia->disk
+                        : 'local';
                 }
 
                 $fileDeleteService->setStorageDisk($videoStorageDisk)->deleteFile($storyMedia->source_path);
@@ -186,11 +185,9 @@ class StoryMediaController extends Controller
             $imageUploadService = app(ImageUploadService::class);
             $base64ImageService = app(Base64ImageService::class);
 
-            $videoStorageDisk = $this->roundRobinService->getNextDisk();
+            $videoPublicDisk = $this->storyVideoPublicDisk();
 
-            $videoData = $videoUploadService
-                ->setStorageDisk($videoStorageDisk)
-                ->tempSaveLocally($mediaFile);
+            $videoData = $videoUploadService->tempSaveLocally($mediaFile);
 
             $clipData = $this->getStoryVideoClipData($request, (int) $videoData['seconds']);
             $videoThumbnailPath = $videoThumbnailService
@@ -200,24 +197,25 @@ class StoryMediaController extends Controller
             $imageData = $imageUploadService
                 ->load($videoThumbnailPath)
                 ->setNamespace(Filesystem::mediaNamespace('stories/video_thumbnails'))
-                ->setStorageDisk($videoStorageDisk)
+                ->setStorageDisk($videoPublicDisk)
                 ->scaleTo1080x1920()
                 ->compress(config('story.processing.video_thumbnail.compress_rate'))
                 ->upload();
 
             $thumbnailLQIPBase64 = $base64ImageService->load($videoThumbnailPath)->getBase64();
+            $storyVideoStorage = $this->persistStoryVideoSource($videoUploadService, $mediaFile, $videoData['video_path']);
 
             $this->draftStoryFrame->type = StoryType::VIDEO;
 
             $storyMedia = $this->draftStoryFrame->media()->create([
-                'source_path' => $videoData['video_path'],
+                'source_path' => $storyVideoStorage['video_path'],
                 'thumbnail_path' => $imageData['image_path'],
                 'type' => MediaType::VIDEO,
                 'status' => MediaStatus::UNPROCESSED,
-                'disk' => $videoData['disk'],
+                'disk' => $storyVideoStorage['disk'],
                 'extension' => $mediaFile->getClientOriginalExtension(),
                 'mime' => $mediaFile->getClientMimeType(),
-                'size' => $mediaFile->getSize(),
+                'size' => $storyVideoStorage['video_size'] ?: $mediaFile->getSize(),
                 'thumbnail_size' => $imageData['image_size'],
                 'thumbnail_disk' => $imageData['disk'],
                 'lqip_base64' => $thumbnailLQIPBase64,
@@ -229,6 +227,12 @@ class StoryMediaController extends Controller
                     'dimensions' => $videoData['dimensions'] ?? [],
                     'aspect_ratio' => $videoData['aspect_ratio'] ?? null,
                     'is_portrait' => $videoData['is_portrait'] ?? false,
+                    'provider' => $storyVideoStorage['provider'],
+                    'upload_state' => $storyVideoStorage['upload_state'],
+                    'upload_completed_at' => now()->toIso8601String(),
+                    'temp_disk' => $storyVideoStorage['temp_disk'],
+                    'final_disk' => $storyVideoStorage['final_disk'],
+                    'original_size' => $storyVideoStorage['video_size'] ?: $mediaFile->getSize(),
                 ]
             ]);
 
@@ -250,7 +254,9 @@ class StoryMediaController extends Controller
             // Remove video thumbnail local temp file after it's uploaded
             // public disk.
 
-            unlink($videoThumbnailPath);
+            if(is_file($videoThumbnailPath)) {
+                unlink($videoThumbnailPath);
+            }
 
             return $this->responseSuccess([
                 'data' => $this->buildStoryVideoPreviewPayload($storyMedia, $clipData)
@@ -356,5 +362,66 @@ class StoryMediaController extends Controller
     private function storyEditorVideoPreviewUrl(int $mediaId): string
     {
         return url("/api/story/editor/media/video/preview/{$mediaId}");
+    }
+
+    private function persistStoryVideoSource(
+        VideoUploadService $videoUploadService,
+        UploadedFile $mediaFile,
+        string $localVideoPath
+    ): array {
+        if(! $this->shouldUseR2StoryVideoPipeline()) {
+            return [
+                'provider' => 'local',
+                'upload_state' => 'uploaded',
+                'disk' => 'local',
+                'video_path' => $localVideoPath,
+                'video_size' => (int) ($mediaFile->getSize() ?: 0),
+                'temp_disk' => 'local',
+                'final_disk' => $this->storyVideoPublicDisk(),
+            ];
+        }
+
+        $uploadedVideo = $videoUploadService
+            ->setStorageDisk($this->storyVideoTempDisk())
+            ->setNamespace(Filesystem::mediaNamespace('stories/raw_videos'))
+            ->setDefaultExtension($mediaFile->getClientOriginalExtension())
+            ->upload(storage_local_path($localVideoPath));
+
+        return [
+            'provider' => 'r2_temp',
+            'upload_state' => 'uploaded',
+            'disk' => $uploadedVideo['disk'],
+            'video_path' => $uploadedVideo['video_path'],
+            'video_size' => (int) ($uploadedVideo['video_size'] ?? 0),
+            'temp_disk' => $uploadedVideo['disk'],
+            'final_disk' => $this->storyVideoPublicDisk(),
+        ];
+    }
+
+    private function shouldUseR2StoryVideoPipeline(): bool
+    {
+        return $this->diskEnabled($this->storyVideoTempDisk())
+            && $this->diskEnabled((string) config('media.cloudflare.r2.final_disk', 'r2_final'));
+    }
+
+    private function storyVideoTempDisk(): string
+    {
+        return (string) config('media.cloudflare.r2.temp_disk', 'r2_temp');
+    }
+
+    private function storyVideoPublicDisk(): string
+    {
+        $finalDisk = (string) config('media.cloudflare.r2.final_disk', 'r2_final');
+
+        if($this->diskEnabled($finalDisk)) {
+            return $finalDisk;
+        }
+
+        return $this->roundRobinService->getNextDisk();
+    }
+
+    private function diskEnabled(string $disk): bool
+    {
+        return (bool) data_get(config("filesystems.disks.{$disk}"), 'enabled', true);
     }
 }
