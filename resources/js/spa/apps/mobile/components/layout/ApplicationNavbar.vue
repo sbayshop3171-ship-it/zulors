@@ -60,7 +60,9 @@
 
 <script>
 	import { defineComponent, computed, reactive, onMounted, onUnmounted } from 'vue';
+	import { useRoute } from 'vue-router';
 	import { useAuthStore } from '@M/store/auth/auth.store.js';
+	import { useTimelineStore } from '@M/store/timeline/timeline.store.js';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { useMenu } from '@/kernel/vue/composables/menu/index.js';
 	import { useInboxStore } from '@M/store/chats/inbox.store.js';
@@ -79,8 +81,10 @@
 
 	export default defineComponent({
 		setup: function() {
+			const route = useRoute();
 			const authStore = useAuthStore();
 			const inboxStore = useInboxStore();
+			const timelineStore = useTimelineStore();
 			const toastStore = useToastNotificationStore();
 			const state = reactive({
 				mainMenu: useMenu()
@@ -166,11 +170,23 @@
 
 			const handleFocus = () => {
 				refreshUnreadState(150);
+
+				if(route.name === 'home_index') {
+					timelineStore.refreshOnAppVisible({
+						refreshReason: 'open'
+					});
+				}
 			};
 
 			const handleVisibilityChange = () => {
 				if(document.visibilityState === 'visible') {
 					refreshUnreadState(150);
+
+					if(route.name === 'home_index') {
+						timelineStore.refreshOnAppVisible({
+							refreshReason: 'open'
+						});
+					}
 				}
 			};
 

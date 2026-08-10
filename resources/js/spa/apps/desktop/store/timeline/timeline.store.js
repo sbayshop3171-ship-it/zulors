@@ -93,6 +93,9 @@ const useTimelineStore = defineStore('timeline_store', {
             feedType: 'for_you',
             feedSessionId: createFeedSessionId(),
             refreshReason: 'initial',
+            isRefreshingFirstPage: false,
+            lastFirstPageLoadedAt: 0,
+            lastVisibleRefreshAt: 0,
 			filter: {
 				page: 1,
                 onset: null
@@ -225,6 +228,8 @@ const useTimelineStore = defineStore('timeline_store', {
             throw lastError;
         },
         fetchFirstPage: async function() {
+            this.isRefreshingFirstPage = true;
+
             return await colibriAPI().userTimeline().params({
                 filter: {
                     page: 1,
@@ -232,7 +237,7 @@ const useTimelineStore = defineStore('timeline_store', {
                     type: this.feedType,
                     session_id: this.feedSessionId,
                     refresh_reason: this.refreshReason,
-                    fast_start: true
+                    fast_start: this.shouldUseFastStart()
                 }
             }).getFrom('feed').then((response) => {
                 const posts = response.data.data;
@@ -242,9 +247,12 @@ const useTimelineStore = defineStore('timeline_store', {
                 this.filter.page = 1;
                 this.filter.onset = null;
                 this.posts = posts;
+                this.lastFirstPageLoadedAt = Date.now();
                 this.persistFirstPage();
 
                 return response;
+            }).finally(() => {
+                this.isRefreshingFirstPage = false;
             });
         },
         hydrateBootFeed: function(homeFeed) {
@@ -349,9 +357,37 @@ const useTimelineStore = defineStore('timeline_store', {
             writeCache(getTimelineCacheKey(), posts);
             writeCache(getPublicFeedCacheKey(), posts);
         },
+        refreshOnAppVisible: function(options = {}) {
+            const minIntervalMs = Number(options.minIntervalMs || 4000);
+            const now = Date.now();
+
+            if(this.isRefreshingFirstPage || this.warmPromise) {
+                return Promise.resolve(this.posts);
+            }
+
+            if((now - this.lastVisibleRefreshAt) < minIntervalMs) {
+                return Promise.resolve(this.posts);
+            }
+
+            this.lastVisibleRefreshAt = now;
+
+            if(! this.posts.length) {
+                return this.initialLoad();
+            }
+
+            return this.refreshFirstPage({
+                refreshReason: options.refreshReason || 'open',
+                attempts: options.attempts || 1
+            }).catch(() => {
+                return this.posts;
+            });
+        },
         startFeedSession: function(refreshReason = 'refresh') {
             this.feedSessionId = createFeedSessionId();
             this.refreshReason = refreshReason;
+        },
+        shouldUseFastStart: function() {
+            return ['initial', 'warm'].includes(this.refreshReason);
         },
         requestFilter: function() {
             return {

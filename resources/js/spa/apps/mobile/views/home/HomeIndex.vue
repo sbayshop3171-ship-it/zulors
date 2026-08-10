@@ -171,7 +171,7 @@
                 try {
                     if(hasInstantPosts) {
                         await timelineStore.refreshFirstPage({
-                            refreshReason: 'resume',
+                            refreshReason: 'open',
                             attempts: 1
                         });
                     }

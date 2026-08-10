@@ -193,7 +193,7 @@
                 try {
                     if(hasInstantPosts) {
                         timelineStore.refreshFirstPage({
-                            refreshReason: 'resume'
+                            refreshReason: 'open'
                         });
                     }
                     else {

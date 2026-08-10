@@ -11,7 +11,7 @@
         "build:vite": "vite build",
         "build": "npm-run-all build:vite build:dark-desktop build:dark-mobile build:dark-auth build:dark-business build:dark-admin",
         "build:dark": "npm-run-all build:dark-desktop build:dark-mobile build:dark-auth build:dark-business build:dark-admin",
-        "test:ws": "node --test tests/node/brd-package.test.mjs"
+        "test:ws": "node --test tests/node/*.test.mjs"
     },
     "dependencies": {
         "@fontsource/outfit": "^5.2.8",

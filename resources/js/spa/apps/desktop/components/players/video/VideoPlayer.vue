@@ -92,8 +92,15 @@
 <script>
 	import { defineComponent, computed, watch, reactive, onMounted, onUnmounted } from 'vue';
 	import { useIntersectionObserver } from '@/kernel/vue/composables/inter-obs/index.js';
+	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 	import { buildVideoPresentationMetadata, videoFrameAspectStyle } from '@/kernel/services/media/video-metadata.js';
+	import {
+		registerVideoPlaybackCandidate,
+		requestVideoPlayback,
+		setVideoPlaybackManualPause,
+		updateVideoPlaybackCandidate
+	} from '@/kernel/services/media/video-playback-arbiter/index.js';
 
 	import PrimaryIconButton from '@D/components/inter-ui/buttons/PrimaryIconButton.vue';
 	import VideoDurationTime from '@/kernel/vue/components/media/video/VideoDurationTime.vue';
@@ -139,8 +146,18 @@
 			}
 		},
 		setup: function(props, context) {
-			const { isIntersecting, videoPlayerRef } = useIntersectionObserver({
+			const { isIntersecting, intersectionRatio, observerEntry, videoPlayerRef } = useIntersectionObserver({
 				threshold: 0.5
+			});
+			const playbackCandidateId = `desktop-feed-video-${props.postId || 'post'}-${props.mediaId || 'media'}-${Math.random().toString(36).slice(2)}`;
+			const unregisterPlaybackCandidate = registerVideoPlaybackCandidate({
+				id: playbackCandidateId,
+				activate: () => {
+					playVideo();
+				},
+				deactivate: () => {
+					pauseVideo();
+				}
 			});
 
 			const state = reactive({
@@ -280,23 +297,32 @@
 				state.lastPlaybackTime = currentTime;
 			}
 
-			watch(isIntersecting, (newVal) => {
-				if(newVal && state.isLoaded) {
-					playVideo();
-				}
-				else {
-					pauseVideo();
-				}
+			const syncPlaybackCandidate = () => {
+				updateVideoPlaybackCandidate(playbackCandidateId, {
+					isReady: state.isLoaded && ! state.isScrubbing,
+					isVisible: Boolean(isIntersecting.value),
+					ratio: intersectionRatio.value,
+					rect: observerEntry.value?.boundingClientRect || null
+				});
+			};
+
+			watch([isIntersecting, intersectionRatio], () => {
+				syncPlaybackCandidate();
+			});
+
+			watch(() => state.isLoaded, () => {
+				syncPlaybackCandidate();
+			});
+
+			watch(() => state.isScrubbing, () => {
+				syncPlaybackCandidate();
 			});
 
 			const handleVideoReady = () => {
 				state.isLoaded = true;
 				updatePresentationMetadata();
 				syncProgressFromVideo();
-
-				if(isIntersecting.value) {
-					playVideo();
-				}
+				syncPlaybackCandidate();
 			};
 
 			const updatePresentationMetadata = () => {
@@ -326,6 +352,8 @@
 					videoPlayerRef.value.addEventListener('durationchange', handleVideoReady);
 					videoPlayerRef.value.addEventListener('progress', syncBufferedProgress);
 				}
+
+				syncPlaybackCandidate();
 			});
 
 			onUnmounted(() => {
@@ -339,6 +367,7 @@
 				}
 
 				stopProgressUpdater();
+				unregisterPlaybackCandidate();
 			});
 
 			const setMuted = () => {
@@ -351,6 +380,11 @@
 
 			const playVideo = () => {
 				if(state.isLoaded && videoPlayerRef.value && ! state.isScrubbing) {
+					if(state.isPlaying && ! videoPlayerRef.value.paused) {
+						return;
+					}
+
+					colibriEventBus.emit('media:pause-all');
 					videoPlayerRef.value.play().then(() => {
 						setMuted();
 						state.isPlaying = true;
@@ -371,11 +405,14 @@
 
 			const pauseVideo = () => {
 				if(videoPlayerRef.value) {
+					if(state.isPlaying || ! videoPlayerRef.value.paused) {
+						flushVideoTelemetry('video_watch');
+					}
+
 					videoPlayerRef.value.pause();
 				}
 
 				state.isPlaying = false;
-				flushVideoTelemetry('video_watch');
 				stopProgressUpdater();
 				stopTelemetryTimer();
 			};
@@ -627,7 +664,7 @@
 				state.showScrubPreview = false;
 
 				if(shouldResume) {
-					playVideo();
+					requestVideoPlayback(playbackCandidateId);
 				}
 				else {
 					state.isPlaying = false;
@@ -716,20 +753,24 @@
 
 					if(state.isLoaded) {
 						if(state.isPlaying) {
+							setVideoPlaybackManualPause(playbackCandidateId, true);
 							pauseVideo();
 						}
 						else {
-							playVideo();
+							setVideoPlaybackManualPause(playbackCandidateId, false);
+							requestVideoPlayback(playbackCandidateId);
 						}
 					}
 				},
 				togglePlay: () => {
 					if(state.isLoaded) {
 						if(state.isPlaying) {
+							setVideoPlaybackManualPause(playbackCandidateId, true);
 							pauseVideo();
 						}
 						else {
-							playVideo();
+							setVideoPlaybackManualPause(playbackCandidateId, false);
+							requestVideoPlayback(playbackCandidateId);
 						}
 					}
 				}

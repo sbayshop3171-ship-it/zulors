@@ -99,7 +99,9 @@
 
 <script>
     import { defineComponent, computed, defineAsyncComponent, onMounted, onUnmounted } from 'vue';
+    import { useRoute } from 'vue-router';
     import { useAuthStore } from '@D/store/auth/auth.store.js';
+    import { useTimelineStore } from '@D/store/timeline/timeline.store.js';
     import { useNotificationsStore } from '@D/store/notifications/notifications.store.js';
     import { useInboxStore } from '@D/store/chats/inbox.store.js';
     import useToastNotificationStore from '@D/store/toast/toast.store.js';
@@ -112,7 +114,9 @@
 
     export default defineComponent({
         setup: function() {
+            const route = useRoute();
             const authStore = useAuthStore();
+            const timelineStore = useTimelineStore();
             const notificationsStore = useNotificationsStore();
             const inboxStore = useInboxStore();
             const toastStore = useToastNotificationStore();
@@ -207,11 +211,23 @@
 
             const handleFocus = () => {
                 refreshUnreadState(150);
+
+                if(route.name === 'home_index') {
+                    timelineStore.refreshOnAppVisible({
+                        refreshReason: 'open'
+                    });
+                }
             };
 
             const handleVisibilityChange = () => {
                 if(document.visibilityState === 'visible') {
                     refreshUnreadState(150);
+
+                    if(route.name === 'home_index') {
+                        timelineStore.refreshOnAppVisible({
+                            refreshReason: 'open'
+                        });
+                    }
                 }
             };
 
