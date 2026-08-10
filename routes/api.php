@@ -47,6 +47,8 @@ Route::prefix('translations')->middleware([$readApiThrottle])->group(base_path('
 
 Route::prefix('webhooks')->middleware(['throttle:120,1'])->group(base_path('routes/api/webhooks.php'));
 
+Route::prefix('bootstrap')->middleware([$readApiThrottle])->group(base_path('routes/api/public/bootstrap.php'));
+
 Route::prefix('push-actions')->middleware(['throttle:120,1'])->group(function () {
     Route::post('/reply', [PushActionController::class, 'reply']);
     Route::post('/read', [PushActionController::class, 'read']);

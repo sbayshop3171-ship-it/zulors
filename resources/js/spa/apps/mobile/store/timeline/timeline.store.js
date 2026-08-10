@@ -30,6 +30,16 @@ const wait = function(timeout) {
     });
 };
 
+const bootSharedFeed = function() {
+    if(typeof window === 'undefined') {
+        return null;
+    }
+
+    const payload = window.__zulorsBoot?.sharedFeed ?? null;
+
+    return Array.isArray(payload?.posts) && payload.posts.length ? payload : null;
+};
+
 const waitForBootBootstrap = async function(timeout = 260) {
     if(typeof window === 'undefined' || ! window.__zulorsBoot?.bootstrapRequest) {
         return;
@@ -46,13 +56,37 @@ const waitForBootBootstrap = async function(timeout = 260) {
     }
 };
 
+const waitForBootSharedFeed = async function(timeout = 420) {
+    const seedFeed = bootSharedFeed();
+
+    if(seedFeed) {
+        return seedFeed;
+    }
+
+    if(typeof window === 'undefined' || ! window.__zulorsBoot?.sharedFeedRequest) {
+        return null;
+    }
+
+    try {
+        const response = await Promise.race([
+            window.__zulorsBoot.sharedFeedRequest,
+            wait(timeout).then(() => null)
+        ]);
+
+        return response?.data?.data ?? bootSharedFeed();
+    }
+    catch (error) {
+        return bootSharedFeed();
+    }
+};
+
 const useTimelineStore = defineStore('mobile_timeline_store', {
     // This is used to tell the postDeleteListener to listen to this store
     // This is used only for timeline stores, on desktop and mobile with the same logic.
     
     deleteAware: true,
     state: function() {
-        const sharedCachedPosts = readCache(getPublicFeedCacheKey(), [], (1000 * 60 * 20));
+        const sharedCachedPosts = readCache(getPublicFeedCacheKey(), bootSharedFeed()?.posts ?? [], (1000 * 60 * 20));
         const cachedPosts = readCache(getTimelineCacheKey(), sharedCachedPosts);
 
         prefetchTimelineMedia(cachedPosts);
@@ -119,6 +153,14 @@ const useTimelineStore = defineStore('mobile_timeline_store', {
             if (! this.posts.length) {
                 if(this.warmPromise) {
                     await this.warmPromise;
+                }
+
+                if(! this.posts.length) {
+                    const seedFeed = await waitForBootSharedFeed();
+
+                    if(seedFeed?.posts?.length) {
+                        this.hydrateBootFeed(seedFeed);
+                    }
                 }
 
                 if(! this.posts.length) {

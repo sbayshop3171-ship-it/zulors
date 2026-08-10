@@ -76,6 +76,9 @@ class Post extends Model
             if(auth_check()) {
                 $query->where('user_id', me()->id);
             }
+            else {
+                $query->whereRaw('1 = 0');
+            }
         }, 'comments' => function($query) {
             $query->with('user:id,avatar')->limit(3);
         }]);

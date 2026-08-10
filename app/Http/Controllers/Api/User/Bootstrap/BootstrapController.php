@@ -16,9 +16,11 @@
 namespace App\Http\Controllers\Api\User\Bootstrap;
 
 use App\Info\Zulors;
+use App\Models\Post;
 use Illuminate\Support\Str;
 use App\Http\Controllers\Controller;
 use App\Services\Timeline\FeedService;
+use Illuminate\Support\Facades\Cache;
 use App\Traits\Http\Api\SupportsApiResponses;
 use App\Http\Resources\User\Timeline\TimelineCollection;
 
@@ -42,6 +44,46 @@ class BootstrapController extends Controller
                 ],
                 'home_feed' => $this->getHomeFeedData(),
             ]
+        ]);
+    }
+
+    public function homeFeedSeed()
+    {
+        $cacheKey = 'bootstrap.public_home_feed_seed.v1';
+        $payload = Cache::remember($cacheKey, now()->addSeconds(20), function() {
+            $perPage = min((int) config('post.paginate_per'), 12);
+            $posts = Post::query()
+                ->timelineFormatPosts()
+                ->whereHas('user', function($query) {
+                    $query->active();
+                })
+                ->orderBy('created_at', 'desc')
+                ->orderBy('id', 'desc')
+                ->limit($perPage)
+                ->get();
+
+            return [
+                'type' => FeedService::TYPE_FOR_YOU,
+                'session_id' => 'public-seed',
+                'refresh_reason' => 'seed',
+                'posts' => TimelineCollection::make($posts)->resolve(request()),
+                'meta' => [
+                    'feed' => [
+                        'type' => FeedService::TYPE_FOR_YOU,
+                        'strategy' => 'public_seed_cache',
+                        'candidate_count' => $posts->count(),
+                        'candidate_limit' => null,
+                        'scored' => false,
+                        'page' => 1,
+                        'per_page' => $perPage,
+                        'session_id' => 'public-seed',
+                    ],
+                ],
+            ];
+        });
+
+        return $this->responseSuccess([
+            'data' => $payload,
         ]);
     }
 

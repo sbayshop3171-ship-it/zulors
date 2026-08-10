@@ -72,7 +72,7 @@
     import FollowRecommendation from '@M/components/recommend/follow/FollowRecommendation.vue';
     import FeedUpdate from '@M/components/timeline/update/FeedUpdate.vue';
 
-    const maxRouteLoaderMs = 900;
+    const maxRouteLoaderMs = 320;
 
     export default defineComponent({
         setup: function() {

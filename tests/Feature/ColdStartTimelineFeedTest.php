@@ -116,6 +116,27 @@ class ColdStartTimelineFeedTest extends TestCase
         $this->assertContains($bootFeedStrategy, ['cold_start_chronological', 'fast_start_chronological']);
     }
 
+    public function test_public_home_feed_seed_is_available_without_authentication(): void
+    {
+        $author = $this->createUser('public-seed-author');
+
+        $latestPost = $this->createPost($author, 'Latest public seed post', now());
+        $olderPost = $this->createPost($author, 'Older public seed post', now()->subMinutes(4));
+
+        $response = $this->withoutMiddleware()
+            ->getJson('/api/bootstrap/home-feed-seed')
+            ->assertOk()
+            ->assertJsonPath('data.type', 'for_you')
+            ->assertJsonPath('data.refresh_reason', 'seed')
+            ->assertJsonPath('data.meta.feed.strategy', 'public_seed_cache')
+            ->assertJsonPath('data.meta.feed.scored', false);
+
+        $postIds = array_column($response->json('data.posts'), 'id');
+
+        $this->assertSame($latestPost->id, $postIds[0]);
+        $this->assertContains($olderPost->id, $postIds);
+    }
+
     private function createUser(string $username, UserType $type = UserType::AUTHOR): User
     {
         $user = User::query()->create([

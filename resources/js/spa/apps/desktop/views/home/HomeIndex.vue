@@ -92,7 +92,7 @@
     import HomeHeader from '@D/views/home/parts/HomeHeader.vue';
     import FeedUpdate from '@D/components/timeline/update/FeedUpdate.vue';
 
-    const maxRouteLoaderMs = 900;
+    const maxRouteLoaderMs = 320;
 
     export default defineComponent({
         setup: function() {

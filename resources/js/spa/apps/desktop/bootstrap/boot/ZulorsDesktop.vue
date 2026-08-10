@@ -37,7 +37,7 @@
     import ApplicationMainLayout from '@D/layouts/ApplicationMainLayout.vue';
     import NetworkStatusBar from '@D/components/layout/parts/network/NetworkStatusBar.vue';
 
-    const maxBootScreenMs = 650;
+    const maxBootScreenMs = 320;
     
     export default defineComponent({
         setup: function(_, context) {

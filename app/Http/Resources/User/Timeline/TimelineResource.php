@@ -29,7 +29,8 @@ class TimelineResource extends JsonResource
 {
     public function toArray(Request $request):array
     {
-        $isOwner = me()->id === $this->user_id;
+        $viewerId = auth_check() ? me()->id : null;
+        $isOwner = $viewerId !== null && $viewerId === $this->user_id;
 
         $apiData = [
             'id' => $this->id,
@@ -73,7 +74,7 @@ class TimelineResource extends JsonResource
                     'can_report' => auth_check() ? empty($isOwner) : false
                 ],
                 'activity' => [
-                    'bookmarked' => auth_check() ? $this->isBookmarkedBy(me()->id) : false
+                    'bookmarked' => $viewerId ? $this->isBookmarkedBy($viewerId) : false
                 ],
                 'is_translatable' => $this->isContentTranslatable(),
                 'is_quoting' => $this->is_quoting,
