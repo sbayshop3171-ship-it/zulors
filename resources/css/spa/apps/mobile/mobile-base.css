@@ -17,10 +17,19 @@ html {
 }
 
 :root {
+    --zulors-android-safe-top: 0px;
+    --zulors-android-safe-bottom: 0px;
     --mobile-safe-top: env(safe-area-inset-top, 0px);
     --mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
     --mobile-header-bar-height: 3.5rem;
     --mobile-navbar-height: 3.5rem;
+}
+
+@supports (top: max(0px)) {
+    :root {
+        --mobile-safe-top: max(env(safe-area-inset-top, 0px), var(--zulors-android-safe-top));
+        --mobile-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--zulors-android-safe-bottom));
+    }
 }
 
 body,
@@ -44,8 +53,8 @@ body,
 }
 
 html.zulors-android-app {
-    --mobile-safe-top: 0px;
-    --mobile-safe-bottom: 0px;
+    --mobile-safe-top: var(--zulors-android-safe-top);
+    --mobile-safe-bottom: var(--zulors-android-safe-bottom);
     width: 100vw;
     min-width: 100vw;
     max-width: 100vw;
@@ -54,6 +63,13 @@ html.zulors-android-app {
     padding: 0;
     overflow-x: hidden;
     background: var(--color-bg-pr);
+}
+
+@supports (top: max(0px)) {
+    html.zulors-android-app {
+        --mobile-safe-top: max(env(safe-area-inset-top, 0px), var(--zulors-android-safe-top));
+        --mobile-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--zulors-android-safe-bottom));
+    }
 }
 
 #zulors-mobile-app {
@@ -270,7 +286,7 @@ html.zulors-android-app .zulors-action-sheet-group {
 
 html.zulors-android-app .zulors-action-sheet > .flex-1 {
     margin-bottom: 0 !important;
-    padding-bottom: 0 !important;
+    padding-bottom: var(--mobile-safe-bottom) !important;
 }
 
 html.zulors-android-app .mobile-safe-navbar {
@@ -278,7 +294,15 @@ html.zulors-android-app .mobile-safe-navbar {
     right: 0 !important;
     width: 100vw !important;
     max-width: 100vw !important;
-    padding-bottom: 0 !important;
+    padding-bottom: var(--mobile-safe-bottom) !important;
+}
+
+html.zulors-android-app .mobile-safe-header {
+    padding-top: var(--mobile-safe-top) !important;
+}
+
+html.zulors-android-app .mobile-safe-sticky-top {
+    top: var(--mobile-safe-top) !important;
 }
 
 html.zulors-android-app .base-publication > div > .max-w-full > .mb-2,
