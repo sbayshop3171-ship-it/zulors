@@ -41,6 +41,23 @@ class ColdStartTimelineFeedTest extends TestCase
         $this->assertContains($olderPost->id, $postIds);
     }
 
+    public function test_new_user_initial_feed_includes_active_reader_posts(): void
+    {
+        $viewer = $this->createUser('reader-cold-start-viewer', UserType::READER);
+        $creator = $this->createUser('reader-cold-start-creator', UserType::READER);
+        $readerPost = $this->createPost($creator, 'Reader account post should be visible', now());
+
+        $response = $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/timeline/feed?type=for_you&refresh_reason=initial')
+            ->assertOk()
+            ->assertJsonPath('meta.feed.strategy', 'cold_start_chronological');
+
+        $postIds = array_column($response->json('data'), 'id');
+
+        $this->assertContains($readerPost->id, $postIds);
+    }
+
     private function createUser(string $username, UserType $type = UserType::AUTHOR): User
     {
         $user = User::query()->create([

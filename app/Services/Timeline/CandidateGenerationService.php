@@ -75,7 +75,7 @@ class CandidateGenerationService
             ->when((! $user->isRoot()), function($query) use ($user) {
                 $query->where(function($query) use ($user) {
                     $query->where('user_id', $user->id)->orWhereHas('user', function($u) {
-                        $u->author()->active();
+                        $u->active();
                     });
                 });
             })

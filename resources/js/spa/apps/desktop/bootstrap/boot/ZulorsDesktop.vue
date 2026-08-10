@@ -26,6 +26,7 @@
     import { useRoute, useRouter } from 'vue-router';
     import { useAppStore } from '@D/store/app/app.store.js';
     import { useAuthStore } from '@D/store/auth/auth.store.js';
+    import { useTimelineStore } from '@D/store/timeline/timeline.store.js';
     import { useExploreReelsStore } from '@D/store/explore/reels.store.js';
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
@@ -44,6 +45,7 @@
             const router = useRouter();
             const appStore = useAppStore();
             const authStore = useAuthStore();
+            const timelineStore = useTimelineStore();
             const reelsStore = useExploreReelsStore();
             const hasCachedBootstrap = appStore.hydrateCachedBootstrap();
             const appLoading = ref(! hasCachedBootstrap);
@@ -107,11 +109,18 @@
                 }
 
                 appShellReady = true;
+                primeHomeFeed();
                 appLoading.value = false;
 
                 setupInteractionListeners();
                 setupRealtimePostUpdates();
                 scheduleReelsWarmup();
+            };
+
+            const primeHomeFeed = () => {
+                if(authStore.authCheck) {
+                    timelineStore.warmFirstPage().catch(() => {});
+                }
             };
 
             const clearReelsWarmup = () => {
