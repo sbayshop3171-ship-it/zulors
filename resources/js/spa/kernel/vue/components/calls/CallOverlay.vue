@@ -276,6 +276,10 @@
                     }
 
                     if(props.callStore.status === 'connected') {
+                        if(props.callStore.mediaProvider === 'agora' && ! props.callStore.remoteStream) {
+                            return 'Connecting audio...';
+                        }
+
                         if(props.callStore.qualityNotice) {
                             return props.callStore.durationSeconds
                                 ? `${props.callStore.qualityNotice} · ${durationText.value}`

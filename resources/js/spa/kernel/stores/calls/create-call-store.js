@@ -8,7 +8,7 @@ import { createAudioCallPeer, isAudioCallSupported } from '@/kernel/services/cal
 const finalStatuses = ['ended', 'missed', 'declined', 'busy', 'failed'];
 const connectingStatuses = ['ringing', 'accepted', 'connecting'];
 const defaultRingTimeoutSeconds = 40;
-const connectionTimeoutSeconds = 24;
+const connectionTimeoutSeconds = 40;
 const heartbeatIntervalMs = 10000;
 const qualityReportThrottleMs = 10000;
 const iceServerRefreshSkewMs = 60000;
@@ -102,6 +102,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             ringSecondsRemaining: 0,
             ringTimeoutTimer: null,
             connectionTimeoutTimer: null,
+            remoteAudioWatchdogTimer: null,
             reconnectTimeoutTimer: null,
             heartbeatTimer: null,
             ringToneContext: null,
@@ -613,6 +614,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 },
                 onRemoteStream: (stream) => {
                     this.remoteStream = markRaw(stream);
+                    this.syncRemoteAudioWatchdog();
                 },
                 onConnected: () => {
                     this.markConnected(true);
@@ -730,6 +732,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             this.status = 'connecting';
             this.stopRingingFeedback();
+            this.stopRemoteAudioWatchdog();
             this.startConnectionTimeoutTimer();
             this.startConnectingSyncTimer();
         },
@@ -748,6 +751,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.stopReconnectTimeoutTimer();
             this.startHeartbeatTimer();
             this.startDurationTimer();
+            this.syncRemoteAudioWatchdog();
 
             if(shouldNotify && ! this.connectedSignalSent) {
                 this.connectedSignalSent = true;
@@ -835,10 +839,19 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 return false;
             }
 
-            await colibriAPI().messenger().with(stats)
-                .sendTo(`calls/${this.call.call_uuid}/quality`);
+            try {
+                await colibriAPI().messenger().with(stats)
+                    .sendTo(`calls/${this.call.call_uuid}/quality`);
 
-            return true;
+                return true;
+            }
+            catch(error) {
+                if([404, 410].includes(getErrorStatus(error))) {
+                    this.finishCall('failed', 0);
+                }
+
+                return false;
+            }
         },
         sendHeartbeat: async function() {
             if(this.heartbeatInFlight || ! this.call?.call_uuid || this.status !== 'connected' || ! this.isActive || this.isFinal || this.finalizingCallUuid === this.call.call_uuid) {
@@ -1167,6 +1180,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.stopRingingFeedback();
             this.stopRingTimeoutTimer();
             this.stopConnectionTimeoutTimer();
+            this.stopRemoteAudioWatchdog();
             this.stopReconnectTimeoutTimer();
             this.stopHeartbeatTimer();
             this.stopConnectingSyncTimer();
@@ -1190,6 +1204,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.stopRingingFeedback();
             this.stopRingTimeoutTimer();
             this.stopConnectionTimeoutTimer();
+            this.stopRemoteAudioWatchdog();
             this.stopReconnectTimeoutTimer();
             this.stopHeartbeatTimer();
             this.stopConnectingSyncTimer();
@@ -1235,6 +1250,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             this.mediaSetupAttempt += 1;
             this.stopAudioRouteSettling();
+            this.stopRemoteAudioWatchdog();
             this.peer = null;
             this.peerSetupPromise = null;
 
@@ -1295,6 +1311,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             if(this.status === 'ringing') {
                 this.stopConnectionTimeoutTimer();
                 this.stopConnectingSyncTimer();
+                this.stopRemoteAudioWatchdog();
                 this.startRingTimeoutTimer();
                 this.startRingingFeedback();
 
@@ -1307,10 +1324,12 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             if(['accepted', 'connecting'].includes(this.status)) {
                 this.startConnectionTimeoutTimer();
                 this.startConnectingSyncTimer();
+                this.stopRemoteAudioWatchdog();
             }
             else {
                 this.stopConnectionTimeoutTimer();
                 this.stopConnectingSyncTimer();
+                this.syncRemoteAudioWatchdog();
             }
         },
         startDurationTimer: function() {
@@ -1405,6 +1424,37 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 window.clearTimeout(this.connectionTimeoutTimer);
                 this.connectionTimeoutTimer = null;
             }
+        },
+        startRemoteAudioWatchdog: function() {
+            if(this.remoteAudioWatchdogTimer || ! this.call?.call_uuid || this.status !== 'connected' || this.mediaProvider !== 'agora' || this.remoteStream) {
+                return;
+            }
+
+            this.remoteAudioWatchdogTimer = window.setTimeout(async () => {
+                this.remoteAudioWatchdogTimer = null;
+
+                if(this.status !== 'connected' || this.mediaProvider !== 'agora' || this.remoteStream || this.isFinal) {
+                    return;
+                }
+
+                this.error = 'Remote audio did not connect.';
+                await this.endCall('connection_timeout');
+            }, connectionTimeoutSeconds * 1000);
+        },
+        stopRemoteAudioWatchdog: function() {
+            if(this.remoteAudioWatchdogTimer) {
+                window.clearTimeout(this.remoteAudioWatchdogTimer);
+                this.remoteAudioWatchdogTimer = null;
+            }
+        },
+        syncRemoteAudioWatchdog: function() {
+            if(this.status === 'connected' && this.mediaProvider === 'agora' && ! this.remoteStream) {
+                this.startRemoteAudioWatchdog();
+
+                return;
+            }
+
+            this.stopRemoteAudioWatchdog();
         },
         startConnectingSyncTimer: function() {
             if(this.connectingSyncTimer || ! this.call?.call_uuid || ! ['accepted', 'connecting'].includes(this.status)) {

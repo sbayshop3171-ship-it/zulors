@@ -524,9 +524,7 @@ class CallController extends Controller
 
         $signalType = (string) $request->input('signal_type');
         $signalPayload = $request->input('signal', []);
-        $broadcastConnected = false;
-
-        $callSession = DB::transaction(function () use ($callSession, $signalType, $signalPayload, &$broadcastConnected) {
+        $callSession = DB::transaction(function () use ($callSession, $signalType, $signalPayload) {
             $lockedCallSession = CallSession::query()
                 ->whereKey($callSession->id)
                 ->lockForUpdate()
@@ -568,20 +566,6 @@ class CallController extends Controller
             }
 
             $lockedCallSession->forceFill($attributes)->save();
-            $lockedCallSession = $lockedCallSession->fresh(['participants']);
-
-            if($signalType === 'ready'
-                && $signalProvider === 'agora'
-                && $this->allParticipantsMediaReady($lockedCallSession, 'agora')
-                && empty($lockedCallSession->connected_at)) {
-                $lockedCallSession->forceFill([
-                    'status' => CallStatus::CONNECTED,
-                    'connected_at' => now(),
-                ])->save();
-                $this->markParticipantsConnected($lockedCallSession);
-
-                $broadcastConnected = true;
-            }
 
             return $lockedCallSession->fresh(['chat', 'initiator', 'receiver']);
         });
@@ -597,17 +581,6 @@ class CallController extends Controller
             'signal_type' => $signalType,
             'signal' => $signalPayload,
         ]));
-
-        if($broadcastConnected) {
-            event(new CallSessionEvent('call.signal', $callSession, [
-                'sender_user_id' => me()->id,
-                'signal_type' => 'connected',
-                'signal' => [
-                    'provider' => 'agora',
-                    'reason' => 'participants_ready',
-                ],
-            ]));
-        }
 
         return $this->responseSuccess([
             'data' => [
@@ -653,40 +626,15 @@ class CallController extends Controller
 
     private function hasActiveCall(int $userId): bool
     {
-        $now = now();
-        $handshakeThreshold = $now->copy()->subSeconds(StaleCallCleanupService::HANDSHAKE_TIMEOUT_SECONDS);
-        $heartbeatThreshold = $now->copy()->subSeconds(StaleCallCleanupService::HEARTBEAT_TIMEOUT_SECONDS);
+        $staleCalls = app(StaleCallCleanupService::class);
 
         return CallSession::query()
             ->active()
+            ->with(['participants'])
             ->whereHas('participants', fn ($query) => $query->where('user_id', $userId))
-            ->where(function ($query) use ($now, $handshakeThreshold, $heartbeatThreshold) {
-                $query->where(function ($query) use ($now) {
-                    $query->where('status', CallStatus::RINGING->value)
-                        ->where(function ($query) use ($now) {
-                            $query->whereNull('expires_at')
-                                ->orWhere('expires_at', '>', $now);
-                        });
-                })
-                    ->orWhere(function ($query) use ($handshakeThreshold) {
-                        $query->whereIn('status', [CallStatus::ACCEPTED->value, CallStatus::CONNECTING->value])
-                            ->where(function ($query) use ($handshakeThreshold) {
-                                $query->where('answered_at', '>', $handshakeThreshold)
-                                    ->orWhere(function ($query) use ($handshakeThreshold) {
-                                        $query->whereNull('answered_at')
-                                            ->where('started_at', '>', $handshakeThreshold);
-                                    });
-                            });
-                    })
-                    ->orWhere(function ($query) use ($heartbeatThreshold) {
-                        $query->where('status', CallStatus::CONNECTED->value)
-                            ->where(function ($query) use ($heartbeatThreshold) {
-                                $query->where('updated_at', '>', $heartbeatThreshold)
-                                    ->orWhere('connected_at', '>', $heartbeatThreshold);
-                            });
-                    });
-            })
-            ->exists();
+            ->orderByDesc('id')
+            ->get()
+            ->contains(fn (CallSession $callSession) => ! $staleCalls->isStale($callSession));
     }
 
     private function finalizeStaleActiveCallsForUsers(array $userIds): void
@@ -762,36 +710,6 @@ class CallController extends Controller
             'joined_at' => $participant->joined_at ?: now(),
             'metadata' => $metadata,
         ])->save();
-    }
-
-    private function markParticipantsConnected(CallSession $callSession): void
-    {
-        $callSession->participants()->get()->each(function ($participant) {
-            $metadata = $participant->metadata ?: [];
-            $metadata['media_connected_at'] = $metadata['media_connected_at'] ?? now()->toIso8601String();
-
-            $participant->forceFill([
-                'status' => CallStatus::CONNECTED,
-                'joined_at' => $participant->joined_at ?: now(),
-                'metadata' => $metadata,
-            ])->save();
-        });
-    }
-
-    private function allParticipantsMediaReady(CallSession $callSession, string $provider): bool
-    {
-        $participants = $callSession->relationLoaded('participants')
-            ? $callSession->participants
-            : $callSession->participants()->get();
-
-        if($participants->count() < 2) {
-            return false;
-        }
-
-        return $participants->every(function ($participant) use ($provider) {
-            return filled(data_get($participant->metadata ?: [], 'media_ready_at'))
-                && data_get($participant->metadata ?: [], 'media_provider') === $provider;
-        });
     }
 
     private function signalProvider(array $signalPayload): ?string

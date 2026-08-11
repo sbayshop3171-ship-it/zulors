@@ -441,7 +441,7 @@ class AudioCallsTest extends TestCase
         $this->assertNotEmpty($response->json('data.media.expires_at'));
     }
 
-    public function test_agora_ready_signals_promote_answered_call_to_connected(): void
+    public function test_agora_ready_signals_keep_answered_call_in_connecting_until_media_connects(): void
     {
         [$caller, $receiver, $chat] = $this->createDirectChat();
         $call = $this->createRingingCall($caller, $receiver, $chat, [
@@ -467,12 +467,14 @@ class AudioCallsTest extends TestCase
                 'provider' => 'agora',
             ],
         ])->assertOk()
-            ->assertJsonPath('data.call.status', 'connected');
+            ->assertJsonPath('data.call.status', 'connecting');
 
         $this->assertDatabaseHas('call_sessions', [
             'id' => $call->id,
-            'status' => CallStatus::CONNECTED->value,
+            'status' => CallStatus::CONNECTING->value,
         ]);
+
+        $this->assertNull($call->fresh()->connected_at);
 
         $participants = $call->fresh()->participants()->get();
 
@@ -482,6 +484,35 @@ class AudioCallsTest extends TestCase
             $this->assertSame('agora', $participant->metadata['media_provider'] ?? null);
             $this->assertNotEmpty($participant->metadata['media_ready_at'] ?? null);
         }
+    }
+
+    public function test_explicit_connected_signal_promotes_agora_call_to_connected(): void
+    {
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+        $call = $this->createRingingCall($caller, $receiver, $chat, [
+            'status' => CallStatus::CONNECTING,
+            'answered_at' => now()->subSeconds(5),
+        ]);
+
+        Sanctum::actingAs($caller);
+
+        $this->postJson("/api/messenger/calls/{$call->call_uuid}/signal", [
+            'signal_type' => 'connected',
+            'signal' => [
+                'provider' => 'agora',
+            ],
+        ])->assertOk()
+            ->assertJsonPath('data.call.status', 'connected');
+
+        $this->assertDatabaseHas('call_sessions', [
+            'id' => $call->id,
+            'status' => CallStatus::CONNECTED->value,
+        ]);
+
+        $participant = $call->fresh()->participants()->where('user_id', $caller->id)->firstOrFail();
+
+        $this->assertSame(CallStatus::CONNECTED, $participant->status);
+        $this->assertNotEmpty(data_get($participant->metadata, 'media_connected_at'));
     }
 
     public function test_answered_call_uses_webrtc_fallback_when_agora_is_not_configured(): void
@@ -625,6 +656,54 @@ class AudioCallsTest extends TestCase
         ]);
 
         $this->assertSame(2, CallSession::query()->where('chat_id', $chat->id)->count());
+    }
+
+    public function test_connected_call_with_stale_remote_heartbeat_is_finalized_before_start_busy_check(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+        $staleCall = $this->createRingingCall($caller, $receiver, $chat, [
+            'status' => CallStatus::CONNECTED,
+            'started_at' => now()->subSeconds(120),
+            'answered_at' => now()->subSeconds(100),
+            'connected_at' => now()->subSeconds(80),
+            'expires_at' => now()->subSeconds(70),
+        ]);
+
+        $staleCall->participants()->where('user_id', $caller->id)->update([
+            'status' => CallStatus::CONNECTED,
+            'metadata' => [
+                'heartbeat_at' => now()->subSeconds(5)->toIso8601String(),
+                'media_connected_at' => now()->subSeconds(75)->toIso8601String(),
+            ],
+        ]);
+        $staleCall->participants()->where('user_id', $receiver->id)->update([
+            'status' => CallStatus::CONNECTED,
+            'metadata' => [
+                'heartbeat_at' => now()->subSeconds(80)->toIso8601String(),
+                'media_connected_at' => now()->subSeconds(75)->toIso8601String(),
+            ],
+        ]);
+        $staleCall->timestamps = false;
+        $staleCall->forceFill([
+            'updated_at' => now(),
+        ])->save();
+
+        Sanctum::actingAs($caller);
+
+        $this->postJson('/api/messenger/calls/start', [
+            'chat_id' => $chat->chat_id,
+            'media_type' => 'audio',
+        ])->assertOk()
+            ->assertJsonPath('data.call.status', 'ringing');
+
+        $this->assertDatabaseHas('call_sessions', [
+            'id' => $staleCall->id,
+            'status' => CallStatus::FAILED->value,
+            'end_reason' => 'connection_timeout',
+        ]);
     }
 
     public function test_call_heartbeat_refreshes_connected_call_state(): void
