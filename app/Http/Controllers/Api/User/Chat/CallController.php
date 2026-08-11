@@ -653,15 +653,45 @@ class CallController extends Controller
 
     private function hasActiveCall(int $userId): bool
     {
+        $now = now();
+        $handshakeThreshold = $now->copy()->subSeconds(StaleCallCleanupService::HANDSHAKE_TIMEOUT_SECONDS);
+        $heartbeatThreshold = $now->copy()->subSeconds(StaleCallCleanupService::HEARTBEAT_TIMEOUT_SECONDS);
+
         return CallSession::query()
             ->active()
             ->whereHas('participants', fn ($query) => $query->where('user_id', $userId))
+            ->where(function ($query) use ($now, $handshakeThreshold, $heartbeatThreshold) {
+                $query->where(function ($query) use ($now) {
+                    $query->where('status', CallStatus::RINGING->value)
+                        ->where(function ($query) use ($now) {
+                            $query->whereNull('expires_at')
+                                ->orWhere('expires_at', '>', $now);
+                        });
+                })
+                    ->orWhere(function ($query) use ($handshakeThreshold) {
+                        $query->whereIn('status', [CallStatus::ACCEPTED->value, CallStatus::CONNECTING->value])
+                            ->where(function ($query) use ($handshakeThreshold) {
+                                $query->where('answered_at', '>', $handshakeThreshold)
+                                    ->orWhere(function ($query) use ($handshakeThreshold) {
+                                        $query->whereNull('answered_at')
+                                            ->where('started_at', '>', $handshakeThreshold);
+                                    });
+                            });
+                    })
+                    ->orWhere(function ($query) use ($heartbeatThreshold) {
+                        $query->where('status', CallStatus::CONNECTED->value)
+                            ->where(function ($query) use ($heartbeatThreshold) {
+                                $query->where('updated_at', '>', $heartbeatThreshold)
+                                    ->orWhere('connected_at', '>', $heartbeatThreshold);
+                            });
+                    });
+            })
             ->exists();
     }
 
     private function finalizeStaleActiveCallsForUsers(array $userIds): void
     {
-        app(StaleCallCleanupService::class)->cleanup($userIds, 20);
+        app(StaleCallCleanupService::class)->cleanup($userIds, 100);
     }
 
     private function recordParticipantHeartbeat(CallSession $callSession): void

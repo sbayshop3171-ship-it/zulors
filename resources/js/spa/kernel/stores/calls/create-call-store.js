@@ -19,6 +19,18 @@ const incomingRingIntervalMs = 3200;
 const outgoingRingIntervalMs = 4200;
 const speakerRouteSettleMs = 260;
 
+const finalStatusForReason = (reason) => {
+    if(reason === 'no_answer') {
+        return 'missed';
+    }
+
+    if(['connection_lost', 'connection_timeout', 'ice_failed'].includes(reason)) {
+        return 'failed';
+    }
+
+    return 'ended';
+};
+
 const getErrorStatus = (error) => {
     return Number(error?.response?.status || 0);
 };
@@ -106,7 +118,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             isStartCoolingDown: false,
             startCooldownTimer: null,
             finalizingCallUuid: null,
-            resetTimer: null
+            resetTimer: null,
+            mediaSetupAttempt: 0,
+            heartbeatInFlight: false
         };
     },
     getters: {
@@ -278,6 +292,10 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 return true;
             }
             catch(error) {
+                if(error.__zulorsSilentCallToast) {
+                    return false;
+                }
+
                 this.error = error.message || 'Unable to start audio call.';
                 this.finishCall('failed', 2600);
 
@@ -305,7 +323,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
 
             if(this.finalizingCallUuid === this.call.call_uuid) {
-                return false;
+                this.finishCall('declined', 0);
+
+                return true;
             }
 
             const callUuid = this.call.call_uuid;
@@ -324,24 +344,25 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         },
         endCall: async function(reason = 'user_ended') {
             if(! this.call?.call_uuid) {
-                this.finishCall('ended');
+                this.finishCall('ended', 0);
 
-                return false;
-            }
-
-            if(this.finalizingCallUuid === this.call.call_uuid) {
                 return false;
             }
 
             reason = typeof reason === 'string' && reason ? reason : 'user_ended';
 
             const callUuid = this.call.call_uuid;
-            this.finalizingCallUuid = callUuid;
-            const finalStatus = reason === 'no_answer'
-                ? 'missed'
-                : (['connection_lost', 'connection_timeout', 'ice_failed'].includes(reason) ? 'failed' : 'ended');
+            const finalStatus = finalStatusForReason(reason);
 
-            this.finishCall(finalStatus);
+            if(this.finalizingCallUuid === callUuid) {
+                this.finishCall(finalStatus, 0);
+
+                return true;
+            }
+
+            this.finalizingCallUuid = callUuid;
+
+            this.finishCall(finalStatus, reason === 'user_ended' ? 120 : 900);
 
             try {
                 await colibriAPI().messenger().with({
@@ -447,6 +468,10 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     }
                 }
                 catch(error) {
+                    if(error.__zulorsSilentCallToast) {
+                        return false;
+                    }
+
                     this.error = error.message || 'Unable to connect audio call.';
                     await this.endCall();
                 }
@@ -511,6 +536,10 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 }
             }
             catch(error) {
+                if(error.__zulorsSilentCallToast) {
+                    return false;
+                }
+
                 this.error = error.message || 'Unable to connect audio call.';
                 await this.endCall();
             }
@@ -534,7 +563,36 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
         },
         createPeerSession: async function() {
+            const callUuid = this.call?.call_uuid;
+            const setupAttempt = this.mediaSetupAttempt + 1;
+            let peer = null;
+            const isCurrentSetup = () => {
+                return Boolean(
+                    callUuid
+                    && this.call?.call_uuid === callUuid
+                    && this.mediaSetupAttempt === setupAttempt
+                    && ! this.isFinal
+                    && this.finalizingCallUuid !== callUuid
+                );
+            };
+            const assertCurrentSetup = () => {
+                if(isCurrentSetup()) {
+                    return;
+                }
+
+                try {
+                    peer?.close?.();
+                }
+                catch(error) {}
+
+                throw makeSilentCallError('Call setup was cancelled.');
+            };
+
+            this.mediaSetupAttempt = setupAttempt;
+
             const mediaSession = await this.resolveMediaSession();
+            assertCurrentSetup();
+
             const isAgora = mediaSession?.provider === 'agora';
             const callbacks = {
                 onSignal: (signalType, signal) => {
@@ -563,7 +621,6 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     this.handleReconnectState(state);
                 }
             };
-            let peer = null;
 
             this.mediaSession = mediaSession;
             this.mediaProvider = isAgora ? 'agora' : 'webrtc';
@@ -583,11 +640,27 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
 
             this.peer = markRaw(peer);
-            await this.peer.ensurePeerConnection(this.call?.media_type || 'audio');
-            this.enterNativeAudioMode();
 
-            if(isAgora) {
-                await this.sendMediaReadySignal();
+            try {
+                await this.peer.ensurePeerConnection(this.call?.media_type || 'audio');
+                assertCurrentSetup();
+                this.enterNativeAudioMode();
+
+                if(isAgora) {
+                    await this.sendMediaReadySignal();
+                }
+            }
+            catch(error) {
+                try {
+                    peer?.close?.();
+                }
+                catch(closeError) {}
+
+                if(this.peer === peer) {
+                    this.peer = null;
+                }
+
+                throw error;
             }
 
             return this.peer;
@@ -634,13 +707,19 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
         },
         markConnecting: function() {
-            if(this.status !== 'connected') {
-                this.status = 'connecting';
-                this.stopRingingFeedback();
-                this.startConnectionTimeoutTimer();
+            if(this.status === 'connected' || this.isFinal || ! this.call?.call_uuid) {
+                return;
             }
+
+            this.status = 'connecting';
+            this.stopRingingFeedback();
+            this.startConnectionTimeoutTimer();
         },
         markConnected: function(shouldNotify = true) {
+            if(! this.call?.call_uuid || this.isFinal || this.finalizingCallUuid === this.call.call_uuid) {
+                return;
+            }
+
             this.status = 'connected';
             this.networkState = 'stable';
             this.qualityNotice = '';
@@ -743,9 +822,11 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             return true;
         },
         sendHeartbeat: async function() {
-            if(! this.call?.call_uuid || ! this.isActive || this.isFinal || this.finalizingCallUuid === this.call.call_uuid) {
+            if(this.heartbeatInFlight || ! this.call?.call_uuid || this.status !== 'connected' || ! this.isActive || this.isFinal || this.finalizingCallUuid === this.call.call_uuid) {
                 return false;
             }
+
+            this.heartbeatInFlight = true;
 
             try {
                 const response = await colibriAPI().messenger().with({
@@ -760,7 +841,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                         status: call.status || this.status
                     });
 
-                    if(call.status === 'connected') {
+                    if(call.status === 'connected' && this.status !== 'connected') {
                         this.markConnected(false);
                     }
                 }
@@ -773,6 +854,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 }
 
                 return false;
+            }
+            finally {
+                this.heartbeatInFlight = false;
             }
         },
         resolveIceServers: async function() {
@@ -836,12 +920,20 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         },
         toggleMute: function() {
             this.isMuted = ! this.isMuted;
-            this.peer?.setMuted(this.isMuted);
+
+            try {
+                Promise.resolve(this.peer?.setMuted?.(this.isMuted)).catch(() => {});
+            }
+            catch(error) {}
         },
         toggleSpeaker: function() {
             this.speakerEnabled = ! this.speakerEnabled;
-            this.quietRemoteOutputForRouteChange();
-            this.setNativeSpeakerEnabled(this.speakerEnabled);
+
+            try {
+                this.quietRemoteOutputForRouteChange();
+                this.setNativeSpeakerEnabled(this.speakerEnabled);
+            }
+            catch(error) {}
         },
         minimize: function() {
             this.minimized = true;
@@ -928,10 +1020,13 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.isStarting = false;
             this.isStartCoolingDown = false;
             this.finalizingCallUuid = null;
+            this.mediaSetupAttempt += 1;
+            this.heartbeatInFlight = false;
         },
         cleanupMediaSession: function() {
             const peer = this.peer;
 
+            this.mediaSetupAttempt += 1;
             this.stopAudioRouteSettling();
             this.peer = null;
             this.peerSetupPromise = null;
@@ -1128,16 +1223,20 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 return;
             }
 
-            this.sendHeartbeat().catch(() => {});
             this.heartbeatTimer = window.setInterval(() => {
                 this.sendHeartbeat().catch(() => {});
             }, heartbeatIntervalMs);
+            window.setTimeout(() => {
+                this.sendHeartbeat().catch(() => {});
+            }, 0);
         },
         stopHeartbeatTimer: function() {
             if(this.heartbeatTimer) {
                 window.clearInterval(this.heartbeatTimer);
                 this.heartbeatTimer = null;
             }
+
+            this.heartbeatInFlight = false;
         },
         quietRemoteOutputForRouteChange: function() {
             if(typeof window === 'undefined') {

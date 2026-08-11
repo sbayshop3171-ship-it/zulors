@@ -119,6 +119,35 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         }
         catch(error) {}
     };
+    const throwIfClosing = () => {
+        if(! closing) {
+            return;
+        }
+
+        try {
+            remoteAudioTrack?.stop?.();
+        }
+        catch(error) {}
+
+        try {
+            localAudioTrack?.close?.();
+        }
+        catch(error) {}
+
+        try {
+            client?.leave?.();
+        }
+        catch(error) {}
+
+        remoteAudioTrack = null;
+        localAudioTrack = null;
+        localStream = null;
+        remoteStream = null;
+        remoteUid = null;
+        joined = false;
+
+        throw new Error('Call already ended.');
+    };
 
     const refreshMediaSession = async () => {
         if(typeof options.refreshMediaSession !== 'function') {
@@ -449,6 +478,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         }
 
         const AgoraRTC = await loadAgoraRTC();
+        throwIfClosing();
         AgoraRTCModule = AgoraRTC;
 
         if(! AgoraRTC?.createClient) {
@@ -471,6 +501,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             currentMediaSession.token || null,
             currentMediaSession.uid || null
         );
+        throwIfClosing();
 
         localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack({
             AEC: true,
@@ -478,6 +509,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             ANS: true,
             encoderConfig: agoraSpeechEncoderConfig
         });
+        throwIfClosing();
 
         if(isMuted) {
             await localAudioTrack.setEnabled(false);
@@ -490,9 +522,11 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         }
 
         await client.publish([localAudioTrack]);
+        throwIfClosing();
         joined = true;
         emit('onStateChange', 'connected');
         await subscribeToPublishedRemoteUsers();
+        throwIfClosing();
         startRemoteUserSweep();
         startQualityTimer();
 

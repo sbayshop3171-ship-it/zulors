@@ -9,7 +9,7 @@ use Throwable;
 class StaleCallCleanupService
 {
     public const RING_TIMEOUT_SECONDS = 40;
-    public const HANDSHAKE_TIMEOUT_SECONDS = 90;
+    public const HANDSHAKE_TIMEOUT_SECONDS = 45;
     public const HEARTBEAT_TIMEOUT_SECONDS = 75;
 
     public function __construct(private CallLifecycleService $calls) {}

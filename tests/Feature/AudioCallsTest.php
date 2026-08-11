@@ -534,6 +534,36 @@ class AudioCallsTest extends TestCase
         $this->assertSame(2, CallSession::query()->where('chat_id', $chat->id)->count());
     }
 
+    public function test_stale_accepted_call_is_finalized_before_start_busy_check(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+        $staleCall = $this->createRingingCall($caller, $receiver, $chat, [
+            'status' => CallStatus::ACCEPTED,
+            'started_at' => now()->subSeconds(80),
+            'answered_at' => now()->subSeconds(70),
+            'expires_at' => now()->subSeconds(40),
+        ]);
+
+        Sanctum::actingAs($caller);
+
+        $this->postJson('/api/messenger/calls/start', [
+            'chat_id' => $chat->chat_id,
+            'media_type' => 'audio',
+        ])->assertOk()
+            ->assertJsonPath('data.call.status', 'ringing');
+
+        $this->assertDatabaseHas('call_sessions', [
+            'id' => $staleCall->id,
+            'status' => CallStatus::FAILED->value,
+            'end_reason' => 'connection_timeout',
+        ]);
+
+        $this->assertSame(2, CallSession::query()->where('chat_id', $chat->id)->count());
+    }
+
     public function test_expired_ringing_call_is_finalized_before_start_busy_check(): void
     {
         Notification::fake();
