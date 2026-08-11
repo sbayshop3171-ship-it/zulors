@@ -9,6 +9,7 @@ const finalStatuses = ['ended', 'missed', 'declined', 'busy', 'failed'];
 const connectingStatuses = ['ringing', 'accepted', 'connecting'];
 const defaultRingTimeoutSeconds = 40;
 const connectionTimeoutSeconds = 40;
+const degradedConnectionTimeoutSeconds = 40;
 const heartbeatIntervalMs = 10000;
 const qualityReportThrottleMs = 10000;
 const iceServerRefreshSkewMs = 60000;
@@ -103,6 +104,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             ringTimeoutTimer: null,
             connectionTimeoutTimer: null,
             remoteAudioWatchdogTimer: null,
+            degradedConnectionTimeoutTimer: null,
             reconnectTimeoutTimer: null,
             heartbeatTimer: null,
             ringToneContext: null,
@@ -615,6 +617,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 onRemoteStream: (stream) => {
                     this.remoteStream = markRaw(stream);
                     this.syncRemoteAudioWatchdog();
+                    this.syncDegradedConnectionTimeout();
                 },
                 onConnected: () => {
                     this.markConnected(true);
@@ -733,6 +736,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.status = 'connecting';
             this.stopRingingFeedback();
             this.stopRemoteAudioWatchdog();
+            this.stopDegradedConnectionTimeoutTimer();
             this.startConnectionTimeoutTimer();
             this.startConnectingSyncTimer();
         },
@@ -752,6 +756,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.startHeartbeatTimer();
             this.startDurationTimer();
             this.syncRemoteAudioWatchdog();
+            this.syncDegradedConnectionTimeout();
 
             if(shouldNotify && ! this.connectedSignalSent) {
                 this.connectedSignalSent = true;
@@ -767,6 +772,8 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             this.networkState = networkQuality === 'good' ? 'stable' : networkQuality;
             this.qualityNotice = this.qualityNoticeFor(networkQuality);
+            this.syncRemoteAudioWatchdog();
+            this.syncDegradedConnectionTimeout();
 
             const now = Date.now();
             const signature = [
@@ -796,6 +803,8 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 this.stopReconnectTimeoutTimer();
                 this.networkState = 'stable';
                 this.qualityNotice = '';
+                this.syncRemoteAudioWatchdog();
+                this.syncDegradedConnectionTimeout();
 
                 return true;
             }
@@ -804,6 +813,8 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 this.networkState = 'reconnecting';
                 this.qualityNotice = 'Reconnecting...';
                 this.startReconnectTimeoutTimer();
+                this.syncRemoteAudioWatchdog();
+                this.syncDegradedConnectionTimeout();
 
                 return true;
             }
@@ -1181,6 +1192,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.stopRingTimeoutTimer();
             this.stopConnectionTimeoutTimer();
             this.stopRemoteAudioWatchdog();
+            this.stopDegradedConnectionTimeoutTimer();
             this.stopReconnectTimeoutTimer();
             this.stopHeartbeatTimer();
             this.stopConnectingSyncTimer();
@@ -1205,6 +1217,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.stopRingTimeoutTimer();
             this.stopConnectionTimeoutTimer();
             this.stopRemoteAudioWatchdog();
+            this.stopDegradedConnectionTimeoutTimer();
             this.stopReconnectTimeoutTimer();
             this.stopHeartbeatTimer();
             this.stopConnectingSyncTimer();
@@ -1251,6 +1264,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.mediaSetupAttempt += 1;
             this.stopAudioRouteSettling();
             this.stopRemoteAudioWatchdog();
+            this.stopDegradedConnectionTimeoutTimer();
             this.peer = null;
             this.peerSetupPromise = null;
 
@@ -1312,6 +1326,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 this.stopConnectionTimeoutTimer();
                 this.stopConnectingSyncTimer();
                 this.stopRemoteAudioWatchdog();
+                this.stopDegradedConnectionTimeoutTimer();
                 this.startRingTimeoutTimer();
                 this.startRingingFeedback();
 
@@ -1325,11 +1340,13 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 this.startConnectionTimeoutTimer();
                 this.startConnectingSyncTimer();
                 this.stopRemoteAudioWatchdog();
+                this.stopDegradedConnectionTimeoutTimer();
             }
             else {
                 this.stopConnectionTimeoutTimer();
                 this.stopConnectingSyncTimer();
                 this.syncRemoteAudioWatchdog();
+                this.syncDegradedConnectionTimeout();
             }
         },
         startDurationTimer: function() {
@@ -1425,15 +1442,34 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 this.connectionTimeoutTimer = null;
             }
         },
+        hasLiveRemoteAudio: function() {
+            const tracks = this.remoteStream?.getAudioTracks?.() || [];
+
+            return tracks.some((track) => {
+                if(! track) {
+                    return false;
+                }
+
+                if(track.readyState && track.readyState !== 'live') {
+                    return false;
+                }
+
+                if(track.enabled === false) {
+                    return false;
+                }
+
+                return track.muted !== true;
+            });
+        },
         startRemoteAudioWatchdog: function() {
-            if(this.remoteAudioWatchdogTimer || ! this.call?.call_uuid || this.status !== 'connected' || this.mediaProvider !== 'agora' || this.remoteStream) {
+            if(this.remoteAudioWatchdogTimer || ! this.call?.call_uuid || this.status !== 'connected' || this.hasLiveRemoteAudio()) {
                 return;
             }
 
             this.remoteAudioWatchdogTimer = window.setTimeout(async () => {
                 this.remoteAudioWatchdogTimer = null;
 
-                if(this.status !== 'connected' || this.mediaProvider !== 'agora' || this.remoteStream || this.isFinal) {
+                if(this.status !== 'connected' || this.hasLiveRemoteAudio() || this.isFinal) {
                     return;
                 }
 
@@ -1448,13 +1484,55 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
         },
         syncRemoteAudioWatchdog: function() {
-            if(this.status === 'connected' && this.mediaProvider === 'agora' && ! this.remoteStream) {
+            if(this.status === 'connected' && ! this.hasLiveRemoteAudio()) {
                 this.startRemoteAudioWatchdog();
+            }
+            else {
+                this.stopRemoteAudioWatchdog();
+            }
+        },
+        shouldWatchDegradedConnection: function() {
+            return this.status === 'connected'
+                && this.hasLiveRemoteAudio()
+                && ['poor', 'reconnecting'].includes(this.networkState);
+        },
+        startDegradedConnectionTimeoutTimer: function() {
+            if(this.degradedConnectionTimeoutTimer || ! this.call?.call_uuid || ! this.shouldWatchDegradedConnection()) {
+                return;
+            }
+
+            this.degradedConnectionTimeoutTimer = window.setTimeout(async () => {
+                this.degradedConnectionTimeoutTimer = null;
+
+                if(! this.shouldWatchDegradedConnection() || this.isFinal) {
+                    return;
+                }
+
+                if(this.networkState === 'reconnecting') {
+                    this.error = 'Audio connection was lost.';
+                    await this.endCall('connection_lost');
+
+                    return;
+                }
+
+                this.error = 'Poor connection ended the call.';
+                await this.endCall('connection_timeout');
+            }, degradedConnectionTimeoutSeconds * 1000);
+        },
+        stopDegradedConnectionTimeoutTimer: function() {
+            if(this.degradedConnectionTimeoutTimer) {
+                window.clearTimeout(this.degradedConnectionTimeoutTimer);
+                this.degradedConnectionTimeoutTimer = null;
+            }
+        },
+        syncDegradedConnectionTimeout: function() {
+            if(this.shouldWatchDegradedConnection()) {
+                this.startDegradedConnectionTimeoutTimer();
 
                 return;
             }
 
-            this.stopRemoteAudioWatchdog();
+            this.stopDegradedConnectionTimeoutTimer();
         },
         startConnectingSyncTimer: function() {
             if(this.connectingSyncTimer || ! this.call?.call_uuid || ! ['accepted', 'connecting'].includes(this.status)) {
@@ -1493,7 +1571,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
                 this.error = 'Audio connection was lost.';
                 await this.endCall('connection_lost');
-            }, 10000);
+            }, connectionTimeoutSeconds * 1000);
         },
         stopReconnectTimeoutTimer: function() {
             if(this.reconnectTimeoutTimer) {

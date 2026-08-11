@@ -7,7 +7,7 @@ const defaultMinimumAudioBitrate = 24000;
 const preferredSampleRate = 48000;
 const preferredAudioLatency = 0.02;
 const defaultQualityMonitorIntervalMs = 3000;
-const defaultReconnectGraceMs = 10000;
+const defaultReconnectGraceMs = 40000;
 
 const parseBooleanEnv = (value, defaultValue = true) => {
     if(value === undefined || value === null || value === '') {
@@ -39,6 +39,10 @@ const qualityMonitorIntervalMs = parsePositiveInteger(
     import.meta.env.VITE_CALL_QUALITY_MONITOR_INTERVAL,
     defaultQualityMonitorIntervalMs
 );
+const qualityWarningSamples = Math.max(1, parsePositiveInteger(
+    import.meta.env.VITE_CALL_QUALITY_WARNING_SAMPLES,
+    2
+));
 const reconnectGraceMs = parsePositiveInteger(
     import.meta.env.VITE_CALL_RECONNECT_GRACE_MS,
     defaultReconnectGraceMs
@@ -491,6 +495,8 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
     let qualityMonitorTimer = null;
     let reconnectTimer = null;
     let currentNetworkQuality = 'unknown';
+    let consecutiveWeakSamples = 0;
+    let consecutivePoorSamples = 0;
     let connectedNotified = false;
     let isClosed = false;
     let activeRemoteAudioTrackId = null;
@@ -538,6 +544,26 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
         audioSenders.forEach((sender) => {
             configureAudioSender(sender, bitrate);
         });
+    };
+    const stabilizeNetworkQuality = (networkQuality) => {
+        if(networkQuality === 'poor') {
+            consecutivePoorSamples += 1;
+            consecutiveWeakSamples += 1;
+
+            return consecutivePoorSamples >= qualityWarningSamples ? 'poor' : 'good';
+        }
+
+        if(networkQuality === 'weak') {
+            consecutiveWeakSamples += 1;
+            consecutivePoorSamples = 0;
+
+            return consecutiveWeakSamples >= qualityWarningSamples ? 'weak' : 'good';
+        }
+
+        consecutiveWeakSamples = 0;
+        consecutivePoorSamples = 0;
+
+        return 'good';
     };
 
     const collectQualityStats = async () => {
@@ -594,9 +620,10 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
             }
 
             const networkQuality = classifyNetworkQuality(stats);
+            const stabilizedQuality = stabilizeNetworkQuality(networkQuality.quality);
 
-            stats.network_quality = networkQuality.quality;
-            stats.issue = networkQuality.issue;
+            stats.network_quality = stabilizedQuality;
+            stats.issue = stabilizedQuality === 'good' ? null : networkQuality.issue;
 
             if(currentNetworkQuality !== stats.network_quality) {
                 currentNetworkQuality = stats.network_quality;
@@ -699,6 +726,31 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
         }
 
         activeRemoteAudioTrackId = track.id;
+
+        track.onmute = () => {
+            if(isClosed || activeRemoteAudioTrackId !== track.id) {
+                return;
+            }
+
+            emit('onReconnectState', 'reconnecting');
+        };
+
+        track.onended = () => {
+            if(isClosed || activeRemoteAudioTrackId !== track.id) {
+                return;
+            }
+
+            emit('onReconnectState', 'reconnecting');
+        };
+
+        track.onunmute = () => {
+            if(isClosed || activeRemoteAudioTrackId !== track.id) {
+                return;
+            }
+
+            clearReconnectTimer();
+            emit('onReconnectState', 'stable');
+        };
     };
 
     const ensurePeerConnection = async (mediaType = 'audio') => {
@@ -938,6 +990,8 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
         pendingIceCandidates = [];
         audioSenders = [];
         currentNetworkQuality = 'unknown';
+        consecutiveWeakSamples = 0;
+        consecutivePoorSamples = 0;
         connectedNotified = false;
         activeRemoteAudioTrackId = null;
     };

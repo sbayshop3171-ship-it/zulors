@@ -426,6 +426,33 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
 
     const publishRemoteStream = () => {
         remoteStream = streamFromTrack(remoteAudioTrack);
+        const mediaTrack = remoteStream?.getAudioTracks?.()?.[0] || null;
+
+        if(mediaTrack) {
+            mediaTrack.onmute = () => {
+                if(closing || ! remoteAudioTrack) {
+                    return;
+                }
+
+                emit('onReconnectState', 'reconnecting');
+            };
+
+            mediaTrack.onended = () => {
+                if(closing || ! remoteAudioTrack) {
+                    return;
+                }
+
+                emit('onReconnectState', 'reconnecting');
+            };
+
+            mediaTrack.onunmute = () => {
+                if(closing || ! remoteAudioTrack) {
+                    return;
+                }
+
+                emit('onReconnectState', 'stable');
+            };
+        }
 
         if(remoteStream) {
             emit('onRemoteStream', remoteStream);
