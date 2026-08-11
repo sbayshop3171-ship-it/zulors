@@ -59,6 +59,22 @@ const withTimeout = async (promise, timeoutMs, message) => {
     }
 };
 
+const hasNativeCallAudioBridge = () => {
+    return typeof window !== 'undefined' && Boolean(window.ZulorsCallAudio);
+};
+
+const yieldToBrowser = async (delayMs = 16) => {
+    if(typeof window === 'undefined') {
+        return;
+    }
+
+    await new Promise((resolve) => {
+        window.requestAnimationFrame?.(() => {
+            window.setTimeout(resolve, delayMs);
+        }) || window.setTimeout(resolve, delayMs);
+    });
+};
+
 const isAgoraAudioCallSupported = () => {
     return Boolean(
         typeof window !== 'undefined'
@@ -154,6 +170,10 @@ const userFriendlyAgoraMediaError = (error) => {
 };
 
 const requestMicrophoneWarmup = async () => {
+    if(hasNativeCallAudioBridge()) {
+        return true;
+    }
+
     const attempts = [
         {
             audio: {
@@ -526,16 +546,25 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
 
         try {
             if(! user.audioTrack) {
-                await client.subscribe(user, 'audio');
+                await withTimeout(
+                    client.subscribe(user, 'audio'),
+                    agoraTrackTimeoutMs,
+                    'Connecting remote audio took too long.'
+                );
             }
             else if(user.hasAudio === true) {
-                await client.subscribe(user, 'audio').catch(() => {});
+                await withTimeout(
+                    client.subscribe(user, 'audio'),
+                    agoraTrackTimeoutMs,
+                    'Refreshing remote audio took too long.'
+                ).catch(() => {});
             }
 
             if(! user.audioTrack) {
                 return false;
             }
 
+            await yieldToBrowser();
             remoteUid = user.uid;
             stopRemoteAudioTrackPlayback();
             remoteAudioTrack = user.audioTrack;
@@ -694,6 +723,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         try {
             await requestMicrophoneWarmup();
             throwIfClosing();
+            await yieldToBrowser();
 
             const AgoraRTC = await withTimeout(
                 loadAgoraRTC(),
@@ -728,9 +758,11 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                 'Joining the call took too long.'
             );
             throwIfClosing();
+            await yieldToBrowser();
 
             localAudioTrack = await createMicrophoneTrackWithFallback(AgoraRTC);
             throwIfClosing();
+            await yieldToBrowser();
 
             if(isMuted) {
                 await localAudioTrack.setEnabled(false);
@@ -748,6 +780,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                 'Publishing microphone audio took too long.'
             );
             throwIfClosing();
+            await yieldToBrowser();
             joined = true;
             emit('onStateChange', 'connected');
             await subscribeToPublishedRemoteUsers();

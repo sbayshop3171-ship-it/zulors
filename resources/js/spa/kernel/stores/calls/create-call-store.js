@@ -21,7 +21,9 @@ const outgoingRingIntervalMs = 4200;
 const speakerRouteSettleMs = 260;
 const nativeAudioPermissionEventName = 'zulors:audio-permission';
 const nativeAudioPermissionTimeoutMs = 15000;
+const nativeAudioPermissionPollIntervalMs = 300;
 const connectingSyncIntervalMs = 4000;
+const uiFrameYieldDelayMs = 16;
 
 const finalStatusForReason = (reason) => {
     if(reason === 'no_answer') {
@@ -277,6 +279,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.isAnswering = true;
             this.status = 'connecting';
             this.stopRingingFeedback();
+            await this.yieldToUiFrame();
 
             try {
                 const response = await colibriAPI().messenger()
@@ -289,6 +292,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 });
                 this.minimized = false;
                 this.attachRealtimeChannel(this.call.chat_id);
+                await this.yieldToUiFrame();
                 await this.setupPeer();
 
                 if(this.mediaProvider === 'agora') {
@@ -467,6 +471,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             if(call.initiator_id === this.currentUserId) {
                 try {
+                    await this.yieldToUiFrame();
                     await this.setupPeer();
 
                     if(this.mediaProvider === 'agora') {
@@ -598,11 +603,13 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             };
 
             this.mediaSetupAttempt = setupAttempt;
+            await this.yieldToUiFrame();
             await this.ensureMicrophonePermission();
             assertCurrentSetup();
 
             const mediaSession = await this.resolveMediaSession();
             assertCurrentSetup();
+            await this.yieldToUiFrame();
 
             const isAgora = mediaSession?.provider === 'agora';
             const callbacks = {
@@ -664,6 +671,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.peer = markRaw(peer);
 
             try {
+                await this.yieldToUiFrame();
                 await this.peer.ensurePeerConnection(this.call?.media_type || 'audio');
                 assertCurrentSetup();
                 this.enterNativeAudioMode();
@@ -988,6 +996,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.microphonePermissionPromise = new Promise((resolve, reject) => {
                 let settled = false;
                 let timeout = null;
+                let permissionPoll = null;
 
                 const cleanup = () => {
                     settled = true;
@@ -995,6 +1004,11 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     if(timeout) {
                         window.clearTimeout(timeout);
                         timeout = null;
+                    }
+
+                    if(permissionPoll) {
+                        window.clearInterval(permissionPoll);
+                        permissionPoll = null;
                     }
 
                     window.removeEventListener(nativeAudioPermissionEventName, handlePermissionResult);
@@ -1044,21 +1058,22 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 };
 
                 window.addEventListener(nativeAudioPermissionEventName, handlePermissionResult);
+                permissionPoll = window.setInterval(() => {
+                    resolveIfGranted();
+                }, nativeAudioPermissionPollIntervalMs);
 
-                try {
-                    if(Boolean(bridge.requestAudioPermission()) || resolveIfGranted()) {
-                        cleanup();
-                        resolve(true);
-
-                        return;
+                window.setTimeout(() => {
+                    try {
+                        if(Boolean(bridge.requestAudioPermission()) || resolveIfGranted()) {
+                            cleanup();
+                            resolve(true);
+                        }
                     }
-                }
-                catch(error) {
-                    cleanup();
-                    reject(new Error('Unable to request microphone permission right now.'));
-
-                    return;
-                }
+                    catch(error) {
+                        cleanup();
+                        reject(new Error('Unable to request microphone permission right now.'));
+                    }
+                }, 0);
 
                 timeout = window.setTimeout(() => {
                     if(resolveIfGranted()) {
@@ -1641,6 +1656,31 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         unlockAudioFeedback: function() {
             this.ensureRingToneContext();
         },
+        yieldToUiFrame: async function() {
+            if(typeof window === 'undefined') {
+                return;
+            }
+
+            await new Promise((resolve) => {
+                window.requestAnimationFrame?.(() => {
+                    window.setTimeout(resolve, uiFrameYieldDelayMs);
+                }) || window.setTimeout(resolve, uiFrameYieldDelayMs);
+            });
+        },
+        queueNativeBridgeTask: function(callback, delayMs = 0) {
+            if(typeof window === 'undefined') {
+                return false;
+            }
+
+            window.setTimeout(() => {
+                try {
+                    callback?.();
+                }
+                catch(error) {}
+            }, Math.max(0, Number(delayMs || 0)));
+
+            return true;
+        },
         ensureRingToneContext: function() {
             if(typeof window === 'undefined') {
                 return null;
@@ -1804,19 +1844,17 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         enterNativeAudioMode: function() {
             const bridge = this.getNativeCallBridge();
 
-            try {
+            this.queueNativeBridgeTask(() => {
                 bridge?.enterCall?.();
                 bridge?.setSpeakerEnabled?.(this.speakerEnabled);
-            }
-            catch(error) {}
+            });
         },
         exitNativeAudioMode: function() {
             const bridge = this.getNativeCallBridge();
 
-            try {
+            this.queueNativeBridgeTask(() => {
                 bridge?.leaveCall?.();
-            }
-            catch(error) {}
+            });
         },
         startNativeRingtone: function(direction) {
             const bridge = this.getNativeCallBridge();
@@ -1851,10 +1889,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         setNativeSpeakerEnabled: function(isEnabled) {
             const bridge = this.getNativeCallBridge();
 
-            try {
+            this.queueNativeBridgeTask(() => {
                 bridge?.setSpeakerEnabled?.(isEnabled);
-            }
-            catch(error) {}
+            });
         },
         attachRealtimeChannel: function(chatId) {
             if(! chatId || ! window.ColibriBRD) {

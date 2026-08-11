@@ -8,6 +8,10 @@ const preferredSampleRate = 48000;
 const preferredAudioLatency = 0.02;
 const defaultQualityMonitorIntervalMs = 3000;
 const defaultReconnectGraceMs = 40000;
+const defaultGetUserMediaTimeoutMs = 15000;
+const defaultSessionDescriptionTimeoutMs = 12000;
+const defaultStatsTimeoutMs = 5000;
+const defaultUiYieldDelayMs = 16;
 
 const parseBooleanEnv = (value, defaultValue = true) => {
     if(value === undefined || value === null || value === '') {
@@ -47,11 +51,67 @@ const reconnectGraceMs = parsePositiveInteger(
     import.meta.env.VITE_CALL_RECONNECT_GRACE_MS,
     defaultReconnectGraceMs
 );
+const getUserMediaTimeoutMs = parsePositiveInteger(
+    import.meta.env.VITE_CALL_GET_USER_MEDIA_TIMEOUT_MS,
+    defaultGetUserMediaTimeoutMs
+);
+const sessionDescriptionTimeoutMs = parsePositiveInteger(
+    import.meta.env.VITE_CALL_SDP_TIMEOUT_MS,
+    defaultSessionDescriptionTimeoutMs
+);
+const statsTimeoutMs = parsePositiveInteger(
+    import.meta.env.VITE_CALL_STATS_TIMEOUT_MS,
+    defaultStatsTimeoutMs
+);
 const enableVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_AUDIO_PROCESSING, true);
 const enableNativeAppVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_NATIVE_APP_AUDIO_PROCESSING, false);
 
 const hasNativeCallAudioBridge = () => {
     return typeof window !== 'undefined' && Boolean(window.ZulorsCallAudio);
+};
+
+const createTimeoutError = (message) => {
+    const error = new Error(message || 'Operation timed out.');
+
+    error.name = 'TimeoutError';
+
+    return error;
+};
+
+const withTimeout = async (promise, timeoutMs, message) => {
+    if(! timeoutMs || typeof window === 'undefined') {
+        return Promise.resolve(promise);
+    }
+
+    let timer = null;
+
+    try {
+        return await Promise.race([
+            Promise.resolve(promise),
+            new Promise((resolve, reject) => {
+                timer = window.setTimeout(() => {
+                    reject(createTimeoutError(message));
+                }, timeoutMs);
+            })
+        ]);
+    }
+    finally {
+        if(timer) {
+            window.clearTimeout(timer);
+        }
+    }
+};
+
+const yieldToBrowser = async () => {
+    if(typeof window === 'undefined') {
+        return;
+    }
+
+    await new Promise((resolve) => {
+        window.requestAnimationFrame?.(() => {
+            window.setTimeout(resolve, defaultUiYieldDelayMs);
+        }) || window.setTimeout(resolve, defaultUiYieldDelayMs);
+    });
 };
 
 const normalizeIceServers = (config) => {
@@ -271,10 +331,18 @@ const requestLocalMediaStream = async (mediaType = 'audio') => {
 
     for(const constraints of attempts) {
         try {
-            return await navigator.mediaDevices.getUserMedia(constraints);
+            return await withTimeout(
+                navigator.mediaDevices.getUserMedia(constraints),
+                getUserMediaTimeoutMs,
+                'Microphone permission request timed out.'
+            );
         }
         catch(error) {
             lastError = error;
+
+            if(['NotAllowedError', 'PermissionDeniedError', 'SecurityError', 'NotFoundError', 'DevicesNotFoundError', 'TimeoutError'].includes(error?.name || '')) {
+                break;
+            }
         }
     }
 
@@ -346,6 +414,7 @@ const createVoiceProcessedStream = async (rawStream) => {
 
     try {
         await context.resume?.().catch(() => {});
+        await yieldToBrowser();
 
         const source = context.createMediaStreamSource(new MediaStream(audioTracks));
         const highPassFilter = context.createBiquadFilter();
@@ -521,7 +590,11 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
 
         for(const candidate of candidates) {
             try {
-                await peerConnection.addIceCandidate(candidate);
+                await withTimeout(
+                    peerConnection.addIceCandidate(candidate),
+                    sessionDescriptionTimeoutMs,
+                    'Applying buffered network candidates took too long.'
+                );
             }
             catch(error) {}
         }
@@ -586,7 +659,11 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
         };
 
         try {
-            const report = await peerConnection.getStats();
+            const report = await withTimeout(
+                peerConnection.getStats(),
+                statsTimeoutMs,
+                'Collecting call stats took too long.'
+            );
 
             report.forEach((item) => {
                 if(item.type === 'candidate-pair' && item.state === 'succeeded' && (item.selected || item.nominated)) {
@@ -765,6 +842,7 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
         }
 
         rawLocalStream = await requestLocalMediaStream(mediaType);
+        await yieldToBrowser();
 
         if(isClosed) {
             stopMediaStream(rawLocalStream);
@@ -776,6 +854,7 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
         applySpeechTrackHints(rawLocalStream);
 
         const processedStream = await createVoiceProcessedStream(rawLocalStream);
+        await yieldToBrowser();
 
         localStream = processedStream.stream;
         voiceProcessingCleanup = processedStream.cleanup;
@@ -877,24 +956,40 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
 
     const createOffer = async (mediaType = 'audio') => {
         const pc = await ensurePeerConnection(mediaType);
-        const offer = await pc.createOffer({
+        const offer = await withTimeout(pc.createOffer({
             offerToReceiveAudio: true,
             offerToReceiveVideo: mediaType === 'video'
-        });
+        }), sessionDescriptionTimeoutMs, 'Creating the call offer took too long.');
 
-        await pc.setLocalDescription(new RTCSessionDescription(tuneOpusSessionDescription(offer)));
+        await withTimeout(
+            pc.setLocalDescription(new RTCSessionDescription(tuneOpusSessionDescription(offer))),
+            sessionDescriptionTimeoutMs,
+            'Preparing the local call offer took too long.'
+        );
         emit('onSignal', 'offer', normalizeSessionDescription(pc.localDescription.toJSON()));
     };
 
     const handleOffer = async (offer, mediaType = 'audio') => {
         const pc = await ensurePeerConnection(mediaType);
 
-        await pc.setRemoteDescription(new RTCSessionDescription(normalizeSessionDescription(offer)));
+        await withTimeout(
+            pc.setRemoteDescription(new RTCSessionDescription(normalizeSessionDescription(offer))),
+            sessionDescriptionTimeoutMs,
+            'Receiving the incoming call offer took too long.'
+        );
         await flushPendingIceCandidates();
 
-        const answer = await pc.createAnswer();
+        const answer = await withTimeout(
+            pc.createAnswer(),
+            sessionDescriptionTimeoutMs,
+            'Creating the call answer took too long.'
+        );
 
-        await pc.setLocalDescription(new RTCSessionDescription(tuneOpusSessionDescription(answer)));
+        await withTimeout(
+            pc.setLocalDescription(new RTCSessionDescription(tuneOpusSessionDescription(answer))),
+            sessionDescriptionTimeoutMs,
+            'Preparing the local call answer took too long.'
+        );
         emit('onSignal', 'answer', normalizeSessionDescription(pc.localDescription.toJSON()));
     };
 
@@ -903,7 +998,11 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
             return;
         }
 
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(normalizeSessionDescription(answer)));
+        await withTimeout(
+            peerConnection.setRemoteDescription(new RTCSessionDescription(normalizeSessionDescription(answer))),
+            sessionDescriptionTimeoutMs,
+            'Applying the remote call answer took too long.'
+        );
         await flushPendingIceCandidates();
     };
 
@@ -923,7 +1022,11 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
         }
 
         try {
-            await peerConnection.addIceCandidate(candidate);
+            await withTimeout(
+                peerConnection.addIceCandidate(candidate),
+                sessionDescriptionTimeoutMs,
+                'Applying a network candidate took too long.'
+            );
         }
         catch(error) {}
     };
