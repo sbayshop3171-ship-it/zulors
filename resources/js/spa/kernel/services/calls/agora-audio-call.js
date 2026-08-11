@@ -63,6 +63,18 @@ const hasNativeCallAudioBridge = () => {
     return typeof window !== 'undefined' && Boolean(window.ZulorsCallAudio);
 };
 
+const isLikelyMobileCallClient = () => {
+    if(typeof navigator === 'undefined') {
+        return false;
+    }
+
+    const userAgent = String(navigator.userAgent || navigator.vendor || '');
+    const touchPoints = Number(navigator.maxTouchPoints || 0);
+
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(userAgent)
+        || touchPoints > 1;
+};
+
 const yieldToBrowser = async (delayMs = 16) => {
     if(typeof window === 'undefined') {
         return;
@@ -90,6 +102,19 @@ const loadAgoraRTC = async () => {
     }
 
     return agoraRtcPromise;
+};
+
+const warmAgoraAudioCallEngine = async () => {
+    try {
+        await withTimeout(
+            loadAgoraRTC(),
+            agoraSdkLoadTimeoutMs,
+            'Audio engine took too long to warm up.'
+        );
+    }
+    catch(error) {}
+
+    return true;
 };
 
 const toNumber = (value, fallback = 0) => {
@@ -170,7 +195,7 @@ const userFriendlyAgoraMediaError = (error) => {
 };
 
 const requestMicrophoneWarmup = async () => {
-    if(hasNativeCallAudioBridge()) {
+    if(hasNativeCallAudioBridge() || isLikelyMobileCallClient()) {
         return true;
     }
 
@@ -873,4 +898,4 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     };
 };
 
-export { createAgoraAudioCallPeer, isAgoraAudioCallSupported };
+export { createAgoraAudioCallPeer, isAgoraAudioCallSupported, warmAgoraAudioCallEngine };

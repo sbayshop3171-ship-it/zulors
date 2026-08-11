@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import { markRaw } from 'vue';
 import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 import BRD from '@/kernel/websockets/brd/index.js';
-import { createAgoraAudioCallPeer, isAgoraAudioCallSupported } from '@/kernel/services/calls/agora-audio-call.js';
+import { createAgoraAudioCallPeer, isAgoraAudioCallSupported, warmAgoraAudioCallEngine } from '@/kernel/services/calls/agora-audio-call.js';
 import { createAudioCallPeer, isAudioCallSupported } from '@/kernel/services/calls/webrtc-audio-call.js';
 
 const finalStatuses = ['ended', 'missed', 'declined', 'busy', 'failed'];
@@ -242,6 +242,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 status: 'ringing'
             });
             this.attachRealtimeChannel(this.call.chat_id);
+            this.warmPreferredCallEngine();
         },
         fetchCall: async function(callUuid, options = {}) {
             if(! callUuid) {
@@ -257,6 +258,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 status: call.status || 'ringing'
             });
             this.attachRealtimeChannel(call.chat_id);
+            this.warmPreferredCallEngine();
 
             if(options.action === 'answer' && direction === 'incoming' && call.status === 'ringing') {
                 await this.answerCall();
@@ -292,15 +294,23 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 });
                 this.minimized = false;
                 this.attachRealtimeChannel(this.call.chat_id);
+                this.warmPreferredCallEngine();
                 await this.yieldToUiFrame();
-                await this.setupPeer();
+                this.runPeerSetupInBackground({
+                    callUuid: callUuid,
+                    onErrorMessage: 'Unable to start audio call.',
+                    afterSetup: async () => {
+                        if(this.mediaProvider === 'agora') {
+                            this.markConnecting();
 
-                if(this.mediaProvider === 'agora') {
-                    this.markConnecting();
-                }
-                else {
-                    await this.sendSignal('ready', {});
-                }
+                            return true;
+                        }
+
+                        await this.sendSignal('ready', {});
+
+                        return true;
+                    }
+                });
 
                 return true;
             }
@@ -457,6 +467,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 status: call.status || 'ringing'
             });
             this.attachRealtimeChannel(call.chat_id);
+            this.warmPreferredCallEngine();
         },
         handleAnswered: async function(event = {}) {
             const call = normalizeCallPayload(normalizeEventData(event));
@@ -471,15 +482,23 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             if(call.initiator_id === this.currentUserId) {
                 try {
+                    this.warmPreferredCallEngine();
                     await this.yieldToUiFrame();
-                    await this.setupPeer();
+                    this.runPeerSetupInBackground({
+                        callUuid: call.call_uuid,
+                        onErrorMessage: 'Unable to connect audio call.',
+                        afterSetup: async () => {
+                            if(this.mediaProvider === 'agora') {
+                                this.markConnecting();
 
-                    if(this.mediaProvider === 'agora') {
-                        this.markConnecting();
-                    }
-                    else {
-                        await this.createOffer();
-                    }
+                                return true;
+                            }
+
+                            await this.createOffer();
+
+                            return true;
+                        }
+                    });
                 }
                 catch(error) {
                     if(error.__zulorsSilentCallToast) {
@@ -490,6 +509,57 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     await this.endCall();
                 }
             }
+        },
+        warmPreferredCallEngine: function() {
+            if(! this.canUseAudio || ! this.call?.call_uuid) {
+                return false;
+            }
+
+            if(isAgoraAudioCallSupported()) {
+                warmAgoraAudioCallEngine().catch(() => {});
+
+                return true;
+            }
+
+            return false;
+        },
+        runPeerSetupInBackground: function({ callUuid = null, afterSetup = null, onErrorMessage = 'Unable to connect audio call.' } = {}) {
+            if(! callUuid || typeof window === 'undefined') {
+                return false;
+            }
+
+            window.setTimeout(() => {
+                Promise.resolve().then(async () => {
+                    if(! this.call?.call_uuid || this.call.call_uuid !== callUuid || this.isFinal || this.finalizingCallUuid === callUuid) {
+                        return false;
+                    }
+
+                    try {
+                        await this.yieldToUiFrame();
+                        await this.setupPeer();
+
+                        if(! this.call?.call_uuid || this.call.call_uuid !== callUuid || this.isFinal || this.finalizingCallUuid === callUuid) {
+                            return false;
+                        }
+
+                        await afterSetup?.();
+
+                        return true;
+                    }
+                    catch(error) {
+                        if(error?.__zulorsSilentCallToast) {
+                            return false;
+                        }
+
+                        this.error = error.message || onErrorMessage;
+                        await this.endCall('connection_lost');
+
+                        return false;
+                    }
+                }).catch(() => {});
+            }, 0);
+
+            return true;
         },
         handleDeclined: function(event = {}) {
             const call = normalizeCallPayload(normalizeEventData(event));

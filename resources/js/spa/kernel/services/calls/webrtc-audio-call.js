@@ -70,6 +70,18 @@ const hasNativeCallAudioBridge = () => {
     return typeof window !== 'undefined' && Boolean(window.ZulorsCallAudio);
 };
 
+const isLikelyMobileCallClient = () => {
+    if(typeof navigator === 'undefined') {
+        return false;
+    }
+
+    const userAgent = String(navigator.userAgent || navigator.vendor || '');
+    const touchPoints = Number(navigator.maxTouchPoints || 0);
+
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(userAgent)
+        || touchPoints > 1;
+};
+
 const createTimeoutError = (message) => {
     const error = new Error(message || 'Operation timed out.');
 
@@ -305,28 +317,48 @@ const requestLocalMediaStream = async (mediaType = 'audio') => {
         googHighpassFilter: true,
         googTypingNoiseDetection: true
     };
-    const attempts = [
-        {
-            audio: voiceAudioConstraints,
-            video: wantsVideo
-        },
-        {
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
+    const useLightweightConstraints = hasNativeCallAudioBridge() || isLikelyMobileCallClient();
+    const attempts = useLightweightConstraints
+        ? [
+            {
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                },
+                video: wantsVideo
             },
-            video: wantsVideo
-        },
-        {
-            audio: true,
-            video: wantsVideo
-        },
-        {
-            audio: true,
-            video: false
-        }
-    ];
+            {
+                audio: true,
+                video: wantsVideo
+            },
+            {
+                audio: true,
+                video: false
+            }
+        ]
+        : [
+            {
+                audio: voiceAudioConstraints,
+                video: wantsVideo
+            },
+            {
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                },
+                video: wantsVideo
+            },
+            {
+                audio: true,
+                video: wantsVideo
+            },
+            {
+                audio: true,
+                video: false
+            }
+        ];
     let lastError = null;
 
     for(const constraints of attempts) {
@@ -396,7 +428,12 @@ const createInteractiveAudioContext = () => {
 const createVoiceProcessedStream = async (rawStream) => {
     const audioTracks = rawStream?.getAudioTracks?.() || [];
 
-    if(! enableVoiceProcessing || ! audioTracks.length || (hasNativeCallAudioBridge() && ! enableNativeAppVoiceProcessing)) {
+    if(
+        ! enableVoiceProcessing
+        || ! audioTracks.length
+        || isLikelyMobileCallClient()
+        || (hasNativeCallAudioBridge() && ! enableNativeAppVoiceProcessing)
+    ) {
         return {
             stream: rawStream,
             cleanup: () => {}
