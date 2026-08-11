@@ -64,7 +64,7 @@ class IncomingCallNotification extends Notification
             'channel_id' => 'zulors_calls',
             'android' => [
                 'priority' => 'high',
-                'ttl' => '45s',
+                'ttl' => '40s',
             ],
             'data' => [
                 'call_id' => $callUuid,

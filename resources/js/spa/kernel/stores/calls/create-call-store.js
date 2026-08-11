@@ -7,8 +7,9 @@ import { createAudioCallPeer, isAudioCallSupported } from '@/kernel/services/cal
 
 const finalStatuses = ['ended', 'missed', 'declined', 'busy', 'failed'];
 const connectingStatuses = ['ringing', 'accepted', 'connecting'];
-const defaultRingTimeoutSeconds = 45;
+const defaultRingTimeoutSeconds = 40;
 const connectionTimeoutSeconds = 24;
+const heartbeatIntervalMs = 10000;
 const qualityReportThrottleMs = 10000;
 const iceServerRefreshSkewMs = 60000;
 const callStartCooldownMs = 3500;
@@ -87,6 +88,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             ringTimeoutTimer: null,
             connectionTimeoutTimer: null,
             reconnectTimeoutTimer: null,
+            heartbeatTimer: null,
             ringToneContext: null,
             ringToneTimer: null,
             ringToneTimeouts: [],
@@ -335,7 +337,11 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             const callUuid = this.call.call_uuid;
             this.finalizingCallUuid = callUuid;
-            this.finishCall(['connection_lost', 'connection_timeout', 'ice_failed'].includes(reason) ? 'failed' : 'ended');
+            const finalStatus = reason === 'no_answer'
+                ? 'missed'
+                : (['connection_lost', 'connection_timeout', 'ice_failed'].includes(reason) ? 'failed' : 'ended');
+
+            this.finishCall(finalStatus);
 
             try {
                 await colibriAPI().messenger().with({
@@ -642,6 +648,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.stopRingTimeoutTimer();
             this.stopConnectionTimeoutTimer();
             this.stopReconnectTimeoutTimer();
+            this.startHeartbeatTimer();
             this.startDurationTimer();
 
             if(shouldNotify && ! this.connectedSignalSent) {
@@ -734,6 +741,39 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 .sendTo(`calls/${this.call.call_uuid}/quality`);
 
             return true;
+        },
+        sendHeartbeat: async function() {
+            if(! this.call?.call_uuid || ! this.isActive || this.isFinal || this.finalizingCallUuid === this.call.call_uuid) {
+                return false;
+            }
+
+            try {
+                const response = await colibriAPI().messenger().with({
+                    status: this.status,
+                    media_provider: this.mediaProvider,
+                    network_state: this.networkState
+                }).sendTo(`calls/${this.call.call_uuid}/heartbeat`);
+                const call = response.data?.data?.call;
+
+                if(call?.call_uuid === this.call?.call_uuid) {
+                    this.setCall(call, {
+                        status: call.status || this.status
+                    });
+
+                    if(call.status === 'connected') {
+                        this.markConnected(false);
+                    }
+                }
+
+                return true;
+            }
+            catch(error) {
+                if([404, 410].includes(getErrorStatus(error))) {
+                    this.finishCall('failed');
+                }
+
+                return false;
+            }
         },
         resolveIceServers: async function() {
             const now = Date.now();
@@ -833,6 +873,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.stopRingTimeoutTimer();
             this.stopConnectionTimeoutTimer();
             this.stopReconnectTimeoutTimer();
+            this.stopHeartbeatTimer();
             this.isAnswering = false;
             this.cleanupMediaSession();
             this.stopDurationTimer();
@@ -854,6 +895,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.stopRingTimeoutTimer();
             this.stopConnectionTimeoutTimer();
             this.stopReconnectTimeoutTimer();
+            this.stopHeartbeatTimer();
             this.stopDurationTimer();
             this.stopStartCooldown();
             this.stopAudioRouteSettling();
@@ -1031,7 +1073,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
 
             this.error = this.direction === 'outgoing' ? 'No answer.' : 'Missed call.';
-            this.finishCall('missed', 1600);
+            this.endCall('no_answer').catch(() => {
+                this.finishCall('missed', 1600);
+            });
 
             return true;
         },
@@ -1077,6 +1121,22 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             if(this.reconnectTimeoutTimer) {
                 window.clearTimeout(this.reconnectTimeoutTimer);
                 this.reconnectTimeoutTimer = null;
+            }
+        },
+        startHeartbeatTimer: function() {
+            if(this.heartbeatTimer || ! this.call?.call_uuid || this.status !== 'connected') {
+                return;
+            }
+
+            this.sendHeartbeat().catch(() => {});
+            this.heartbeatTimer = window.setInterval(() => {
+                this.sendHeartbeat().catch(() => {});
+            }, heartbeatIntervalMs);
+        },
+        stopHeartbeatTimer: function() {
+            if(this.heartbeatTimer) {
+                window.clearInterval(this.heartbeatTimer);
+                this.heartbeatTimer = null;
             }
         },
         quietRemoteOutputForRouteChange: function() {

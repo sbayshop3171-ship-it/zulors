@@ -33,6 +33,7 @@ Route::post('/calls/{callUuid}/answer', [App\Http\Controllers\Api\User\Chat\Call
 Route::post('/calls/{callUuid}/decline', [App\Http\Controllers\Api\User\Chat\CallController::class, 'decline']);
 Route::post('/calls/{callUuid}/end', [App\Http\Controllers\Api\User\Chat\CallController::class, 'end']);
 Route::post('/calls/{callUuid}/signal', [App\Http\Controllers\Api\User\Chat\CallController::class, 'signal'])->middleware('throttle:360,1');
+Route::post('/calls/{callUuid}/heartbeat', [App\Http\Controllers\Api\User\Chat\CallController::class, 'heartbeat'])->middleware('throttle:120,1');
 Route::post('/calls/{callUuid}/quality', [App\Http\Controllers\Api\User\Chat\CallController::class, 'quality'])->middleware('throttle:120,1');
 
 Route::get('/groups/create', [App\Http\Controllers\Api\User\Chat\GroupController::class, 'createDraftGroup']);

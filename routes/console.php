@@ -35,6 +35,8 @@ Schedule::command('interests:decay')->dailyAt('02:30');
 
 Schedule::command('media:cleanup-temp --hours=24')->dailyAt('03:00');
 
+Schedule::command('calls:cleanup-stale --limit=200')->everyMinute()->withoutOverlapping();
+
 Artisan::command('app:version', function () {
     $this->info(Zulors::VERSION);
 });

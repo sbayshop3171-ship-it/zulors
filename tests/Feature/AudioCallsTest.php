@@ -63,6 +63,27 @@ class AudioCallsTest extends TestCase
         Queue::assertPushed(ExpireRingingCallJob::class);
     }
 
+    public function test_started_call_uses_forty_second_ring_window(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+
+        Sanctum::actingAs($caller);
+
+        $this->postJson('/api/messenger/calls/start', [
+            'chat_id' => $chat->chat_id,
+            'media_type' => 'audio',
+        ])->assertOk();
+
+        $call = CallSession::query()->firstOrFail();
+        $ringWindow = $call->started_at->diffInSeconds($call->expires_at);
+
+        $this->assertGreaterThanOrEqual(39, $ringWindow);
+        $this->assertLessThanOrEqual(40, $ringWindow);
+    }
+
     public function test_video_calls_are_deferred_for_audio_v1(): void
     {
         [$caller, $receiver, $chat] = $this->createDirectChat();
@@ -183,6 +204,32 @@ class AudioCallsTest extends TestCase
         ]);
     }
 
+    public function test_no_answer_end_marks_ringing_call_missed(): void
+    {
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+        $call = $this->createRingingCall($caller, $receiver, $chat);
+
+        Sanctum::actingAs($receiver);
+
+        $this->postJson("/api/messenger/calls/{$call->call_uuid}/end", [
+            'reason' => 'no_answer',
+        ])->assertOk()
+            ->assertJsonPath('data.call.status', 'missed');
+
+        $this->assertDatabaseHas('call_sessions', [
+            'id' => $call->id,
+            'status' => CallStatus::MISSED->value,
+            'end_reason' => 'no_answer',
+        ]);
+
+        $this->assertDatabaseHas('messages', [
+            'chat_id' => $chat->id,
+            'user_id' => $caller->id,
+            'type' => MessageType::CALL->value,
+            'content' => 'Missed voice call',
+        ]);
+    }
+
     public function test_receiver_can_decline_call(): void
     {
         [$caller, $receiver, $chat] = $this->createDirectChat();
@@ -252,7 +299,7 @@ class AudioCallsTest extends TestCase
         $this->assertSame('call.incoming', $payload['type']);
         $this->assertSame('zulors_calls', $payload['channel_id']);
         $this->assertSame('high', $payload['android']['priority']);
-        $this->assertSame('45s', $payload['android']['ttl']);
+        $this->assertSame('40s', $payload['android']['ttl']);
         $this->assertSame($call->call_uuid, $payload['data']['call_id']);
         $this->assertSame($chat->chat_id, $payload['data']['chat_id']);
         $this->assertSame('incoming_call', $payload['data']['ringtone']);
@@ -263,7 +310,7 @@ class AudioCallsTest extends TestCase
         $fcmMessage = app(PushNotificationPayloadFactory::class)->make($receiver, new IncomingCallNotification($call));
 
         $this->assertSame('high', $fcmMessage['android']['priority']);
-        $this->assertSame('45s', $fcmMessage['android']['ttl']);
+        $this->assertSame('40s', $fcmMessage['android']['ttl']);
         $this->assertSame('incoming_call', $fcmMessage['data']['ringtone']);
 
         $verifiedToken = app(NotificationActionTokenService::class)->verify($payload['data']['action_token'], 'decline');
@@ -487,6 +534,96 @@ class AudioCallsTest extends TestCase
         $this->assertSame(2, CallSession::query()->where('chat_id', $chat->id)->count());
     }
 
+    public function test_expired_ringing_call_is_finalized_before_start_busy_check(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+        $staleCall = $this->createRingingCall($caller, $receiver, $chat, [
+            'started_at' => now()->subSeconds(60),
+            'expires_at' => now()->subSecond(),
+        ]);
+
+        Sanctum::actingAs($caller);
+
+        $this->postJson('/api/messenger/calls/start', [
+            'chat_id' => $chat->chat_id,
+            'media_type' => 'audio',
+        ])->assertOk()
+            ->assertJsonPath('data.call.status', 'ringing');
+
+        $this->assertDatabaseHas('call_sessions', [
+            'id' => $staleCall->id,
+            'status' => CallStatus::MISSED->value,
+            'end_reason' => 'no_answer',
+        ]);
+
+        $this->assertSame(2, CallSession::query()->where('chat_id', $chat->id)->count());
+    }
+
+    public function test_stale_connected_call_is_finalized_before_start_busy_check(): void
+    {
+        Notification::fake();
+        Queue::fake();
+
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+        $staleCall = $this->createRingingCall($caller, $receiver, $chat, [
+            'status' => CallStatus::CONNECTED,
+            'started_at' => now()->subSeconds(180),
+            'answered_at' => now()->subSeconds(150),
+            'connected_at' => now()->subSeconds(130),
+            'expires_at' => now()->subSeconds(120),
+        ]);
+        $staleCall->timestamps = false;
+        $staleCall->forceFill([
+            'updated_at' => now()->subSeconds(120),
+        ])->save();
+
+        Sanctum::actingAs($caller);
+
+        $this->postJson('/api/messenger/calls/start', [
+            'chat_id' => $chat->chat_id,
+            'media_type' => 'audio',
+        ])->assertOk()
+            ->assertJsonPath('data.call.status', 'ringing');
+
+        $this->assertDatabaseHas('call_sessions', [
+            'id' => $staleCall->id,
+            'status' => CallStatus::FAILED->value,
+            'end_reason' => 'connection_timeout',
+        ]);
+
+        $this->assertSame(2, CallSession::query()->where('chat_id', $chat->id)->count());
+    }
+
+    public function test_call_heartbeat_refreshes_connected_call_state(): void
+    {
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+        $call = $this->createRingingCall($caller, $receiver, $chat, [
+            'status' => CallStatus::CONNECTED,
+            'answered_at' => now()->subSeconds(20),
+            'connected_at' => now()->subSeconds(18),
+        ]);
+
+        Sanctum::actingAs($caller);
+
+        $this->postJson("/api/messenger/calls/{$call->call_uuid}/heartbeat", [
+            'status' => 'connected',
+            'media_provider' => 'agora',
+            'network_state' => 'stable',
+        ])->assertOk()
+            ->assertJsonPath('data.call.status', 'connected');
+
+        $freshCall = $call->fresh();
+        $participant = $freshCall->participants()->where('user_id', $caller->id)->firstOrFail();
+
+        $this->assertSame(CallStatus::CONNECTED, $freshCall->status);
+        $this->assertSame(CallStatus::CONNECTED, $participant->status);
+        $this->assertNotEmpty(data_get($freshCall->metadata, "heartbeat.latest.{$caller->id}"));
+        $this->assertNotEmpty(data_get($participant->metadata, 'heartbeat_at'));
+    }
+
     public function test_call_quality_report_updates_call_metadata(): void
     {
         [$caller, $receiver, $chat] = $this->createDirectChat();
@@ -603,7 +740,7 @@ class AudioCallsTest extends TestCase
             'media_type' => CallMediaType::AUDIO,
             'status' => CallStatus::RINGING,
             'started_at' => now(),
-            'expires_at' => now()->addSeconds(45),
+            'expires_at' => now()->addSeconds(40),
         ], $attributes));
 
         $call->participants()->createMany([
