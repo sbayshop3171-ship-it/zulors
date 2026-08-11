@@ -18,6 +18,9 @@ const busyCallMessage = 'User is busy on another call.';
 const incomingRingIntervalMs = 3200;
 const outgoingRingIntervalMs = 4200;
 const speakerRouteSettleMs = 260;
+const nativeAudioPermissionEventName = 'zulors:audio-permission';
+const nativeAudioPermissionTimeoutMs = 15000;
+const connectingSyncIntervalMs = 4000;
 
 const finalStatusForReason = (reason) => {
     if(reason === 'no_answer') {
@@ -120,7 +123,10 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             finalizingCallUuid: null,
             resetTimer: null,
             mediaSetupAttempt: 0,
-            heartbeatInFlight: false
+            heartbeatInFlight: false,
+            microphonePermissionPromise: null,
+            connectingSyncTimer: null,
+            syncingCurrentCall: false
         };
     },
     getters: {
@@ -589,6 +595,8 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             };
 
             this.mediaSetupAttempt = setupAttempt;
+            await this.ensureMicrophonePermission();
+            assertCurrentSetup();
 
             const mediaSession = await this.resolveMediaSession();
             assertCurrentSetup();
@@ -610,6 +618,15 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     this.markConnected(true);
                 },
                 onStateChange: (state) => {
+                    if(state === 'connected' && this.mediaProvider === 'agora') {
+                        this.sendMediaReadySignal().catch(() => {});
+                        this.reconcileActiveCall({
+                            setupIfNeeded: false
+                        }).catch(() => {});
+
+                        return;
+                    }
+
                     if(['failed'].includes(state)) {
                         this.error = 'Audio connection was interrupted.';
                     }
@@ -714,6 +731,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.status = 'connecting';
             this.stopRingingFeedback();
             this.startConnectionTimeoutTimer();
+            this.startConnectingSyncTimer();
         },
         markConnected: function(shouldNotify = true) {
             if(! this.call?.call_uuid || this.isFinal || this.finalizingCallUuid === this.call.call_uuid) {
@@ -726,6 +744,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.stopRingingFeedback();
             this.stopRingTimeoutTimer();
             this.stopConnectionTimeoutTimer();
+            this.stopConnectingSyncTimer();
             this.stopReconnectTimeoutTimer();
             this.startHeartbeatTimer();
             this.startDurationTimer();
@@ -918,6 +937,190 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             return this.mediaSession;
         },
+        ensureMicrophonePermission: async function() {
+            const bridge = this.getNativeCallBridge();
+
+            if(! bridge) {
+                return true;
+            }
+
+            if(typeof bridge.hasAudioPermission === 'function') {
+                try {
+                    if(bridge.hasAudioPermission()) {
+                        return true;
+                    }
+                }
+                catch(error) {}
+            }
+
+            if(typeof bridge.requestAudioPermission !== 'function' || typeof window === 'undefined') {
+                return true;
+            }
+
+            if(this.microphonePermissionPromise) {
+                return this.microphonePermissionPromise;
+            }
+
+            this.microphonePermissionPromise = new Promise((resolve, reject) => {
+                let settled = false;
+                let timeout = null;
+
+                const cleanup = () => {
+                    settled = true;
+
+                    if(timeout) {
+                        window.clearTimeout(timeout);
+                        timeout = null;
+                    }
+
+                    window.removeEventListener(nativeAudioPermissionEventName, handlePermissionResult);
+                    this.microphonePermissionPromise = null;
+                };
+
+                const hasPermissionNow = () => {
+                    try {
+                        return typeof bridge.hasAudioPermission === 'function' && bridge.hasAudioPermission();
+                    }
+                    catch(error) {
+                        return false;
+                    }
+                };
+
+                const resolveIfGranted = () => {
+                    if(settled) {
+                        return false;
+                    }
+
+                    if(! hasPermissionNow()) {
+                        return false;
+                    }
+
+                    cleanup();
+                    resolve(true);
+
+                    return true;
+                };
+
+                const handlePermissionResult = (event) => {
+                    if(settled) {
+                        return;
+                    }
+
+                    const granted = event?.detail?.granted === true;
+
+                    if(granted || hasPermissionNow()) {
+                        cleanup();
+                        resolve(true);
+
+                        return;
+                    }
+
+                    cleanup();
+                    reject(new Error('Microphone permission is blocked. Allow microphone access and try again.'));
+                };
+
+                window.addEventListener(nativeAudioPermissionEventName, handlePermissionResult);
+
+                try {
+                    if(Boolean(bridge.requestAudioPermission()) || resolveIfGranted()) {
+                        cleanup();
+                        resolve(true);
+
+                        return;
+                    }
+                }
+                catch(error) {
+                    cleanup();
+                    reject(new Error('Unable to request microphone permission right now.'));
+
+                    return;
+                }
+
+                timeout = window.setTimeout(() => {
+                    if(resolveIfGranted()) {
+                        return;
+                    }
+
+                    cleanup();
+                    reject(new Error('Microphone permission request timed out. Allow microphone access and try again.'));
+                }, nativeAudioPermissionTimeoutMs);
+            });
+
+            return this.microphonePermissionPromise;
+        },
+        reconcileActiveCall: async function(options = {}) {
+            if(! this.call?.call_uuid || this.isFinal || this.finalizingCallUuid === this.call.call_uuid || this.syncingCurrentCall) {
+                return false;
+            }
+
+            this.syncingCurrentCall = true;
+
+            try {
+                const response = await colibriAPI().messenger().getFrom(`calls/${this.call.call_uuid}`);
+                const call = response.data?.data?.call;
+
+                if(! call?.call_uuid || ! this.isCurrentCall(call)) {
+                    return false;
+                }
+
+                this.setCall(call, {
+                    direction: this.direction || (call.receiver_id === this.currentUserId ? 'incoming' : 'outgoing'),
+                    status: call.status || this.status
+                });
+                this.attachRealtimeChannel(call.chat_id);
+
+                if(finalStatuses.includes(call.status)) {
+                    this.finishCall(call.status, 0);
+
+                    return true;
+                }
+
+                if(call.status === 'connected') {
+                    this.markConnected(false);
+                }
+                else if(['accepted', 'connecting'].includes(call.status)) {
+                    this.markConnecting();
+                }
+
+                if(options.setupIfNeeded && this.peer && this.mediaProvider === 'agora' && ! this.remoteStream && ['accepted', 'connecting', 'connected'].includes(call.status)) {
+                    try {
+                        await this.peer.refreshRemoteAudio?.();
+                    }
+                    catch(error) {}
+                }
+
+                if(options.setupIfNeeded && ['accepted', 'connecting', 'connected'].includes(call.status) && ! this.peer && ! this.peerSetupPromise) {
+                    try {
+                        await this.setupPeer();
+
+                        if(call.status === 'connected') {
+                            this.markConnected(false);
+                        }
+                        else if(this.mediaProvider === 'agora') {
+                            this.markConnecting();
+                        }
+                    }
+                    catch(error) {
+                        if(! error?.__zulorsSilentCallToast) {
+                            this.error = error.message || 'Unable to recover audio call.';
+                            await this.endCall('connection_lost');
+                        }
+                    }
+                }
+
+                return true;
+            }
+            catch(error) {
+                if([404, 410].includes(getErrorStatus(error))) {
+                    this.finishCall('failed', 0);
+                }
+
+                return false;
+            }
+            finally {
+                this.syncingCurrentCall = false;
+            }
+        },
         toggleMute: function() {
             this.isMuted = ! this.isMuted;
 
@@ -966,6 +1169,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.stopConnectionTimeoutTimer();
             this.stopReconnectTimeoutTimer();
             this.stopHeartbeatTimer();
+            this.stopConnectingSyncTimer();
             this.isAnswering = false;
             this.cleanupMediaSession();
             this.stopDurationTimer();
@@ -988,6 +1192,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.stopConnectionTimeoutTimer();
             this.stopReconnectTimeoutTimer();
             this.stopHeartbeatTimer();
+            this.stopConnectingSyncTimer();
             this.stopDurationTimer();
             this.stopStartCooldown();
             this.stopAudioRouteSettling();
@@ -1022,6 +1227,8 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.finalizingCallUuid = null;
             this.mediaSetupAttempt += 1;
             this.heartbeatInFlight = false;
+            this.microphonePermissionPromise = null;
+            this.syncingCurrentCall = false;
         },
         cleanupMediaSession: function() {
             const peer = this.peer;
@@ -1087,6 +1294,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         syncCallSideEffects: function() {
             if(this.status === 'ringing') {
                 this.stopConnectionTimeoutTimer();
+                this.stopConnectingSyncTimer();
                 this.startRingTimeoutTimer();
                 this.startRingingFeedback();
 
@@ -1098,9 +1306,11 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             if(['accepted', 'connecting'].includes(this.status)) {
                 this.startConnectionTimeoutTimer();
+                this.startConnectingSyncTimer();
             }
             else {
                 this.stopConnectionTimeoutTimer();
+                this.stopConnectingSyncTimer();
             }
         },
         startDurationTimer: function() {
@@ -1194,6 +1404,29 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             if(this.connectionTimeoutTimer) {
                 window.clearTimeout(this.connectionTimeoutTimer);
                 this.connectionTimeoutTimer = null;
+            }
+        },
+        startConnectingSyncTimer: function() {
+            if(this.connectingSyncTimer || ! this.call?.call_uuid || ! ['accepted', 'connecting'].includes(this.status)) {
+                return;
+            }
+
+            this.connectingSyncTimer = window.setInterval(() => {
+                this.reconcileActiveCall({
+                    setupIfNeeded: true
+                }).catch(() => {});
+            }, connectingSyncIntervalMs);
+
+            window.setTimeout(() => {
+                this.reconcileActiveCall({
+                    setupIfNeeded: true
+                }).catch(() => {});
+            }, 0);
+        },
+        stopConnectingSyncTimer: function() {
+            if(this.connectingSyncTimer) {
+                window.clearInterval(this.connectingSyncTimer);
+                this.connectingSyncTimer = null;
             }
         },
         startReconnectTimeoutTimer: function() {

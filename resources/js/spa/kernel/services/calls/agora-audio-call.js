@@ -6,12 +6,58 @@ const parsePositiveNumber = (value, defaultValue) => {
 
 const qualityMonitorIntervalMs = parsePositiveNumber(import.meta.env.VITE_CALL_QUALITY_MONITOR_INTERVAL, 3000);
 const qualityWarningSamples = Math.max(1, parsePositiveNumber(import.meta.env.VITE_CALL_QUALITY_WARNING_SAMPLES, 2));
+const agoraSdkLoadTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_SDK_TIMEOUT_MS, 12000);
+const agoraPermissionTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_PERMISSION_TIMEOUT_MS, 12000);
+const agoraJoinTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_JOIN_TIMEOUT_MS, 12000);
+const agoraTrackTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_TRACK_TIMEOUT_MS, 12000);
+const agoraPublishTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_PUBLISH_TIMEOUT_MS, 12000);
+const agoraRemoteSweepIntervalMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_REMOTE_SWEEP_INTERVAL_MS, 1000);
 const agoraSpeechEncoderConfig = {
     sampleRate: parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_AUDIO_SAMPLE_RATE, 48000),
     stereo: false,
     bitrate: parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_AUDIO_BITRATE, 32)
 };
 let agoraRtcPromise = null;
+
+const createTimeoutError = (message) => {
+    const error = new Error(message || 'Operation timed out.');
+
+    error.name = 'TimeoutError';
+
+    return error;
+};
+
+const makeSilentAgoraError = (message = 'Call already ended.') => {
+    const error = new Error(message);
+
+    error.__zulorsSilentCallToast = true;
+
+    return error;
+};
+
+const withTimeout = async (promise, timeoutMs, message) => {
+    if(! timeoutMs || typeof window === 'undefined') {
+        return Promise.resolve(promise);
+    }
+
+    let timer = null;
+
+    try {
+        return await Promise.race([
+            Promise.resolve(promise),
+            new Promise((resolve, reject) => {
+                timer = window.setTimeout(() => {
+                    reject(createTimeoutError(message));
+                }, timeoutMs);
+            })
+        ]);
+    }
+    finally {
+        if(timer) {
+            window.clearTimeout(timer);
+        }
+    }
+};
 
 const isAgoraAudioCallSupported = () => {
     return Boolean(
@@ -66,6 +112,134 @@ const normalizeMilliseconds = (value) => {
     return number;
 };
 
+const stopMediaStream = (stream) => {
+    stream?.getTracks?.().forEach((track) => {
+        try {
+            track.enabled = false;
+            track.stop();
+        }
+        catch(error) {}
+    });
+};
+
+const userFriendlyAgoraMediaError = (error) => {
+    if(error?.__zulorsSilentCallToast) {
+        return error;
+    }
+
+    const errorName = error?.name || '';
+    const errorMessage = error?.message || '';
+
+    if(['NotAllowedError', 'PermissionDeniedError', 'SecurityError'].includes(errorName)) {
+        return new Error('Microphone permission is blocked. Allow microphone access and try again.');
+    }
+
+    if(['NotFoundError', 'DevicesNotFoundError'].includes(errorName)) {
+        return new Error('No microphone was found on this device.');
+    }
+
+    if(['NotReadableError', 'TrackStartError'].includes(errorName) || /could not start audio source/i.test(errorMessage)) {
+        return new Error('Could not start microphone. Close other calls or apps using the microphone, then try again.');
+    }
+
+    if(['OverconstrainedError', 'ConstraintNotSatisfiedError'].includes(errorName)) {
+        return new Error('This microphone cannot start with the current audio settings.');
+    }
+
+    if(errorName === 'TimeoutError') {
+        return new Error(errorMessage || 'Microphone setup took too long. Please try again.');
+    }
+
+    return new Error(errorMessage || 'Unable to start microphone.');
+};
+
+const requestMicrophoneWarmup = async () => {
+    const attempts = [
+        {
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+                channelCount: { ideal: 1 },
+                sampleRate: { ideal: 48000 },
+                sampleSize: { ideal: 16 },
+                latency: { ideal: 0.02 }
+            }
+        },
+        {
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        },
+        {
+            audio: true
+        }
+    ];
+    let lastError = null;
+
+    for(const constraints of attempts) {
+        try {
+            const stream = await withTimeout(
+                navigator.mediaDevices.getUserMedia(constraints),
+                agoraPermissionTimeoutMs,
+                'Microphone permission request timed out.'
+            );
+
+            stopMediaStream(stream);
+
+            return true;
+        }
+        catch(error) {
+            lastError = error;
+
+            if(['NotAllowedError', 'PermissionDeniedError', 'SecurityError', 'NotFoundError', 'DevicesNotFoundError', 'TimeoutError'].includes(error?.name || '')) {
+                break;
+            }
+        }
+    }
+
+    throw userFriendlyAgoraMediaError(lastError);
+};
+
+const createMicrophoneTrackWithFallback = async (AgoraRTC) => {
+    const configs = [
+        {
+            AEC: true,
+            AGC: true,
+            ANS: true,
+            encoderConfig: agoraSpeechEncoderConfig
+        },
+        {
+            AEC: true,
+            AGC: true,
+            ANS: true
+        },
+        {}
+    ];
+    let lastError = null;
+
+    for(const config of configs) {
+        try {
+            return await withTimeout(
+                AgoraRTC.createMicrophoneAudioTrack(config),
+                agoraTrackTimeoutMs,
+                'Microphone took too long to start.'
+            );
+        }
+        catch(error) {
+            lastError = error;
+
+            if(['NotAllowedError', 'PermissionDeniedError', 'SecurityError', 'NotFoundError', 'DevicesNotFoundError'].includes(error?.name || '')) {
+                break;
+            }
+        }
+    }
+
+    throw userFriendlyAgoraMediaError(lastError);
+};
+
 const classifyAgoraNetworkQuality = (quality = null) => {
     if(! quality) {
         return null;
@@ -111,7 +285,6 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     let consecutivePoorSamples = 0;
     let remoteOutputVolume = 100;
     let remoteUserSweepTimer = null;
-    let remoteUserSweepAttempts = 0;
 
     const emit = (event, ...payload) => {
         try {
@@ -146,7 +319,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         remoteUid = null;
         joined = false;
 
-        throw new Error('Call already ended.');
+        throw makeSilentAgoraError();
     };
 
     const refreshMediaSession = async () => {
@@ -369,38 +542,47 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             window.clearInterval(remoteUserSweepTimer);
             remoteUserSweepTimer = null;
         }
-
-        remoteUserSweepAttempts = 0;
     };
 
     const startRemoteUserSweep = () => {
-        stopRemoteUserSweep();
-
-        if(typeof window === 'undefined') {
+        if(remoteUserSweepTimer || typeof window === 'undefined') {
             return;
         }
 
         remoteUserSweepTimer = window.setInterval(async () => {
-            if(closing || remoteAudioTrack) {
+            if(closing || remoteAudioTrack || ! client || ! joined) {
                 stopRemoteUserSweep();
 
                 return;
             }
 
-            remoteUserSweepAttempts += 1;
             await subscribeToPublishedRemoteUsers();
-
-            if(remoteAudioTrack || remoteUserSweepAttempts >= 15) {
-                stopRemoteUserSweep();
-            }
-        }, 1000);
+        }, agoraRemoteSweepIntervalMs);
     };
 
     const setupClientEvents = () => {
+        client.on('user-joined', async (user) => {
+            if(closing) {
+                return;
+            }
+
+            await subscribeToRemoteAudio(user);
+            startRemoteUserSweep();
+        });
+
         client.on('user-published', async (user, mediaType) => {
             if(mediaType === 'audio') {
                 await subscribeToRemoteAudio(user);
             }
+        });
+
+        client.on('user-info-updated', async () => {
+            if(closing || remoteAudioTrack) {
+                return;
+            }
+
+            await subscribeToPublishedRemoteUsers();
+            startRemoteUserSweep();
         });
 
         client.on('user-unpublished', (user, mediaType) => {
@@ -414,6 +596,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                 remoteStream = null;
                 emit('onRemoteStream', null);
                 emit('onReconnectState', 'reconnecting');
+                startRemoteUserSweep();
             }
         });
 
@@ -428,6 +611,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                 remoteStream = null;
                 emit('onRemoteStream', null);
                 emit('onReconnectState', 'reconnecting');
+                startRemoteUserSweep();
             }
         });
 
@@ -440,12 +624,15 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
 
             if(currentState === 'CONNECTED') {
                 emit('onReconnectState', 'stable');
+                subscribeToPublishedRemoteUsers().catch(() => {});
+                startRemoteUserSweep();
 
                 return;
             }
 
             if(['RECONNECTING', 'DISCONNECTED'].includes(currentState)) {
                 emit('onReconnectState', 'reconnecting');
+                startRemoteUserSweep();
 
                 return;
             }
@@ -477,60 +664,75 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             throw new Error('Agora audio calls are not supported in this browser.');
         }
 
-        const AgoraRTC = await loadAgoraRTC();
-        throwIfClosing();
-        AgoraRTCModule = AgoraRTC;
+        try {
+            await requestMicrophoneWarmup();
+            throwIfClosing();
 
-        if(! AgoraRTC?.createClient) {
-            throw new Error('Agora audio SDK could not be loaded.');
+            const AgoraRTC = await withTimeout(
+                loadAgoraRTC(),
+                agoraSdkLoadTimeoutMs,
+                'Audio engine took too long to load.'
+            );
+            throwIfClosing();
+            AgoraRTCModule = AgoraRTC;
+
+            if(! AgoraRTC?.createClient) {
+                throw new Error('Agora audio SDK could not be loaded.');
+            }
+
+            if(! currentMediaSession?.app_id || ! currentMediaSession?.channel) {
+                throw new Error('Agora call media is not configured.');
+            }
+
+            client = AgoraRTC.createClient({
+                mode: 'rtc',
+                codec: 'vp8'
+            });
+            setupClientEvents();
+
+            await withTimeout(
+                client.join(
+                    currentMediaSession.app_id,
+                    currentMediaSession.channel,
+                    currentMediaSession.token || null,
+                    currentMediaSession.uid || null
+                ),
+                agoraJoinTimeoutMs,
+                'Joining the call took too long.'
+            );
+            throwIfClosing();
+
+            localAudioTrack = await createMicrophoneTrackWithFallback(AgoraRTC);
+            throwIfClosing();
+
+            if(isMuted) {
+                await localAudioTrack.setEnabled(false);
+            }
+
+            localStream = streamFromTrack(localAudioTrack);
+
+            if(localStream) {
+                emit('onLocalStream', localStream);
+            }
+
+            await withTimeout(
+                client.publish([localAudioTrack]),
+                agoraPublishTimeoutMs,
+                'Publishing microphone audio took too long.'
+            );
+            throwIfClosing();
+            joined = true;
+            emit('onStateChange', 'connected');
+            await subscribeToPublishedRemoteUsers();
+            throwIfClosing();
+            startRemoteUserSweep();
+            startQualityTimer();
+
+            return true;
         }
-
-        if(! currentMediaSession?.app_id || ! currentMediaSession?.channel) {
-            throw new Error('Agora call media is not configured.');
+        catch(error) {
+            throw userFriendlyAgoraMediaError(error);
         }
-
-        client = AgoraRTC.createClient({
-            mode: 'rtc',
-            codec: 'vp8'
-        });
-        setupClientEvents();
-
-        await client.join(
-            currentMediaSession.app_id,
-            currentMediaSession.channel,
-            currentMediaSession.token || null,
-            currentMediaSession.uid || null
-        );
-        throwIfClosing();
-
-        localAudioTrack = await AgoraRTC.createMicrophoneAudioTrack({
-            AEC: true,
-            AGC: true,
-            ANS: true,
-            encoderConfig: agoraSpeechEncoderConfig
-        });
-        throwIfClosing();
-
-        if(isMuted) {
-            await localAudioTrack.setEnabled(false);
-        }
-
-        localStream = streamFromTrack(localAudioTrack);
-
-        if(localStream) {
-            emit('onLocalStream', localStream);
-        }
-
-        await client.publish([localAudioTrack]);
-        throwIfClosing();
-        joined = true;
-        emit('onStateChange', 'connected');
-        await subscribeToPublishedRemoteUsers();
-        throwIfClosing();
-        startRemoteUserSweep();
-        startQualityTimer();
-
-        return true;
     };
 
     const close = () => {
@@ -593,6 +795,19 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             if(remoteAudioTrack) {
                 playRemoteAudio();
             }
+        },
+        refreshRemoteAudio: async () => {
+            if(closing || ! client || ! joined) {
+                return false;
+            }
+
+            const attached = await subscribeToPublishedRemoteUsers();
+
+            if(! attached) {
+                startRemoteUserSweep();
+            }
+
+            return attached;
         },
         close: close
     };

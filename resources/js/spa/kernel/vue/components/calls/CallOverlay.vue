@@ -10,6 +10,7 @@
             type="button"
             class="pointer-events-auto fixed bottom-5 left-1/2 flex h-12 max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg border border-bord-pr bg-bg-pr px-4 text-left shadow-2xl"
             v-on:click.stop.prevent="onExpand"
+            v-on:pointerup.stop.prevent="onExpand"
             v-on:touchend.stop.prevent="onExpand">
             <span class="flex size-8 shrink-0 items-center justify-center rounded-full bg-green-600 text-white">
                 <SvgIcon name="phone" type="line" classes="size-4"></SvgIcon>
@@ -28,6 +29,7 @@
                         type="button"
                         class="flex size-9 items-center justify-center rounded-full text-lab-sc hover:bg-fill-qt hover:text-lab-pr"
                         v-on:click.stop.prevent="onMinimize"
+                        v-on:pointerup.stop.prevent="onMinimize"
                         v-on:touchend.stop.prevent="onMinimize">
                         <SvgIcon name="chevron-down" type="solid" classes="size-5"></SvgIcon>
                     </button>
@@ -51,6 +53,7 @@
                             type="button"
                             class="flex flex-col items-center gap-2 text-par-s font-semibold text-lab-pr"
                             v-on:click.stop.prevent="onDecline"
+                            v-on:pointerup.stop.prevent="onDecline"
                             v-on:touchend.stop.prevent="onDecline">
                             <span class="call-overlay-control-icon flex size-14 items-center justify-center rounded-full bg-red-900 text-white">
                                 <SvgIcon name="x" type="solid" classes="size-6"></SvgIcon>
@@ -62,6 +65,7 @@
                             class="flex flex-col items-center gap-2 text-par-s font-semibold text-lab-pr disabled:opacity-60"
                             v-bind:disabled="callStore.isAnswering"
                             v-on:click.stop.prevent="onAnswer"
+                            v-on:pointerup.stop.prevent="onAnswer"
                             v-on:touchend.stop.prevent="onAnswer">
                             <span class="call-overlay-control-icon flex size-14 items-center justify-center rounded-full bg-green-600 text-white">
                                 <SvgIcon name="phone" type="line" classes="size-6"></SvgIcon>
@@ -75,6 +79,7 @@
                             type="button"
                             class="flex flex-col items-center gap-2 text-par-s font-semibold text-lab-pr"
                             v-on:click.stop.prevent="onSpeakerToggle"
+                            v-on:pointerup.stop.prevent="onSpeakerToggle"
                             v-on:touchend.stop.prevent="onSpeakerToggle">
                             <span class="call-overlay-control-icon flex size-14 items-center justify-center rounded-full bg-fill-qt text-lab-pr">
                                 <SvgIcon v-bind:name="callStore.speakerEnabled ? 'volume-max' : 'volume-x'" type="line" classes="size-6"></SvgIcon>
@@ -93,6 +98,7 @@
                             type="button"
                             class="flex flex-col items-center gap-2 text-par-s font-semibold text-lab-pr"
                             v-on:click.stop.prevent="onMuteToggle"
+                            v-on:pointerup.stop.prevent="onMuteToggle"
                             v-on:touchend.stop.prevent="onMuteToggle">
                             <span class="call-overlay-control-icon flex size-14 items-center justify-center rounded-full bg-fill-qt text-lab-pr">
                                 <SvgIcon v-bind:name="callStore.isMuted ? 'volume-x' : 'microphone-01'" type="line" classes="size-6"></SvgIcon>
@@ -104,6 +110,7 @@
                             type="button"
                             class="col-start-2 flex flex-col items-center gap-2 text-par-s font-semibold text-lab-pr"
                             v-on:click.stop.prevent="onEndCall"
+                            v-on:pointerup.stop.prevent="onEndCall"
                             v-on:touchend.stop.prevent="onEndCall">
                             <span class="call-overlay-control-icon flex size-14 items-center justify-center rounded-full bg-red-900 text-white">
                                 <SvgIcon name="phone" type="line" classes="size-6 rotate-[135deg]"></SvgIcon>

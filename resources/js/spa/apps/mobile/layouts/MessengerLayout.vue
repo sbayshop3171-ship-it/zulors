@@ -84,6 +84,28 @@
 				}).catch(() => {});
 			};
 
+			const reconcileVisibleCall = () => {
+				if(! callStore.isVisible) {
+					return;
+				}
+
+				callStore.reconcileActiveCall({
+					setupIfNeeded: true
+				}).catch(() => {});
+			};
+
+			const handleWSStatus = (event) => {
+				if(event?.detail?.connected) {
+					reconcileVisibleCall();
+				}
+			};
+
+			const handleVisibilityChange = () => {
+				if(document.visibilityState === 'visible') {
+					reconcileVisibleCall();
+				}
+			};
+
 			onMounted(() => {
 				if(window.ColibriBRD && authStore.userData) {
 					ColibriBRD.private(getAuthChannel()).notification(syncMessengerInbox);
@@ -91,15 +113,27 @@
 				}
 
 				syncCallFromRoute();
+				window.addEventListener('colibri:ws-status', handleWSStatus);
+				window.addEventListener('focus', reconcileVisibleCall);
+				window.addEventListener('zulors:app-resume', reconcileVisibleCall);
+				document.addEventListener('visibilitychange', handleVisibilityChange);
 			});
 
 			onUnmounted(() => {
 				if(isListening && window.ColibriBRD && authStore.userData) {
 					ColibriBRD.private(getAuthChannel()).stopListeningForNotification(syncMessengerInbox);
 				}
+
+				window.removeEventListener('colibri:ws-status', handleWSStatus);
+				window.removeEventListener('focus', reconcileVisibleCall);
+				window.removeEventListener('zulors:app-resume', reconcileVisibleCall);
+				document.removeEventListener('visibilitychange', handleVisibilityChange);
 			});
 
-			watch(() => route.fullPath, syncCallFromRoute);
+			watch(() => route.fullPath, () => {
+				syncCallFromRoute();
+				reconcileVisibleCall();
+			});
 
 			return {
 				callStore: callStore
