@@ -23,6 +23,7 @@ const nativeAudioPermissionEventName = 'zulors:audio-permission';
 const nativeAudioPermissionTimeoutMs = 15000;
 const nativeAudioPermissionPollIntervalMs = 300;
 const connectingSyncIntervalMs = 4000;
+const initialConnectingSyncDelayMs = 1200;
 const uiFrameYieldDelayMs = 16;
 
 const finalStatusForReason = (reason) => {
@@ -131,7 +132,10 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             heartbeatInFlight: false,
             microphonePermissionPromise: null,
             connectingSyncTimer: null,
-            syncingCurrentCall: false
+            syncingCurrentCall: false,
+            pendingPeerSetupTasks: [],
+            peerSetupDrainScheduled: false,
+            peerSetupDraining: false
         };
     },
     getters: {
@@ -528,36 +532,78 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 return false;
             }
 
+            this.pendingPeerSetupTasks.push({
+                callUuid: callUuid,
+                afterSetup: typeof afterSetup === 'function' ? afterSetup : null,
+                onErrorMessage: onErrorMessage
+            });
+            this.schedulePeerSetupDrain();
+
+            return true;
+        },
+        schedulePeerSetupDrain: function(delayMs = 0) {
+            if(typeof window === 'undefined' || this.peerSetupDrainScheduled || this.peerSetupDraining) {
+                return false;
+            }
+
+            this.peerSetupDrainScheduled = true;
+
             window.setTimeout(() => {
-                Promise.resolve().then(async () => {
-                    if(! this.call?.call_uuid || this.call.call_uuid !== callUuid || this.isFinal || this.finalizingCallUuid === callUuid) {
-                        return false;
+                this.peerSetupDrainScheduled = false;
+                this.drainPeerSetupTasks().catch(() => {});
+            }, Math.max(0, Number(delayMs || 0)));
+
+            return true;
+        },
+        drainPeerSetupTasks: async function() {
+            if(this.peerSetupDraining) {
+                return false;
+            }
+
+            this.peerSetupDraining = true;
+
+            try {
+                while(this.pendingPeerSetupTasks.length) {
+                    const task = this.pendingPeerSetupTasks.shift();
+
+                    if(! task?.callUuid) {
+                        continue;
+                    }
+
+                    if(! this.call?.call_uuid || this.call.call_uuid !== task.callUuid || this.isFinal || this.finalizingCallUuid === task.callUuid) {
+                        continue;
                     }
 
                     try {
                         await this.yieldToUiFrame();
                         await this.setupPeer();
 
-                        if(! this.call?.call_uuid || this.call.call_uuid !== callUuid || this.isFinal || this.finalizingCallUuid === callUuid) {
-                            return false;
+                        if(! this.call?.call_uuid || this.call.call_uuid !== task.callUuid || this.isFinal || this.finalizingCallUuid === task.callUuid) {
+                            continue;
                         }
 
-                        await afterSetup?.();
-
-                        return true;
+                        await this.yieldToUiFrame();
+                        await task.afterSetup?.();
                     }
                     catch(error) {
                         if(error?.__zulorsSilentCallToast) {
-                            return false;
+                            continue;
                         }
 
-                        this.error = error.message || onErrorMessage;
-                        await this.endCall('connection_lost');
-
-                        return false;
+                        if(this.call?.call_uuid === task.callUuid && ! this.isFinal) {
+                            this.error = error.message || task.onErrorMessage || 'Unable to connect audio call.';
+                            await this.endCall('connection_lost');
+                        }
                     }
-                }).catch(() => {});
-            }, 0);
+                }
+            }
+            finally {
+                this.peerSetupDraining = false;
+
+                if(this.pendingPeerSetupTasks.length) {
+                    this.schedulePeerSetupDrain();
+                }
+            }
 
             return true;
         },
@@ -597,26 +643,47 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 }
 
                 if(data.signal_type === 'offer') {
-                    await this.setupPeer();
-                    await this.peer.handleOffer(data.signal || {}, this.call.media_type || 'audio');
-                    this.markConnecting();
+                    this.runPeerSetupInBackground({
+                        callUuid: this.call?.call_uuid,
+                        onErrorMessage: 'Unable to connect audio call.',
+                        afterSetup: async () => {
+                            await this.peer?.handleOffer(data.signal || {}, this.call?.media_type || 'audio');
+                            this.markConnecting();
+                        }
+                    });
                 }
                 else if(data.signal_type === 'answer') {
-                    await this.peer?.handleAnswer(data.signal || {});
-                    this.markConnecting();
+                    this.runPeerSetupInBackground({
+                        callUuid: this.call?.call_uuid,
+                        onErrorMessage: 'Unable to connect audio call.',
+                        afterSetup: async () => {
+                            await this.peer?.handleAnswer(data.signal || {});
+                            this.markConnecting();
+                        }
+                    });
                 }
                 else if(['ice', 'candidate'].includes(data.signal_type)) {
-                    await this.peer?.handleIce(data.signal || {});
+                    this.runPeerSetupInBackground({
+                        callUuid: this.call?.call_uuid,
+                        onErrorMessage: 'Unable to connect audio call.',
+                        afterSetup: async () => {
+                            await this.peer?.handleIce(data.signal || {});
+                        }
+                    });
                 }
                 else if(data.signal_type === 'connected') {
                     this.markConnected(false);
                 }
                 else if(data.signal_type === 'ready' && this.call?.initiator_id === this.currentUserId) {
-                    await this.setupPeer();
-
-                    if(this.mediaProvider !== 'agora') {
-                        await this.createOffer();
-                    }
+                    this.runPeerSetupInBackground({
+                        callUuid: this.call?.call_uuid,
+                        onErrorMessage: 'Unable to connect audio call.',
+                        afterSetup: async () => {
+                            if(this.mediaProvider !== 'agora') {
+                                await this.createOffer();
+                            }
+                        }
+                    });
                 }
             }
             catch(error) {
@@ -1199,22 +1266,18 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 }
 
                 if(options.setupIfNeeded && ['accepted', 'connecting', 'connected'].includes(call.status) && ! this.peer && ! this.peerSetupPromise) {
-                    try {
-                        await this.setupPeer();
-
-                        if(call.status === 'connected') {
-                            this.markConnected(false);
+                    this.runPeerSetupInBackground({
+                        callUuid: call.call_uuid,
+                        onErrorMessage: 'Unable to recover audio call.',
+                        afterSetup: async () => {
+                            if(call.status === 'connected') {
+                                this.markConnected(false);
+                            }
+                            else if(this.mediaProvider === 'agora') {
+                                this.markConnecting();
+                            }
                         }
-                        else if(this.mediaProvider === 'agora') {
-                            this.markConnecting();
-                        }
-                    }
-                    catch(error) {
-                        if(! error?.__zulorsSilentCallToast) {
-                            this.error = error.message || 'Unable to recover audio call.';
-                            await this.endCall('connection_lost');
-                        }
-                    }
+                    });
                 }
 
                 return true;
@@ -1342,6 +1405,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.heartbeatInFlight = false;
             this.microphonePermissionPromise = null;
             this.syncingCurrentCall = false;
+            this.pendingPeerSetupTasks = [];
+            this.peerSetupDrainScheduled = false;
+            this.peerSetupDraining = false;
         },
         cleanupMediaSession: function() {
             const peer = this.peer;
@@ -1634,7 +1700,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 this.reconcileActiveCall({
                     setupIfNeeded: true
                 }).catch(() => {});
-            }, 0);
+            }, initialConnectingSyncDelayMs);
         },
         stopConnectingSyncTimer: function() {
             if(this.connectingSyncTimer) {
