@@ -82,6 +82,14 @@ const isLikelyMobileCallClient = () => {
         || touchPoints > 1;
 };
 
+const preferredIceCandidatePoolSize = () => {
+    if(hasNativeCallAudioBridge() || isLikelyMobileCallClient()) {
+        return 0;
+    }
+
+    return 4;
+};
+
 const createTimeoutError = (message) => {
     const error = new Error(message || 'Operation timed out.');
 
@@ -912,7 +920,7 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
             iceServers: parseIceServers(options.iceServers),
             bundlePolicy: 'max-bundle',
             rtcpMuxPolicy: 'require',
-            iceCandidatePoolSize: 4
+            iceCandidatePoolSize: preferredIceCandidatePoolSize()
         });
 
         localStream.getTracks().forEach((track) => {

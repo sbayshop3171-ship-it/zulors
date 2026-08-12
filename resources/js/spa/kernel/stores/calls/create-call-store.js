@@ -25,6 +25,7 @@ const nativeAudioPermissionPollIntervalMs = 300;
 const connectingSyncIntervalMs = 4000;
 const initialConnectingSyncDelayMs = 1200;
 const uiFrameYieldDelayMs = 16;
+const outgoingIceSignalDrainDelayMs = 32;
 
 const finalStatusForReason = (reason) => {
     if(reason === 'no_answer') {
@@ -137,7 +138,10 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             peerSetupDrainScheduled: false,
             peerSetupDraining: false,
             pendingIceSignals: [],
-            iceSignalDrainScheduled: false
+            iceSignalDrainScheduled: false,
+            pendingOutgoingIceSignals: [],
+            outgoingIceSignalDrainScheduled: false,
+            outgoingIceSignalInFlight: false
         };
     },
     getters: {
@@ -406,15 +410,21 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             return true;
         },
-        sendSignal: async function(signalType, signal = {}) {
+        sendSignal: async function(signalType, signal = {}, options = {}) {
             if(! this.call?.call_uuid || this.isFinal || this.finalizingCallUuid === this.call.call_uuid) {
                 return false;
             }
+
+            const syncCallState = options.syncCallState !== false;
 
             const response = await colibriAPI().messenger().with({
                 signal_type: signalType,
                 signal: signal || {}
             }).sendTo(`calls/${this.call.call_uuid}/signal`);
+
+            if(! syncCallState) {
+                return response;
+            }
 
             const call = response.data?.data?.call;
 
@@ -429,6 +439,79 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
 
             return response;
+        },
+        queueOutgoingIceSignal: function(signal = {}) {
+            if(! this.call?.call_uuid || this.isFinal || this.finalizingCallUuid === this.call.call_uuid) {
+                return false;
+            }
+
+            this.pendingOutgoingIceSignals.push(signal || {});
+            this.scheduleOutgoingIceSignalDrain();
+
+            return true;
+        },
+        scheduleOutgoingIceSignalDrain: function(delayMs = outgoingIceSignalDrainDelayMs) {
+            if(typeof window === 'undefined' || this.outgoingIceSignalDrainScheduled || this.outgoingIceSignalInFlight) {
+                return false;
+            }
+
+            this.outgoingIceSignalDrainScheduled = true;
+
+            window.setTimeout(() => {
+                this.outgoingIceSignalDrainScheduled = false;
+                this.drainOutgoingIceSignals().catch(() => {});
+            }, Math.max(0, Number(delayMs || 0)));
+
+            return true;
+        },
+        drainOutgoingIceSignals: async function() {
+            if(this.outgoingIceSignalInFlight) {
+                return false;
+            }
+
+            this.outgoingIceSignalInFlight = true;
+
+            try {
+                while(
+                    this.pendingOutgoingIceSignals.length
+                    && this.call?.call_uuid
+                    && ! this.isFinal
+                    && this.finalizingCallUuid !== this.call.call_uuid
+                ) {
+                    const signal = this.pendingOutgoingIceSignals.shift();
+
+                    try {
+                        await this.sendSignal('ice', signal, {
+                            syncCallState: false
+                        });
+                    }
+                    catch(error) {
+                        if([404, 410].includes(getErrorStatus(error))) {
+                            this.finishCall('failed', 0);
+
+                            return false;
+                        }
+                    }
+
+                    if(this.pendingOutgoingIceSignals.length) {
+                        await this.yieldToUiFrame();
+                    }
+                }
+            }
+            finally {
+                this.outgoingIceSignalInFlight = false;
+
+                if(
+                    this.pendingOutgoingIceSignals.length
+                    && this.call?.call_uuid
+                    && ! this.isFinal
+                    && this.finalizingCallUuid !== this.call.call_uuid
+                ) {
+                    this.scheduleOutgoingIceSignalDrain();
+                }
+            }
+
+            return true;
         },
         handleNotification: function(payload = {}) {
             const data = payload?.data || payload || {};
@@ -811,6 +894,12 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             const callbacks = {
                 onSignal: (signalType, signal) => {
                     if(this.mediaProvider !== 'agora') {
+                        if(['ice', 'candidate'].includes(signalType)) {
+                            this.queueOutgoingIceSignal(signal);
+
+                            return;
+                        }
+
                         this.sendSignal(signalType, signal).catch(() => {});
                     }
                 },
@@ -1469,6 +1558,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.peerSetupDraining = false;
             this.pendingIceSignals = [];
             this.iceSignalDrainScheduled = false;
+            this.pendingOutgoingIceSignals = [];
+            this.outgoingIceSignalDrainScheduled = false;
+            this.outgoingIceSignalInFlight = false;
         },
         cleanupMediaSession: function() {
             const peer = this.peer;
