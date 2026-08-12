@@ -135,7 +135,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             syncingCurrentCall: false,
             pendingPeerSetupTasks: [],
             peerSetupDrainScheduled: false,
-            peerSetupDraining: false
+            peerSetupDraining: false,
+            pendingIceSignals: [],
+            iceSignalDrainScheduled: false
         };
     },
     getters: {
@@ -527,7 +529,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             return false;
         },
-        runPeerSetupInBackground: function({ callUuid = null, afterSetup = null, onErrorMessage = 'Unable to connect audio call.' } = {}) {
+        runPeerSetupInBackground: function({ callUuid = null, afterSetup = null, afterFinally = null, onErrorMessage = 'Unable to connect audio call.' } = {}) {
             if(! callUuid || typeof window === 'undefined') {
                 return false;
             }
@@ -535,6 +537,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.pendingPeerSetupTasks.push({
                 callUuid: callUuid,
                 afterSetup: typeof afterSetup === 'function' ? afterSetup : null,
+                afterFinally: typeof afterFinally === 'function' ? afterFinally : null,
                 onErrorMessage: onErrorMessage
             });
             this.schedulePeerSetupDrain();
@@ -565,12 +568,22 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             try {
                 while(this.pendingPeerSetupTasks.length) {
                     const task = this.pendingPeerSetupTasks.shift();
+                    const runTaskFinally = async () => {
+                        try {
+                            await task?.afterFinally?.();
+                        }
+                        catch(error) {}
+                    };
 
                     if(! task?.callUuid) {
+                        await runTaskFinally();
+
                         continue;
                     }
 
                     if(! this.call?.call_uuid || this.call.call_uuid !== task.callUuid || this.isFinal || this.finalizingCallUuid === task.callUuid) {
+                        await runTaskFinally();
+
                         continue;
                     }
 
@@ -595,6 +608,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                             await this.endCall('connection_lost');
                         }
                     }
+                    finally {
+                        await runTaskFinally();
+                    }
                 }
             }
             finally {
@@ -604,6 +620,55 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     this.schedulePeerSetupDrain();
                 }
             }
+
+            return true;
+        },
+        queueIceSignalDrain: function(signal = {}) {
+            if(! this.call?.call_uuid || this.isFinal || this.finalizingCallUuid === this.call.call_uuid) {
+                return false;
+            }
+
+            this.pendingIceSignals.push(signal || {});
+
+            if(this.iceSignalDrainScheduled) {
+                return true;
+            }
+
+            this.iceSignalDrainScheduled = true;
+
+            this.runPeerSetupInBackground({
+                callUuid: this.call.call_uuid,
+                onErrorMessage: 'Unable to connect audio call.',
+                afterSetup: async () => {
+                    while(
+                        this.pendingIceSignals.length
+                        && this.call?.call_uuid
+                        && ! this.isFinal
+                        && this.finalizingCallUuid !== this.call.call_uuid
+                    ) {
+                        const signals = this.pendingIceSignals.splice(0, 8);
+
+                        await this.peer?.handleIceBatch?.(signals);
+
+                        if(this.pendingIceSignals.length) {
+                            await this.yieldToUiFrame();
+                        }
+                    }
+                },
+                afterFinally: async () => {
+                    this.iceSignalDrainScheduled = false;
+
+                    if(
+                        this.pendingIceSignals.length
+                        && this.call?.call_uuid
+                        && ! this.isFinal
+                        && this.finalizingCallUuid !== this.call.call_uuid
+                    ) {
+                        await this.yieldToUiFrame();
+                        this.queueIceSignalDrain();
+                    }
+                }
+            });
 
             return true;
         },
@@ -663,13 +728,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     });
                 }
                 else if(['ice', 'candidate'].includes(data.signal_type)) {
-                    this.runPeerSetupInBackground({
-                        callUuid: this.call?.call_uuid,
-                        onErrorMessage: 'Unable to connect audio call.',
-                        afterSetup: async () => {
-                            await this.peer?.handleIce(data.signal || {});
-                        }
-                    });
+                    this.queueIceSignalDrain(data.signal || {});
                 }
                 else if(data.signal_type === 'connected') {
                     this.markConnected(false);
@@ -1408,6 +1467,8 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.pendingPeerSetupTasks = [];
             this.peerSetupDrainScheduled = false;
             this.peerSetupDraining = false;
+            this.pendingIceSignals = [];
+            this.iceSignalDrainScheduled = false;
         },
         cleanupMediaSession: function() {
             const peer = this.peer;

@@ -1068,6 +1068,24 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
         catch(error) {}
     };
 
+    const handleIceBatch = async (signals = []) => {
+        const safeSignals = Array.isArray(signals) ? signals : [signals];
+
+        for(const signal of safeSignals) {
+            if(isClosed) {
+                break;
+            }
+
+            await handleIce(signal);
+
+            if(safeSignals.length > 1) {
+                await yieldToBrowser(0);
+            }
+        }
+
+        return true;
+    };
+
     const setMuted = (isMuted) => {
         localStream?.getAudioTracks()?.forEach((track) => {
             track.enabled = ! isMuted;
@@ -1141,6 +1159,7 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
         handleOffer,
         handleAnswer,
         handleIce,
+        handleIceBatch,
         ensurePeerConnection,
         setMuted,
         close,
