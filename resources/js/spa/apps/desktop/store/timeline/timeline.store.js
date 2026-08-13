@@ -151,15 +151,24 @@ const useTimelineStore = defineStore('timeline_store', {
         },
         initialLoad: async function() {
             if (! this.posts.length) {
-                if(this.warmPromise) {
-                    await this.warmPromise;
+                const seedFeed = await waitForBootSharedFeed(80);
+
+                if(seedFeed?.posts?.length) {
+                    this.hydrateBootFeed(seedFeed);
+                }
+
+                if (! this.posts.length && this.warmPromise) {
+                    await Promise.race([
+                        this.warmPromise,
+                        wait(260)
+                    ]);
                 }
 
                 if(! this.posts.length) {
-                    const seedFeed = await waitForBootSharedFeed();
+                    const delayedSeedFeed = await waitForBootSharedFeed(160);
 
-                    if(seedFeed?.posts?.length) {
-                        this.hydrateBootFeed(seedFeed);
+                    if(delayedSeedFeed?.posts?.length) {
+                        this.hydrateBootFeed(delayedSeedFeed);
                     }
                 }
 
@@ -186,6 +195,12 @@ const useTimelineStore = defineStore('timeline_store', {
             if(this.posts.length) {
                 prefetchTimelineMedia(this.posts);
 
+                return Promise.resolve(this.posts);
+            }
+
+            const seedFeed = bootSharedFeed();
+
+            if(seedFeed?.posts?.length && this.hydrateBootFeed(seedFeed)) {
                 return Promise.resolve(this.posts);
             }
 
