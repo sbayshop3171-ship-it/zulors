@@ -115,6 +115,18 @@
                 return timelineStore.refreshReason;
             });
 
+            const hydrateInstantTimeline = () => {
+                if(timelinePosts.value.length) {
+                    return true;
+                }
+
+                return timelineStore.hydrateBootFeed(
+                    window.__zulorsBoot?.sharedFeed
+                    ?? window.__zulorsBoot?.cachedBootstrap?.home_feed
+                    ?? null
+                );
+            };
+
             useSwipeRouteNavigation(swipeSurfaceRef, mobileHomeSwipeSequence);
 
             const refreshLatestFeed = async () => {
@@ -157,7 +169,7 @@
             });
 
             onMounted(async () => {
-                const hasInstantPosts = timelinePosts.value.length > 0;
+                const hasInstantPosts = hydrateInstantTimeline() || timelinePosts.value.length > 0;
 
                 state.isLoading = ! hasInstantPosts;
 

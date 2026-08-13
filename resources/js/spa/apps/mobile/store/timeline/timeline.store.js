@@ -157,7 +157,17 @@ const useTimelineStore = defineStore('mobile_timeline_store', {
         },
         initialLoad: async function() {
             if (! this.posts.length) {
-                const seedFeed = await waitForBootSharedFeed(80);
+                const immediateSeedFeed = bootSharedFeed();
+
+                if(immediateSeedFeed?.posts?.length) {
+                    this.hydrateBootFeed(immediateSeedFeed);
+                }
+
+                if(! this.posts.length && ! this.warmPromise) {
+                    this.warmFirstPage();
+                }
+
+                const seedFeed = await waitForBootSharedFeed(120);
 
                 if(seedFeed?.posts?.length) {
                     this.hydrateBootFeed(seedFeed);
@@ -166,12 +176,12 @@ const useTimelineStore = defineStore('mobile_timeline_store', {
                 if (! this.posts.length && this.warmPromise) {
                     await Promise.race([
                         this.warmPromise,
-                        wait(260)
+                        wait(220)
                     ]);
                 }
 
                 if(! this.posts.length) {
-                    const delayedSeedFeed = await waitForBootSharedFeed(160);
+                    const delayedSeedFeed = await waitForBootSharedFeed(120);
 
                     if(delayedSeedFeed?.posts?.length) {
                         this.hydrateBootFeed(delayedSeedFeed);
@@ -179,13 +189,17 @@ const useTimelineStore = defineStore('mobile_timeline_store', {
                 }
 
                 if(! this.posts.length) {
-                    await waitForBootBootstrap();
+                    await waitForBootBootstrap(120);
 
                     const bootstrapSeedFeed = bootSharedFeed();
 
                     if(bootstrapSeedFeed?.posts?.length) {
                         this.hydrateBootFeed(bootstrapSeedFeed);
                     }
+                }
+
+                if(! this.posts.length && this.warmPromise) {
+                    await this.warmPromise.catch(() => this.posts);
                 }
 
                 if(! this.posts.length) {

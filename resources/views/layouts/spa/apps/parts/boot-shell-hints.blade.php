@@ -88,6 +88,7 @@
                 ) {
                     document.documentElement.dataset.zulorsBootCache = 'hit';
                     bootState.cachedBootstrap = cacheEntry.data;
+                    rememberSharedFeedPayload(cacheEntry.data.home_feed || null);
                 }
             }
         } catch (error) {

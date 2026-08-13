@@ -22,12 +22,11 @@ const runtimeReverbConfig = () => {
     const normalizeScheme = (scheme) => ['http', 'https'].includes(String(scheme || '').trim())
         ? String(scheme).trim()
         : browserScheme;
-    const hasRuntimeHost = Boolean(runtime.host);
     const scheme = normalizeScheme(runtime.scheme || import.meta.env.VITE_REVERB_SCHEME || browserScheme);
     let host = runtime.host || import.meta.env.VITE_REVERB_HOST || browserHost;
     let port = Number(runtime.port || import.meta.env.VITE_REVERB_PORT || (scheme === 'https' ? 443 : 80));
 
-    if(! hasRuntimeHost && isLoopbackHost(host) && ! isLoopbackHost(browserHost)) {
+    if(isLoopbackHost(host) && ! isLoopbackHost(browserHost)) {
         host = browserHost;
         port = scheme === 'https' ? 443 : 80;
     }

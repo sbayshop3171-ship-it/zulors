@@ -635,7 +635,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     && task?.afterFinally === afterFinally;
             });
 
-            if(alreadyQueued || (this.peerSetupDraining && this.call?.call_uuid === callUuid && this.peerSetupPromise)) {
+            if(alreadyQueued) {
                 return true;
             }
 
@@ -1445,7 +1445,14 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     catch(error) {}
                 }
 
-                if(options.setupIfNeeded && ['accepted', 'connecting', 'connected'].includes(call.status) && ! this.peer && ! this.peerSetupPromise) {
+                if(
+                    options.setupIfNeeded
+                    && ['accepted', 'connecting', 'connected'].includes(call.status)
+                    && ! this.peer
+                    && ! this.peerSetupPromise
+                    && ! this.isAnswering
+                    && ! this.peerSetupDraining
+                ) {
                     this.runPeerSetupInBackground({
                         callUuid: call.call_uuid,
                         taskKey: 'reconcile-setup',
@@ -1529,10 +1536,13 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.isAnswering = false;
             this.pendingPeerSetupTasks = [];
             this.peerSetupDrainScheduled = false;
+            this.peerSetupDraining = false;
             this.pendingIceSignals = [];
             this.iceSignalDrainScheduled = false;
             this.pendingOutgoingIceSignals = [];
             this.outgoingIceSignalDrainScheduled = false;
+            this.outgoingIceSignalInFlight = false;
+            this.syncingCurrentCall = false;
             this.cleanupMediaSession();
             this.stopDurationTimer();
             this.detachRealtimeChannel();
@@ -1890,6 +1900,15 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }, connectingSyncIntervalMs);
 
             window.setTimeout(() => {
+                if(
+                    ! this.call?.call_uuid
+                    || this.isFinal
+                    || ! ['accepted', 'connecting'].includes(this.status)
+                    || this.isAnswering
+                ) {
+                    return;
+                }
+
                 this.reconcileActiveCall({
                     setupIfNeeded: true
                 }).catch(() => {});
