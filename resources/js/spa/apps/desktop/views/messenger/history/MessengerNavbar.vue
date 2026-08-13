@@ -10,7 +10,7 @@
                 v-bind:titleText="$t('labels.messages')"></PageTitle>
             </div>
 
-            <div v-if="! isWSEstablished">
+            <div v-if="hasWSIssue">
                 <WSConnectionAlert></WSConnectionAlert>
             </div>
         </template>
@@ -61,7 +61,7 @@
         setup: function() {
 
             const inboxStore = useInboxStore();
-            const { isWSEstablished } = useWSConnectionStatus();
+            const { isWSEstablished, hasWSIssue } = useWSConnectionStatus();
             const state = reactive({
                 activeTab: 'chats',
                 searchMode: false,
@@ -89,6 +89,7 @@
                 }),
                 state: state,
                 isWSEstablished: isWSEstablished,
+                hasWSIssue: hasWSIssue,
                 handleSearchModeChange: (isSearchMode) => {
                     state.activeTab = 'chats';
                     state.searchMode = isSearchMode;

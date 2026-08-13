@@ -1,7 +1,7 @@
 <template>
 	<div class="pl-6 shrink-0">
 		<div class="flex w-medium-avatar flex-col h-full justify-end items-center pb-6">
-			<div v-if="! isWSEstablished">
+			<div v-if="hasWSIssue">
 				<ActionBarButton v-on:click="showWSConnectionError" iconName="signal-03" buttonColor="text-red-900" v-bind:hasBg="false"></ActionBarButton>
 			</div>
 		</div>
@@ -16,10 +16,11 @@
 
 	export default defineComponent({
 		setup: function () {
-			const { isWSEstablished } = useWSConnectionStatus();
+			const { isWSEstablished, hasWSIssue } = useWSConnectionStatus();
 
 			return {
 				isWSEstablished: isWSEstablished,
+				hasWSIssue: hasWSIssue,
 				showWSConnectionError: () => {
 					alert('If you see this message, it means that the WS connection is not established. Some features will not work properly. Please, try to refresh the page or contact support.');
 				}

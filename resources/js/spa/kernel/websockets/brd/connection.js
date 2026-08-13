@@ -47,9 +47,21 @@ const normalizeConnectionState = (state) => {
     }
 };
 
+const isConnectionIssueState = (state) => {
+    const normalizedState = normalizeConnectionState(state);
+
+    return [
+        CONNECTION_STATES.DISCONNECTED,
+        CONNECTION_STATES.UNAVAILABLE,
+        CONNECTION_STATES.FAILED,
+        CONNECTION_STATES.DISABLED
+    ].includes(normalizedState);
+};
+
 export {
     CONNECTION_STATUS_EVENT,
     CONNECTION_STATES,
     createConnectionSnapshot,
     normalizeConnectionState,
+    isConnectionIssueState,
 };

@@ -4,7 +4,7 @@
             <div class="px-4 mb-4">
                 <PageTitle v-bind:hasBack="true" v-bind:titleText="$t('chat.tabs.archived')"></PageTitle>
             </div>
-            <div v-if="! isWSEstablished" class="mb-4">
+            <div v-if="hasWSIssue" class="mb-4">
                 <WSConnectionAlert></WSConnectionAlert>
             </div>
         </template>
@@ -27,10 +27,11 @@
     export default defineComponent({
         setup: function() {
 
-            const { isWSEstablished } = useWSConnectionStatus();
+            const { isWSEstablished, hasWSIssue } = useWSConnectionStatus();
 
             return {
                 isWSEstablished: isWSEstablished,
+                hasWSIssue: hasWSIssue,
             }
         },
         components: {
