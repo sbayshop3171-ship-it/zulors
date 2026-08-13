@@ -170,10 +170,10 @@
 
                 try {
                     if(hasInstantPosts) {
-                        await timelineStore.refreshFirstPage({
+                        timelineStore.refreshFirstPage({
                             refreshReason: 'open',
                             attempts: 1
-                        });
+                        }).catch(() => {});
                     }
                     else {
                         await timelineStore.initialLoad();

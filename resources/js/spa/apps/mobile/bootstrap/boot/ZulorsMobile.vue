@@ -73,12 +73,25 @@
                 }
             };
 
+			const hydrateInstantHomeFeed = () => {
+				if(timelineStore.posts.length) {
+					return true;
+				}
+
+				if(timelineStore.hydrateBootFeed(appStore.appData?.home_feed ?? null)) {
+					return true;
+				}
+
+				return timelineStore.hydrateBootFeed(window.__zulorsBoot?.sharedFeed ?? null);
+			};
+
 			const revealAppShell = () => {
 				if(appShellReady) {
 					return;
 				}
 
 				appShellReady = true;
+				hydrateInstantHomeFeed();
 				primeHomeFeed();
 				appLoading.value = false;
 
@@ -89,6 +102,7 @@
 
 			const primeHomeFeed = () => {
 				if(authStore.authCheck) {
+					hydrateInstantHomeFeed();
 					timelineStore.warmFirstPage().catch(() => {});
 				}
 			};
