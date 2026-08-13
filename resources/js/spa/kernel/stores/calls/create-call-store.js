@@ -293,6 +293,8 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.isAnswering = true;
             this.status = 'connecting';
             this.stopRingingFeedback();
+            this.startConnectionTimeoutTimer();
+            this.startConnectingSyncTimer();
             await this.yieldToUiFrame();
 
             try {

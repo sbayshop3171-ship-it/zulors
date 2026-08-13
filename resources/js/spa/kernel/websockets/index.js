@@ -13,7 +13,37 @@ window.ColibriBRState = createConnectionSnapshot();
 window.Pusher = Pusher;
 window.Echo = Echo;
 Pusher.logToConsole = import.meta.env.PUSHER_DEBUG_CONSOLE;
-const REVERB_CONNECTION_STATUS = import.meta.env.VITE_REVERB_CONNECTION_STATUS;
+
+const runtimeReverbConfig = () => {
+    const runtime = window.__zulorsRealtime?.reverb || window.BackendEmbeds?.config?.reverb || {};
+    const browserHost = window.location.hostname;
+    const browserScheme = window.location.protocol === 'https:' ? 'https' : 'http';
+    const isLoopbackHost = (host) => ['127.0.0.1', 'localhost', '0.0.0.0', '::1'].includes(String(host || '').trim().toLowerCase());
+    const normalizeScheme = (scheme) => ['http', 'https'].includes(String(scheme || '').trim())
+        ? String(scheme).trim()
+        : browserScheme;
+    const hasRuntimeHost = Boolean(runtime.host);
+    const scheme = normalizeScheme(runtime.scheme || import.meta.env.VITE_REVERB_SCHEME || browserScheme);
+    let host = runtime.host || import.meta.env.VITE_REVERB_HOST || browserHost;
+    let port = Number(runtime.port || import.meta.env.VITE_REVERB_PORT || (scheme === 'https' ? 443 : 80));
+
+    if(! hasRuntimeHost && isLoopbackHost(host) && ! isLoopbackHost(browserHost)) {
+        host = browserHost;
+        port = scheme === 'https' ? 443 : 80;
+    }
+
+    const enabled = typeof runtime.enabled === 'boolean'
+        ? runtime.enabled
+        : import.meta.env.VITE_REVERB_CONNECTION_STATUS === 'on';
+
+    return {
+        enabled: enabled,
+        key: runtime.app_key || runtime.key || import.meta.env.VITE_REVERB_APP_KEY,
+        host: host,
+        port: Number.isFinite(port) && port > 0 ? port : (scheme === 'https' ? 443 : 80),
+        scheme: scheme
+    };
+};
 
 const setWSConnectionStatus = (nextState = {}) => {
     const previousState = window.ColibriBRState ?? createConnectionSnapshot();
@@ -37,15 +67,17 @@ const setWSConnectionStatus = (nextState = {}) => {
 };
 
 try {
-    if (REVERB_CONNECTION_STATUS == 'on') {
+    const reverbConfig = runtimeReverbConfig();
+
+    if (reverbConfig.enabled && reverbConfig.key && reverbConfig.host) {
         window.ColibriBRD = new Echo({
             namespace: 'null',
             broadcaster: 'reverb',
-            key: import.meta.env.VITE_REVERB_APP_KEY,
-            wsHost: import.meta.env.VITE_REVERB_HOST,
-            wsPort: import.meta.env.VITE_REVERB_PORT ?? 80,
-            wssPort: import.meta.env.VITE_REVERB_PORT ?? 443,
-            forceTLS: (import.meta.env.VITE_REVERB_SCHEME ?? 'https') === 'https',
+            key: reverbConfig.key,
+            wsHost: reverbConfig.host,
+            wsPort: reverbConfig.port,
+            wssPort: reverbConfig.port,
+            forceTLS: reverbConfig.scheme === 'https',
             enabledTransports: ['ws', 'wss'],
             cluster: false
         });

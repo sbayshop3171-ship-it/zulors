@@ -10,6 +10,9 @@
     $sharedFeedCacheTtl = 1000 * 60 * 20;
     $bootBootstrapUrl = url('/api/bootstrap/bootstrap');
     $sharedFeedUrl = url('/api/bootstrap/home-feed-seed');
+    $runtimeReverb = config('realtime.reverb', []);
+    $runtimeReverbScheme = $runtimeReverb['scheme'] ?: (request()->isSecure() ? 'https' : 'http');
+    $runtimeReverbPort = $runtimeReverb['port'] ?: ($runtimeReverbScheme === 'https' ? 443 : 80);
 @endphp
 
 <link rel="preload" href="{{ $logotypeUrl }}" as="image" fetchpriority="high">
@@ -26,6 +29,16 @@
         var bootstrapUrl = @json($bootBootstrapUrl);
         var sharedFeedUrl = @json($sharedFeedUrl);
         var bootState = window.__zulorsBoot = window.__zulorsBoot || {};
+
+        window.__zulorsRealtime = {
+            reverb: {
+                enabled: @json((bool) ($runtimeReverb['enabled'] ?? false) && filled($runtimeReverb['app_key'] ?? null)),
+                app_key: @json($runtimeReverb['app_key'] ?? null),
+                host: @json(($runtimeReverb['host'] ?? null) ?: request()->getHost()),
+                port: @json((int) $runtimeReverbPort),
+                scheme: @json($runtimeReverbScheme)
+            }
+        };
 
         bootState.variant = variant;
         bootState.cacheKey = cacheKey;
