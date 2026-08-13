@@ -6,7 +6,7 @@ import { useTimelineStore } from '@D/store/timeline/timeline.store.js';
 
 const bootstrapCacheKey = 'colibri.desktop.bootstrap.v1';
 const bootstrapCacheTtl = 1000 * 60 * 15;
-const bootstrapHomeFeedTtl = 1000 * 45;
+const bootstrapHomeFeedTtl = 1000 * 60 * 5;
 
 const wait = (timeout) => {
     return new Promise((resolve) => {

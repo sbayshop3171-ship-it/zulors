@@ -15,8 +15,8 @@ const getPublicFeedCacheKey = function() {
 };
 
 const timelineCacheLimit = 30;
-const timelineCacheTtl = 1000 * 45;
-const sharedFeedCacheTtl = 1000 * 30;
+const timelineCacheTtl = 1000 * 60 * 5;
+const sharedFeedCacheTtl = 1000 * 60 * 20;
 
 const createFeedSessionId = function() {
     return `feed-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -174,6 +174,12 @@ const useTimelineStore = defineStore('timeline_store', {
 
                 if(! this.posts.length) {
                     await waitForBootBootstrap();
+
+                    const bootstrapSeedFeed = bootSharedFeed();
+
+                    if(bootstrapSeedFeed?.posts?.length) {
+                        this.hydrateBootFeed(bootstrapSeedFeed);
+                    }
                 }
 
                 if(this.posts.length) {

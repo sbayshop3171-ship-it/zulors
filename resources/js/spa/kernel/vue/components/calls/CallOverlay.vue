@@ -167,10 +167,11 @@
 
                 lastControlActionAt.value = now;
 
-                try {
-                    callback?.();
-                }
-                catch(error) {}
+                window.setTimeout(() => {
+                    Promise.resolve()
+                        .then(() => callback?.())
+                        .catch(() => {});
+                }, 0);
 
                 return true;
             };

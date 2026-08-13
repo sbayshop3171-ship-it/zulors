@@ -312,6 +312,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 await this.yieldToUiFrame();
                 this.runPeerSetupInBackground({
                     callUuid: callUuid,
+                    taskKey: 'answer-ready',
                     delayMs: peerSetupDrainDelayMs,
                     onErrorMessage: 'Unable to start audio call.',
                     afterSetup: async () => {
@@ -580,6 +581,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     await this.yieldToUiFrame();
                     this.runPeerSetupInBackground({
                         callUuid: call.call_uuid,
+                        taskKey: 'caller-offer',
                         delayMs: peerSetupDrainDelayMs,
                         onErrorMessage: 'Unable to connect audio call.',
                         afterSetup: async () => {
@@ -618,12 +620,16 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             return false;
         },
-        runPeerSetupInBackground: function({ callUuid = null, afterSetup = null, afterFinally = null, onErrorMessage = 'Unable to connect audio call.', delayMs = peerSetupDrainDelayMs } = {}) {
+        runPeerSetupInBackground: function({ callUuid = null, taskKey = null, afterSetup = null, afterFinally = null, onErrorMessage = 'Unable to connect audio call.', delayMs = peerSetupDrainDelayMs } = {}) {
             if(! callUuid || typeof window === 'undefined') {
                 return false;
             }
 
             const alreadyQueued = this.pendingPeerSetupTasks.some((task) => {
+                if(taskKey) {
+                    return task?.callUuid === callUuid && task?.taskKey === taskKey;
+                }
+
                 return task?.callUuid === callUuid
                     && task?.afterSetup === afterSetup
                     && task?.afterFinally === afterFinally;
@@ -635,6 +641,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             this.pendingPeerSetupTasks.push({
                 callUuid: callUuid,
+                taskKey: taskKey,
                 afterSetup: typeof afterSetup === 'function' ? afterSetup : null,
                 afterFinally: typeof afterFinally === 'function' ? afterFinally : null,
                 onErrorMessage: onErrorMessage
@@ -737,6 +744,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             this.runPeerSetupInBackground({
                 callUuid: this.call.call_uuid,
+                taskKey: 'ice-drain',
                 delayMs: peerSetupDrainDelayMs,
                 onErrorMessage: 'Unable to connect audio call.',
                 afterSetup: async () => {
@@ -810,6 +818,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 if(data.signal_type === 'offer') {
                     this.runPeerSetupInBackground({
                         callUuid: this.call?.call_uuid,
+                        taskKey: 'remote-offer',
                         delayMs: peerSetupDrainDelayMs,
                         onErrorMessage: 'Unable to connect audio call.',
                         afterSetup: async () => {
@@ -821,6 +830,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 else if(data.signal_type === 'answer') {
                     this.runPeerSetupInBackground({
                         callUuid: this.call?.call_uuid,
+                        taskKey: 'remote-answer',
                         delayMs: peerSetupDrainDelayMs,
                         onErrorMessage: 'Unable to connect audio call.',
                         afterSetup: async () => {
@@ -838,6 +848,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 else if(data.signal_type === 'ready' && this.call?.initiator_id === this.currentUserId) {
                     this.runPeerSetupInBackground({
                         callUuid: this.call?.call_uuid,
+                        taskKey: 'ready-offer',
                         delayMs: peerSetupDrainDelayMs,
                         onErrorMessage: 'Unable to connect audio call.',
                         afterSetup: async () => {
@@ -1437,6 +1448,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 if(options.setupIfNeeded && ['accepted', 'connecting', 'connected'].includes(call.status) && ! this.peer && ! this.peerSetupPromise) {
                     this.runPeerSetupInBackground({
                         callUuid: call.call_uuid,
+                        taskKey: 'reconcile-setup',
                         delayMs: reconnectPeerSetupDrainDelayMs,
                         onErrorMessage: 'Unable to recover audio call.',
                         afterSetup: async () => {
@@ -1515,6 +1527,12 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.stopHeartbeatTimer();
             this.stopConnectingSyncTimer();
             this.isAnswering = false;
+            this.pendingPeerSetupTasks = [];
+            this.peerSetupDrainScheduled = false;
+            this.pendingIceSignals = [];
+            this.iceSignalDrainScheduled = false;
+            this.pendingOutgoingIceSignals = [];
+            this.outgoingIceSignalDrainScheduled = false;
             this.cleanupMediaSession();
             this.stopDurationTimer();
             this.detachRealtimeChannel();

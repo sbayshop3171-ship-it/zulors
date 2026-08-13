@@ -29,7 +29,7 @@ class BootstrapController extends Controller
     use SupportsApiResponses;
 
     private const PUBLIC_HOME_FEED_SEED_CACHE_KEY = 'bootstrap.public_home_feed_seed.v2';
-    private const PUBLIC_HOME_FEED_SEED_TTL_SECONDS = 300;
+    private const PUBLIC_HOME_FEED_SEED_TTL_SECONDS = 1800;
 
     public function bootstrap()
     {
