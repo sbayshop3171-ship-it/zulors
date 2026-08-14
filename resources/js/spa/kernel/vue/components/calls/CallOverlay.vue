@@ -201,7 +201,7 @@
                     return 0;
                 }
 
-                return props.callStore.hasNativeAudioBridge ? 1 : (props.callStore.speakerEnabled ? 1 : 0);
+                return 1;
             };
 
             watch(() => props.callStore.remoteStream, attachRemoteStream, {

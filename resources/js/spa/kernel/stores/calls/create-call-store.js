@@ -156,6 +156,17 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         isOutgoing: function() {
             return this.direction === 'outgoing' && this.status === 'ringing';
         },
+        shouldSyncPendingCallState: function() {
+            if(! this.call?.call_uuid) {
+                return false;
+            }
+
+            if(['accepted', 'connecting'].includes(this.status)) {
+                return true;
+            }
+
+            return this.direction === 'outgoing' && this.status === 'ringing';
+        },
         isActive: function() {
             return ['accepted', 'connecting', 'connected'].includes(this.status);
         },
@@ -1678,11 +1689,17 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         syncCallSideEffects: function() {
             if(this.status === 'ringing') {
                 this.stopConnectionTimeoutTimer();
-                this.stopConnectingSyncTimer();
                 this.stopRemoteAudioWatchdog();
                 this.stopDegradedConnectionTimeoutTimer();
                 this.startRingTimeoutTimer();
                 this.startRingingFeedback();
+
+                if(this.direction === 'outgoing') {
+                    this.startConnectingSyncTimer();
+                }
+                else {
+                    this.stopConnectingSyncTimer();
+                }
 
                 return;
             }
@@ -1889,7 +1906,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.stopDegradedConnectionTimeoutTimer();
         },
         startConnectingSyncTimer: function() {
-            if(this.connectingSyncTimer || ! this.call?.call_uuid || ! ['accepted', 'connecting'].includes(this.status)) {
+            if(this.connectingSyncTimer || ! this.shouldSyncPendingCallState) {
                 return;
             }
 
@@ -1901,10 +1918,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             window.setTimeout(() => {
                 if(
-                    ! this.call?.call_uuid
+                    ! this.shouldSyncPendingCallState
                     || this.isFinal
-                    || ! ['accepted', 'connecting'].includes(this.status)
-                    || this.isAnswering
+                    || (this.isAnswering && this.direction === 'incoming')
                 ) {
                     return;
                 }

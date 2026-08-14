@@ -317,6 +317,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     let remoteAudioTrack = null;
     let localStream = null;
     let remoteStream = null;
+    let remoteMediaTrackId = null;
     let remoteOutputElement = null;
     let AgoraRTCModule = null;
     let joined = false;
@@ -361,6 +362,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         localAudioTrack = null;
         localStream = null;
         remoteStream = null;
+        remoteMediaTrackId = null;
         remoteUid = null;
         joined = false;
 
@@ -470,8 +472,22 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     };
 
     const publishRemoteStream = () => {
-        remoteStream = streamFromTrack(remoteAudioTrack);
-        const mediaTrack = remoteStream?.getAudioTracks?.()?.[0] || null;
+        const mediaTrack = remoteAudioTrack?.getMediaStreamTrack?.() || null;
+
+        if(! mediaTrack) {
+            remoteStream = null;
+            remoteMediaTrackId = null;
+
+            return null;
+        }
+
+        const nextTrackId = String(mediaTrack.id || `${remoteUid || 'remote'}:audio`);
+
+        if(! remoteStream || remoteMediaTrackId !== nextTrackId) {
+            remoteStream = new MediaStream([mediaTrack]);
+            remoteMediaTrackId = nextTrackId;
+            emit('onRemoteStream', remoteStream);
+        }
 
         if(mediaTrack) {
             mediaTrack.onmute = () => {
@@ -499,9 +515,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             };
         }
 
-        if(remoteStream) {
-            emit('onRemoteStream', remoteStream);
-        }
+        return remoteStream;
     };
 
     const playRemoteAudio = () => {
@@ -510,6 +524,16 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         processRemoteOutputAEC();
 
         if(remoteOutputElement && remoteStream) {
+            try {
+                if(remoteOutputElement.srcObject !== remoteStream) {
+                    remoteOutputElement.srcObject = remoteStream;
+                }
+
+                remoteOutputElement.volume = 1;
+                remoteOutputElement.play?.().catch(() => {});
+            }
+            catch(error) {}
+
             stopRemoteAudioTrackPlayback();
 
             return;
@@ -565,7 +589,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             return false;
         }
 
-        if(! user.audioTrack && user.hasAudio !== true) {
+        if(! user.audioTrack && user.hasAudio === false) {
             return false;
         }
 
@@ -653,7 +677,11 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
 
         client.on('user-published', async (user, mediaType) => {
             if(mediaType === 'audio') {
-                await subscribeToRemoteAudio(user);
+                const attached = await subscribeToRemoteAudio(user);
+
+                if(! attached) {
+                    startRemoteUserSweep();
+                }
             }
         });
 
@@ -675,6 +703,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                 remoteAudioTrack?.stop?.();
                 remoteAudioTrack = null;
                 remoteStream = null;
+                remoteMediaTrackId = null;
                 emit('onRemoteStream', null);
                 emit('onReconnectState', 'reconnecting');
                 startRemoteUserSweep();
@@ -690,6 +719,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                 remoteAudioTrack?.stop?.();
                 remoteAudioTrack = null;
                 remoteStream = null;
+                remoteMediaTrackId = null;
                 emit('onRemoteStream', null);
                 emit('onReconnectState', 'reconnecting');
                 startRemoteUserSweep();
@@ -842,6 +872,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         remoteAudioTrack = null;
         localStream = null;
         remoteStream = null;
+        remoteMediaTrackId = null;
         remoteUid = null;
         joined = false;
         latestNetworkQuality = null;
@@ -876,6 +907,11 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         attachRemoteOutputElement: (element) => {
             remoteOutputElement = element || null;
             processRemoteOutputAEC();
+            applyRemoteOutputVolume();
+
+            if(remoteAudioTrack && ! remoteStream) {
+                publishRemoteStream();
+            }
 
             if(remoteAudioTrack) {
                 playRemoteAudio();
