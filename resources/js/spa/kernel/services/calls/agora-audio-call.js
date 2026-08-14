@@ -12,6 +12,7 @@ const agoraJoinTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_J
 const agoraTrackTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_TRACK_TIMEOUT_MS, 12000);
 const agoraPublishTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_PUBLISH_TIMEOUT_MS, 12000);
 const agoraRemoteSweepIntervalMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_REMOTE_SWEEP_INTERVAL_MS, 1000);
+const agoraPreferredAudioLatency = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_AUDIO_LATENCY, 0.02);
 const agoraSpeechEncoderConfig = {
     sampleRate: parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_AUDIO_SAMPLE_RATE, 48000),
     stereo: false,
@@ -163,6 +164,107 @@ const stopMediaStream = (stream) => {
     });
 };
 
+const applySpeechTrackHints = (stream) => {
+    stream?.getAudioTracks?.().forEach((track) => {
+        try {
+            track.contentHint = 'speech';
+        }
+        catch(error) {}
+    });
+};
+
+const buildPreferredAudioConstraints = (lightweight = false) => {
+    const baseConstraints = {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: { ideal: 1 },
+        sampleRate: { ideal: agoraSpeechEncoderConfig.sampleRate },
+        sampleSize: { ideal: 16 },
+        latency: { ideal: agoraPreferredAudioLatency }
+    };
+
+    if(lightweight) {
+        return baseConstraints;
+    }
+
+    return {
+        ...baseConstraints,
+        voiceIsolation: { ideal: true },
+        googEchoCancellation: true,
+        googEchoCancellation2: true,
+        googDAEchoCancellation: true,
+        googAutoGainControl: true,
+        googAutoGainControl2: true,
+        googNoiseSuppression: true,
+        googNoiseSuppression2: true,
+        googHighpassFilter: true,
+        googTypingNoiseDetection: true
+    };
+};
+
+const requestPreferredAudioCaptureStream = async () => {
+    const useLightweightConstraints = hasNativeCallAudioBridge() || isLikelyMobileCallClient();
+    const attempts = useLightweightConstraints
+        ? [
+            {
+                audio: buildPreferredAudioConstraints(true)
+            },
+            {
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
+            },
+            {
+                audio: true
+            }
+        ]
+        : [
+            {
+                audio: buildPreferredAudioConstraints(false)
+            },
+            {
+                audio: buildPreferredAudioConstraints(true)
+            },
+            {
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true
+                }
+            },
+            {
+                audio: true
+            }
+        ];
+    let lastError = null;
+
+    for(const constraints of attempts) {
+        try {
+            const stream = await withTimeout(
+                navigator.mediaDevices.getUserMedia(constraints),
+                agoraPermissionTimeoutMs,
+                'Microphone permission request timed out.'
+            );
+
+            applySpeechTrackHints(stream);
+
+            return stream;
+        }
+        catch(error) {
+            lastError = error;
+
+            if(['NotAllowedError', 'PermissionDeniedError', 'SecurityError', 'NotFoundError', 'DevicesNotFoundError', 'TimeoutError'].includes(error?.name || '')) {
+                break;
+            }
+        }
+    }
+
+    throw userFriendlyAgoraMediaError(lastError);
+};
+
 const userFriendlyAgoraMediaError = (error) => {
     if(error?.__zulorsSilentCallToast) {
         return error;
@@ -195,60 +297,10 @@ const userFriendlyAgoraMediaError = (error) => {
 };
 
 const requestMicrophoneWarmup = async () => {
-    if(hasNativeCallAudioBridge() || isLikelyMobileCallClient()) {
-        return true;
-    }
-
-    const attempts = [
-        {
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true,
-                channelCount: { ideal: 1 },
-                sampleRate: { ideal: 48000 },
-                sampleSize: { ideal: 16 },
-                latency: { ideal: 0.02 }
-            }
-        },
-        {
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true
-            }
-        },
-        {
-            audio: true
-        }
-    ];
-    let lastError = null;
-
-    for(const constraints of attempts) {
-        try {
-            const stream = await withTimeout(
-                navigator.mediaDevices.getUserMedia(constraints),
-                agoraPermissionTimeoutMs,
-                'Microphone permission request timed out.'
-            );
-
-            stopMediaStream(stream);
-
-            return true;
-        }
-        catch(error) {
-            lastError = error;
-
-            if(['NotAllowedError', 'PermissionDeniedError', 'SecurityError', 'NotFoundError', 'DevicesNotFoundError', 'TimeoutError'].includes(error?.name || '')) {
-                break;
-            }
-        }
-    }
-
-    throw userFriendlyAgoraMediaError(lastError);
+    return requestPreferredAudioCaptureStream();
 };
 
-const createMicrophoneTrackWithFallback = async (AgoraRTC) => {
+const createMicrophoneTrackWithFallback = async (AgoraRTC, prewarmedStream = null) => {
     const configs = [
         {
             AEC: true,
@@ -264,14 +316,34 @@ const createMicrophoneTrackWithFallback = async (AgoraRTC) => {
         {}
     ];
     let lastError = null;
+    const prewarmedAudioTrack = prewarmedStream?.getAudioTracks?.()?.[0] || null;
+
+    if(prewarmedAudioTrack && AgoraRTC?.createCustomAudioTrack) {
+        try {
+            return {
+                track: AgoraRTC.createCustomAudioTrack({
+                    mediaStreamTrack: prewarmedAudioTrack,
+                    encoderConfig: agoraSpeechEncoderConfig
+                }),
+                captureStream: prewarmedStream
+            };
+        }
+        catch(error) {
+            lastError = error;
+            stopMediaStream(prewarmedStream);
+        }
+    }
 
     for(const config of configs) {
         try {
-            return await withTimeout(
+            return {
+                track: await withTimeout(
                 AgoraRTC.createMicrophoneAudioTrack(config),
                 agoraTrackTimeoutMs,
                 'Microphone took too long to start.'
-            );
+                ),
+                captureStream: null
+            };
         }
         catch(error) {
             lastError = error;
@@ -314,6 +386,7 @@ const classifyAgoraNetworkQuality = (quality = null) => {
 const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     let client = null;
     let localAudioTrack = null;
+    let localCaptureStream = null;
     let remoteAudioTrack = null;
     let localStream = null;
     let remoteStream = null;
@@ -353,6 +426,8 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         }
         catch(error) {}
 
+        stopMediaStream(localCaptureStream);
+
         try {
             client?.leave?.();
         }
@@ -360,6 +435,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
 
         remoteAudioTrack = null;
         localAudioTrack = null;
+        localCaptureStream = null;
         localStream = null;
         remoteStream = null;
         remoteMediaTrackId = null;
@@ -776,7 +852,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         }
 
         try {
-            await requestMicrophoneWarmup();
+            localCaptureStream = await requestMicrophoneWarmup();
             throwIfClosing();
             await yieldToBrowser();
 
@@ -815,9 +891,12 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             throwIfClosing();
             await yieldToBrowser();
 
-            localAudioTrack = await createMicrophoneTrackWithFallback(AgoraRTC);
+            const localTrackResult = await createMicrophoneTrackWithFallback(AgoraRTC, localCaptureStream);
             throwIfClosing();
             await yieldToBrowser();
+
+            localAudioTrack = localTrackResult?.track || null;
+            localCaptureStream = localTrackResult?.captureStream || localCaptureStream;
 
             if(isMuted) {
                 await localAudioTrack.setEnabled(false);
@@ -846,6 +925,8 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             return true;
         }
         catch(error) {
+            close();
+
             throw userFriendlyAgoraMediaError(error);
         }
     };
@@ -865,10 +946,13 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         }
         catch(error) {}
 
+        stopMediaStream(localCaptureStream);
+
         const activeClient = client;
 
         client = null;
         localAudioTrack = null;
+        localCaptureStream = null;
         remoteAudioTrack = null;
         localStream = null;
         remoteStream = null;
