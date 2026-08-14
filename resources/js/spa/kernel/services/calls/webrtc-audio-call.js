@@ -1,10 +1,10 @@
 const defaultIceServers = [
     { urls: 'stun:stun.l.google.com:19302' }
 ];
-const defaultAudioBitrate = 64000;
-const defaultLowBandwidthAudioBitrate = 32000;
-const defaultMinimumAudioBitrate = 24000;
-const preferredSampleRate = 48000;
+const defaultAudioBitrate = 24000;
+const defaultLowBandwidthAudioBitrate = 18000;
+const defaultMinimumAudioBitrate = 16000;
+const preferredSampleRate = 16000;
 const preferredAudioLatency = 0.02;
 const defaultQualityMonitorIntervalMs = 3000;
 const defaultReconnectGraceMs = 40000;
@@ -27,18 +27,39 @@ const parsePositiveInteger = (value, defaultValue) => {
     return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : defaultValue;
 };
 
-const preferredAudioBitrate = parsePositiveInteger(
-    import.meta.env.VITE_CALL_AUDIO_BITRATE,
-    defaultAudioBitrate
-);
-const lowBandwidthAudioBitrate = parsePositiveInteger(
-    import.meta.env.VITE_CALL_LOW_BANDWIDTH_AUDIO_BITRATE,
-    defaultLowBandwidthAudioBitrate
-);
-const minimumAudioBitrate = parsePositiveInteger(
+const clampAudioBitrate = (value, defaultValue, minimum, maximum) => {
+    const bitrate = parsePositiveInteger(value, defaultValue);
+
+    return Math.max(minimum, Math.min(maximum, bitrate));
+};
+
+const normalizePreferredSampleRate = (value, defaultValue = preferredSampleRate) => {
+    const sampleRate = parsePositiveInteger(value, defaultValue);
+
+    return [16000, 32000, 48000].includes(sampleRate)
+        ? sampleRate
+        : defaultValue;
+};
+
+const minimumAudioBitrate = clampAudioBitrate(
     import.meta.env.VITE_CALL_MIN_AUDIO_BITRATE,
+    defaultMinimumAudioBitrate,
+    12000,
     defaultMinimumAudioBitrate
 );
+const lowBandwidthAudioBitrate = clampAudioBitrate(
+    import.meta.env.VITE_CALL_LOW_BANDWIDTH_AUDIO_BITRATE,
+    defaultLowBandwidthAudioBitrate,
+    minimumAudioBitrate,
+    defaultLowBandwidthAudioBitrate
+);
+const preferredAudioBitrate = clampAudioBitrate(
+    import.meta.env.VITE_CALL_AUDIO_BITRATE,
+    defaultAudioBitrate,
+    lowBandwidthAudioBitrate,
+    defaultAudioBitrate
+);
+const preferredAudioSampleRate = normalizePreferredSampleRate(import.meta.env.VITE_CALL_AUDIO_SAMPLE_RATE);
 const qualityMonitorIntervalMs = parsePositiveInteger(
     import.meta.env.VITE_CALL_QUALITY_MONITOR_INTERVAL,
     defaultQualityMonitorIntervalMs
@@ -311,7 +332,7 @@ const requestLocalMediaStream = async (mediaType = 'audio') => {
         noiseSuppression: true,
         autoGainControl: true,
         channelCount: { ideal: 1 },
-        sampleRate: { ideal: preferredSampleRate },
+        sampleRate: { ideal: preferredAudioSampleRate },
         sampleSize: { ideal: 16 },
         latency: { ideal: preferredAudioLatency },
         voiceIsolation: { ideal: true },
@@ -418,7 +439,7 @@ const createInteractiveAudioContext = () => {
     try {
         return new AudioContext({
             latencyHint: 'interactive',
-            sampleRate: preferredSampleRate
+            sampleRate: preferredAudioSampleRate
         });
     }
     catch(error) {

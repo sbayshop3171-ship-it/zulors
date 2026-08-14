@@ -4,12 +4,100 @@ const parsePositiveNumber = (value, defaultValue) => {
     return Number.isFinite(number) && number > 0 ? number : defaultValue;
 };
 
+const parsePositiveInteger = (value, defaultValue) => {
+    const number = Number.parseInt(value, 10);
+
+    return Number.isFinite(number) && number > 0 ? number : defaultValue;
+};
+
 const parseBooleanEnv = (value, defaultValue = true) => {
     if(value === undefined || value === null || value === '') {
         return defaultValue;
     }
 
     return ! ['false', '0', 'off', 'no'].includes(String(value).toLowerCase());
+};
+
+const agoraSupportedAreaCodes = new Set([
+    'GLOBAL',
+    'CHINA',
+    'NORTH_AMERICA',
+    'EUROPE',
+    'ASIA',
+    'JAPAN',
+    'INDIA'
+]);
+const agoraAudioEncoderPresets = {
+    speech_low_quality: {
+        sampleRate: 16000,
+        stereo: false,
+        bitrate: 24
+    },
+    speech_standard: {
+        sampleRate: 32000,
+        stereo: false,
+        bitrate: 24
+    },
+    music_standard: {
+        sampleRate: 48000,
+        stereo: false,
+        bitrate: 32
+    },
+    standard_stereo: {
+        sampleRate: 48000,
+        stereo: true,
+        bitrate: 64
+    },
+    high_quality: {
+        sampleRate: 48000,
+        stereo: false,
+        bitrate: 128
+    },
+    high_quality_stereo: {
+        sampleRate: 48000,
+        stereo: true,
+        bitrate: 192
+    }
+};
+const normalizeAgoraAreaCode = (value, fallback = '') => {
+    const normalizedValue = String(value ?? fallback ?? '')
+        .trim()
+        .replaceAll('-', '_')
+        .replaceAll(' ', '_')
+        .toUpperCase();
+
+    if(! normalizedValue) {
+        return '';
+    }
+
+    return agoraSupportedAreaCodes.has(normalizedValue)
+        ? normalizedValue
+        : String(fallback || '').trim().toUpperCase();
+};
+const normalizeAgoraAudioEncoderProfile = (value, fallback = 'speech_low_quality') => {
+    const normalizedValue = String(value ?? fallback ?? '')
+        .trim()
+        .toLowerCase();
+
+    if(agoraAudioEncoderPresets[normalizedValue]) {
+        return normalizedValue;
+    }
+
+    return agoraAudioEncoderPresets[fallback]
+        ? fallback
+        : 'speech_low_quality';
+};
+const normalizeAgoraAudioSampleRate = (value, fallback = 16000) => {
+    const sampleRate = parsePositiveInteger(value, fallback);
+
+    return [16000, 32000, 48000].includes(sampleRate)
+        ? sampleRate
+        : fallback;
+};
+const clampAgoraAudioBitrateKbps = (value, fallback = 20, minimum = 12, maximum = 192) => {
+    const bitrate = parsePositiveInteger(value, fallback);
+
+    return Math.max(minimum, Math.min(maximum, bitrate));
 };
 
 const qualityMonitorIntervalMs = parsePositiveNumber(import.meta.env.VITE_CALL_QUALITY_MONITOR_INTERVAL, 3000);
@@ -23,10 +111,24 @@ const agoraRemoteSweepIntervalMs = parsePositiveNumber(import.meta.env.VITE_AGOR
 const agoraPreferredAudioLatency = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_AUDIO_LATENCY, 0.02);
 const enableVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_AUDIO_PROCESSING, false);
 const enableNativeAppVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_NATIVE_APP_AUDIO_PROCESSING, false);
-const agoraSpeechEncoderConfig = {
-    sampleRate: parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_AUDIO_SAMPLE_RATE, 48000),
-    stereo: false,
-    bitrate: parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_AUDIO_BITRATE, 32)
+const defaultAgoraAreaCode = normalizeAgoraAreaCode(import.meta.env.VITE_AGORA_CALL_AREA_CODE, 'GLOBAL');
+const defaultAgoraExcludedArea = normalizeAgoraAreaCode(import.meta.env.VITE_AGORA_CALL_EXCLUDED_AREA, '');
+const defaultAgoraAudioEncoderProfile = normalizeAgoraAudioEncoderProfile(
+    import.meta.env.VITE_AGORA_CALL_AUDIO_ENCODER_PROFILE,
+    'speech_low_quality'
+);
+const defaultAgoraSpeechEncoderConfig = {
+    ...agoraAudioEncoderPresets[defaultAgoraAudioEncoderProfile],
+    sampleRate: normalizeAgoraAudioSampleRate(
+        import.meta.env.VITE_AGORA_CALL_AUDIO_SAMPLE_RATE,
+        agoraAudioEncoderPresets[defaultAgoraAudioEncoderProfile].sampleRate
+    ),
+    bitrate: clampAgoraAudioBitrateKbps(
+        import.meta.env.VITE_AGORA_CALL_AUDIO_BITRATE,
+        20,
+        12,
+        32
+    )
 };
 let agoraRtcPromise = null;
 
@@ -183,7 +285,58 @@ const applySpeechTrackHints = (stream) => {
     });
 };
 
-const createInteractiveAudioContext = () => {
+const resolveAgoraEncoderConfig = (mediaSession = {}) => {
+    const profile = normalizeAgoraAudioEncoderProfile(
+        mediaSession.audio_encoder_profile,
+        defaultAgoraAudioEncoderProfile
+    );
+    const preset = agoraAudioEncoderPresets[profile] || agoraAudioEncoderPresets.speech_low_quality;
+
+    return {
+        sampleRate: normalizeAgoraAudioSampleRate(
+            mediaSession.audio_sample_rate,
+            preset.sampleRate || defaultAgoraSpeechEncoderConfig.sampleRate
+        ),
+        stereo: Boolean(mediaSession.audio_stereo ?? preset.stereo ?? false),
+        bitrate: clampAgoraAudioBitrateKbps(
+            mediaSession.audio_bitrate_kbps,
+            preset.bitrate || defaultAgoraSpeechEncoderConfig.bitrate,
+            12,
+            Math.max(32, Number(preset.bitrate || defaultAgoraSpeechEncoderConfig.bitrate))
+        )
+    };
+};
+
+const applyAgoraRegionPreference = (AgoraRTC, mediaSession = {}) => {
+    if(typeof AgoraRTC?.setArea !== 'function') {
+        return;
+    }
+
+    const areaCode = normalizeAgoraAreaCode(mediaSession.area_code, defaultAgoraAreaCode);
+    const excludedArea = normalizeAgoraAreaCode(mediaSession.excluded_area, defaultAgoraExcludedArea);
+
+    if(! areaCode) {
+        return;
+    }
+
+    try {
+        if(areaCode === 'GLOBAL' && excludedArea && excludedArea !== 'GLOBAL') {
+            AgoraRTC.setArea({
+                areaCode: areaCode,
+                excludedArea: excludedArea
+            });
+
+            return;
+        }
+
+        AgoraRTC.setArea({
+            areaCode: areaCode
+        });
+    }
+    catch(error) {}
+};
+
+const createInteractiveAudioContext = (sampleRate = defaultAgoraSpeechEncoderConfig.sampleRate) => {
     if(typeof window === 'undefined') {
         return null;
     }
@@ -197,7 +350,7 @@ const createInteractiveAudioContext = () => {
     try {
         return new AudioContext({
             latencyHint: 'interactive',
-            sampleRate: agoraSpeechEncoderConfig.sampleRate
+            sampleRate: sampleRate
         });
     }
     catch(error) {
@@ -228,7 +381,7 @@ const shouldUseCustomVoiceProcessing = () => {
     return true;
 };
 
-const createVoiceProcessedStream = async (rawStream) => {
+const createVoiceProcessedStream = async (rawStream, sampleRate = defaultAgoraSpeechEncoderConfig.sampleRate) => {
     const audioTracks = rawStream?.getAudioTracks?.() || [];
 
     if(
@@ -241,7 +394,7 @@ const createVoiceProcessedStream = async (rawStream) => {
         };
     }
 
-    const context = createInteractiveAudioContext();
+    const context = createInteractiveAudioContext(sampleRate);
 
     if(! context) {
         return {
@@ -315,13 +468,16 @@ const createVoiceProcessedStream = async (rawStream) => {
     }
 };
 
-const buildPreferredAudioConstraints = (lightweight = false) => {
+const buildPreferredAudioConstraints = (
+    lightweight = false,
+    sampleRate = defaultAgoraSpeechEncoderConfig.sampleRate
+) => {
     const baseConstraints = {
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
         channelCount: { ideal: 1 },
-        sampleRate: { ideal: agoraSpeechEncoderConfig.sampleRate },
+        sampleRate: { ideal: sampleRate },
         sampleSize: { ideal: 16 },
         latency: { ideal: agoraPreferredAudioLatency }
     };
@@ -345,12 +501,12 @@ const buildPreferredAudioConstraints = (lightweight = false) => {
     };
 };
 
-const requestPreferredAudioCaptureStream = async () => {
+const requestPreferredAudioCaptureStream = async (sampleRate = defaultAgoraSpeechEncoderConfig.sampleRate) => {
     const useLightweightConstraints = hasNativeCallAudioBridge() || isLikelyMobileCallClient();
     const attempts = useLightweightConstraints
         ? [
             {
-                audio: buildPreferredAudioConstraints(true)
+                audio: buildPreferredAudioConstraints(true, sampleRate)
             },
             {
                 audio: {
@@ -365,10 +521,10 @@ const requestPreferredAudioCaptureStream = async () => {
         ]
         : [
             {
-                audio: buildPreferredAudioConstraints(false)
+                audio: buildPreferredAudioConstraints(false, sampleRate)
             },
             {
-                audio: buildPreferredAudioConstraints(true)
+                audio: buildPreferredAudioConstraints(true, sampleRate)
             },
             {
                 audio: {
@@ -438,8 +594,8 @@ const userFriendlyAgoraMediaError = (error) => {
     return new Error(errorMessage || 'Unable to start microphone.');
 };
 
-const requestMicrophoneWarmup = async () => {
-    return requestPreferredAudioCaptureStream();
+const requestMicrophoneWarmup = async (sampleRate = defaultAgoraSpeechEncoderConfig.sampleRate) => {
+    return requestPreferredAudioCaptureStream(sampleRate);
 };
 
 const setMediaStreamAudioTracksEnabled = (stream, enabled) => {
@@ -452,12 +608,13 @@ const setMediaStreamAudioTracksEnabled = (stream, enabled) => {
 };
 
 const createMicrophoneTrackWithFallback = async (AgoraRTC, prewarmedStream = null, options = {}) => {
+    const encoderConfig = options?.encoderConfig || defaultAgoraSpeechEncoderConfig;
     const configs = [
         {
             AEC: true,
             AGC: true,
             ANS: true,
-            encoderConfig: agoraSpeechEncoderConfig
+            encoderConfig: encoderConfig
         },
         {
             AEC: true,
@@ -475,7 +632,7 @@ const createMicrophoneTrackWithFallback = async (AgoraRTC, prewarmedStream = nul
             return {
                 track: AgoraRTC.createCustomAudioTrack({
                     mediaStreamTrack: prewarmedAudioTrack,
-                    encoderConfig: agoraSpeechEncoderConfig
+                    encoderConfig: encoderConfig
                 }),
                 captureStream: prewarmedStream
             };
@@ -1052,6 +1209,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         }
 
         closing = false;
+        const agoraEncoderConfig = resolveAgoraEncoderConfig(currentMediaSession);
 
         if(mediaType !== 'audio') {
             throw new Error('Only audio calls are available.');
@@ -1065,11 +1223,11 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         const useCustomTrack = shouldUseCustomVoiceProcessing();
 
         if(useCustomTrack) {
-            rawCaptureStream = await requestMicrophoneWarmup();
+            rawCaptureStream = await requestMicrophoneWarmup(agoraEncoderConfig.sampleRate);
             throwIfClosing();
             await yieldToBrowser();
 
-            const processedCapture = await createVoiceProcessedStream(rawCaptureStream);
+            const processedCapture = await createVoiceProcessedStream(rawCaptureStream, agoraEncoderConfig.sampleRate);
 
             throwIfClosing();
 
@@ -1096,6 +1254,8 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                 throw new Error('Agora call media is not configured.');
             }
 
+            applyAgoraRegionPreference(AgoraRTC, currentMediaSession);
+
             client = AgoraRTC.createClient({
                 mode: 'rtc',
                 codec: 'vp8'
@@ -1116,7 +1276,8 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             await yieldToBrowser();
 
             const localTrackResult = await createMicrophoneTrackWithFallback(AgoraRTC, localCaptureStream, {
-                preferCustomTrack: useCustomTrack
+                preferCustomTrack: useCustomTrack,
+                encoderConfig: agoraEncoderConfig
             });
             throwIfClosing();
             await yieldToBrowser();

@@ -451,6 +451,11 @@ class AudioCallsTest extends TestCase
         Config::set('services.calls.agora.app_id', '970CA35de60c44645bbae8a215061b33');
         Config::set('services.calls.agora.app_certificate', '5CFd2fd1755d40ecb72977518be15d3b');
         Config::set('services.calls.agora.token_ttl_seconds', 600);
+        Config::set('services.calls.agora.area_code', 'ASIA');
+        Config::set('services.calls.agora.audio_encoder_profile', 'speech_low_quality');
+        Config::set('services.calls.agora.audio_bitrate_kbps', 20);
+        Config::set('services.calls.agora.audio_bitrate_floor_kbps', 16);
+        Config::set('services.calls.agora.audio_sample_rate', 16000);
 
         Sanctum::actingAs($caller);
 
@@ -460,7 +465,12 @@ class AudioCallsTest extends TestCase
             ->assertJsonPath('data.media.app_id', '970CA35de60c44645bbae8a215061b33')
             ->assertJsonPath('data.media.channel', 'zulors_call_' . str_replace('-', '', $call->call_uuid))
             ->assertJsonPath('data.media.uid', $caller->id)
-            ->assertJsonPath('data.media.token_ttl_seconds', 600);
+            ->assertJsonPath('data.media.token_ttl_seconds', 600)
+            ->assertJsonPath('data.media.area_code', 'ASIA')
+            ->assertJsonPath('data.media.audio_encoder_profile', 'speech_low_quality')
+            ->assertJsonPath('data.media.audio_bitrate_kbps', 20)
+            ->assertJsonPath('data.media.audio_bitrate_floor_kbps', 16)
+            ->assertJsonPath('data.media.audio_sample_rate', 16000);
 
         $this->assertStringStartsWith('007', $response->json('data.media.token'));
         $this->assertNotEmpty($response->json('data.media.expires_at'));

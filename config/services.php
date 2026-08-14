@@ -71,6 +71,12 @@ return [
             'app_id' => env('AGORA_APP_ID'),
             'app_certificate' => env('AGORA_APP_CERTIFICATE'),
             'token_ttl_seconds' => (int) env('AGORA_TOKEN_TTL_SECONDS', 3600),
+            'area_code' => env('AGORA_AREA_CODE', 'GLOBAL'),
+            'excluded_area' => env('AGORA_EXCLUDED_AREA'),
+            'audio_encoder_profile' => env('AGORA_AUDIO_ENCODER_PROFILE', 'speech_low_quality'),
+            'audio_bitrate_kbps' => (int) env('AGORA_AUDIO_BITRATE_KBPS', 20),
+            'audio_bitrate_floor_kbps' => (int) env('AGORA_AUDIO_BITRATE_FLOOR_KBPS', 16),
+            'audio_sample_rate' => (int) env('AGORA_AUDIO_SAMPLE_RATE', 16000),
         ],
     ],
 ];
