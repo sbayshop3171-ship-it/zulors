@@ -48,9 +48,9 @@ const parseUnitVolume = (value, fallback) => {
 
     return Math.max(0, Math.min(1, number));
 };
-const browserCallQuietVolume = parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_QUIET_VOLUME, 0.42);
-const browserCallMobileQuietVolume = parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_MOBILE_QUIET_VOLUME, 0.18);
-const browserCallSpeakerVolume = parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_SPEAKER_VOLUME, 0.92);
+const browserCallQuietVolume = parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_QUIET_VOLUME, 0.36);
+const browserCallMobileQuietVolume = parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_MOBILE_QUIET_VOLUME, 0.14);
+const browserCallSpeakerVolume = parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_SPEAKER_VOLUME, 1);
 const getDefaultBrowserQuietVolume = () => {
     return isLikelyMobileBrowserCallClient()
         ? browserCallMobileQuietVolume
@@ -1542,10 +1542,6 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         getTargetRemoteOutputVolume: function() {
             if(this.audioRouteSettling) {
                 return 0;
-            }
-
-            if(this.hasNativeAudioBridge) {
-                return 1;
             }
 
             return this.speakerEnabled ? browserCallSpeakerVolume : getDefaultBrowserQuietVolume();

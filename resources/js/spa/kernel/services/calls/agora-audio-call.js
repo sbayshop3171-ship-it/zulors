@@ -442,6 +442,15 @@ const requestMicrophoneWarmup = async () => {
     return requestPreferredAudioCaptureStream();
 };
 
+const setMediaStreamAudioTracksEnabled = (stream, enabled) => {
+    stream?.getAudioTracks?.()?.forEach((track) => {
+        try {
+            track.enabled = Boolean(enabled);
+        }
+        catch(error) {}
+    });
+};
+
 const createMicrophoneTrackWithFallback = async (AgoraRTC, prewarmedStream = null, options = {}) => {
     const configs = [
         {
@@ -575,6 +584,27 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
 
         localCaptureStream = null;
         rawCaptureStream = null;
+    };
+    const applyLocalMuteState = async () => {
+        const shouldEnable = ! isMuted;
+
+        setMediaStreamAudioTracksEnabled(rawCaptureStream, shouldEnable);
+        setMediaStreamAudioTracksEnabled(localCaptureStream, shouldEnable);
+        setMediaStreamAudioTracksEnabled(localStream, shouldEnable);
+
+        if(! localAudioTrack) {
+            return;
+        }
+
+        try {
+            if(typeof localAudioTrack.setMuted === 'function') {
+                await localAudioTrack.setMuted(isMuted);
+            }
+            else if(typeof localAudioTrack.setEnabled === 'function') {
+                await localAudioTrack.setEnabled(shouldEnable);
+            }
+        }
+        catch(error) {}
     };
     const throwIfClosing = () => {
         if(! closing) {
@@ -773,28 +803,23 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     const playRemoteAudio = () => {
         applyRemoteOutputVolume();
         publishRemoteStream();
-        processRemoteOutputAEC();
 
-        if(remoteOutputElement && remoteStream) {
-            try {
-                if(remoteOutputElement.srcObject !== remoteStream) {
-                    remoteOutputElement.srcObject = remoteStream;
-                }
-
-                applyRemoteOutputVolume();
-                remoteOutputElement.play?.().catch(() => {});
-            }
-            catch(error) {}
-
-            stopRemoteAudioTrackPlayback();
-
+        if(! remoteOutputElement || ! remoteStream) {
             return;
         }
 
         try {
-            remoteAudioTrack?.play?.();
+            if(remoteOutputElement.srcObject !== remoteStream) {
+                remoteOutputElement.srcObject = remoteStream;
+            }
+
+            applyRemoteOutputVolume();
+            processRemoteOutputAEC();
+            remoteOutputElement.play?.().catch(() => {});
         }
         catch(error) {}
+
+        stopRemoteAudioTrackPlayback();
     };
 
     const classifyNetworkQuality = ({ rtt, jitter, packetLossPercent }) => {
@@ -853,22 +878,31 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                     'Connecting remote audio took too long.'
                 );
             }
-            else if(user.hasAudio === true) {
-                await withTimeout(
-                    client.subscribe(user, 'audio'),
-                    agoraTrackTimeoutMs,
-                    'Refreshing remote audio took too long.'
-                ).catch(() => {});
-            }
 
             if(! user.audioTrack) {
                 return false;
             }
 
             await yieldToBrowser();
+            const nextRemoteTrack = user.audioTrack;
+            const nextRemoteMediaTrack = nextRemoteTrack?.getMediaStreamTrack?.() || null;
+            const nextRemoteTrackId = String(nextRemoteMediaTrack?.id || `${user.uid || 'remote'}:audio`);
+            const isSameRemoteTrack = remoteUid === user.uid
+                && remoteMediaTrackId === nextRemoteTrackId
+                && remoteAudioTrack === nextRemoteTrack;
+
             remoteUid = user.uid;
+
+            if(isSameRemoteTrack) {
+                playRemoteAudio();
+                emit('onConnected');
+                startQualityTimer();
+
+                return true;
+            }
+
             stopRemoteAudioTrackPlayback();
-            remoteAudioTrack = user.audioTrack;
+            remoteAudioTrack = nextRemoteTrack;
             playRemoteAudio();
             emit('onConnected');
             startQualityTimer();
@@ -1094,15 +1128,13 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                 disposeLocalCaptureStreams();
             }
 
-            if(isMuted) {
-                await localAudioTrack.setEnabled(false);
-            }
-
             localStream = streamFromTrack(localAudioTrack);
 
             if(localStream) {
                 emit('onLocalStream', localStream);
             }
+
+            await applyLocalMuteState();
 
             await withTimeout(
                 client.publish([localAudioTrack]),
@@ -1175,7 +1207,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         handleIce: async () => true,
         setMuted: async (muted) => {
             isMuted = Boolean(muted);
-            await localAudioTrack?.setEnabled?.(! isMuted);
+            await applyLocalMuteState();
         },
         setRemoteOutputVolume: (volume) => {
             const normalizedVolume = Number(volume);
