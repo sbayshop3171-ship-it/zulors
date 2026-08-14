@@ -4,6 +4,14 @@ const parsePositiveNumber = (value, defaultValue) => {
     return Number.isFinite(number) && number > 0 ? number : defaultValue;
 };
 
+const parseBooleanEnv = (value, defaultValue = true) => {
+    if(value === undefined || value === null || value === '') {
+        return defaultValue;
+    }
+
+    return ! ['false', '0', 'off', 'no'].includes(String(value).toLowerCase());
+};
+
 const qualityMonitorIntervalMs = parsePositiveNumber(import.meta.env.VITE_CALL_QUALITY_MONITOR_INTERVAL, 3000);
 const qualityWarningSamples = Math.max(1, parsePositiveNumber(import.meta.env.VITE_CALL_QUALITY_WARNING_SAMPLES, 2));
 const agoraSdkLoadTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_SDK_TIMEOUT_MS, 12000);
@@ -13,6 +21,8 @@ const agoraTrackTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_
 const agoraPublishTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_PUBLISH_TIMEOUT_MS, 12000);
 const agoraRemoteSweepIntervalMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_REMOTE_SWEEP_INTERVAL_MS, 1000);
 const agoraPreferredAudioLatency = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_AUDIO_LATENCY, 0.02);
+const enableVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_AUDIO_PROCESSING, true);
+const enableNativeAppVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_NATIVE_APP_AUDIO_PROCESSING, false);
 const agoraSpeechEncoderConfig = {
     sampleRate: parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_AUDIO_SAMPLE_RATE, 48000),
     stereo: false,
@@ -171,6 +181,124 @@ const applySpeechTrackHints = (stream) => {
         }
         catch(error) {}
     });
+};
+
+const createInteractiveAudioContext = () => {
+    if(typeof window === 'undefined') {
+        return null;
+    }
+
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+
+    if(! AudioContext) {
+        return null;
+    }
+
+    try {
+        return new AudioContext({
+            latencyHint: 'interactive',
+            sampleRate: agoraSpeechEncoderConfig.sampleRate
+        });
+    }
+    catch(error) {
+        try {
+            return new AudioContext({
+                latencyHint: 'interactive'
+            });
+        }
+        catch(innerError) {
+            return null;
+        }
+    }
+};
+
+const createVoiceProcessedStream = async (rawStream) => {
+    const audioTracks = rawStream?.getAudioTracks?.() || [];
+
+    if(
+        ! enableVoiceProcessing
+        || ! audioTracks.length
+        || isLikelyMobileCallClient()
+        || (hasNativeCallAudioBridge() && ! enableNativeAppVoiceProcessing)
+    ) {
+        return {
+            stream: rawStream,
+            cleanup: () => {}
+        };
+    }
+
+    const context = createInteractiveAudioContext();
+
+    if(! context) {
+        return {
+            stream: rawStream,
+            cleanup: () => {}
+        };
+    }
+
+    try {
+        await context.resume?.().catch(() => {});
+        await yieldToBrowser();
+
+        const source = context.createMediaStreamSource(new MediaStream(audioTracks));
+        const highPassFilter = context.createBiquadFilter();
+        const lowPassFilter = context.createBiquadFilter();
+        const compressor = context.createDynamicsCompressor();
+        const gain = context.createGain();
+        const destination = context.createMediaStreamDestination();
+
+        highPassFilter.type = 'highpass';
+        highPassFilter.frequency.value = 90;
+        highPassFilter.Q.value = 0.7;
+
+        lowPassFilter.type = 'lowpass';
+        lowPassFilter.frequency.value = 12000;
+        lowPassFilter.Q.value = 0.7;
+
+        compressor.threshold.value = -24;
+        compressor.knee.value = 24;
+        compressor.ratio.value = 3;
+        compressor.attack.value = 0.003;
+        compressor.release.value = 0.25;
+
+        gain.gain.value = 1;
+
+        source
+            .connect(highPassFilter)
+            .connect(lowPassFilter)
+            .connect(compressor)
+            .connect(gain)
+            .connect(destination);
+
+        applySpeechTrackHints(destination.stream);
+
+        return {
+            stream: new MediaStream([
+                ...destination.stream.getAudioTracks(),
+                ...rawStream.getVideoTracks()
+            ]),
+            cleanup: () => {
+                try {
+                    source.disconnect();
+                    highPassFilter.disconnect();
+                    lowPassFilter.disconnect();
+                    compressor.disconnect();
+                    gain.disconnect();
+                    destination.disconnect?.();
+                    context.close?.().catch(() => {});
+                }
+                catch(error) {}
+            }
+        };
+    }
+    catch(error) {
+        context.close?.().catch(() => {});
+
+        return {
+            stream: rawStream,
+            cleanup: () => {}
+        };
+    }
 };
 
 const buildPreferredAudioConstraints = (lightweight = false) => {
@@ -387,6 +515,8 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     let client = null;
     let localAudioTrack = null;
     let localCaptureStream = null;
+    let rawCaptureStream = null;
+    let voiceProcessingCleanup = null;
     let remoteAudioTrack = null;
     let localStream = null;
     let remoteStream = null;
@@ -411,6 +541,26 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         }
         catch(error) {}
     };
+    const cleanupVoiceProcessing = () => {
+        try {
+            voiceProcessingCleanup?.();
+        }
+        catch(error) {}
+
+        voiceProcessingCleanup = null;
+    };
+    const disposeLocalCaptureStreams = () => {
+        cleanupVoiceProcessing();
+
+        stopMediaStream(localCaptureStream);
+
+        if(rawCaptureStream && rawCaptureStream !== localCaptureStream) {
+            stopMediaStream(rawCaptureStream);
+        }
+
+        localCaptureStream = null;
+        rawCaptureStream = null;
+    };
     const throwIfClosing = () => {
         if(! closing) {
             return;
@@ -426,7 +576,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         }
         catch(error) {}
 
-        stopMediaStream(localCaptureStream);
+        disposeLocalCaptureStreams();
 
         try {
             client?.leave?.();
@@ -435,7 +585,6 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
 
         remoteAudioTrack = null;
         localAudioTrack = null;
-        localCaptureStream = null;
         localStream = null;
         remoteStream = null;
         remoteMediaTrackId = null;
@@ -523,8 +672,20 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     };
 
     const applyRemoteOutputVolume = () => {
+        const normalizedVolume = Math.max(0, Math.min(1, remoteOutputVolume / 100));
+
         try {
             remoteAudioTrack?.setVolume?.(remoteOutputVolume);
+        }
+        catch(error) {}
+
+        if(! remoteOutputElement) {
+            return;
+        }
+
+        try {
+            remoteOutputElement.volume = normalizedVolume;
+            remoteOutputElement.muted = normalizedVolume <= 0;
         }
         catch(error) {}
     };
@@ -605,7 +766,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                     remoteOutputElement.srcObject = remoteStream;
                 }
 
-                remoteOutputElement.volume = 1;
+                applyRemoteOutputVolume();
                 remoteOutputElement.play?.().catch(() => {});
             }
             catch(error) {}
@@ -852,8 +1013,18 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         }
 
         try {
-            localCaptureStream = await requestMicrophoneWarmup();
+            rawCaptureStream = await requestMicrophoneWarmup();
             throwIfClosing();
+            await yieldToBrowser();
+
+            const processedCapture = await createVoiceProcessedStream(rawCaptureStream);
+
+            throwIfClosing();
+
+            localCaptureStream = processedCapture?.stream || rawCaptureStream;
+            voiceProcessingCleanup = typeof processedCapture?.cleanup === 'function'
+                ? processedCapture.cleanup
+                : null;
             await yieldToBrowser();
 
             const AgoraRTC = await withTimeout(
@@ -897,6 +1068,10 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
 
             localAudioTrack = localTrackResult?.track || null;
             localCaptureStream = localTrackResult?.captureStream || localCaptureStream;
+
+            if(! localTrackResult?.captureStream) {
+                disposeLocalCaptureStreams();
+            }
 
             if(isMuted) {
                 await localAudioTrack.setEnabled(false);
@@ -946,13 +1121,12 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         }
         catch(error) {}
 
-        stopMediaStream(localCaptureStream);
+        disposeLocalCaptureStreams();
 
         const activeClient = client;
 
         client = null;
         localAudioTrack = null;
-        localCaptureStream = null;
         remoteAudioTrack = null;
         localStream = null;
         remoteStream = null;
