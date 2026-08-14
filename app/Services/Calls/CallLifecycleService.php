@@ -104,6 +104,10 @@ class CallLifecycleService
             return 'Voice call failed';
         }
 
+        if($callSession->status === CallStatus::BUSY) {
+            return 'Voice call busy';
+        }
+
         $duration = $this->durationText($callSession);
 
         return $duration ? "Voice call ended · {$duration}" : 'Voice call ended';

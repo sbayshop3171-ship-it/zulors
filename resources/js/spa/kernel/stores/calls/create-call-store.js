@@ -3,13 +3,15 @@ import { markRaw } from 'vue';
 import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 import BRD from '@/kernel/websockets/brd/index.js';
 import { createAgoraAudioCallPeer, isAgoraAudioCallSupported, warmAgoraAudioCallEngine } from '@/kernel/services/calls/agora-audio-call.js';
+import { createNativeAgoraAudioCallPeer, isNativeAgoraAudioCallSupported, warmNativeAgoraAudioCallEngine } from '@/kernel/services/calls/native-agora-audio-call.js';
 import { createAudioCallPeer, isAudioCallSupported } from '@/kernel/services/calls/webrtc-audio-call.js';
 
 const finalStatuses = ['ended', 'missed', 'declined', 'busy', 'failed'];
 const connectingStatuses = ['ringing', 'accepted', 'connecting'];
 const defaultRingTimeoutSeconds = 40;
 const connectionTimeoutSeconds = 40;
-const degradedConnectionTimeoutSeconds = 40;
+const degradedConnectionTimeoutSeconds = 15;
+const reconnectTimeoutSeconds = 15;
 const heartbeatIntervalMs = 10000;
 const qualityReportThrottleMs = 10000;
 const iceServerRefreshSkewMs = 60000;
@@ -126,6 +128,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             peer: null,
             peerSetupPromise: null,
             mediaProvider: 'webrtc',
+            callEngine: 'web',
             mediaSession: null,
             activeChannel: null,
             offerSent: false,
@@ -163,6 +166,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             mediaSetupAttempt: 0,
             heartbeatInFlight: false,
             microphonePermissionPromise: null,
+            nativeRemoteAudioConnected: false,
+            nativeAudioRoute: 'earpiece',
+            busyNoticeCallUuids: [],
             connectingSyncTimer: null,
             syncingCurrentCall: false,
             pendingPeerSetupTasks: [],
@@ -225,10 +231,13 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             return this.otherUser?.avatar_url || null;
         },
         canUseAudio: function() {
-            return isAudioCallSupported() || isAgoraAudioCallSupported();
+            return isAudioCallSupported() || isAgoraAudioCallSupported() || isNativeAgoraAudioCallSupported();
         },
         hasNativeAudioBridge: function() {
             return typeof window !== 'undefined' && Boolean(window.ZulorsCallAudio);
+        },
+        usesNativeCallEngine: function() {
+            return this.callEngine === 'android-native';
         },
         isFinalizing: function() {
             return Boolean(this.finalizingCallUuid);
@@ -314,6 +323,33 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             if(options.action === 'answer' && direction === 'incoming' && call.status === 'ringing') {
                 await this.answerCall();
+
+                return call;
+            }
+
+            if(
+                options.action === 'answer'
+                && direction === 'incoming'
+                && ['accepted', 'connecting', 'connected'].includes(call.status)
+            ) {
+                await this.yieldToUiFrame();
+                this.runPeerSetupInBackground({
+                    callUuid: call.call_uuid,
+                    taskKey: 'background-answer-bootstrap',
+                    delayMs: peerSetupDrainDelayMs,
+                    onErrorMessage: 'Unable to start audio call.',
+                    afterSetup: async () => {
+                        if(this.mediaProvider === 'agora') {
+                            this.markConnecting();
+
+                            return true;
+                        }
+
+                        await this.sendSignal('ready', {});
+
+                        return true;
+                    }
+                });
             }
 
             return call;
@@ -652,6 +688,12 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 return false;
             }
 
+            if(isNativeAgoraAudioCallSupported()) {
+                warmNativeAgoraAudioCallEngine().catch(() => {});
+
+                return true;
+            }
+
             if(isAgoraAudioCallSupported()) {
                 warmAgoraAudioCallEngine().catch(() => {});
 
@@ -962,6 +1004,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             await this.yieldToUiFrame();
 
             const isAgora = mediaSession?.provider === 'agora';
+            const useNativeAgora = isAgora && isNativeAgoraAudioCallSupported();
             const callbacks = {
                 onSignal: (signalType, signal) => {
                     if(this.mediaProvider !== 'agora') {
@@ -979,6 +1022,11 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 },
                 onRemoteStream: (stream) => {
                     this.remoteStream = markRaw(stream);
+                    this.syncRemoteAudioWatchdog();
+                    this.syncDegradedConnectionTimeout();
+                },
+                onNativeRemoteAudioState: (connected) => {
+                    this.nativeRemoteAudioConnected = Boolean(connected);
                     this.syncRemoteAudioWatchdog();
                     this.syncDegradedConnectionTimeout();
                 },
@@ -1004,13 +1052,25 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 },
                 onReconnectState: (state) => {
                     this.handleReconnectState(state);
+                },
+                onNativeRouteChange: (route) => {
+                    this.nativeAudioRoute = String(route || 'unknown');
                 }
             };
 
             this.mediaSession = mediaSession;
             this.mediaProvider = isAgora ? 'agora' : 'webrtc';
+            this.callEngine = useNativeAgora ? 'android-native' : 'web';
+            this.nativeRemoteAudioConnected = false;
+            this.nativeAudioRoute = 'earpiece';
 
-            if(isAgora) {
+            if(useNativeAgora) {
+                peer = createNativeAgoraAudioCallPeer(callbacks, {
+                    mediaSession: mediaSession,
+                    refreshMediaSession: () => this.resolveMediaSession(true)
+                });
+            }
+            else if(isAgora) {
                 peer = createAgoraAudioCallPeer(callbacks, {
                     mediaSession: mediaSession,
                     refreshMediaSession: () => this.resolveMediaSession(true)
@@ -1632,6 +1692,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.peer = null;
             this.peerSetupPromise = null;
             this.mediaProvider = 'webrtc';
+            this.callEngine = 'web';
             this.mediaSession = null;
             this.offerSent = false;
             this.mediaReadySent = false;
@@ -1650,6 +1711,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.mediaSetupAttempt += 1;
             this.heartbeatInFlight = false;
             this.microphonePermissionPromise = null;
+            this.nativeRemoteAudioConnected = false;
+            this.nativeAudioRoute = 'earpiece';
+            this.busyNoticeCallUuids = [];
             this.syncingCurrentCall = false;
             this.pendingPeerSetupTasks = [];
             this.peerSetupDrainScheduled = false;
@@ -1681,10 +1745,13 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.localStream = null;
             this.remoteStream = null;
             this.mediaProvider = 'webrtc';
+            this.callEngine = 'web';
             this.mediaSession = null;
             this.offerSent = false;
             this.mediaReadySent = false;
             this.connectedSignalSent = false;
+            this.nativeRemoteAudioConnected = false;
+            this.nativeAudioRoute = 'earpiece';
             this.exitNativeAudioMode();
             this.closeRingToneContext();
         },
@@ -1851,6 +1918,10 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
         },
         hasLiveRemoteAudio: function() {
+            if(this.usesNativeCallEngine) {
+                return this.nativeRemoteAudioConnected === true;
+            }
+
             const tracks = this.remoteStream?.getAudioTracks?.() || [];
 
             return tracks.some((track) => {
@@ -1987,7 +2058,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
                 this.error = 'Audio connection was lost.';
                 await this.endCall('connection_lost');
-            }, connectionTimeoutSeconds * 1000);
+            }, reconnectTimeoutSeconds * 1000);
         },
         stopReconnectTimeoutTimer: function() {
             if(this.reconnectTimeoutTimer) {
@@ -2349,7 +2420,20 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             return Boolean(this.call?.call_uuid && call?.call_uuid === this.call.call_uuid);
         },
         sendBusyNotice: function() {
-            return false;
+            const call = arguments[0] || {};
+            const callUuid = call?.call_uuid;
+
+            if(! callUuid || this.busyNoticeCallUuids.includes(callUuid)) {
+                return false;
+            }
+
+            this.busyNoticeCallUuids.push(callUuid);
+
+            Promise.resolve()
+                .then(() => colibriAPI().messenger().sendTo(`calls/${callUuid}/busy`))
+                .catch(() => {});
+
+            return true;
         }
     }
 });

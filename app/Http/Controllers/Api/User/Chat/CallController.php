@@ -279,6 +279,63 @@ class CallController extends Controller
         ]);
     }
 
+    public function busy(string $callUuid, CallLifecycleService $calls, CallPushNotificationService $callPushNotifications)
+    {
+        $callSession = $this->resolveCallForMe($callUuid);
+
+        if(empty($callSession)) {
+            return $this->responseResourceNotFoundError('Call', $callUuid);
+        }
+
+        if($callSession->receiver_id !== me()->id) {
+            return $this->responseError([
+                'message' => 'Only the receiver can mark this call as busy.',
+            ], Response::HTTP_FORBIDDEN);
+        }
+
+        $busyFinalized = false;
+
+        $callSession = DB::transaction(function () use ($callSession, &$busyFinalized) {
+            $lockedCallSession = CallSession::query()
+                ->whereKey($callSession->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if($lockedCallSession->status === CallStatus::RINGING) {
+                $endedAt = now();
+
+                $lockedCallSession->forceFill([
+                    'status' => CallStatus::BUSY,
+                    'end_reason' => 'busy',
+                    'ended_at' => $endedAt,
+                ])->save();
+
+                $lockedCallSession->participants()->update([
+                    'status' => CallStatus::BUSY,
+                    'left_at' => $endedAt,
+                ]);
+
+                $busyFinalized = true;
+            }
+
+            return $lockedCallSession->fresh(['chat', 'initiator', 'receiver']);
+        });
+
+        if($busyFinalized) {
+            $calls->createCallMessage($callSession, me()->id);
+            $callPushNotifications->cancelIncomingNotification($callSession);
+            event(new CallSessionEvent('call.busy', $callSession, [
+                'reason' => 'busy',
+            ]));
+        }
+
+        return $this->responseSuccess([
+            'data' => [
+                'call' => CallSessionResource::make($callSession),
+            ],
+        ]);
+    }
+
     public function end(Request $request, string $callUuid, CallLifecycleService $calls, CallPushNotificationService $callPushNotifications)
     {
         $validator = Validator::make($request->all(), [

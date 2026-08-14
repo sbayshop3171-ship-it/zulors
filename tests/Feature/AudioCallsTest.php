@@ -248,6 +248,31 @@ class AudioCallsTest extends TestCase
         ]);
     }
 
+    public function test_receiver_can_mark_incoming_call_busy(): void
+    {
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+        $call = $this->createRingingCall($caller, $receiver, $chat);
+
+        Sanctum::actingAs($receiver);
+
+        $this->postJson("/api/messenger/calls/{$call->call_uuid}/busy")
+            ->assertOk()
+            ->assertJsonPath('data.call.status', 'busy');
+
+        $this->assertDatabaseHas('call_sessions', [
+            'id' => $call->id,
+            'status' => CallStatus::BUSY->value,
+            'end_reason' => 'busy',
+        ]);
+
+        $this->assertDatabaseHas('messages', [
+            'chat_id' => $chat->id,
+            'user_id' => $receiver->id,
+            'type' => MessageType::CALL->value,
+            'content' => 'Voice call busy',
+        ]);
+    }
+
     public function test_busy_user_rejects_new_call(): void
     {
         [$caller, $receiver, $chat] = $this->createDirectChat();

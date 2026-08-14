@@ -31,6 +31,7 @@ Route::get('/calls/{callUuid}', [App\Http\Controllers\Api\User\Chat\CallControll
 Route::get('/calls/{callUuid}/media-token', [App\Http\Controllers\Api\User\Chat\CallController::class, 'mediaToken'])->middleware('throttle:120,1');
 Route::post('/calls/{callUuid}/answer', [App\Http\Controllers\Api\User\Chat\CallController::class, 'answer']);
 Route::post('/calls/{callUuid}/decline', [App\Http\Controllers\Api\User\Chat\CallController::class, 'decline']);
+Route::post('/calls/{callUuid}/busy', [App\Http\Controllers\Api\User\Chat\CallController::class, 'busy']);
 Route::post('/calls/{callUuid}/end', [App\Http\Controllers\Api\User\Chat\CallController::class, 'end']);
 Route::post('/calls/{callUuid}/signal', [App\Http\Controllers\Api\User\Chat\CallController::class, 'signal'])->middleware('throttle:360,1');
 Route::post('/calls/{callUuid}/heartbeat', [App\Http\Controllers\Api\User\Chat\CallController::class, 'heartbeat'])->middleware('throttle:120,1');
