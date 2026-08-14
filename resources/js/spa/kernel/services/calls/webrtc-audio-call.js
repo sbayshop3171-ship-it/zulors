@@ -63,7 +63,7 @@ const statsTimeoutMs = parsePositiveInteger(
     import.meta.env.VITE_CALL_STATS_TIMEOUT_MS,
     defaultStatsTimeoutMs
 );
-const enableVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_AUDIO_PROCESSING, true);
+const enableVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_AUDIO_PROCESSING, false);
 const enableNativeAppVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_NATIVE_APP_AUDIO_PROCESSING, false);
 
 const hasNativeCallAudioBridge = () => {

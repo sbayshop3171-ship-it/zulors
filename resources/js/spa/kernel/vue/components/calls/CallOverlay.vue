@@ -194,14 +194,13 @@
                 }
 
                 remoteAudioRef.value.volume = remoteVolume();
+                remoteAudioRef.value.muted = remoteVolume() <= 0;
                 remoteAudioRef.value.play?.().catch(() => {});
             };
             const remoteVolume = () => {
-                if(props.callStore.audioRouteSettling) {
-                    return 0;
-                }
+                const normalizedVolume = Number(props.callStore.remoteOutputVolumeLevel);
 
-                return 1;
+                return Math.max(0, Math.min(1, Number.isFinite(normalizedVolume) ? normalizedVolume : 1));
             };
 
             watch(() => props.callStore.remoteStream, attachRemoteStream, {
@@ -215,11 +214,19 @@
             watch(() => props.callStore.speakerEnabled, () => {
                 if(remoteAudioRef.value) {
                     remoteAudioRef.value.volume = remoteVolume();
+                    remoteAudioRef.value.muted = remoteVolume() <= 0;
                 }
             });
             watch(() => props.callStore.audioRouteSettling, () => {
                 if(remoteAudioRef.value) {
                     remoteAudioRef.value.volume = remoteVolume();
+                    remoteAudioRef.value.muted = remoteVolume() <= 0;
+                }
+            });
+            watch(() => props.callStore.remoteOutputVolumeLevel, () => {
+                if(remoteAudioRef.value) {
+                    remoteAudioRef.value.volume = remoteVolume();
+                    remoteAudioRef.value.muted = remoteVolume() <= 0;
                 }
             });
             watch(() => props.callStore.peer, () => {

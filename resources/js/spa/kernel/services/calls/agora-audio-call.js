@@ -21,7 +21,7 @@ const agoraTrackTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_
 const agoraPublishTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_PUBLISH_TIMEOUT_MS, 12000);
 const agoraRemoteSweepIntervalMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_REMOTE_SWEEP_INTERVAL_MS, 1000);
 const agoraPreferredAudioLatency = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_AUDIO_LATENCY, 0.02);
-const enableVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_AUDIO_PROCESSING, true);
+const enableVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_AUDIO_PROCESSING, false);
 const enableNativeAppVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_NATIVE_APP_AUDIO_PROCESSING, false);
 const agoraSpeechEncoderConfig = {
     sampleRate: parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_AUDIO_SAMPLE_RATE, 48000),
@@ -212,14 +212,28 @@ const createInteractiveAudioContext = () => {
     }
 };
 
+const shouldUseCustomVoiceProcessing = () => {
+    if(! enableVoiceProcessing) {
+        return false;
+    }
+
+    if(isLikelyMobileCallClient()) {
+        return false;
+    }
+
+    if(hasNativeCallAudioBridge() && ! enableNativeAppVoiceProcessing) {
+        return false;
+    }
+
+    return true;
+};
+
 const createVoiceProcessedStream = async (rawStream) => {
     const audioTracks = rawStream?.getAudioTracks?.() || [];
 
     if(
-        ! enableVoiceProcessing
+        ! shouldUseCustomVoiceProcessing()
         || ! audioTracks.length
-        || isLikelyMobileCallClient()
-        || (hasNativeCallAudioBridge() && ! enableNativeAppVoiceProcessing)
     ) {
         return {
             stream: rawStream,
@@ -428,7 +442,7 @@ const requestMicrophoneWarmup = async () => {
     return requestPreferredAudioCaptureStream();
 };
 
-const createMicrophoneTrackWithFallback = async (AgoraRTC, prewarmedStream = null) => {
+const createMicrophoneTrackWithFallback = async (AgoraRTC, prewarmedStream = null, options = {}) => {
     const configs = [
         {
             AEC: true,
@@ -445,8 +459,9 @@ const createMicrophoneTrackWithFallback = async (AgoraRTC, prewarmedStream = nul
     ];
     let lastError = null;
     const prewarmedAudioTrack = prewarmedStream?.getAudioTracks?.()?.[0] || null;
+    const preferCustomTrack = Boolean(options?.preferCustomTrack);
 
-    if(prewarmedAudioTrack && AgoraRTC?.createCustomAudioTrack) {
+    if(preferCustomTrack && prewarmedAudioTrack && AgoraRTC?.createCustomAudioTrack) {
         try {
             return {
                 track: AgoraRTC.createCustomAudioTrack({
@@ -466,9 +481,9 @@ const createMicrophoneTrackWithFallback = async (AgoraRTC, prewarmedStream = nul
         try {
             return {
                 track: await withTimeout(
-                AgoraRTC.createMicrophoneAudioTrack(config),
-                agoraTrackTimeoutMs,
-                'Microphone took too long to start.'
+                    AgoraRTC.createMicrophoneAudioTrack(config),
+                    agoraTrackTimeoutMs,
+                    'Microphone took too long to start.'
                 ),
                 captureStream: null
             };
@@ -1008,11 +1023,14 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             throw new Error('Only audio calls are available.');
         }
 
-        if(! isAgoraAudioCallSupported()) {
-            throw new Error('Agora audio calls are not supported in this browser.');
-        }
+    if(! isAgoraAudioCallSupported()) {
+        throw new Error('Agora audio calls are not supported in this browser.');
+    }
 
-        try {
+    try {
+        const useCustomTrack = shouldUseCustomVoiceProcessing();
+
+        if(useCustomTrack) {
             rawCaptureStream = await requestMicrophoneWarmup();
             throwIfClosing();
             await yieldToBrowser();
@@ -1026,10 +1044,11 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                 ? processedCapture.cleanup
                 : null;
             await yieldToBrowser();
+        }
 
-            const AgoraRTC = await withTimeout(
-                loadAgoraRTC(),
-                agoraSdkLoadTimeoutMs,
+        const AgoraRTC = await withTimeout(
+            loadAgoraRTC(),
+            agoraSdkLoadTimeoutMs,
                 'Audio engine took too long to load.'
             );
             throwIfClosing();
@@ -1062,7 +1081,9 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             throwIfClosing();
             await yieldToBrowser();
 
-            const localTrackResult = await createMicrophoneTrackWithFallback(AgoraRTC, localCaptureStream);
+            const localTrackResult = await createMicrophoneTrackWithFallback(AgoraRTC, localCaptureStream, {
+                preferCustomTrack: useCustomTrack
+            });
             throwIfClosing();
             await yieldToBrowser();
 

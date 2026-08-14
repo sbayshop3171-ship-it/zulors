@@ -28,6 +28,34 @@ const uiFrameYieldDelayMs = 16;
 const outgoingIceSignalDrainDelayMs = 32;
 const peerSetupDrainDelayMs = 48;
 const reconnectPeerSetupDrainDelayMs = 120;
+const isLikelyMobileBrowserCallClient = () => {
+    if(typeof navigator === 'undefined') {
+        return false;
+    }
+
+    const userAgent = String(navigator.userAgent || navigator.vendor || '');
+    const touchPoints = Number(navigator.maxTouchPoints || 0);
+
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(userAgent)
+        || touchPoints > 1;
+};
+const parseUnitVolume = (value, fallback) => {
+    const number = Number(value);
+
+    if(! Number.isFinite(number)) {
+        return fallback;
+    }
+
+    return Math.max(0, Math.min(1, number));
+};
+const browserCallQuietVolume = parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_QUIET_VOLUME, 0.42);
+const browserCallMobileQuietVolume = parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_MOBILE_QUIET_VOLUME, 0.18);
+const browserCallSpeakerVolume = parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_SPEAKER_VOLUME, 0.92);
+const getDefaultBrowserQuietVolume = () => {
+    return isLikelyMobileBrowserCallClient()
+        ? browserCallMobileQuietVolume
+        : browserCallQuietVolume;
+};
 
 const finalStatusForReason = (reason) => {
     if(reason === 'no_answer') {
@@ -120,6 +148,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             nativeRingtoneActive: false,
             audioRouteSettling: false,
             audioRouteSettleTimer: null,
+            remoteOutputVolumeLevel: getDefaultBrowserQuietVolume(),
             networkState: 'stable',
             qualityNotice: '',
             lastQualityReportAt: 0,
@@ -1510,6 +1539,17 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
             catch(error) {}
         },
+        getTargetRemoteOutputVolume: function() {
+            if(this.audioRouteSettling) {
+                return 0;
+            }
+
+            if(this.hasNativeAudioBridge) {
+                return 1;
+            }
+
+            return this.speakerEnabled ? browserCallSpeakerVolume : getDefaultBrowserQuietVolume();
+        },
         minimize: function() {
             this.minimized = true;
         },
@@ -1607,6 +1647,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.qualityNotice = '';
             this.lastQualityReportAt = 0;
             this.lastQualitySignature = '';
+            this.remoteOutputVolumeLevel = getDefaultBrowserQuietVolume();
             this.isStarting = false;
             this.isStartCoolingDown = false;
             this.finalizingCallUuid = null;
@@ -1984,7 +2025,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
 
             this.audioRouteSettling = true;
-            this.setRemoteOutputVolume(0);
+            this.syncRemoteOutputVolume();
 
             if(this.audioRouteSettleTimer) {
                 window.clearTimeout(this.audioRouteSettleTimer);
@@ -1993,7 +2034,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.audioRouteSettleTimer = window.setTimeout(() => {
                 this.audioRouteSettleTimer = null;
                 this.audioRouteSettling = false;
-                this.setRemoteOutputVolume(1);
+                this.syncRemoteOutputVolume();
             }, speakerRouteSettleMs);
         },
         stopAudioRouteSettling: function() {
@@ -2003,17 +2044,25 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
 
             this.audioRouteSettling = false;
-            this.setRemoteOutputVolume(1);
+            this.syncRemoteOutputVolume();
         },
         setRemoteOutputVolume: function(volume) {
+            const normalizedVolume = Number(volume);
+
+            this.remoteOutputVolumeLevel = Math.max(0, Math.min(1, Number.isFinite(normalizedVolume) ? normalizedVolume : 1));
+
             try {
-                this.peer?.setRemoteOutputVolume?.(volume);
+                this.peer?.setRemoteOutputVolume?.(this.remoteOutputVolumeLevel);
             }
             catch(error) {}
+        },
+        syncRemoteOutputVolume: function() {
+            this.setRemoteOutputVolume(this.getTargetRemoteOutputVolume());
         },
         attachRemoteOutputElement: function(element) {
             try {
                 this.peer?.attachRemoteOutputElement?.(element);
+                this.syncRemoteOutputVolume();
             }
             catch(error) {}
         },
