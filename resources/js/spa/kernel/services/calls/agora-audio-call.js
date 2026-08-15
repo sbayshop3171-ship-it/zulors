@@ -132,7 +132,7 @@ const maximumRemoteOutputVolume = Math.min(
     parseUnitNumber(import.meta.env.VITE_CALL_REMOTE_MAX_VOLUME, 0.7)
 );
 const enableAgoraAiDenoiser = parseBooleanEnv(import.meta.env.VITE_AGORA_AI_DENOISER, true);
-const agoraAiDenoiserAssetsPath = String(import.meta.env.VITE_AGORA_AI_DENOISER_ASSETS_PATH || '/vendor/agora-ai-denoiser')
+const agoraAiDenoiserAssetsPath = String(import.meta.env.VITE_AGORA_AI_DENOISER_ASSETS_PATH || '/assets/agora-ai-denoiser')
     .replace(/\/+$/, '');
 const localPublishVolume = Math.round(voiceProcessingOutputGain * 100);
 const defaultAgoraAreaCode = normalizeAgoraAreaCode(import.meta.env.VITE_AGORA_CALL_AREA_CODE, 'GLOBAL');
