@@ -333,10 +333,10 @@ const enableAiDenoiserForTrack = async (AgoraRTC, audioTrack) => {
             restorePipeline();
         });
 
+        audioTrack.pipe(processor).pipe(audioTrack.processorDestination);
         await processor.setLatency?.('LOW');
         await processor.setLevel?.('AGGRESSIVE');
         await processor.setMode?.('NSNG');
-        audioTrack.pipe(processor).pipe(audioTrack.processorDestination);
         await processor.enable?.();
 
         return async () => {
