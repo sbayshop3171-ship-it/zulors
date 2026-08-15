@@ -200,7 +200,7 @@
             const remoteVolume = () => {
                 const normalizedVolume = Number(props.callStore.remoteOutputVolumeLevel);
 
-                return Math.max(0, Math.min(1, Number.isFinite(normalizedVolume) ? normalizedVolume : 1));
+                return Math.max(0, Math.min(0.7, Number.isFinite(normalizedVolume) ? normalizedVolume : 1));
             };
 
             watch(() => props.callStore.remoteStream, attachRemoteStream, {

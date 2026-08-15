@@ -27,6 +27,16 @@ const parsePositiveInteger = (value, defaultValue) => {
     return Number.isFinite(parsedValue) && parsedValue > 0 ? parsedValue : defaultValue;
 };
 
+const parseUnitNumber = (value, defaultValue) => {
+    const number = Number(value);
+
+    if(! Number.isFinite(number)) {
+        return defaultValue;
+    }
+
+    return Math.max(0, Math.min(1, number));
+};
+
 const clampAudioBitrate = (value, defaultValue, minimum, maximum) => {
     const bitrate = parsePositiveInteger(value, defaultValue);
 
@@ -86,6 +96,10 @@ const statsTimeoutMs = parsePositiveInteger(
 );
 const enableVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_AUDIO_PROCESSING, false);
 const enableNativeAppVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_NATIVE_APP_AUDIO_PROCESSING, false);
+const voiceProcessingOutputGain = Math.min(
+    0.7,
+    parseUnitNumber(import.meta.env.VITE_CALL_AUDIO_INPUT_GAIN, 0.65)
+);
 
 const hasNativeCallAudioBridge = () => {
     return typeof window !== 'undefined' && Boolean(window.ZulorsCallAudio);
@@ -330,7 +344,7 @@ const requestLocalMediaStream = async (mediaType = 'audio') => {
     const voiceAudioConstraints = {
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: true,
+        autoGainControl: false,
         channelCount: { ideal: 1 },
         sampleRate: { ideal: preferredAudioSampleRate },
         sampleSize: { ideal: 16 },
@@ -339,8 +353,8 @@ const requestLocalMediaStream = async (mediaType = 'audio') => {
         googEchoCancellation: true,
         googEchoCancellation2: true,
         googDAEchoCancellation: true,
-        googAutoGainControl: true,
-        googAutoGainControl2: true,
+        googAutoGainControl: false,
+        googAutoGainControl2: false,
         googNoiseSuppression: true,
         googNoiseSuppression2: true,
         googHighpassFilter: true,
@@ -353,7 +367,7 @@ const requestLocalMediaStream = async (mediaType = 'audio') => {
                 audio: {
                     echoCancellation: true,
                     noiseSuppression: true,
-                    autoGainControl: true
+                    autoGainControl: false
                 },
                 video: wantsVideo
             },
@@ -375,7 +389,7 @@ const requestLocalMediaStream = async (mediaType = 'audio') => {
                 audio: {
                     echoCancellation: true,
                     noiseSuppression: true,
-                    autoGainControl: true
+                    autoGainControl: false
                 },
                 video: wantsVideo
             },
@@ -503,7 +517,7 @@ const createVoiceProcessedStream = async (rawStream) => {
         compressor.attack.value = 0.003;
         compressor.release.value = 0.25;
 
-        gain.gain.value = 1;
+        gain.gain.value = voiceProcessingOutputGain;
 
         source
             .connect(highPassFilter)

@@ -52,7 +52,11 @@ const parseUnitVolume = (value, fallback) => {
 };
 const browserCallQuietVolume = parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_QUIET_VOLUME, 0.36);
 const browserCallMobileQuietVolume = parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_MOBILE_QUIET_VOLUME, 0.14);
-const browserCallSpeakerVolume = parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_SPEAKER_VOLUME, 1);
+const browserCallMaximumVolume = parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_MAX_VOLUME, 0.7);
+const browserCallSpeakerVolume = Math.min(
+    browserCallMaximumVolume,
+    parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_SPEAKER_VOLUME, 0.7)
+);
 const getDefaultBrowserQuietVolume = () => {
     return isLikelyMobileBrowserCallClient()
         ? browserCallMobileQuietVolume
@@ -2116,7 +2120,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         setRemoteOutputVolume: function(volume) {
             const normalizedVolume = Number(volume);
 
-            this.remoteOutputVolumeLevel = Math.max(0, Math.min(1, Number.isFinite(normalizedVolume) ? normalizedVolume : 1));
+            this.remoteOutputVolumeLevel = Math.max(0, Math.min(browserCallMaximumVolume, Number.isFinite(normalizedVolume) ? normalizedVolume : 1));
 
             try {
                 this.peer?.setRemoteOutputVolume?.(this.remoteOutputVolumeLevel);

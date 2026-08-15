@@ -205,6 +205,12 @@ const createNativeAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             channel: mediaSession.channel,
             token: mediaSession.token || null,
             uid: mediaSession.uid || 0,
+            area_code: mediaSession.area_code || null,
+            excluded_area: mediaSession.excluded_area || null,
+            audio_encoder_profile: mediaSession.audio_encoder_profile || null,
+            audio_bitrate_kbps: mediaSession.audio_bitrate_kbps || null,
+            audio_bitrate_floor_kbps: mediaSession.audio_bitrate_floor_kbps || null,
+            audio_sample_rate: mediaSession.audio_sample_rate || null,
             media_type: mediaType || 'audio',
         });
 

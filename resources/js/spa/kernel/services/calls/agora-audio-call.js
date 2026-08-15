@@ -1,3 +1,5 @@
+import { AIDenoiserExtension } from 'agora-extension-ai-denoiser';
+
 const parsePositiveNumber = (value, defaultValue) => {
     const number = Number(value);
 
@@ -8,6 +10,16 @@ const parsePositiveInteger = (value, defaultValue) => {
     const number = Number.parseInt(value, 10);
 
     return Number.isFinite(number) && number > 0 ? number : defaultValue;
+};
+
+const parseUnitNumber = (value, defaultValue) => {
+    const number = Number(value);
+
+    if(! Number.isFinite(number)) {
+        return defaultValue;
+    }
+
+    return Math.max(0, Math.min(1, number));
 };
 
 const parseBooleanEnv = (value, defaultValue = true) => {
@@ -111,6 +123,18 @@ const agoraRemoteSweepIntervalMs = parsePositiveNumber(import.meta.env.VITE_AGOR
 const agoraPreferredAudioLatency = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_AUDIO_LATENCY, 0.02);
 const enableVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_AUDIO_PROCESSING, false);
 const enableNativeAppVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_NATIVE_APP_AUDIO_PROCESSING, false);
+const voiceProcessingOutputGain = Math.min(
+    0.7,
+    parseUnitNumber(import.meta.env.VITE_CALL_AUDIO_INPUT_GAIN, 0.65)
+);
+const maximumRemoteOutputVolume = Math.min(
+    0.7,
+    parseUnitNumber(import.meta.env.VITE_CALL_REMOTE_MAX_VOLUME, 0.7)
+);
+const enableAgoraAiDenoiser = parseBooleanEnv(import.meta.env.VITE_AGORA_AI_DENOISER, true);
+const agoraAiDenoiserAssetsPath = String(import.meta.env.VITE_AGORA_AI_DENOISER_ASSETS_PATH || '/vendor/agora-ai-denoiser')
+    .replace(/\/+$/, '');
+const localPublishVolume = Math.round(voiceProcessingOutputGain * 100);
 const defaultAgoraAreaCode = normalizeAgoraAreaCode(import.meta.env.VITE_AGORA_CALL_AREA_CODE, 'GLOBAL');
 const defaultAgoraExcludedArea = normalizeAgoraAreaCode(import.meta.env.VITE_AGORA_CALL_EXCLUDED_AREA, '');
 const defaultAgoraAudioEncoderProfile = normalizeAgoraAudioEncoderProfile(
@@ -131,6 +155,8 @@ const defaultAgoraSpeechEncoderConfig = {
     )
 };
 let agoraRtcPromise = null;
+let agoraAiDenoiserExtension = null;
+let agoraAiDenoiserRegistered = false;
 
 const createTimeoutError = (message) => {
     const error = new Error(message || 'Operation timed out.');
@@ -215,6 +241,130 @@ const loadAgoraRTC = async () => {
     }
 
     return agoraRtcPromise;
+};
+
+const getAgoraAiDenoiserExtension = (AgoraRTC) => {
+    if(
+        ! enableAgoraAiDenoiser
+        || isLikelyMobileCallClient()
+        || typeof AIDenoiserExtension !== 'function'
+        || typeof AgoraRTC?.registerExtensions !== 'function'
+    ) {
+        return null;
+    }
+
+    try {
+        if(! agoraAiDenoiserExtension) {
+            agoraAiDenoiserExtension = new AIDenoiserExtension({
+                assetsPath: agoraAiDenoiserAssetsPath,
+                fetchOptions: {
+                    cache: 'no-cache'
+                }
+            });
+            agoraAiDenoiserExtension.onloaderror = () => {};
+        }
+
+        if(! agoraAiDenoiserExtension.checkCompatibility?.()) {
+            return null;
+        }
+
+        if(! agoraAiDenoiserRegistered) {
+            AgoraRTC.registerExtensions([agoraAiDenoiserExtension]);
+            agoraAiDenoiserRegistered = true;
+        }
+
+        return agoraAiDenoiserExtension;
+    }
+    catch(error) {
+        return null;
+    }
+};
+
+const enableAiDenoiserForTrack = async (AgoraRTC, audioTrack) => {
+    if(
+        ! audioTrack
+        || typeof audioTrack.pipe !== 'function'
+        || ! audioTrack.processorDestination
+    ) {
+        return null;
+    }
+
+    const extension = getAgoraAiDenoiserExtension(AgoraRTC);
+
+    if(! extension || typeof extension.createProcessor !== 'function') {
+        return null;
+    }
+
+    let processor = null;
+    let restored = false;
+    const restorePipeline = async () => {
+        if(restored) {
+            return;
+        }
+
+        restored = true;
+
+        try {
+            processor?.unpipe?.();
+        }
+        catch(error) {}
+
+        try {
+            audioTrack.unpipe?.();
+        }
+        catch(error) {}
+
+        try {
+            audioTrack.pipe?.(audioTrack.processorDestination);
+        }
+        catch(error) {}
+    };
+
+    try {
+        processor = extension.createProcessor();
+        processor.on?.('overload', async () => {
+            try {
+                await processor.setMode?.('STATIONARY_NS');
+                await processor.setLevel?.('SOFT');
+            }
+            catch(error) {}
+        });
+        processor.on?.('pipeerror', () => {
+            restorePipeline();
+        });
+
+        await processor.setLatency?.('LOW');
+        await processor.setLevel?.('AGGRESSIVE');
+        await processor.setMode?.('NSNG');
+        audioTrack.pipe(processor).pipe(audioTrack.processorDestination);
+        await processor.enable?.();
+
+        return async () => {
+            await restorePipeline();
+
+            try {
+                await processor?.destroy?.();
+            }
+            catch(error) {}
+        };
+    }
+    catch(error) {
+        await restorePipeline();
+
+        try {
+            await processor?.destroy?.();
+        }
+        catch(innerError) {}
+
+        return null;
+    }
+};
+
+const applyLocalPublishVolume = (audioTrack) => {
+    try {
+        audioTrack?.setVolume?.(localPublishVolume);
+    }
+    catch(error) {}
 };
 
 const warmAgoraAudioCallEngine = async () => {
@@ -428,7 +578,7 @@ const createVoiceProcessedStream = async (rawStream, sampleRate = defaultAgoraSp
         compressor.attack.value = 0.003;
         compressor.release.value = 0.25;
 
-        gain.gain.value = 1;
+        gain.gain.value = voiceProcessingOutputGain;
 
         source
             .connect(highPassFilter)
@@ -475,7 +625,7 @@ const buildPreferredAudioConstraints = (
     const baseConstraints = {
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: true,
+        autoGainControl: false,
         channelCount: { ideal: 1 },
         sampleRate: { ideal: sampleRate },
         sampleSize: { ideal: 16 },
@@ -492,8 +642,8 @@ const buildPreferredAudioConstraints = (
         googEchoCancellation: true,
         googEchoCancellation2: true,
         googDAEchoCancellation: true,
-        googAutoGainControl: true,
-        googAutoGainControl2: true,
+        googAutoGainControl: false,
+        googAutoGainControl2: false,
         googNoiseSuppression: true,
         googNoiseSuppression2: true,
         googHighpassFilter: true,
@@ -512,7 +662,7 @@ const requestPreferredAudioCaptureStream = async (sampleRate = defaultAgoraSpeec
                 audio: {
                     echoCancellation: true,
                     noiseSuppression: true,
-                    autoGainControl: true
+                    autoGainControl: false
                 }
             },
             {
@@ -530,7 +680,7 @@ const requestPreferredAudioCaptureStream = async (sampleRate = defaultAgoraSpeec
                 audio: {
                     echoCancellation: true,
                     noiseSuppression: true,
-                    autoGainControl: true
+                    autoGainControl: false
                 }
             },
             {
@@ -612,13 +762,13 @@ const createMicrophoneTrackWithFallback = async (AgoraRTC, prewarmedStream = nul
     const configs = [
         {
             AEC: true,
-            AGC: true,
+            AGC: false,
             ANS: true,
             encoderConfig: encoderConfig
         },
         {
             AEC: true,
-            AGC: true,
+            AGC: false,
             ANS: true
         },
         {}
@@ -698,6 +848,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     let localCaptureStream = null;
     let rawCaptureStream = null;
     let voiceProcessingCleanup = null;
+    let aiDenoiserCleanup = null;
     let remoteAudioTrack = null;
     let localStream = null;
     let remoteStream = null;
@@ -874,10 +1025,11 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     };
 
     const applyRemoteOutputVolume = () => {
-        const normalizedVolume = Math.max(0, Math.min(1, remoteOutputVolume / 100));
+        const cappedRemoteOutputVolume = Math.min(remoteOutputVolume, Math.round(maximumRemoteOutputVolume * 100));
+        const normalizedVolume = Math.max(0, Math.min(maximumRemoteOutputVolume, cappedRemoteOutputVolume / 100));
 
         try {
-            remoteAudioTrack?.setVolume?.(remoteOutputVolume);
+            remoteAudioTrack?.setVolume?.(cappedRemoteOutputVolume);
         }
         catch(error) {}
 
@@ -1284,6 +1436,8 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
 
             localAudioTrack = localTrackResult?.track || null;
             localCaptureStream = localTrackResult?.captureStream || localCaptureStream;
+            applyLocalPublishVolume(localAudioTrack);
+            aiDenoiserCleanup = await enableAiDenoiserForTrack(AgoraRTC, localAudioTrack);
 
             if(! localTrackResult?.captureStream) {
                 disposeLocalCaptureStreams();
@@ -1327,6 +1481,12 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
 
         try {
             remoteAudioTrack?.stop?.();
+        }
+        catch(error) {}
+
+        try {
+            aiDenoiserCleanup?.();
+            aiDenoiserCleanup = null;
         }
         catch(error) {}
 
