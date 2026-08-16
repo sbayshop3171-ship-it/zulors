@@ -86,7 +86,7 @@ const normalizeAgoraAreaCode = (value, fallback = '') => {
         ? normalizedValue
         : String(fallback || '').trim().toUpperCase();
 };
-const normalizeAgoraAudioEncoderProfile = (value, fallback = 'speech_low_quality') => {
+const normalizeAgoraAudioEncoderProfile = (value, fallback = 'speech_standard') => {
     const normalizedValue = String(value ?? fallback ?? '')
         .trim()
         .toLowerCase();
@@ -97,7 +97,7 @@ const normalizeAgoraAudioEncoderProfile = (value, fallback = 'speech_low_quality
 
     return agoraAudioEncoderPresets[fallback]
         ? fallback
-        : 'speech_low_quality';
+        : 'speech_standard';
 };
 const normalizeAgoraAudioSampleRate = (value, fallback = 16000) => {
     const sampleRate = parsePositiveInteger(value, fallback);
@@ -141,7 +141,7 @@ const defaultAgoraAreaCode = normalizeAgoraAreaCode(import.meta.env.VITE_AGORA_C
 const defaultAgoraExcludedArea = normalizeAgoraAreaCode(import.meta.env.VITE_AGORA_CALL_EXCLUDED_AREA, '');
 const defaultAgoraAudioEncoderProfile = normalizeAgoraAudioEncoderProfile(
     import.meta.env.VITE_AGORA_CALL_AUDIO_ENCODER_PROFILE,
-    'speech_low_quality'
+    'speech_standard'
 );
 const defaultAgoraSpeechEncoderConfig = {
     ...agoraAudioEncoderPresets[defaultAgoraAudioEncoderProfile],
@@ -151,7 +151,7 @@ const defaultAgoraSpeechEncoderConfig = {
     ),
     bitrate: clampAgoraAudioBitrateKbps(
         import.meta.env.VITE_AGORA_CALL_AUDIO_BITRATE,
-        20,
+        24,
         12,
         32
     )
@@ -450,7 +450,7 @@ const resolveAgoraEncoderConfig = (mediaSession = {}) => {
         mediaSession.audio_encoder_profile,
         defaultAgoraAudioEncoderProfile
     );
-    const preset = agoraAudioEncoderPresets[profile] || agoraAudioEncoderPresets.speech_low_quality;
+    const preset = agoraAudioEncoderPresets[profile] || agoraAudioEncoderPresets.speech_standard;
 
     return {
         sampleRate: normalizeAgoraAudioSampleRate(
