@@ -232,6 +232,11 @@ const createNativeAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             getNativeAgoraBridge()?.endNativeAgoraCall?.();
         }
         catch(error) {}
+
+        try {
+            getNativeAgoraBridge()?.leaveCall?.();
+        }
+        catch(error) {}
     };
 
     return {
