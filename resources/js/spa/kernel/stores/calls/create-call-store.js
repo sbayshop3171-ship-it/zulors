@@ -1307,13 +1307,13 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     ...stats,
                     call_engine: this.callEngine,
                     media_provider: this.mediaProvider,
-                    route: this.nativeAudioRoute || (this.speakerEnabled ? 'speaker' : 'browser'),
-                    speaker_enabled: this.speakerEnabled,
-                    muted: this.isMuted,
+                    route: stats.route || this.nativeAudioRoute || (this.speakerEnabled ? 'speaker' : 'browser'),
+                    speaker_enabled: stats.speaker_enabled ?? this.speakerEnabled,
+                    muted: stats.muted ?? this.isMuted,
                     reconnect_count: this.reconnectCount,
-                    agora_uid: this.mediaSession?.uid || null,
-                    agora_channel: this.mediaSession?.channel || this.activeChannel || null,
-                    device_model: browserDeviceLabel()
+                    agora_uid: stats.agora_uid || this.mediaSession?.uid || null,
+                    agora_channel: stats.agora_channel || this.mediaSession?.channel || this.activeChannel || null,
+                    device_model: stats.device_model || browserDeviceLabel()
                 })
                     .sendTo(`calls/${this.call.call_uuid}/quality`);
 

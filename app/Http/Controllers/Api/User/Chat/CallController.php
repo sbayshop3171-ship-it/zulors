@@ -450,6 +450,15 @@ class CallController extends Controller
             'bytes_sent' => ['nullable', 'integer', 'min:0', 'max:100000000000'],
             'bytes_received' => ['nullable', 'integer', 'min:0', 'max:100000000000'],
             'available_outgoing_bitrate' => ['nullable', 'numeric', 'min:0', 'max:1000000000'],
+            'received_bitrate' => ['nullable', 'numeric', 'min:0', 'max:1000000000'],
+            'tx_quality' => ['nullable', 'integer', 'min:0', 'max:10'],
+            'rx_quality' => ['nullable', 'integer', 'min:0', 'max:10'],
+            'network_transport_delay_ms' => ['nullable', 'numeric', 'min:0', 'max:60000'],
+            'jitter_buffer_delay_ms' => ['nullable', 'numeric', 'min:0', 'max:60000'],
+            'end_to_end_delay_ms' => ['nullable', 'numeric', 'min:0', 'max:60000'],
+            'audio_device_delay_ms' => ['nullable', 'numeric', 'min:0', 'max:60000'],
+            'audio_playout_delay_ms' => ['nullable', 'numeric', 'min:0', 'max:60000'],
+            'aec_estimated_delay_ms' => ['nullable', 'numeric', 'min:0', 'max:60000'],
             'audio_level' => ['nullable', 'numeric', 'min:0', 'max:1'],
             'call_engine' => ['nullable', 'string', 'max:40'],
             'media_provider' => ['nullable', 'string', 'max:40'],
@@ -500,6 +509,15 @@ class CallController extends Controller
             'bytes_sent' => $this->metricInt($request->input('bytes_sent')),
             'bytes_received' => $this->metricInt($request->input('bytes_received')),
             'available_outgoing_bitrate' => $this->metricFloat($request->input('available_outgoing_bitrate')),
+            'received_bitrate' => $this->metricFloat($request->input('received_bitrate')),
+            'tx_quality' => $this->metricInt($request->input('tx_quality')),
+            'rx_quality' => $this->metricInt($request->input('rx_quality')),
+            'network_transport_delay_ms' => $this->metricFloat($request->input('network_transport_delay_ms')),
+            'jitter_buffer_delay_ms' => $this->metricFloat($request->input('jitter_buffer_delay_ms')),
+            'end_to_end_delay_ms' => $this->metricFloat($request->input('end_to_end_delay_ms')),
+            'audio_device_delay_ms' => $this->metricFloat($request->input('audio_device_delay_ms')),
+            'audio_playout_delay_ms' => $this->metricFloat($request->input('audio_playout_delay_ms')),
+            'aec_estimated_delay_ms' => $this->metricFloat($request->input('aec_estimated_delay_ms')),
             'audio_level' => $this->metricFloat($request->input('audio_level')),
             'call_engine' => $request->input('call_engine'),
             'media_provider' => $request->input('media_provider'),
@@ -522,6 +540,10 @@ class CallController extends Controller
             'max_packet_loss_percent' => 0,
             'max_jitter_ms' => 0,
             'max_round_trip_time_ms' => 0,
+            'max_jitter_buffer_delay_ms' => 0,
+            'max_end_to_end_delay_ms' => 0,
+            'max_audio_device_delay_ms' => 0,
+            'max_aec_estimated_delay_ms' => 0,
             'last_reported_at' => null,
         ];
         $userSummary['reports_count'] = ((int) ($userSummary['reports_count'] ?? 0)) + 1;
@@ -530,6 +552,10 @@ class CallController extends Controller
         $userSummary['max_packet_loss_percent'] = max((float) ($userSummary['max_packet_loss_percent'] ?? 0), (float) ($sample['packet_loss_percent'] ?? 0));
         $userSummary['max_jitter_ms'] = max((float) ($userSummary['max_jitter_ms'] ?? 0), (float) ($sample['jitter_ms'] ?? 0));
         $userSummary['max_round_trip_time_ms'] = max((float) ($userSummary['max_round_trip_time_ms'] ?? 0), (float) ($sample['round_trip_time_ms'] ?? 0));
+        $userSummary['max_jitter_buffer_delay_ms'] = max((float) ($userSummary['max_jitter_buffer_delay_ms'] ?? 0), (float) ($sample['jitter_buffer_delay_ms'] ?? 0));
+        $userSummary['max_end_to_end_delay_ms'] = max((float) ($userSummary['max_end_to_end_delay_ms'] ?? 0), (float) ($sample['end_to_end_delay_ms'] ?? 0));
+        $userSummary['max_audio_device_delay_ms'] = max((float) ($userSummary['max_audio_device_delay_ms'] ?? 0), (float) ($sample['audio_device_delay_ms'] ?? 0));
+        $userSummary['max_aec_estimated_delay_ms'] = max((float) ($userSummary['max_aec_estimated_delay_ms'] ?? 0), (float) ($sample['aec_estimated_delay_ms'] ?? 0));
         $userSummary['last_network_quality'] = $sample['network_quality'] ?? 'unknown';
         $userSummary['last_issue'] = $sample['issue'] ?? null;
         $userSummary['last_call_engine'] = $sample['call_engine'] ?? null;
@@ -547,6 +573,12 @@ class CallController extends Controller
                 'route' => $sample['route'] ?? null,
                 'call_engine' => $sample['call_engine'] ?? null,
                 'reconnect_count' => $sample['reconnect_count'] ?? 0,
+                'packet_loss_percent' => $sample['packet_loss_percent'] ?? null,
+                'round_trip_time_ms' => $sample['round_trip_time_ms'] ?? null,
+                'jitter_buffer_delay_ms' => $sample['jitter_buffer_delay_ms'] ?? null,
+                'end_to_end_delay_ms' => $sample['end_to_end_delay_ms'] ?? null,
+                'tx_quality' => $sample['tx_quality'] ?? null,
+                'rx_quality' => $sample['rx_quality'] ?? null,
                 'reported_at' => $sample['reported_at'],
             ];
             $events = array_slice($events, -20);
