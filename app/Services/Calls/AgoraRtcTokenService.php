@@ -131,16 +131,16 @@ class AgoraRtcTokenService
 
     private function audioEncoderProfile(): string
     {
-        $profile = Str::lower(trim((string) config('services.calls.agora.audio_encoder_profile', 'speech_low_quality')));
+        $profile = Str::lower(trim((string) config('services.calls.agora.audio_encoder_profile', 'speech_standard')));
 
         return in_array($profile, self::SUPPORTED_AUDIO_ENCODER_PROFILES, true)
             ? $profile
-            : 'speech_low_quality';
+            : 'speech_standard';
     }
 
     private function audioBitrateKbps(): int
     {
-        return max(16, min(32, (int) config('services.calls.agora.audio_bitrate_kbps', 20)));
+        return max(16, min(32, (int) config('services.calls.agora.audio_bitrate_kbps', 24)));
     }
 
     private function audioBitrateFloorKbps(): int
@@ -150,7 +150,7 @@ class AgoraRtcTokenService
 
     private function audioSampleRate(): int
     {
-        $sampleRate = (int) config('services.calls.agora.audio_sample_rate', 16000);
+        $sampleRate = (int) config('services.calls.agora.audio_sample_rate', 32000);
 
         return in_array($sampleRate, [16000, 32000, 48000], true)
             ? $sampleRate

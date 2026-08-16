@@ -132,9 +132,11 @@ const maximumRemoteOutputVolume = Math.min(
     parsePositiveNumber(import.meta.env.VITE_CALL_REMOTE_MAX_VOLUME, 1)
 );
 const enableAgoraAiDenoiser = parseBooleanEnv(import.meta.env.VITE_AGORA_AI_DENOISER, true);
+const agoraAiDenoiserLevel = String(import.meta.env.VITE_AGORA_AI_DENOISER_LEVEL || 'SOFT').toUpperCase();
+const agoraAiDenoiserMode = String(import.meta.env.VITE_AGORA_AI_DENOISER_MODE || 'STATIONARY_NS').toUpperCase();
 const agoraAiDenoiserAssetsPath = String(import.meta.env.VITE_AGORA_AI_DENOISER_ASSETS_PATH || '/assets/agora-ai-denoiser')
     .replace(/\/+$/, '');
-const localPublishVolume = Math.round(voiceProcessingOutputGain * 100);
+const processedLocalPublishVolume = Math.round(voiceProcessingOutputGain * 100);
 const defaultAgoraAreaCode = normalizeAgoraAreaCode(import.meta.env.VITE_AGORA_CALL_AREA_CODE, 'GLOBAL');
 const defaultAgoraExcludedArea = normalizeAgoraAreaCode(import.meta.env.VITE_AGORA_CALL_EXCLUDED_AREA, '');
 const defaultAgoraAudioEncoderProfile = normalizeAgoraAudioEncoderProfile(
@@ -335,8 +337,8 @@ const enableAiDenoiserForTrack = async (AgoraRTC, audioTrack) => {
 
         audioTrack.pipe(processor).pipe(audioTrack.processorDestination);
         await processor.setLatency?.('LOW');
-        await processor.setLevel?.('AGGRESSIVE');
-        await processor.setMode?.('NSNG');
+        await processor.setLevel?.(agoraAiDenoiserLevel);
+        await processor.setMode?.(agoraAiDenoiserMode);
         await processor.enable?.();
 
         return async () => {
@@ -362,7 +364,7 @@ const enableAiDenoiserForTrack = async (AgoraRTC, audioTrack) => {
 
 const applyLocalPublishVolume = (audioTrack) => {
     try {
-        audioTrack?.setVolume?.(localPublishVolume);
+        audioTrack?.setVolume?.(shouldUseCustomVoiceProcessing() ? processedLocalPublishVolume : 100);
     }
     catch(error) {}
 };
