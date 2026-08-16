@@ -74,6 +74,8 @@ class AgoraRtcTokenService
             'audio_bitrate_kbps' => $this->audioBitrateKbps(),
             'audio_bitrate_floor_kbps' => $this->audioBitrateFloorKbps(),
             'audio_sample_rate' => $this->audioSampleRate(),
+            'audio_route_preset' => $this->audioRoutePreset(),
+            'reconnect_grace_seconds' => $this->reconnectGraceSeconds(),
         ];
     }
 
@@ -155,6 +157,20 @@ class AgoraRtcTokenService
         return in_array($sampleRate, [16000, 32000, 48000], true)
             ? $sampleRate
             : 16000;
+    }
+
+    private function audioRoutePreset(): string
+    {
+        $routePreset = Str::lower(trim((string) config('services.calls.agora.audio_route_preset', 'earpiece')));
+
+        return in_array($routePreset, ['earpiece', 'speaker', 'wired', 'bluetooth'], true)
+            ? $routePreset
+            : 'earpiece';
+    }
+
+    private function reconnectGraceSeconds(): int
+    {
+        return max(30, min(120, (int) config('services.calls.agora.reconnect_grace_seconds', 60)));
     }
 
     private function normalizeAreaCode(string $areaCode): ?string

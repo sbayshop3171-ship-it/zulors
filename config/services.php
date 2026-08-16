@@ -77,6 +77,8 @@ return [
             'audio_bitrate_kbps' => (int) env('AGORA_AUDIO_BITRATE_KBPS', 24),
             'audio_bitrate_floor_kbps' => (int) env('AGORA_AUDIO_BITRATE_FLOOR_KBPS', 16),
             'audio_sample_rate' => (int) env('AGORA_AUDIO_SAMPLE_RATE', 32000),
+            'audio_route_preset' => env('AGORA_AUDIO_ROUTE_PRESET', 'earpiece'),
+            'reconnect_grace_seconds' => (int) env('AGORA_RECONNECT_GRACE_SECONDS', 60),
         ],
     ],
 ];

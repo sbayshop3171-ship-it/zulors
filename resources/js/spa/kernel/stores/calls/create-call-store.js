@@ -8,10 +8,20 @@ import { createAudioCallPeer, isAudioCallSupported } from '@/kernel/services/cal
 
 const finalStatuses = ['ended', 'missed', 'declined', 'busy', 'failed'];
 const connectingStatuses = ['ringing', 'accepted', 'connecting'];
+const parseDurationMs = (value, fallback) => {
+    const number = Number(value);
+
+    if(! Number.isFinite(number)) {
+        return fallback;
+    }
+
+    return Math.max(30000, Math.min(120000, number));
+};
 const defaultRingTimeoutSeconds = 40;
 const connectionTimeoutSeconds = 40;
-const degradedConnectionTimeoutSeconds = 45;
-const reconnectTimeoutSeconds = 45;
+const callReconnectGraceMs = parseDurationMs(import.meta.env.VITE_CALL_RECONNECT_GRACE_MS, 60000);
+const degradedConnectionTimeoutSeconds = Math.ceil(callReconnectGraceMs / 1000);
+const reconnectTimeoutSeconds = Math.ceil(callReconnectGraceMs / 1000);
 const heartbeatIntervalMs = 10000;
 const qualityReportThrottleMs = 10000;
 const iceServerRefreshSkewMs = 60000;
@@ -91,6 +101,14 @@ const makeSilentCallError = (message = '') => {
     return error;
 };
 
+const browserDeviceLabel = () => {
+    if(typeof navigator === 'undefined') {
+        return 'browser';
+    }
+
+    return String(navigator.userAgent || 'browser').slice(0, 180);
+};
+
 const isBusyCallError = (error) => {
     const data = getErrorData(error);
 
@@ -158,6 +176,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             remoteOutputVolumeLevel: getDefaultBrowserQuietVolume(),
             networkState: 'stable',
             qualityNotice: '',
+            reconnectCount: 0,
             lastQualityReportAt: 0,
             lastQualitySignature: '',
             iceServers: null,
@@ -1239,6 +1258,10 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
 
             if(state === 'reconnecting') {
+                if(this.networkState !== 'reconnecting') {
+                    this.reconnectCount += 1;
+                }
+
                 this.networkState = 'reconnecting';
                 this.qualityNotice = 'Reconnecting...';
                 this.startReconnectTimeoutTimer();
@@ -1280,7 +1303,18 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
 
             try {
-                await colibriAPI().messenger().with(stats)
+                await colibriAPI().messenger().with({
+                    ...stats,
+                    call_engine: this.callEngine,
+                    media_provider: this.mediaProvider,
+                    route: this.nativeAudioRoute || (this.speakerEnabled ? 'speaker' : 'browser'),
+                    speaker_enabled: this.speakerEnabled,
+                    muted: this.isMuted,
+                    reconnect_count: this.reconnectCount,
+                    agora_uid: this.mediaSession?.uid || null,
+                    agora_channel: this.mediaSession?.channel || this.activeChannel || null,
+                    device_model: browserDeviceLabel()
+                })
                     .sendTo(`calls/${this.call.call_uuid}/quality`);
 
                 return true;
@@ -1304,7 +1338,12 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 const response = await colibriAPI().messenger().with({
                     status: this.status,
                     media_provider: this.mediaProvider,
-                    network_state: this.networkState
+                    network_state: this.networkState,
+                    call_engine: this.callEngine,
+                    route: this.nativeAudioRoute,
+                    speaker_enabled: this.speakerEnabled,
+                    muted: this.isMuted,
+                    reconnect_count: this.reconnectCount
                 }).sendTo(`calls/${this.call.call_uuid}/heartbeat`);
                 const call = response.data?.data?.call;
 
@@ -1627,6 +1666,11 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.status = sameCall && this.status === 'connected' && connectingStatuses.includes(nextStatus)
                 ? 'connected'
                 : nextStatus;
+
+            if(! sameCall) {
+                this.reconnectCount = 0;
+            }
+
             this.error = '';
             this.syncCallSideEffects();
         },

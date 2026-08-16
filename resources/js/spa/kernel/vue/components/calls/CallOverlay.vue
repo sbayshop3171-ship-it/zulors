@@ -44,6 +44,18 @@
                     <h3 class="call-overlay-title mt-4 truncate text-title-3 font-bold text-lab-pr">{{ callStore.title }}</h3>
                     <p class="mt-1 text-par-s text-lab-sc">{{ statusText }}</p>
 
+                    <div v-if="callStore.isActive" class="mt-3 flex flex-wrap justify-center gap-2">
+                        <span class="rounded-full bg-fill-qt px-3 py-1 text-par-xs font-semibold text-lab-pr">
+                            {{ routeBadgeText }}
+                        </span>
+                        <span
+                            v-if="networkBadgeText"
+                            class="rounded-full px-3 py-1 text-par-xs font-semibold"
+                            v-bind:class="networkBadgeClass">
+                            {{ networkBadgeText }}
+                        </span>
+                    </div>
+
                     <p v-if="callStore.error" class="mt-3 rounded-lg bg-red-900/10 px-3 py-2 text-par-s font-medium text-red-900">
                         {{ callStore.error }}
                     </p>
@@ -175,6 +187,25 @@
 
                 return true;
             };
+            const routeLabel = (route) => {
+                if(route === 'speaker') {
+                    return 'Speaker';
+                }
+
+                if(route === 'bluetooth') {
+                    return 'Bluetooth';
+                }
+
+                if(route === 'wired') {
+                    return 'Headset';
+                }
+
+                if(route === 'browser') {
+                    return 'Browser audio';
+                }
+
+                return 'Earpiece';
+            };
 
             const attachRemoteStream = () => {
                 if(! remoteAudioRef.value) {
@@ -266,6 +297,37 @@
                     return String(props.callStore.title || 'Z').charAt(0).toUpperCase();
                 }),
                 durationText: durationText,
+                routeBadgeText: computed(() => {
+                    if(props.callStore.usesNativeCallEngine) {
+                        return routeLabel(props.callStore.nativeAudioRoute);
+                    }
+
+                    return props.callStore.speakerEnabled ? 'Speaker' : 'Browser audio';
+                }),
+                networkBadgeText: computed(() => {
+                    if(props.callStore.networkState === 'stable') {
+                        return '';
+                    }
+
+                    if(props.callStore.networkState === 'reconnecting') {
+                        return 'Reconnecting';
+                    }
+
+                    if(props.callStore.networkState === 'poor') {
+                        return 'Poor network';
+                    }
+
+                    if(props.callStore.networkState === 'weak') {
+                        return 'Weak network';
+                    }
+
+                    return '';
+                }),
+                networkBadgeClass: computed(() => {
+                    return ['poor', 'reconnecting'].includes(props.callStore.networkState)
+                        ? 'bg-red-900/10 text-red-900'
+                        : 'bg-yellow-500/15 text-yellow-900';
+                }),
                 statusText: computed(() => {
                     if(props.callStore.status === 'ringing' && props.callStore.direction === 'incoming') {
                         return ringCountdownText.value ? `Incoming voice call · ${ringCountdownText.value}` : 'Incoming voice call';

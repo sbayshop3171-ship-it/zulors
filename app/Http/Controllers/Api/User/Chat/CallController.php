@@ -451,6 +451,15 @@ class CallController extends Controller
             'bytes_received' => ['nullable', 'integer', 'min:0', 'max:100000000000'],
             'available_outgoing_bitrate' => ['nullable', 'numeric', 'min:0', 'max:1000000000'],
             'audio_level' => ['nullable', 'numeric', 'min:0', 'max:1'],
+            'call_engine' => ['nullable', 'string', 'max:40'],
+            'media_provider' => ['nullable', 'string', 'max:40'],
+            'route' => ['nullable', 'string', 'max:40'],
+            'speaker_enabled' => ['nullable', 'boolean'],
+            'muted' => ['nullable', 'boolean'],
+            'reconnect_count' => ['nullable', 'integer', 'min:0', 'max:1000'],
+            'agora_uid' => ['nullable', 'integer', 'min:0', 'max:4294967295'],
+            'agora_channel' => ['nullable', 'string', 'max:160'],
+            'device_model' => ['nullable', 'string', 'max:220'],
         ]);
 
         if($validator->fails()) {
@@ -492,6 +501,15 @@ class CallController extends Controller
             'bytes_received' => $this->metricInt($request->input('bytes_received')),
             'available_outgoing_bitrate' => $this->metricFloat($request->input('available_outgoing_bitrate')),
             'audio_level' => $this->metricFloat($request->input('audio_level')),
+            'call_engine' => $request->input('call_engine'),
+            'media_provider' => $request->input('media_provider'),
+            'route' => $request->input('route'),
+            'speaker_enabled' => $request->has('speaker_enabled') ? $request->boolean('speaker_enabled') : null,
+            'muted' => $request->has('muted') ? $request->boolean('muted') : null,
+            'reconnect_count' => $this->metricInt($request->input('reconnect_count')),
+            'agora_uid' => $this->metricInt($request->input('agora_uid')),
+            'agora_channel' => $request->input('agora_channel'),
+            'device_model' => $request->input('device_model'),
             'reported_at' => now()->toIso8601String(),
         ], fn ($value) => $value !== null && $value !== '');
 
@@ -514,6 +532,10 @@ class CallController extends Controller
         $userSummary['max_round_trip_time_ms'] = max((float) ($userSummary['max_round_trip_time_ms'] ?? 0), (float) ($sample['round_trip_time_ms'] ?? 0));
         $userSummary['last_network_quality'] = $sample['network_quality'] ?? 'unknown';
         $userSummary['last_issue'] = $sample['issue'] ?? null;
+        $userSummary['last_call_engine'] = $sample['call_engine'] ?? null;
+        $userSummary['last_route'] = $sample['route'] ?? null;
+        $userSummary['last_reconnect_count'] = $sample['reconnect_count'] ?? 0;
+        $userSummary['last_device_model'] = $sample['device_model'] ?? null;
         $userSummary['last_reported_at'] = $sample['reported_at'];
         $summary[$userKey] = $userSummary;
 
@@ -522,6 +544,9 @@ class CallController extends Controller
                 'user_id' => me()->id,
                 'network_quality' => $sample['network_quality'] ?? 'unknown',
                 'issue' => $sample['issue'] ?? null,
+                'route' => $sample['route'] ?? null,
+                'call_engine' => $sample['call_engine'] ?? null,
+                'reconnect_count' => $sample['reconnect_count'] ?? 0,
                 'reported_at' => $sample['reported_at'],
             ];
             $events = array_slice($events, -20);

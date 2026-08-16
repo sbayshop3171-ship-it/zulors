@@ -138,6 +138,12 @@ const createNativeAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                 packets_received: detail.packets_received,
                 packet_loss_percent: detail.packet_loss_percent,
                 audio_level: detail.audio_level,
+                route: detail.route || 'unknown',
+                speaker_enabled: detail.speaker === true,
+                muted: detail.muted === true,
+                agora_uid: detail.agora_uid,
+                agora_channel: detail.agora_channel,
+                device_model: detail.device_model,
             });
 
             return;
@@ -211,6 +217,8 @@ const createNativeAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             audio_bitrate_kbps: mediaSession.audio_bitrate_kbps || null,
             audio_bitrate_floor_kbps: mediaSession.audio_bitrate_floor_kbps || null,
             audio_sample_rate: mediaSession.audio_sample_rate || null,
+            audio_route_preset: mediaSession.audio_route_preset || 'earpiece',
+            reconnect_grace_seconds: mediaSession.reconnect_grace_seconds || null,
             media_type: mediaType || 'audio',
         });
 

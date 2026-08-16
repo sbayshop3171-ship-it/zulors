@@ -126,7 +126,7 @@ class StaleCallCleanupService
 
     private function handshakeExpired(CallSession $callSession, Carbon $now): bool
     {
-        $threshold = $now->copy()->subSeconds(self::HANDSHAKE_TIMEOUT_SECONDS);
+        $threshold = $now->copy()->subSeconds($this->handshakeTimeoutSeconds());
         $startedAt = $callSession->answered_at ?: $callSession->started_at;
 
         return empty($startedAt) || $startedAt->lte($threshold);
@@ -140,7 +140,7 @@ class StaleCallCleanupService
             return true;
         }
 
-        $threshold = $now->copy()->subSeconds(self::HEARTBEAT_TIMEOUT_SECONDS);
+        $threshold = $now->copy()->subSeconds($this->heartbeatTimeoutSeconds());
 
         if($connectedAt->gt($threshold)) {
             return false;
@@ -155,6 +155,22 @@ class StaleCallCleanupService
         }
 
         return $participants->contains(fn (CallParticipant $participant) => $this->participantHeartbeatExpired($participant, $threshold));
+    }
+
+    private function handshakeTimeoutSeconds(): int
+    {
+        return max(
+            self::HANDSHAKE_TIMEOUT_SECONDS,
+            min(120, (int) config('services.calls.agora.reconnect_grace_seconds', 60))
+        );
+    }
+
+    private function heartbeatTimeoutSeconds(): int
+    {
+        return max(
+            self::HEARTBEAT_TIMEOUT_SECONDS,
+            min(120, (int) config('services.calls.agora.reconnect_grace_seconds', 60))
+        );
     }
 
     private function participantHeartbeatExpired(CallParticipant $participant, Carbon $threshold): bool
