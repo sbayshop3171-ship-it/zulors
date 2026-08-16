@@ -128,8 +128,8 @@ const voiceProcessingOutputGain = Math.min(
     parseUnitNumber(import.meta.env.VITE_CALL_AUDIO_INPUT_GAIN, 0.65)
 );
 const maximumRemoteOutputVolume = Math.min(
-    0.7,
-    parseUnitNumber(import.meta.env.VITE_CALL_REMOTE_MAX_VOLUME, 0.7)
+    0.45,
+    parseUnitNumber(import.meta.env.VITE_CALL_REMOTE_MAX_VOLUME, 0.45)
 );
 const enableAgoraAiDenoiser = parseBooleanEnv(import.meta.env.VITE_AGORA_AI_DENOISER, true);
 const agoraAiDenoiserAssetsPath = String(import.meta.env.VITE_AGORA_AI_DENOISER_ASSETS_PATH || '/assets/agora-ai-denoiser')
@@ -384,6 +384,14 @@ const toNumber = (value, fallback = 0) => {
     const number = Number(value);
 
     return Number.isFinite(number) ? number : fallback;
+};
+
+const normalizeAgoraUid = (uid) => {
+    if(uid === undefined || uid === null) {
+        return '';
+    }
+
+    return String(uid);
 };
 
 const streamFromTrack = (audioTrack) => {
@@ -866,6 +874,8 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     let consecutivePoorSamples = 0;
     let remoteOutputVolume = 100;
     let remoteUserSweepTimer = null;
+    let localAgoraUid = null;
+    let remoteOutputAecTimers = [];
 
     const emit = (event, ...payload) => {
         try {
@@ -942,9 +952,20 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         remoteStream = null;
         remoteMediaTrackId = null;
         remoteUid = null;
+        localAgoraUid = null;
         joined = false;
 
         throw makeSilentAgoraError();
+    };
+
+    const isLocalAgoraUser = (uid) => {
+        const normalizedUid = normalizeAgoraUid(uid);
+
+        return normalizedUid !== ''
+            && (
+                normalizedUid === normalizeAgoraUid(localAgoraUid)
+                || normalizedUid === normalizeAgoraUid(currentMediaSession?.uid)
+            );
     };
 
     const refreshMediaSession = async () => {
@@ -987,7 +1008,10 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             const rtcStats = client.getRTCStats?.() || {};
             const localStats = client.getLocalAudioStats?.() || {};
             const remoteStatsMap = client.getRemoteAudioStats?.() || {};
-            const remoteStats = remoteStatsMap[remoteUid] || Object.values(remoteStatsMap)[0] || {};
+            const remoteStats = remoteStatsMap[remoteUid]
+                || remoteStatsMap[normalizeAgoraUid(remoteUid)]
+                || Object.values(remoteStatsMap)[0]
+                || {};
             const rtt = normalizeMilliseconds(pickFirstValue(remoteStats.end2EndDelay, remoteStats.receiveDelay, rtcStats.RTT));
             const jitter = normalizeMilliseconds(pickFirstValue(remoteStats.receiveJitterDelay, remoteStats.jitter));
             const packetLossPercent = normalizePacketLossPercent(pickFirstValue(remoteStats.packetLossRate, remoteStats.receivePacketLossRate, remoteStats.receivePacketLossRatePercent));
@@ -1053,6 +1077,37 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             AgoraRTCModule.processExternalMediaAEC(remoteOutputElement);
         }
         catch(error) {}
+    };
+
+    const clearRemoteOutputAecTimers = () => {
+        if(typeof window === 'undefined') {
+            remoteOutputAecTimers = [];
+
+            return;
+        }
+
+        remoteOutputAecTimers.forEach((timer) => {
+            try {
+                window.clearTimeout(timer);
+            }
+            catch(error) {}
+        });
+        remoteOutputAecTimers = [];
+    };
+
+    const refreshRemoteOutputAEC = () => {
+        clearRemoteOutputAecTimers();
+        processRemoteOutputAEC();
+
+        if(typeof window === 'undefined' || ! remoteOutputElement) {
+            return;
+        }
+
+        [160, 700].forEach((delayMs) => {
+            remoteOutputAecTimers.push(window.setTimeout(() => {
+                processRemoteOutputAEC();
+            }, delayMs));
+        });
     };
 
     const stopRemoteAudioTrackPlayback = () => {
@@ -1123,7 +1178,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             }
 
             applyRemoteOutputVolume();
-            processRemoteOutputAEC();
+            refreshRemoteOutputAEC();
             remoteOutputElement.play?.().catch(() => {});
         }
         catch(error) {}
@@ -1171,7 +1226,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     };
 
     const subscribeToRemoteAudio = async (user) => {
-        if(closing || ! user || user.uid === currentMediaSession?.uid) {
+        if(closing || ! user || isLocalAgoraUser(user.uid)) {
             return false;
         }
 
@@ -1195,8 +1250,14 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             await yieldToBrowser();
             const nextRemoteTrack = user.audioTrack;
             const nextRemoteMediaTrack = nextRemoteTrack?.getMediaStreamTrack?.() || null;
+            const localMediaTrack = localAudioTrack?.getMediaStreamTrack?.() || null;
+
+            if(nextRemoteMediaTrack?.id && localMediaTrack?.id === nextRemoteMediaTrack.id) {
+                return false;
+            }
+
             const nextRemoteTrackId = String(nextRemoteMediaTrack?.id || `${user.uid || 'remote'}:audio`);
-            const isSameRemoteTrack = remoteUid === user.uid
+            const isSameRemoteTrack = normalizeAgoraUid(remoteUid) === normalizeAgoraUid(user.uid)
                 && remoteMediaTrackId === nextRemoteTrackId
                 && remoteAudioTrack === nextRemoteTrack;
 
@@ -1294,7 +1355,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                 return;
             }
 
-            if(mediaType === 'audio' && user.uid === remoteUid) {
+            if(mediaType === 'audio' && normalizeAgoraUid(user.uid) === normalizeAgoraUid(remoteUid)) {
                 remoteAudioTrack?.stop?.();
                 remoteAudioTrack = null;
                 remoteStream = null;
@@ -1310,7 +1371,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                 return;
             }
 
-            if(user.uid === remoteUid) {
+            if(normalizeAgoraUid(user.uid) === normalizeAgoraUid(remoteUid)) {
                 remoteAudioTrack?.stop?.();
                 remoteAudioTrack = null;
                 remoteStream = null;
@@ -1414,7 +1475,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             });
             setupClientEvents();
 
-            await withTimeout(
+            localAgoraUid = await withTimeout(
                 client.join(
                     currentMediaSession.app_id,
                     currentMediaSession.channel,
@@ -1478,6 +1539,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         closing = true;
         stopQualityTimer();
         stopRemoteUserSweep();
+        clearRemoteOutputAecTimers();
 
         try {
             remoteAudioTrack?.stop?.();
@@ -1506,6 +1568,8 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         remoteStream = null;
         remoteMediaTrackId = null;
         remoteUid = null;
+        localAgoraUid = null;
+        remoteOutputElement = null;
         joined = false;
         latestNetworkQuality = null;
         consecutiveWeakSamples = 0;
@@ -1538,7 +1602,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         },
         attachRemoteOutputElement: (element) => {
             remoteOutputElement = element || null;
-            processRemoteOutputAEC();
+            refreshRemoteOutputAEC();
             applyRemoteOutputVolume();
 
             if(remoteAudioTrack && ! remoteStream) {

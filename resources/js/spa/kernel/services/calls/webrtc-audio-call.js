@@ -858,6 +858,10 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
             return;
         }
 
+        if(localStream?.getAudioTracks?.().some((localTrack) => localTrack.id === track.id)) {
+            return;
+        }
+
         if(activeRemoteAudioTrackId === track.id && remoteStream.getAudioTracks().some((remoteTrack) => remoteTrack.id === track.id)) {
             return;
         }
