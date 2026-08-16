@@ -113,14 +113,14 @@ const clampAgoraAudioBitrateKbps = (value, fallback = 20, minimum = 12, maximum 
 };
 
 const qualityMonitorIntervalMs = parsePositiveNumber(import.meta.env.VITE_CALL_QUALITY_MONITOR_INTERVAL, 3000);
-const qualityWarningSamples = Math.max(1, parsePositiveNumber(import.meta.env.VITE_CALL_QUALITY_WARNING_SAMPLES, 2));
+const qualityWarningSamples = Math.max(1, parsePositiveNumber(import.meta.env.VITE_CALL_QUALITY_WARNING_SAMPLES, 3));
 const agoraSdkLoadTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_SDK_TIMEOUT_MS, 12000);
 const agoraPermissionTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_PERMISSION_TIMEOUT_MS, 12000);
 const agoraJoinTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_JOIN_TIMEOUT_MS, 12000);
 const agoraTrackTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_TRACK_TIMEOUT_MS, 12000);
 const agoraPublishTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_PUBLISH_TIMEOUT_MS, 12000);
 const agoraRemoteSweepIntervalMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_REMOTE_SWEEP_INTERVAL_MS, 1000);
-const agoraPreferredAudioLatency = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_AUDIO_LATENCY, 0.02);
+const agoraPreferredAudioLatency = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_AUDIO_LATENCY, 0.01);
 const enableVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_AUDIO_PROCESSING, false);
 const enableNativeAppVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_NATIVE_APP_AUDIO_PROCESSING, false);
 const voiceProcessingOutputGain = Math.min(
@@ -1189,11 +1189,11 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     };
 
     const classifyNetworkQuality = ({ rtt, jitter, packetLossPercent }) => {
-        if(packetLossPercent >= 12 || rtt >= 900 || jitter >= 180) {
+        if(packetLossPercent >= 20 || rtt >= 1200 || jitter >= 260) {
             return 'poor';
         }
 
-        if(packetLossPercent >= 5 || rtt >= 500 || jitter >= 90) {
+        if(packetLossPercent >= 8 || rtt >= 700 || jitter >= 140) {
             return 'weak';
         }
 
