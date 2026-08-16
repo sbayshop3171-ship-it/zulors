@@ -52,10 +52,10 @@ const parseUnitVolume = (value, fallback) => {
 };
 const browserCallQuietVolume = parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_QUIET_VOLUME, 0.28);
 const browserCallMobileQuietVolume = parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_MOBILE_QUIET_VOLUME, 0.1);
-const browserCallMaximumVolume = parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_MAX_VOLUME, 0.45);
+const browserCallMaximumVolume = parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_MAX_VOLUME, 1);
 const browserCallSpeakerVolume = Math.min(
     browserCallMaximumVolume,
-    parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_SPEAKER_VOLUME, 0.38)
+    parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_SPEAKER_VOLUME, 1)
 );
 const getDefaultBrowserQuietVolume = () => {
     return isLikelyMobileBrowserCallClient()

@@ -128,8 +128,8 @@ const voiceProcessingOutputGain = Math.min(
     parseUnitNumber(import.meta.env.VITE_CALL_AUDIO_INPUT_GAIN, 0.65)
 );
 const maximumRemoteOutputVolume = Math.min(
-    0.45,
-    parseUnitNumber(import.meta.env.VITE_CALL_REMOTE_MAX_VOLUME, 0.45)
+    2,
+    parsePositiveNumber(import.meta.env.VITE_CALL_REMOTE_MAX_VOLUME, 1)
 );
 const enableAgoraAiDenoiser = parseBooleanEnv(import.meta.env.VITE_AGORA_AI_DENOISER, true);
 const agoraAiDenoiserAssetsPath = String(import.meta.env.VITE_AGORA_AI_DENOISER_ASSETS_PATH || '/assets/agora-ai-denoiser')
@@ -1050,7 +1050,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
 
     const applyRemoteOutputVolume = () => {
         const cappedRemoteOutputVolume = Math.min(remoteOutputVolume, Math.round(maximumRemoteOutputVolume * 100));
-        const normalizedVolume = Math.max(0, Math.min(maximumRemoteOutputVolume, cappedRemoteOutputVolume / 100));
+        const normalizedVolume = Math.max(0, Math.min(1, cappedRemoteOutputVolume / 100));
 
         try {
             remoteAudioTrack?.setVolume?.(cappedRemoteOutputVolume);
@@ -1596,8 +1596,12 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         },
         setRemoteOutputVolume: (volume) => {
             const normalizedVolume = Number(volume);
+            const maximumVolumePercentage = Math.round(maximumRemoteOutputVolume * 100);
 
-            remoteOutputVolume = Math.max(0, Math.min(100, Math.round((Number.isFinite(normalizedVolume) ? normalizedVolume : 1) * 100)));
+            remoteOutputVolume = Math.max(0, Math.min(
+                maximumVolumePercentage,
+                Math.round((Number.isFinite(normalizedVolume) ? normalizedVolume : 1) * 100)
+            ));
             applyRemoteOutputVolume();
         },
         attachRemoteOutputElement: (element) => {
