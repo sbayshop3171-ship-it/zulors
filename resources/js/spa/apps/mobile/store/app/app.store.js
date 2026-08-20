@@ -50,7 +50,6 @@ const useAppStore = defineStore('mobile_app_store', {
     actions: {
         hydrateCachedBootstrap: function() {
             const authStore = useAuthStore();
-            const timelineStore = useTimelineStore();
             const userData = this.appData?.auth?.user ?? null;
             const hasFreshHomeFeed = this.appDataCachedAt && ((Date.now() - this.appDataCachedAt) <= bootstrapHomeFeedTtl);
 
@@ -58,6 +57,7 @@ const useAppStore = defineStore('mobile_app_store', {
                 authStore.setUser(userData);
 
                 if(hasFreshHomeFeed) {
+                    const timelineStore = useTimelineStore();
                     timelineStore.hydrateBootFeed(this.appData?.home_feed ?? null);
                 }
 
@@ -68,11 +68,12 @@ const useAppStore = defineStore('mobile_app_store', {
         },
         applyBootstrapData: function(bootstrapData) {
             const authStore = useAuthStore();
-            const timelineStore = useTimelineStore();
 
             this.appData = bootstrapData;
             this.appDataCachedAt = Date.now();
             authStore.setUser(bootstrapData?.auth?.user ?? null);
+
+            const timelineStore = useTimelineStore();
             timelineStore.hydrateBootFeed(bootstrapData?.home_feed ?? null);
             writeCache(bootstrapCacheKey, bootstrapData);
         },
