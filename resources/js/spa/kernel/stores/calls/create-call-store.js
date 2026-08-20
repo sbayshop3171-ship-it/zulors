@@ -18,7 +18,7 @@ const parseDurationMs = (value, fallback) => {
     return Math.max(30000, Math.min(120000, number));
 };
 const defaultRingTimeoutSeconds = 40;
-const connectionTimeoutSeconds = 40;
+const connectionTimeoutSeconds = 60;
 const callReconnectGraceMs = parseDurationMs(import.meta.env.VITE_CALL_RECONNECT_GRACE_MS, 60000);
 const degradedConnectionTimeoutSeconds = Math.ceil(callReconnectGraceMs / 1000);
 const reconnectTimeoutSeconds = Math.ceil(callReconnectGraceMs / 1000);
@@ -816,6 +816,13 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
                         if(this.call?.call_uuid === task.callUuid && ! this.isFinal) {
                             this.error = error.message || task.onErrorMessage || 'Unable to connect audio call.';
+                            await this.sendQualityReport({
+                                network_quality: 'poor',
+                                issue: 'media_setup_failed',
+                                connection_state: 'failed',
+                                ice_connection_state: 'failed',
+                                error_message: this.error
+                            }).catch(() => {});
                             await this.endCall('connection_lost');
                         }
                     }
@@ -1272,6 +1279,27 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
 
             if(state === 'failed') {
+                if(this.mediaProvider === 'agora' && this.isActive) {
+                    if(this.networkState !== 'reconnecting') {
+                        this.reconnectCount += 1;
+                    }
+
+                    this.networkState = 'reconnecting';
+                    this.qualityNotice = 'Reconnecting...';
+                    this.error = 'Audio connection is reconnecting.';
+                    this.startReconnectTimeoutTimer();
+                    this.syncRemoteAudioWatchdog();
+                    this.syncDegradedConnectionTimeout();
+                    this.sendQualityReport({
+                        network_quality: 'reconnecting',
+                        issue: 'agora_recoverable_failure',
+                        connection_state: 'reconnecting',
+                        ice_connection_state: 'reconnecting'
+                    }).catch(() => {});
+
+                    return true;
+                }
+
                 this.stopReconnectTimeoutTimer();
 
                 if(this.isActive) {
@@ -2001,6 +2029,23 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     return;
                 }
 
+                try {
+                    await this.peer?.refreshRemoteAudio?.();
+                    await this.yieldToUiFrame();
+                }
+                catch(error) {}
+
+                if(this.status !== 'connected' || this.hasLiveRemoteAudio() || this.isFinal) {
+                    return;
+                }
+
+                await this.sendQualityReport({
+                    network_quality: 'poor',
+                    issue: 'remote_audio_missing',
+                    connection_state: 'connected',
+                    ice_connection_state: 'connected',
+                    remote_audio_playing: false
+                }).catch(() => {});
                 this.error = 'Remote audio did not connect.';
                 await this.endCall('connection_timeout');
             }, connectionTimeoutSeconds * 1000);
