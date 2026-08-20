@@ -113,7 +113,7 @@ const clampAgoraAudioBitrateKbps = (value, fallback = 20, minimum = 12, maximum 
 };
 
 const qualityMonitorIntervalMs = parsePositiveNumber(import.meta.env.VITE_CALL_QUALITY_MONITOR_INTERVAL, 3000);
-const qualityWarningSamples = Math.max(1, parsePositiveNumber(import.meta.env.VITE_CALL_QUALITY_WARNING_SAMPLES, 3));
+const qualityWarningSamples = Math.max(1, parsePositiveNumber(import.meta.env.VITE_CALL_QUALITY_WARNING_SAMPLES, 4));
 const agoraSdkLoadTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_SDK_TIMEOUT_MS, 12000);
 const agoraPermissionTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_PERMISSION_TIMEOUT_MS, 12000);
 const agoraJoinTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_JOIN_TIMEOUT_MS, 12000);
@@ -1189,11 +1189,11 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     };
 
     const classifyNetworkQuality = ({ rtt, jitter, packetLossPercent }) => {
-        if(packetLossPercent >= 20 || rtt >= 1200 || jitter >= 260) {
+        if(packetLossPercent >= 25 || rtt >= 1400 || jitter >= 420) {
             return 'poor';
         }
 
-        if(packetLossPercent >= 8 || rtt >= 700 || jitter >= 140) {
+        if(packetLossPercent >= 10 || rtt >= 900 || jitter >= 220) {
             return 'weak';
         }
 
