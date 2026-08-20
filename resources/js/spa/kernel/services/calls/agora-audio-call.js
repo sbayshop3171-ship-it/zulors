@@ -393,6 +393,12 @@ const toNumber = (value, fallback = 0) => {
     return Number.isFinite(number) ? number : fallback;
 };
 
+const toUnitNumber = (value, fallback = 0) => {
+    const number = toNumber(value, fallback);
+
+    return Math.max(0, Math.min(1, number));
+};
+
 const normalizeAgoraUid = (uid) => {
     if(uid === undefined || uid === null) {
         return '';
@@ -1030,8 +1036,14 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             const jitter = normalizeMilliseconds(pickFirstValue(remoteStats.receiveJitterDelay, remoteStats.jitter, remoteStats.receiveJitter));
             const packetLossPercent = normalizePacketLossPercent(pickFirstValue(remoteStats.packetLossRate, remoteStats.receivePacketLossRate, remoteStats.receivePacketLossRatePercent));
             const localBytesSent = toNumber(pickFirstValue(localStats.sendBytes, localStats.bytesSent, localStats.SendBytes), 0);
-            const localAudioLevel = toNumber(pickFirstValue(localStats.inputLevel, localStats.audioLevel, localStats.captureLevel), 0);
+            const localStatsAudioLevel = toUnitNumber(pickFirstValue(localStats.inputLevel, localStats.audioLevel, localStats.captureLevel), 0);
+            const localTrackAudioLevel = toUnitNumber(localAudioTrack?.getVolumeLevel?.(), 0);
+            const localAudioLevel = Math.max(localStatsAudioLevel, localTrackAudioLevel);
             const remoteBytesReceived = toNumber(pickFirstValue(remoteStats.receiveBytes, remoteStats.bytesReceived, remoteStats.ReceiveBytes), 0);
+            const remoteAudioPlaying = Boolean(remoteAudioTrack && remoteStream && (
+                ! remoteOutputElement
+                || (remoteOutputElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && ! remoteOutputElement.paused)
+            ));
             const statsNetworkQuality = classifyNetworkQuality({
                 rtt: rtt,
                 jitter: jitter,
@@ -1055,7 +1067,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                 available_outgoing_bitrate: toNumber(rtcStats.OutgoingAvailableBandwidth, 0),
                 audio_level: localAudioLevel,
                 local_audio_published: Boolean(localAudioTrack),
-                remote_audio_playing: Boolean(remoteAudioTrack && remoteStream),
+                remote_audio_playing: remoteAudioPlaying,
                 remote_subscribe_failures: remoteSubscribeFailures
             });
         }, qualityMonitorIntervalMs);

@@ -440,8 +440,8 @@ class CallController extends Controller
         $validator = Validator::make($request->all(), [
             'network_quality' => ['nullable', 'string', Rule::in(['good', 'weak', 'poor', 'reconnecting', 'unknown'])],
             'issue' => ['nullable', 'string', 'max:120'],
-            'connection_state' => ['nullable', 'string', Rule::in(['new', 'connecting', 'connected', 'disconnected', 'failed', 'closed', 'unknown'])],
-            'ice_connection_state' => ['nullable', 'string', Rule::in(['new', 'checking', 'connected', 'completed', 'disconnected', 'failed', 'closed', 'unknown'])],
+            'connection_state' => ['nullable', 'string', Rule::in(['new', 'connecting', 'connected', 'disconnected', 'reconnecting', 'failed', 'closed', 'unknown'])],
+            'ice_connection_state' => ['nullable', 'string', Rule::in(['new', 'checking', 'connected', 'completed', 'disconnected', 'reconnecting', 'failed', 'closed', 'unknown'])],
             'round_trip_time_ms' => ['nullable', 'numeric', 'min:0', 'max:60000'],
             'jitter_ms' => ['nullable', 'numeric', 'min:0', 'max:60000'],
             'packets_lost' => ['nullable', 'integer', 'min:0', 'max:100000000'],
@@ -460,6 +460,9 @@ class CallController extends Controller
             'audio_playout_delay_ms' => ['nullable', 'numeric', 'min:0', 'max:60000'],
             'aec_estimated_delay_ms' => ['nullable', 'numeric', 'min:0', 'max:60000'],
             'audio_level' => ['nullable', 'numeric', 'min:0', 'max:1'],
+            'local_audio_published' => ['nullable', 'boolean'],
+            'remote_audio_playing' => ['nullable', 'boolean'],
+            'remote_subscribe_failures' => ['nullable', 'integer', 'min:0', 'max:1000'],
             'call_engine' => ['nullable', 'string', 'max:40'],
             'media_provider' => ['nullable', 'string', 'max:40'],
             'route' => ['nullable', 'string', 'max:40'],
@@ -469,6 +472,7 @@ class CallController extends Controller
             'agora_uid' => ['nullable', 'integer', 'min:0', 'max:4294967295'],
             'agora_channel' => ['nullable', 'string', 'max:160'],
             'device_model' => ['nullable', 'string', 'max:220'],
+            'error_message' => ['nullable', 'string', 'max:240'],
         ]);
 
         if($validator->fails()) {
@@ -519,6 +523,9 @@ class CallController extends Controller
             'audio_playout_delay_ms' => $this->metricFloat($request->input('audio_playout_delay_ms')),
             'aec_estimated_delay_ms' => $this->metricFloat($request->input('aec_estimated_delay_ms')),
             'audio_level' => $this->metricFloat($request->input('audio_level')),
+            'local_audio_published' => $request->has('local_audio_published') ? $request->boolean('local_audio_published') : null,
+            'remote_audio_playing' => $request->has('remote_audio_playing') ? $request->boolean('remote_audio_playing') : null,
+            'remote_subscribe_failures' => $this->metricInt($request->input('remote_subscribe_failures')),
             'call_engine' => $request->input('call_engine'),
             'media_provider' => $request->input('media_provider'),
             'route' => $request->input('route'),
@@ -528,6 +535,7 @@ class CallController extends Controller
             'agora_uid' => $this->metricInt($request->input('agora_uid')),
             'agora_channel' => $request->input('agora_channel'),
             'device_model' => $request->input('device_model'),
+            'error_message' => $request->input('error_message'),
             'reported_at' => now()->toIso8601String(),
         ], fn ($value) => $value !== null && $value !== '');
 
@@ -560,6 +568,9 @@ class CallController extends Controller
         $userSummary['last_issue'] = $sample['issue'] ?? null;
         $userSummary['last_call_engine'] = $sample['call_engine'] ?? null;
         $userSummary['last_route'] = $sample['route'] ?? null;
+        $userSummary['last_local_audio_published'] = $sample['local_audio_published'] ?? null;
+        $userSummary['last_remote_audio_playing'] = $sample['remote_audio_playing'] ?? null;
+        $userSummary['last_remote_subscribe_failures'] = $sample['remote_subscribe_failures'] ?? 0;
         $userSummary['last_reconnect_count'] = $sample['reconnect_count'] ?? 0;
         $userSummary['last_device_model'] = $sample['device_model'] ?? null;
         $userSummary['last_reported_at'] = $sample['reported_at'];
@@ -572,6 +583,9 @@ class CallController extends Controller
                 'issue' => $sample['issue'] ?? null,
                 'route' => $sample['route'] ?? null,
                 'call_engine' => $sample['call_engine'] ?? null,
+                'local_audio_published' => $sample['local_audio_published'] ?? null,
+                'remote_audio_playing' => $sample['remote_audio_playing'] ?? null,
+                'remote_subscribe_failures' => $sample['remote_subscribe_failures'] ?? null,
                 'reconnect_count' => $sample['reconnect_count'] ?? 0,
                 'packet_loss_percent' => $sample['packet_loss_percent'] ?? null,
                 'round_trip_time_ms' => $sample['round_trip_time_ms'] ?? null,
@@ -579,6 +593,7 @@ class CallController extends Controller
                 'end_to_end_delay_ms' => $sample['end_to_end_delay_ms'] ?? null,
                 'tx_quality' => $sample['tx_quality'] ?? null,
                 'rx_quality' => $sample['rx_quality'] ?? null,
+                'error_message' => $sample['error_message'] ?? null,
                 'reported_at' => $sample['reported_at'],
             ];
             $events = array_slice($events, -20);
