@@ -6,6 +6,7 @@ use App\Constants\Filesystem;
 use App\Enums\Chat\MessageType;
 use App\Enums\Media\MediaStatus;
 use App\Enums\Media\MediaType;
+use App\Jobs\User\Chat\ProcessChatAudio;
 use App\Jobs\User\Chat\ProcessChatVideo;
 use App\Models\Message;
 use App\Services\Filesystem\RoundRobin\RoundRobinService;
@@ -15,7 +16,6 @@ use App\Services\Filesystem\Upload\ImageUploadService;
 use App\Services\Filesystem\Upload\VideoThumbnailService;
 use App\Services\Filesystem\Upload\VideoUploadService;
 use Exception;
-use FFMpeg\Format\Audio\Mp3;
 use FFMpeg\Format\Video\X264;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -31,7 +31,7 @@ trait WithMediaUpload
     private Message $messageData;
     private int $mediaDuration;
 
-    private function uploadMedia(Message $messageData, UploadedFile $mediaData, string $mediaType, int $mediaDuration)
+    private function initializeMediaUploadServices(): void
     {
         $this->videoUploadService = app(VideoUploadService::class);
         $this->audioUploadService = app(AudioUploadService::class);
@@ -39,6 +39,11 @@ trait WithMediaUpload
         $this->videoThumbnailService = app(VideoThumbnailService::class);
         $this->imageUploadService = app(ImageUploadService::class);
         $this->documentUploadService = app(DocumentUploadService::class);
+    }
+
+    private function uploadMedia(Message $messageData, UploadedFile $mediaData, string $mediaType, int $mediaDuration)
+    {
+        $this->initializeMediaUploadServices();
         $this->messageData = $messageData;
         $this->mediaDuration = $mediaDuration;
 
@@ -54,6 +59,230 @@ trait WithMediaUpload
         elseif($mediaType === 'document') {
             return $this->uploadDocument($mediaData);
         }
+    }
+
+    private function createPendingAudioMedia(Message $messageData, array $audioDetails = []): void
+    {
+        $this->initializeMediaUploadServices();
+
+        $durationSeconds = max(1, (int) data_get($audioDetails, 'duration_seconds', 1));
+        $requestedExtension = $this->normalizeChatAudioExtension(
+            data_get($audioDetails, 'extension'),
+            data_get($audioDetails, 'mime_type')
+        );
+        $requestedMime = $this->normalizeChatAudioMime(
+            data_get($audioDetails, 'mime_type'),
+            $requestedExtension
+        );
+        $fileName = trim((string) data_get($audioDetails, 'file_name', ''));
+
+        $messageData->media()->create([
+            'source_path' => '',
+            'type' => MediaType::AUDIO,
+            'status' => MediaStatus::PROCESSING,
+            'disk' => '',
+            'extension' => '',
+            'mime' => '',
+            'size' => 0,
+            'metadata' => [
+                'duration' => parse_duration($durationSeconds),
+                'duration_seconds' => $durationSeconds,
+                'file_name' => $fileName,
+                'original_name' => $fileName,
+                'requested_extension' => $requestedExtension,
+                'requested_mime' => $requestedMime,
+                'processing_state' => 'waiting_for_upload',
+            ],
+        ]);
+    }
+
+    private function uploadPendingAudioMedia(Message $messageData, UploadedFile $chatAudioFile): bool
+    {
+        $this->initializeMediaUploadServices();
+
+        $messageMedia = $messageData->media;
+
+        if(empty($messageMedia) || ! $messageMedia->type->isAudio()) {
+            throw new Exception('Pending chat audio media not found.');
+        }
+
+        $audioData = $this->audioUploadService
+            ->setStorageDisk($this->roundRobinService->getNextDisk())
+            ->tempSaveLocally($chatAudioFile);
+
+        $normalizedExtension = $this->normalizeChatAudioExtension(
+            $chatAudioFile->getClientOriginalExtension(),
+            $chatAudioFile->getClientMimeType() ?: $chatAudioFile->getMimeType(),
+            data_get($messageMedia->metadata, 'requested_extension', 'webm')
+        );
+        $normalizedMime = $this->normalizeChatAudioMime(
+            $chatAudioFile->getClientMimeType() ?: $chatAudioFile->getMimeType(),
+            $normalizedExtension
+        );
+
+        if($this->shouldQueueChatAudioProcessing($normalizedExtension, $normalizedMime)) {
+            $this->queuePendingAudioMedia($messageData, $messageMedia, $audioData, $chatAudioFile, $normalizedExtension, $normalizedMime);
+
+            return true;
+        }
+
+        $this->storePendingAudioAsReady($messageData, $messageMedia, $audioData, $chatAudioFile, $normalizedExtension, $normalizedMime);
+
+        return false;
+    }
+
+    private function storePendingAudioAsReady(
+        Message $messageData,
+        $messageMedia,
+        array $audioData,
+        UploadedFile $chatAudioFile,
+        string $extension,
+        string $mime
+    ): void {
+        $durationSeconds = max(1, (int) ($audioData['duration_seconds'] ?? 1));
+        $finalDisk = (string) ($audioData['disk'] ?? $this->roundRobinService->getNextDisk());
+        $audioAbsolutePath = storage_local_path($audioData['audio_path']);
+        $audioFileSize = file_exists($audioAbsolutePath)
+            ? (int) (filesize($audioAbsolutePath) ?: 0)
+            : (int) ($chatAudioFile->getSize() ?: 0);
+
+        $uploadedAudio = $this->audioUploadService
+            ->setNamespace(Filesystem::mediaNamespace('chats/audios'))
+            ->setStorageDisk($finalDisk)
+            ->setDefaultExtension($extension)
+            ->upload($audioAbsolutePath);
+
+        $metadata = $messageMedia->metadata ?? [];
+
+        $messageMedia->source_path = $uploadedAudio['audio_path'];
+        $messageMedia->status = MediaStatus::PROCESSED;
+        $messageMedia->disk = $uploadedAudio['disk'];
+        $messageMedia->extension = $extension;
+        $messageMedia->mime = $mime;
+        $messageMedia->size = $audioFileSize;
+        $messageMedia->metadata = array_merge($metadata, [
+            'duration' => $audioData['duration'] ?? parse_duration($durationSeconds),
+            'duration_seconds' => $durationSeconds,
+            'file_name' => $chatAudioFile->getClientOriginalName(),
+            'original_name' => $chatAudioFile->getClientOriginalName(),
+            'processing_state' => 'processed',
+            'processed_at' => now()->toIso8601String(),
+            'original_extension' => $extension,
+            'original_mime' => $mime,
+        ]);
+        $messageMedia->save();
+
+        Storage::disk('local')->delete($audioData['audio_path']);
+
+        $messageData->update([
+            'type' => MessageType::AUDIO,
+        ]);
+    }
+
+    private function queuePendingAudioMedia(
+        Message $messageData,
+        $messageMedia,
+        array $audioData,
+        UploadedFile $chatAudioFile,
+        string $extension,
+        string $mime
+    ): void {
+        $durationSeconds = max(1, (int) ($audioData['duration_seconds'] ?? 1));
+        $audioAbsolutePath = storage_local_path($audioData['audio_path']);
+        $audioFileSize = file_exists($audioAbsolutePath)
+            ? (int) (filesize($audioAbsolutePath) ?: 0)
+            : (int) ($chatAudioFile->getSize() ?: 0);
+        $finalDisk = (string) ($audioData['disk'] ?? $this->roundRobinService->getNextDisk());
+        $metadata = $messageMedia->metadata ?? [];
+
+        $messageMedia->source_path = $audioData['audio_path'];
+        $messageMedia->status = MediaStatus::PROCESSING;
+        $messageMedia->disk = 'local';
+        $messageMedia->extension = $extension;
+        $messageMedia->mime = $mime;
+        $messageMedia->size = $audioFileSize;
+        $messageMedia->metadata = array_merge($metadata, [
+            'duration' => $audioData['duration'] ?? parse_duration($durationSeconds),
+            'duration_seconds' => $durationSeconds,
+            'file_name' => $chatAudioFile->getClientOriginalName(),
+            'original_name' => $chatAudioFile->getClientOriginalName(),
+            'original_extension' => $extension,
+            'original_mime' => $mime,
+            'original_size' => $audioFileSize,
+            'temp_path' => $audioData['audio_path'],
+            'final_disk' => $finalDisk,
+            'processing_state' => 'queued',
+            'processing_progress' => 5,
+            'processing_dispatched_at' => now()->toIso8601String(),
+            'processing_updated_at' => now()->toIso8601String(),
+        ]);
+        $messageMedia->save();
+
+        $messageData->update([
+            'type' => MessageType::AUDIO,
+        ]);
+
+        ProcessChatAudio::dispatchAfterResponse($messageData)
+            ->onQueue(config('media.queues.audio'));
+    }
+
+    private function shouldQueueChatAudioProcessing(string $extension, string $mime = ''): bool
+    {
+        return ! in_array(
+            $this->normalizeChatAudioExtension($extension, $mime, $extension),
+            ['m4a', 'mp3', 'wav', 'aac'],
+            true
+        );
+    }
+
+    private function normalizeChatAudioExtension(?string $extension, ?string $mime = null, string $fallback = 'webm'): string
+    {
+        $normalizedExtension = strtolower(trim((string) $extension));
+        $normalizedMime = strtolower(trim((string) $mime));
+
+        if(in_array($normalizedExtension, ['mp4', 'm4a'], true) || str_contains($normalizedMime, 'audio/mp4') || str_contains($normalizedMime, 'audio/x-m4a')) {
+            return 'm4a';
+        }
+
+        if(in_array($normalizedExtension, ['mp3', 'mpeg'], true) || str_contains($normalizedMime, 'audio/mpeg') || str_contains($normalizedMime, 'audio/mp3')) {
+            return 'mp3';
+        }
+
+        if(in_array($normalizedExtension, ['wav', 'wave'], true) || str_contains($normalizedMime, 'audio/wav') || str_contains($normalizedMime, 'audio/x-wav')) {
+            return 'wav';
+        }
+
+        if($normalizedExtension === 'aac' || str_contains($normalizedMime, 'audio/aac')) {
+            return 'aac';
+        }
+
+        if($normalizedExtension === 'ogg' || str_contains($normalizedMime, 'audio/ogg')) {
+            return 'ogg';
+        }
+
+        if($normalizedExtension === 'webm' || str_contains($normalizedMime, 'audio/webm')) {
+            return 'webm';
+        }
+
+        return strtolower(trim($fallback)) ?: 'webm';
+    }
+
+    private function normalizeChatAudioMime(?string $mime = null, ?string $extension = null): string
+    {
+        $normalizedMime = strtolower(trim((string) $mime));
+
+        if($normalizedMime !== '') {
+            return $normalizedMime;
+        }
+
+        return match($this->normalizeChatAudioExtension($extension, $mime, 'webm')) {
+            'm4a' => 'audio/mp4',
+            'mp3' => 'audio/mpeg',
+            'wav' => 'audio/wav',
+            'aac' => 'audio/aac',
+            'ogg' => 'audio/ogg',
+            default => 'audio/webm',
+        };
     }
 
     private function uploadImage(UploadedFile $mediaData)
@@ -280,19 +509,7 @@ trait WithMediaUpload
 
     private function transcodeChatAudioToMp3(string $audioPath): string
     {
-        $sourceAbsolutePath = storage_local_path($audioPath);
-        $optimizedAudioPath = $this->audioUploadService->generateAudioTemporaryFilePath('mp3');
-        $optimizedAbsolutePath = storage_local_path($optimizedAudioPath);
-
-        $format = new Mp3();
-        $format->setAudioKiloBitrate((int) config('chat.processing.audio.bitrate', 96));
-
-        $this->audioUploadService
-            ->getFFMpeg()
-            ->open($sourceAbsolutePath)
-            ->save($format, $optimizedAbsolutePath);
-
-        return $optimizedAudioPath;
+        return $this->audioUploadService->transcodeToMp3($audioPath, (int) config('chat.processing.audio.bitrate', 96));
     }
 
     private function uploadDocument(UploadedFile $chatDocumentFile)

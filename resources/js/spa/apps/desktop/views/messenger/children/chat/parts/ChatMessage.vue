@@ -65,11 +65,18 @@
 							</template>
 							<template v-else-if="messageData.type === 'audio'">
 								<div class="mt-1 min-w-64 max-w-md">
+                                    <PendingAudioMessage
+                                        v-if="isPendingAudioMessage"
+                                        v-bind:mediaItem="audioMediaItem"
+                                        v-bind:label="messageUser.name"
+                                        v-bind:statusText="pendingAudioStatus"
+                                        v-bind:uploadProgress="pendingAudioProgress"></PendingAudioMessage>
 									<AudioPlayer
-									v-bind:mediaItem="messageData.relations.media"
-								v-bind:label="messageUser.name"></AudioPlayer>
-							</div>
-						</template>
+                                        v-else
+									    v-bind:mediaItem="audioMediaItem"
+								        v-bind:label="messageUser.name"></AudioPlayer>
+							    </div>
+						    </template>
 						<template v-else-if="messageData.type === 'image'">
 							<div class="mt-1 min-w-48 max-w-md">
 								<MessageImage v-bind:mediaData="{ mediaItem: messageData.relations.media, userName: messageUser.name, date: messageData.date.iso }"></MessageImage>
@@ -140,6 +147,7 @@
 
 <script>
 	import { defineComponent, ref, toRef, computed, reactive, defineAsyncComponent } from 'vue';
+    import { isPendingAudioMessage as isPendingAudioMessageHelper } from '@/kernel/helpers/chat/pending-audio-message.js';
 	import { useChatStore } from '@D/store/chats/chat.store.js';
 	import { useAuthStore } from '@D/store/auth/auth.store.js';
 	import { colibriTranslator } from '@/kernel/services/translator/index.js';
@@ -154,6 +162,7 @@
 	import TranslationService from '@D/components/general/TranslationService.vue';
 	import TextTranslateButton from '@D/components/inter-ui/buttons/TextTranslateButton.vue';
     import CircleVideoPlayer from '@/kernel/vue/components/players/CircleVideoPlayer.vue';
+    import PendingAudioMessage from '@/kernel/vue/components/players/PendingAudioMessage.vue';
     import AudioPlayer from '@D/components/players/audio/AudioPlayer.vue';
     import VideoPlayer from '@D/components/players/video/VideoPlayer.vue';
 
@@ -248,6 +257,22 @@
 				hasLinkSnapshot: computed(() => {
 					return messageData.value.relations?.link_snapshot;
 				}),
+                audioMediaItem: computed(() => {
+                    return messageData.value.relations?.media || null;
+                }),
+                isPendingAudioMessage: computed(() => {
+                    return isPendingAudioMessageHelper(messageData.value);
+                }),
+                pendingAudioProgress: computed(() => {
+                    return Number(messageData.value.meta?.local_audio?.upload_progress || 0);
+                }),
+                pendingAudioStatus: computed(() => {
+                    if(messageData.value.meta?.local_audio?.stage === 'uploading') {
+                        return `Uploading ${Math.max(0, Number(messageData.value.meta?.local_audio?.upload_progress || 0))}%`;
+                    }
+
+                    return 'Processing audio';
+                }),
                 hasMedia: computed(() => {
                     let mediaData = messageData.value.relations?.media;
 
@@ -321,6 +346,7 @@
             CircleVideoPlayer: CircleVideoPlayer,
             VideoPlayer: VideoPlayer,
             AudioPlayer: AudioPlayer,
+            PendingAudioMessage: PendingAudioMessage,
 			ReactionsPicker: defineAsyncComponent(() => {
                 return import('@D/components/reactions/ReactionsPicker.vue');
             }),

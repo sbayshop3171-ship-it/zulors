@@ -58,6 +58,9 @@ Route::get('/chats/requests', [App\Http\Controllers\Api\User\Chat\ChatController
 Route::get('/chats/requests/count', [App\Http\Controllers\Api\User\Chat\ChatController::class, 'getChatRequestsCount']);
 Route::post('/chats/launch', [App\Http\Controllers\Api\User\Chat\ChatController::class, 'launchChat']);
 Route::post('/chats/launcher-send', [App\Http\Controllers\Api\User\Chat\ChatController::class, 'launcherSendMessage']);
+Route::post('/audio/init', [App\Http\Controllers\Api\User\Chat\ChatController::class, 'initAudioMessage']);
+Route::post('/audio/{messageId}/upload', [App\Http\Controllers\Api\User\Chat\ChatController::class, 'uploadAudioMessage']);
+Route::post('/audio/{messageId}/fail', [App\Http\Controllers\Api\User\Chat\ChatController::class, 'failAudioMessage']);
 Route::post('/send', [App\Http\Controllers\Api\User\Chat\ChatController::class, 'sendMessage']);
 Route::get('/chat/{chatId}', [App\Http\Controllers\Api\User\Chat\ChatController::class, 'getChatData']);
 Route::post('/chat/message/add-reaction', [App\Http\Controllers\Api\User\Chat\ChatController::class, 'addReaction']);

@@ -230,6 +230,7 @@
 					stopListenEventInChat(BRD.getEvent('CHAT_MESSAGE_READ'));
 					stopListenEventInChat(BRD.getEvent('CHAT_MESSAGE_DELETED'));
 					stopListenEventInChat(BRD.getEvent('CHAT_MESSAGE_REACTIONS_UPDATED'));
+                    stopListenEventInChat(BRD.getEvent('CHAT_MEDIA_READY'));
 
 					if(chatChannel.value && window.ColibriBRD) {
 						ColibriBRD.private(chatChannel.value).stopListeningForWhisper(BRD.getEvent('CHAT_MESSAGE_TYPING'));
@@ -272,7 +273,20 @@
 				});
 
 				listenEventInChat(BRD.getEvent('CHAT_MESSAGE_DELETED'), function (event) {
+                    const deletedMessage = chatStore.chatMessages.find((item) => {
+                        return item.id == event.data.message_id;
+                    });
+                    const shouldRevalidateInbox = deletedMessage?.type === 'audio'
+                        && deletedMessage?.relations?.media
+                        && ! Array.isArray(deletedMessage.relations.media)
+                        && deletedMessage.relations.media.status === 'processing';
+
 					chatStore.markMessageAsDeleted(event.data.message_id);
+
+                    if(shouldRevalidateInbox) {
+                        chatStore.inboxStore.scheduleUnreadStateSync(0);
+                    }
+
 					scrollHistoryDownSettled();
 				});
 
@@ -281,6 +295,11 @@
 					chatStore.persistChatMessagesCache();
 					scrollHistoryDownSettled();
 				});
+
+                listenEventInChat(BRD.getEvent('CHAT_MEDIA_READY'), function (event) {
+                    chatStore.upsertMessage(event.data);
+                    scrollHistoryDownSettled();
+                });
 
 				ColibriBRD.private(chatChannel.value).listenForWhisper(BRD.getEvent('CHAT_MESSAGE_TYPING'), remoteTyping.receive);
 

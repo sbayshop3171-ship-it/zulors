@@ -23,6 +23,7 @@ use App\Enums\Chat\ChatType;
 use App\Enums\Chat\MessageType;
 use App\Enums\User\PrivacyPermit;
 use App\Events\User\Chat\MessageDeletedEvent;
+use App\Events\User\Chat\MessageMediaReadyEvent;
 use App\Events\User\Chat\MessageReadEvent;
 use App\Events\User\Chat\MessageReceivedEvent;
 use App\Events\User\Chat\MessageReactionsUpdatedEvent;
@@ -57,6 +58,7 @@ use Exception;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -106,6 +108,51 @@ class ChatController extends Controller
                 'time_ago' => $userData->getLastActive()->getTimeAgo()
             ]
         ];
+    }
+
+    private function findOwnedAudioMessage(int $messageId): ?Message
+    {
+        return Message::query()
+            ->where('id', $messageId)
+            ->where('user_id', me()->id)
+            ->with(['chat', 'media'])
+            ->whereHas('chat.participants', function ($query) {
+                $query->where('user_id', me()->id);
+            })
+            ->first();
+    }
+
+    private function isPendingAudioMessage(?Message $messageData): bool
+    {
+        return $messageData instanceof Message
+            && $messageData->type?->isAudio()
+            && ! $messageData->is_deleted
+            && $messageData->media
+            && ! $messageData->media->status->isProcessed();
+    }
+
+    private function notifyChatParticipants(Message $messageData, $otherParticipants): void
+    {
+        try {
+            event(new MessageReceivedEvent($messageData));
+
+            $otherParticipants->each(function ($participantData) use ($messageData) {
+                $participantData->user->notify(new MessageReceivedNotification($messageData));
+            });
+        } catch (Throwable $th) {
+            // Pass
+        }
+    }
+
+    private function touchChatAfterMessage(Chat $chatData): void
+    {
+        $chatData->update([
+            'last_activity' => now()
+        ]);
+
+        if ($chatData->type->isDirect()) {
+            HiddenChat::where('chat_id', $chatData->id)->delete();
+        }
     }
 
     public function getChats()
@@ -617,6 +664,158 @@ class ChatController extends Controller
         else{
             return $this->throwValidationError($validator);
         }
+    }
+
+    public function initAudioMessage(Request $request)
+    {
+        $validator = Validator::make([
+            'chat_id' => $request->input('chat_id'),
+            'parent_id' => $request->input('parent_id'),
+            'duration_seconds' => $request->input('duration_seconds'),
+            'extension' => $request->input('extension'),
+            'mime_type' => $request->input('mime_type'),
+            'file_name' => $request->input('file_name'),
+        ], [
+            'chat_id' => ['required', 'uuid'],
+            'parent_id' => ['nullable', 'integer'],
+            'duration_seconds' => ['required', 'integer', 'min:1', 'max:120'],
+            'extension' => ['required', 'string', Rule::in(['m4a', 'mp4', 'mp3', 'mpeg', 'wav', 'wave', 'aac', 'ogg', 'webm'])],
+            'mime_type' => ['required', 'string', 'max:120'],
+            'file_name' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        if(! $validator->passes()) {
+            return $this->throwValidationError($validator);
+        }
+
+        $chatId = $request->input('chat_id');
+        $parentId = $request->integer('parent_id');
+        $chatData = Chat::participatedChats()->where('chat_id', $chatId)->first();
+
+        if(empty($chatData)) {
+            return $this->responseResourceNotFoundError('Chat', $chatId);
+        }
+
+        $participantData = $chatData->participants()->where('user_id', me()->id)->first();
+        $otherParticipants = $chatData->participants()->whereNot('user_id', me()->id)->get();
+
+        $messageInsertData = [
+            'content' => null,
+            'user_id' => me()->id,
+            'chat_uuid' => $chatId,
+            'participant_id' => $participantData->id,
+            'text_language' => '',
+            'type' => MessageType::AUDIO,
+        ];
+
+        if($parentId) {
+            $replyableMessageExists = $chatData->messages()->where('id', $parentId)->exists();
+
+            if(empty($replyableMessageExists)) {
+                return $this->responseResourceNotFoundError('Message', $parentId);
+            }
+
+            $messageInsertData['parent_id'] = $parentId;
+        }
+
+        $messageData = $chatData->messages()->create($messageInsertData);
+
+        $participantData->update([
+            'last_read_message_id' => $messageData->id,
+            'last_read_at' => now()
+        ]);
+
+        $this->createPendingAudioMedia($messageData, [
+            'duration_seconds' => $request->integer('duration_seconds'),
+            'extension' => $request->input('extension'),
+            'mime_type' => $request->input('mime_type'),
+            'file_name' => $request->input('file_name'),
+        ]);
+
+        $messageData = $this->loadMessageRealtimeRelations($messageData->fresh());
+
+        $this->notifyChatParticipants($messageData, $otherParticipants);
+        $this->touchChatAfterMessage($chatData);
+
+        return $this->responseSuccess([
+            'data' => MessageResource::make($messageData)
+        ], Response::HTTP_CREATED);
+    }
+
+    public function uploadAudioMessage(Request $request, int $messageId)
+    {
+        $validator = Validator::make([
+            'audio' => $request->file('audio'),
+        ], [
+            'audio' => ['required', 'file',
+                XRule::join('mimes', 'm4a,mp4,mp3,wav,aac,ogg,webm,mpeg'),
+                XRule::join('mimetypes', 'audio/aac,audio/mp4,audio/mpeg,audio/mp3,audio/ogg,audio/webm,audio/wav,audio/x-m4a,audio/x-wav,video/webm'),
+                XRule::join('max', config('chat.validation.message.media.max'))
+            ],
+        ]);
+
+        if(! $validator->passes()) {
+            return $this->throwValidationError($validator);
+        }
+
+        $messageData = $this->findOwnedAudioMessage($messageId);
+
+        if(empty($messageData)) {
+            return $this->responseResourceNotFoundError('Message', $messageId);
+        }
+
+        if(! $this->isPendingAudioMessage($messageData)) {
+            return $this->responseError([
+                'message' => 'This voice note can no longer accept an upload.',
+                'errors' => [
+                    'message' => 'Voice note upload is no longer pending.'
+                ]
+            ], Response::HTTP_CONFLICT);
+        }
+
+        if(data_get($messageData->media->metadata, 'processing_state') !== 'waiting_for_upload') {
+            return $this->responseError([
+                'message' => 'This voice note upload has already started.',
+                'errors' => [
+                    'message' => 'Voice note upload is not awaiting a new file.'
+                ]
+            ], Response::HTTP_CONFLICT);
+        }
+
+        $isQueued = $this->uploadPendingAudioMedia($messageData, $request->file('audio'));
+        $messageData = $this->loadMessageRealtimeRelations($messageData->fresh());
+
+        if(! $isQueued) {
+            event(new MessageMediaReadyEvent($messageData));
+        }
+
+        return $this->responseSuccess([
+            'data' => MessageResource::make($messageData)
+        ], $isQueued ? Response::HTTP_ACCEPTED : Response::HTTP_OK);
+    }
+
+    public function failAudioMessage(int $messageId)
+    {
+        $messageData = $this->findOwnedAudioMessage($messageId);
+
+        if(empty($messageData)) {
+            return $this->responseResourceNotFoundError('Message', $messageId);
+        }
+
+        if(! $this->isPendingAudioMessage($messageData)) {
+            return $this->responseError([
+                'message' => 'This voice note is no longer pending cleanup.',
+                'errors' => [
+                    'message' => 'Voice note cleanup is only allowed while media is still pending.'
+                ]
+            ], Response::HTTP_CONFLICT);
+        }
+
+        (new MessageGlobalDeleteAction($messageData->load('media')))->execute();
+
+        event(new MessageDeletedEvent($messageData->id, $messageData->chat_uuid));
+
+        return response()->noContent();
     }
 
     public function launcherSendMessage(Request $request)

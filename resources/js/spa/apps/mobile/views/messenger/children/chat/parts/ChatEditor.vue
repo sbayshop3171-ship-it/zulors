@@ -355,12 +355,17 @@
             const sendAudio = async (audioData) => {
                 state.audioRecorder.open = false;
 
-                await chatStore.sendMediaMessage({
-                    type: 'audio',
+                await chatStore.sendAudioMessage({
                     extension: inferAudioExtension(audioData.mimeType || audioData.blob.type, 'webm'),
                     file: audioData.blob,
                     duration: audioData.duration,
+                    mime_type: audioData.mimeType || audioData.blob.type,
+                    parent_id: getReplyId(),
+                    parent_message: repliedMessage.value,
                 });
+
+                clearReplyAfterSend();
+                colibriSounds.chatMessageSent();
             }
 
 			return {

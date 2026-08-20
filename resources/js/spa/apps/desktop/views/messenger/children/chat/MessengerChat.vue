@@ -242,6 +242,7 @@
                     stopListenEventInChat(BRD.getEvent('CHAT_MESSAGE_READ'));
                     stopListenEventInChat(BRD.getEvent('CHAT_MESSAGE_DELETED'));
                     stopListenEventInChat(BRD.getEvent('CHAT_MESSAGE_REACTIONS_UPDATED'));
+                    stopListenEventInChat(BRD.getEvent('CHAT_MEDIA_READY'));
                     stopListeningForWhisperInChat(BRD.getEvent('CHAT_MESSAGE_TYPING'));
                     remoteTyping.stop();
 
@@ -282,11 +283,28 @@
                 });
 
                 listenEventInChat(BRD.getEvent('CHAT_MESSAGE_DELETED'), function (event) {
+                    const deletedMessage = chatStore.chatMessages.find((item) => {
+                        return item.id == event.data.message_id;
+                    });
+                    const shouldRevalidateInbox = deletedMessage?.type === 'audio'
+                        && deletedMessage?.relations?.media
+                        && ! Array.isArray(deletedMessage.relations.media)
+                        && deletedMessage.relations.media.status === 'processing';
+
                     chatStore.markMessageAsDeleted(event.data.message_id);
+
+                    if(shouldRevalidateInbox) {
+                        chatStore.inboxStore.scheduleUnreadStateSync(0);
+                    }
                 });
 
                 listenEventInChat(BRD.getEvent('CHAT_MESSAGE_REACTIONS_UPDATED'), function (event) {
                     chatStore.syncMessageReactions(event.data.message_id, event.data.reactions, event.data.actor_user_id);
+                });
+
+                listenEventInChat(BRD.getEvent('CHAT_MEDIA_READY'), function (event) {
+                    chatStore.upsertMessage(event.data);
+                    scrollHistoryDown();
                 });
 
                 listenWhisperInChat(BRD.getEvent('CHAT_MESSAGE_TYPING'), remoteTyping.receive);

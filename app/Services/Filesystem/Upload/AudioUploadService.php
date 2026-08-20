@@ -120,4 +120,20 @@ class AudioUploadService extends AbstractUploadService
 
         return "$this->audioTemporaryLocation/{$uuid}.{$audioExtension}";
     }
+
+    public function transcodeToMp3(string $audioPath, ?int $bitrate = null): string
+    {
+        $sourceAbsolutePath = storage_local_path($audioPath);
+        $optimizedAudioPath = $this->generateAudioTemporaryFilePath('mp3');
+        $optimizedAbsolutePath = storage_local_path($optimizedAudioPath);
+        $format = new \FFMpeg\Format\Audio\Mp3();
+
+        $format->setAudioKiloBitrate($bitrate ?: (int) config('chat.processing.audio.bitrate', 96));
+
+        $this->getFFMpeg()
+            ->open($sourceAbsolutePath)
+            ->save($format, $optimizedAbsolutePath);
+
+        return $optimizedAudioPath;
+    }
 }

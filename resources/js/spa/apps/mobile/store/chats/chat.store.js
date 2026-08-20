@@ -1,5 +1,11 @@
 import { defineStore } from 'pinia';
 import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
+import {
+    buildPendingAudioLocalState,
+    createPendingAudioMessage,
+    mergeIncomingAudioMessage,
+    withLocalAudioState,
+} from '@/kernel/helpers/chat/pending-audio-message.js';
 
 import { useInboxStore } from '@M/store/chats/inbox.store.js';
 import { useAuthStore } from '@M/store/auth/auth.store.js';
@@ -248,6 +254,102 @@ const useChatStore = defineStore('mobile_chats_chat', {
                 }
             });
         },
+        sendAudioMessage: async function(audioData = {}) {
+            const authStore = useAuthStore();
+            const durationSeconds = Math.max(1, Math.ceil(Number(audioData.duration) || 1));
+            const extension = audioData.extension || 'webm';
+            const fileName = audioData.name || `voice-note-${Date.now()}.${extension}`;
+            const clientUid = `audio-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            const localMessageId = `local-${clientUid}`;
+            const pendingState = buildPendingAudioLocalState({
+                stage: 'uploading',
+                uploadProgress: 0,
+                clientUid: clientUid,
+            });
+
+            this.appendMessage(createPendingAudioMessage({
+                localId: localMessageId,
+                chatId: this.chatId,
+                userData: authStore.userData || {},
+                durationSeconds: durationSeconds,
+                extension: extension,
+                fileName: fileName,
+                blobSize: audioData.file?.size || 0,
+                parentMessage: audioData.parent_message || null,
+                clientUid: clientUid,
+            }));
+
+            let serverMessageId = null;
+
+            try {
+                const initResponse = await colibriAPI().messenger().with({
+                    chat_id: this.chatId,
+                    parent_id: audioData.parent_id || null,
+                    duration_seconds: durationSeconds,
+                    extension: extension,
+                    mime_type: audioData.mime_type || audioData.file?.type || `audio/${extension}`,
+                    file_name: fileName,
+                }).sendTo('audio/init');
+
+                const initializedMessage = withLocalAudioState(initResponse.data.data, pendingState);
+
+                serverMessageId = initializedMessage.id;
+                this.replaceTemporaryMessage(localMessageId, initializedMessage);
+
+                const formData = new FormData();
+                formData.append('audio', audioData.file, fileName);
+
+                const uploadResponse = await colibriAPI().messenger().with(formData).withHeaders({
+                    'Content-Type': 'multipart/form-data'
+                }).uploadProgress((progressEvent) => {
+                    const total = Number(progressEvent?.total || 0);
+                    const loaded = Number(progressEvent?.loaded || 0);
+                    const uploadProgress = total > 0 ? Math.round((loaded / total) * 100) : 0;
+
+                    this.setLocalAudioState(serverMessageId, buildPendingAudioLocalState({
+                        stage: 'uploading',
+                        uploadProgress: Math.max(uploadProgress, 1),
+                        clientUid: clientUid,
+                    }));
+                }).sendTo(`audio/${serverMessageId}/upload`);
+
+                if(uploadResponse.status === 202) {
+                    this.setLocalAudioState(serverMessageId, buildPendingAudioLocalState({
+                        stage: 'processing',
+                        uploadProgress: 100,
+                        clientUid: clientUid,
+                    }));
+                }
+
+                if(uploadResponse.data?.data) {
+                    this.upsertMessage(uploadResponse.data.data);
+                }
+
+                return uploadResponse.data?.data || null;
+            }
+            catch(error) {
+                if(serverMessageId) {
+                    try {
+                        await colibriAPI().messenger().with({}).sendTo(`audio/${serverMessageId}/fail`);
+                    }
+                    catch(requestError) {}
+
+                    this.markMessageAsDeleted(serverMessageId);
+                }
+                else {
+                    this.removeMessage(localMessageId);
+                }
+
+                this.inboxStore.scheduleUnreadStateSync(0);
+                this.persistChatMessagesCache();
+
+                if(error.response) {
+                    throw new Error(error.response.data.message);
+                }
+
+                throw error;
+            }
+        },
 		syncMessageReactions: function(messageId, reactions = [], actorUserId = null) {
 			let reactableMessage = this.chatMessages.find((item) => {
 				return item.id == messageId;
@@ -271,17 +373,77 @@ const useChatStore = defineStore('mobile_chats_chat', {
 				this.persistChatMessagesCache();
 			}
 		},
+        removeMessage: function(messageId) {
+            const messageIndex = this.chatMessages.findIndex((item) => {
+                return item.id == messageId;
+            });
+
+            if(messageIndex !== -1) {
+                this.chatMessages.splice(messageIndex, 1);
+                this.persistChatMessagesCache();
+            }
+        },
+        replaceTemporaryMessage: function(tempMessageId, messageData = {}) {
+            const tempIndex = this.chatMessages.findIndex((item) => {
+                return item.id == tempMessageId;
+            });
+            const existingIndex = this.chatMessages.findIndex((item) => {
+                return item.id == messageData.id;
+            });
+            const sourceMessage = existingIndex !== -1
+                ? this.chatMessages[existingIndex]
+                : (tempIndex !== -1 ? this.chatMessages[tempIndex] : null);
+            const nextMessage = mergeIncomingAudioMessage(sourceMessage, messageData);
+
+            if(existingIndex !== -1) {
+                this.chatMessages.splice(existingIndex, 1, nextMessage);
+            }
+            else if(tempIndex !== -1) {
+                this.chatMessages.splice(tempIndex, 1, nextMessage);
+            }
+            else {
+                this.chatMessages.push(nextMessage);
+            }
+
+            const residualTempIndex = this.chatMessages.findIndex((item) => {
+                return item.id == tempMessageId;
+            });
+
+            if(residualTempIndex !== -1 && tempMessageId != nextMessage.id) {
+                this.chatMessages.splice(residualTempIndex, 1);
+            }
+
+            this.inboxStore.updateChatFromMessage(nextMessage, useAuthStore().userData.id, this.chatId);
+            this.persistChatMessagesCache();
+        },
+        setLocalAudioState: function(messageId, localAudioState = null) {
+            const messageIndex = this.chatMessages.findIndex((item) => {
+                return item.id == messageId;
+            });
+
+            if(messageIndex === -1) {
+                return false;
+            }
+
+            this.chatMessages.splice(messageIndex, 1, withLocalAudioState(this.chatMessages[messageIndex], localAudioState));
+            this.persistChatMessagesCache();
+
+            return true;
+        },
 		upsertMessage: function(messageData = {}) {
 			let messageIndex = this.chatMessages.findIndex((item) => {
 				return item.id == messageData.id;
 			});
+            const nextMessage = messageIndex === -1
+                ? messageData
+                : mergeIncomingAudioMessage(this.chatMessages[messageIndex], messageData);
 
 			if(messageIndex === -1) {
-				this.appendMessage(messageData);
+				this.appendMessage(nextMessage);
 			}
 			else {
-				this.chatMessages.splice(messageIndex, 1, messageData);
-				this.inboxStore.updateChatFromMessage(messageData, useAuthStore().userData.id, this.chatId);
+				this.chatMessages.splice(messageIndex, 1, nextMessage);
+				this.inboxStore.updateChatFromMessage(nextMessage, useAuthStore().userData.id, this.chatId);
 				this.persistChatMessagesCache();
 			}
 		},
