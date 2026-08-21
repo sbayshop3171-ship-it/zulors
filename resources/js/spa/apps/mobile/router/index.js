@@ -2,6 +2,8 @@ import { createRouter, createWebHistory } from 'vue-router';
 
 import { Layouts } from '@M/core/constants/layouts.js';
 import { syncMobileRouteTransition } from '@M/core/services/route-transition/index.js';
+import HomeIndex from '@M/views/home/HomeIndex.vue';
+import BootstrapErrorView from '@M/views/errors/bootstrap/BootstrapError.vue';
 
 const Router = createRouter({
 	history: createWebHistory(),
@@ -26,9 +28,7 @@ const Router = createRouter({
         },
 		{
 			path: '/',
-			component: () => {
-				return import('@M/views/home/HomeIndex.vue');
-			},
+			component: HomeIndex,
 			alias: '/home',
             meta: {
                 layout: Layouts.MAIN,
@@ -489,9 +489,7 @@ const Router = createRouter({
         {
             path: '/bootstrap-error',
             name: 'bootstrap_error',
-            component: function() {
-                return import('@M/views/errors/bootstrap/BootstrapError.vue');
-            },
+            component: BootstrapErrorView,
             meta: {
                 layout: Layouts.FLAT,
                 auth: false

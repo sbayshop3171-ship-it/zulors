@@ -9,6 +9,7 @@ import outsideClickDirective from '@/kernel/vue/directives/click.outside.js';
 
 import Router from '@D/router/index.js';
 import LanguageMessages from '@/lang/index.js';
+import { deferStartupTask, markStartupEvent } from '@/kernel/services/startup/index.js';
 
 import ZulorsDesktop from '@D/bootstrap/boot/ZulorsDesktop.vue';
 import PrimeVue from 'primevue/config';
@@ -41,8 +42,8 @@ function normalizeI18nOutput(value, key) {
     return value;
 }
 
-async function initializeI18n() {
-    const messages = await LanguageMessages.messages();
+function initializeI18n() {
+    const messages = LanguageMessages.startupMessages();
     const locale = LanguageMessages.langLocale || 'en';
 
     return createI18n({
@@ -67,7 +68,11 @@ async function initializeI18n() {
     });
 }
 
-const ZulorsI18n = await initializeI18n();
+markStartupEvent('application_script_loaded', {
+    variant: 'desktop'
+});
+
+const ZulorsI18n = initializeI18n();
 const rawTranslate = ZulorsI18n.global.t.bind(ZulorsI18n.global);
 const translate = (...args) => {
     return normalizeI18nOutput(rawTranslate(...args), args[0]);
@@ -124,6 +129,29 @@ Application.component('PrimarySpinAnimation', defineAsyncComponent(() => {
     return import("@D/components/general/animations/PrimarySpinAnimation.vue");
 }));
 
-await Router.isReady();
-
 Application.mount("#zulors-desktop-app");
+markStartupEvent('vue_mounted', {
+    variant: 'desktop'
+});
+
+Router.isReady().then(() => {
+    markStartupEvent('router_ready', {
+        variant: 'desktop',
+        route: Router.currentRoute.value?.name ?? null
+    });
+});
+
+deferStartupTask(() => {
+    LanguageMessages.hydrateI18n(ZulorsI18n)
+        .then((meta) => {
+            markStartupEvent('translations_hydrated', {
+                variant: 'desktop',
+                source: meta?.source ?? 'unknown',
+                serverTiming: meta?.serverTiming ?? null,
+                cacheHeader: meta?.cacheHeader ?? null
+            });
+        })
+        .catch(() => {
+            //
+        });
+}, 120);

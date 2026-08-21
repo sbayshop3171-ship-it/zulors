@@ -16,7 +16,7 @@
 </template>
 
 <script>
-	import { defineComponent, computed, ref, onMounted, onUnmounted } from 'vue';
+	import { defineComponent, computed, ref, onMounted, onUnmounted, nextTick } from 'vue';
 	import { useAppStore } from '@M/store/app/app.store.js';
 	import { useAuthStore } from '@M/store/auth/auth.store.js';
 	import { useTimelineStore } from '@M/store/timeline/timeline.store.js';
@@ -26,6 +26,8 @@
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 	import BRD from '@/kernel/websockets/brd/index.js';
+	import { ensureRealtimeConnection } from '@/kernel/websockets/index.js';
+	import { markStartupEvent, signalAppShellReady } from '@/kernel/services/startup/index.js';
 
 	import ApplicationMainLayout from '@M/layouts/ApplicationMainLayout.vue';
 	import PostEditorLayout from '@M/layouts/PostEditorLayout.vue';
@@ -93,11 +95,37 @@
 				appShellReady = true;
 				hydrateInstantHomeFeed();
 				primeHomeFeed();
+
+				if(authStore.authCheck) {
+					ensureRealtimeConnection();
+					markStartupEvent('realtime_connect_requested', {
+						variant: 'mobile'
+					});
+				}
+
 				appLoading.value = false;
 
 				colibriEventBus.on('auth:logout', logoutUser);
 				setupRealtimePostUpdates();
 				scheduleReelsWarmup();
+
+				markStartupEvent('app_shell_revealed', {
+					variant: 'mobile',
+					route: route.name ?? null,
+					cachedBootstrap: hasCachedBootstrap,
+					authenticated: authStore.authCheck
+				});
+
+				nextTick(() => {
+					window.requestAnimationFrame(() => {
+						signalAppShellReady({
+							variant: 'mobile',
+							route: route.name ?? null,
+							cachedBootstrap: hasCachedBootstrap,
+							authenticated: authStore.authCheck
+						});
+					});
+				});
 			};
 
 			const primeHomeFeed = () => {
@@ -166,6 +194,10 @@
 
 			onMounted(async () => {
 				if(hasCachedBootstrap || authStore.authCheck) {
+					markStartupEvent('bootstrap_cache_reused', {
+						variant: 'mobile',
+						authenticated: authStore.authCheck
+					});
 					revealAppShell();
 				}
 
@@ -176,6 +208,13 @@
                 try {
                     const isBootstrapped = await appStore.bootstrapApplication();
 
+					markStartupEvent('bootstrap_complete', {
+						variant: 'mobile',
+						route: route.name ?? null,
+						serverTiming: appStore.lastBootstrapMeta?.serverTiming ?? null,
+						cacheHeader: appStore.lastBootstrapMeta?.cacheHeader ?? null
+					});
+
                     await finishBootstrap(isBootstrapped);
                 } catch (error) {
 					if(bootDeadlineTimer) {
@@ -184,6 +223,10 @@
 					}
 
                     console.error('Failed to bootstrap mobile application', error);
+					markStartupEvent('bootstrap_failed', {
+						variant: 'mobile',
+						message: String(error?.message ?? 'unknown')
+					});
 
                     revealAppShell();
 

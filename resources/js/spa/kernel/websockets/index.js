@@ -13,6 +13,7 @@ window.ColibriBRState = createConnectionSnapshot();
 window.Pusher = Pusher;
 window.Echo = Echo;
 Pusher.logToConsole = import.meta.env.PUSHER_DEBUG_CONSOLE;
+let realtimeInitializationAttempted = false;
 
 const runtimeReverbConfig = () => {
     const runtime = window.__zulorsRealtime?.reverb || window.BackendEmbeds?.config?.reverb || {};
@@ -65,60 +66,68 @@ const setWSConnectionStatus = (nextState = {}) => {
     }));
 };
 
-try {
-    const reverbConfig = runtimeReverbConfig();
-
-    if (reverbConfig.enabled && reverbConfig.key && reverbConfig.host) {
-        window.ColibriBRD = new Echo({
-            namespace: 'null',
-            broadcaster: 'reverb',
-            key: reverbConfig.key,
-            wsHost: reverbConfig.host,
-            wsPort: reverbConfig.port,
-            wssPort: reverbConfig.port,
-            forceTLS: reverbConfig.scheme === 'https',
-            enabledTransports: ['ws', 'wss'],
-            cluster: false
-        });
-
-        setWSConnectionStatus({
-            connected: false,
-            current: CONNECTION_STATES.CONNECTING,
-            previous: CONNECTION_STATES.INITIALIZING
-        });
-
-        window.ColibriBRD.connector.pusher.connection.bind('connected', function() {
-            console.log('📶 Websockets connection is established.');
-
-            setWSConnectionStatus({
-                connected: true,
-                current: CONNECTION_STATES.CONNECTED
-            });
-        });
-
-        window.ColibriBRD.connector.pusher.connection.bind('state_change', function(state) {
-            const currentState = normalizeConnectionState(state.current);
-            const isConnected = currentState === CONNECTION_STATES.CONNECTED;
-            const reconnects = (
-                previousState => {
-                    if(previousState.current !== CONNECTION_STATES.CONNECTED && currentState === CONNECTION_STATES.CONNECTING) {
-                        return previousState.reconnects + 1;
-                    }
-
-                    return previousState.reconnects;
-                }
-            )(window.ColibriBRState ?? createConnectionSnapshot());
-
-            setWSConnectionStatus({
-                connected: isConnected,
-                current: currentState,
-                previous: normalizeConnectionState(state.previous),
-                reconnects: reconnects
-            });
-        });
+const ensureRealtimeConnection = () => {
+    if (realtimeInitializationAttempted) {
+        return window.ColibriBRD ?? null;
     }
 
-    else {
+    realtimeInitializationAttempted = true;
+
+    try {
+        const reverbConfig = runtimeReverbConfig();
+
+        if (reverbConfig.enabled && reverbConfig.key && reverbConfig.host) {
+            window.ColibriBRD = new Echo({
+                namespace: 'null',
+                broadcaster: 'reverb',
+                key: reverbConfig.key,
+                wsHost: reverbConfig.host,
+                wsPort: reverbConfig.port,
+                wssPort: reverbConfig.port,
+                forceTLS: reverbConfig.scheme === 'https',
+                enabledTransports: ['ws', 'wss'],
+                cluster: false
+            });
+
+            setWSConnectionStatus({
+                connected: false,
+                current: CONNECTION_STATES.CONNECTING,
+                previous: CONNECTION_STATES.INITIALIZING
+            });
+
+            window.ColibriBRD.connector.pusher.connection.bind('connected', function() {
+                console.log('📶 Websockets connection is established.');
+
+                setWSConnectionStatus({
+                    connected: true,
+                    current: CONNECTION_STATES.CONNECTED
+                });
+            });
+
+            window.ColibriBRD.connector.pusher.connection.bind('state_change', function(state) {
+                const currentState = normalizeConnectionState(state.current);
+                const isConnected = currentState === CONNECTION_STATES.CONNECTED;
+                const reconnects = (
+                    previousState => {
+                        if(previousState.current !== CONNECTION_STATES.CONNECTED && currentState === CONNECTION_STATES.CONNECTING) {
+                            return previousState.reconnects + 1;
+                        }
+
+                        return previousState.reconnects;
+                    }
+                )(window.ColibriBRState ?? createConnectionSnapshot());
+
+                setWSConnectionStatus({
+                    connected: isConnected,
+                    current: currentState,
+                    previous: normalizeConnectionState(state.previous),
+                    reconnects: reconnects
+                });
+            });
+
+            return window.ColibriBRD;
+        }
+
         setWSConnectionStatus({
             connected: false,
             current: CONNECTION_STATES.DISABLED,
@@ -126,13 +135,20 @@ try {
         });
         console.info("📶 Websockets connection is disabled. Please configure your broadcaster server and enable Reverb connection in your app settings. (Zulors)");
     }
-}
+    catch (error) {
+        setWSConnectionStatus({
+            connected: false,
+            current: CONNECTION_STATES.FAILED,
+            previous: window.ColibriBRState?.current ?? CONNECTION_STATES.INITIALIZING
+        });
+        console.log(error);
+    }
 
-catch (error) {
-    setWSConnectionStatus({
-        connected: false,
-        current: CONNECTION_STATES.FAILED,
-        previous: window.ColibriBRState?.current ?? CONNECTION_STATES.INITIALIZING
-    });
-    console.log(error);
-}
+    return window.ColibriBRD ?? null;
+};
+
+export {
+    ensureRealtimeConnection
+};
+
+export default ensureRealtimeConnection;

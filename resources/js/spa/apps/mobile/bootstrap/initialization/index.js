@@ -14,7 +14,6 @@ import '@/kernel/helpers/javascript/index.js';
 import axios from 'axios';
 
 import '@/kernel/helpers/embeds/index.js';
-import '@/kernel/websockets/index.js';
 import '@D/core/global/global.js';
 
 import { toastSuccess, toastError } from '@M/core/services/toasts/index.js';

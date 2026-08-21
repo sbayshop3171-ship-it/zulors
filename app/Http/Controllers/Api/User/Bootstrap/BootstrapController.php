@@ -33,7 +33,15 @@ class BootstrapController extends Controller
 
     public function bootstrap()
     {
-        return $this->responseSuccess([
+        $startedAt = microtime(true);
+        $userStartedAt = microtime(true);
+        $userData = $this->getUserData();
+        $userDurationMs = $this->toMilliseconds($userStartedAt);
+        $homeFeedCacheHit = ! auth_check() ? null : Cache::has(self::PUBLIC_HOME_FEED_SEED_CACHE_KEY);
+        $feedStartedAt = microtime(true);
+        $homeFeedData = $this->getHomeFeedData();
+        $feedDurationMs = $this->toMilliseconds($feedStartedAt);
+        $response = $this->responseSuccess([
             'data' => [
                 'version' => Zulors::VERSION,
                 'name' => config('app.name'),
@@ -43,17 +51,37 @@ class BootstrapController extends Controller
                 ],
                 'auth' => [
                     'status' => auth_check(),
-                    'user' => $this->getUserData()
+                    'user' => $userData
                 ],
-                'home_feed' => $this->getHomeFeedData(),
+                'home_feed' => $homeFeedData,
             ]
+        ]);
+
+        return $response->withHeaders([
+            'Cache-Control' => 'private, no-store',
+            'Server-Timing' => implode(', ', array_filter([
+                'bootstrap;dur=' . $this->toMilliseconds($startedAt),
+                'user;dur=' . $userDurationMs,
+                auth_check() ? 'feed;dur=' . $feedDurationMs : null
+            ])),
+            'X-Zulors-Home-Feed-Cache' => ! auth_check()
+                ? 'skip'
+                : ($homeFeedCacheHit ? 'hit' : 'miss')
         ]);
     }
 
     public function homeFeedSeed()
     {
-        return $this->responseSuccess([
+        $startedAt = microtime(true);
+        $cacheHit = Cache::has(self::PUBLIC_HOME_FEED_SEED_CACHE_KEY);
+        $response = $this->responseSuccess([
             'data' => $this->resolvePublicHomeFeedSeedPayload(),
+        ]);
+
+        return $response->withHeaders([
+            'Cache-Control' => 'public, max-age=60, stale-while-revalidate=300',
+            'Server-Timing' => 'home-feed-seed;dur=' . $this->toMilliseconds($startedAt),
+            'X-Zulors-Home-Feed-Cache' => $cacheHit ? 'hit' : 'miss'
         ]);
     }
 
@@ -156,5 +184,10 @@ class BootstrapController extends Controller
                 ],
             ],
         ];
+    }
+
+    private function toMilliseconds(float $startedAt): string
+    {
+        return number_format((microtime(true) - $startedAt) * 1000, 1, '.', '');
     }
 }

@@ -29,6 +29,12 @@
         var bootstrapUrl = @json($bootBootstrapUrl);
         var sharedFeedUrl = @json($sharedFeedUrl);
         var bootState = window.__zulorsBoot = window.__zulorsBoot || {};
+        var startupState = window.__zulorsStartup = window.__zulorsStartup || {
+            launchedAt: Date.now(),
+            perfStartedAt: (window.performance && typeof window.performance.now === 'function') ? Math.round(window.performance.now()) : Date.now(),
+            marks: {},
+            nativeReadySent: false
+        };
 
         window.__zulorsRealtime = {
             reverb: {
@@ -45,6 +51,8 @@
         bootState.cacheTtl = cacheTtl;
         bootState.sharedFeedCacheKey = sharedFeedCacheKey;
         bootState.sharedFeedCacheTtl = sharedFeedCacheTtl;
+        startupState.variant = variant;
+        startupState.cacheHit = false;
 
         var writeSharedFeedCache = function(posts) {
             if (!Array.isArray(posts) || !posts.length) {
@@ -88,6 +96,7 @@
                 ) {
                     document.documentElement.dataset.zulorsBootCache = 'hit';
                     bootState.cachedBootstrap = cacheEntry.data;
+                    startupState.cacheHit = true;
                     rememberSharedFeedPayload(cacheEntry.data.home_feed || null);
                 }
             }
@@ -127,6 +136,17 @@
             //
         }
 
+        var cachedBootstrap = bootState.cachedBootstrap || null;
+        var cachedHomeFeed = cachedBootstrap && cachedBootstrap.home_feed ? cachedBootstrap.home_feed : null;
+        bootState.skipSharedFeedRequest = Boolean(
+            cachedBootstrap &&
+            cachedBootstrap.auth &&
+            cachedBootstrap.auth.user &&
+            cachedHomeFeed &&
+            Array.isArray(cachedHomeFeed.posts) &&
+            cachedHomeFeed.posts.length
+        );
+
         if (!window.fetch || bootState.bootstrapRequest) {
             return;
         }
@@ -161,7 +181,11 @@
 
             return {
                 status: response.status,
-                data: payload
+                data: payload,
+                headers: {
+                    'server-timing': response.headers.get('server-timing'),
+                    'x-zulors-home-feed-cache': response.headers.get('x-zulors-home-feed-cache')
+                }
             };
         }).then(function(response) {
             rememberSharedFeedPayload(response && response.data && response.data.data ? response.data.data.home_feed : null);
@@ -175,7 +199,7 @@
             throw error;
         });
 
-        if (!bootState.sharedFeedRequest) {
+        if (!bootState.sharedFeedRequest && !bootState.skipSharedFeedRequest) {
             bootState.sharedFeedRequest = window.fetch(sharedFeedUrl, {
                 method: 'GET',
                 credentials: 'same-origin',
@@ -199,7 +223,11 @@
 
                 return {
                     status: response.status,
-                    data: payload
+                    data: payload,
+                    headers: {
+                        'server-timing': response.headers.get('server-timing'),
+                        'x-zulors-home-feed-cache': response.headers.get('x-zulors-home-feed-cache')
+                    }
                 };
             }).then(function(response) {
                 rememberSharedFeedPayload(response && response.data ? response.data.data : null);

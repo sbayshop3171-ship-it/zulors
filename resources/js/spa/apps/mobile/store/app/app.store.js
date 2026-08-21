@@ -44,7 +44,8 @@ const useAppStore = defineStore('mobile_app_store', {
 
         return {
             appData: cachedEntry?.data ?? null,
-            appDataCachedAt: cachedEntry?.timestamp ?? 0
+            appDataCachedAt: cachedEntry?.timestamp ?? 0,
+            lastBootstrapMeta: null
         };
     },
     actions: {
@@ -110,6 +111,10 @@ const useAppStore = defineStore('mobile_app_store', {
                         });
                     }
 
+                    this.lastBootstrapMeta = {
+                        serverTiming: response?.headers?.['server-timing'] ?? null,
+                        cacheHeader: response?.headers?.['x-zulors-home-feed-cache'] ?? null
+                    };
                     this.applyBootstrapData(bootstrapData);
                     sessionStorage.removeItem('bootstrap-reload-attempted');
                     sessionStorage.removeItem('bootstrap-hard-reload-attempted');

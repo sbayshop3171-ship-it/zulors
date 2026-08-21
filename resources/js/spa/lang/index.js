@@ -1,4 +1,5 @@
 import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
+import { readCacheEntry, writeCache } from '@/kernel/services/cache/index.js';
 
 const fallbackMessages = {
     labels: {
@@ -151,6 +152,14 @@ const fallbackMessages = {
 };
 
 const rawKeyPattern = /^[a-z][a-z0-9_]*(\.[a-zA-Z0-9_]+)+$/;
+const translationsCacheTtl = 1000 * 60 * 60 * 24;
+const translationsCacheVersion = 'v2';
+const backendEmbeds = () => {
+    return typeof BackendEmbeds === 'object' && BackendEmbeds !== null ? BackendEmbeds : {};
+};
+const translationsCacheKey = (locale) => {
+    return `zulors.translations.${locale}.${translationsCacheVersion}`;
+};
 
 const normalizeMessages = (messages) => {
     return (messages && typeof messages === 'object' && !Array.isArray(messages)) ? messages : {};
@@ -158,6 +167,16 @@ const normalizeMessages = (messages) => {
 
 const hasMessages = (messages) => {
     return Object.keys(normalizeMessages(messages)).length > 0;
+};
+
+const readCachedMessages = (locale) => {
+    return readCacheEntry(translationsCacheKey(locale), translationsCacheTtl)?.data ?? null;
+};
+
+const writeCachedMessages = (locale, messages) => {
+    if (locale && hasMessages(messages)) {
+        writeCache(translationsCacheKey(locale), messages);
+    }
 };
 
 const deepMerge = (...sources) => {
@@ -179,27 +198,109 @@ const deepMerge = (...sources) => {
 };
 
 export default {
-    langLocale: BackendEmbeds.locale || 'en',
+    langLocale: backendEmbeds().locale || 'en',
+    startupMessages: function() {
+        return deepMerge(
+            fallbackMessages,
+            normalizeMessages(backendEmbeds().startup_translations)
+        );
+    },
+    embeddedMessages: function() {
+        return deepMerge(
+            this.startupMessages(),
+            normalizeMessages(backendEmbeds().translations)
+        );
+    },
     messages: async function () {
-        const embeddedMessages = normalizeMessages(BackendEmbeds.translations);
+        const locale = this.langLocale || 'en';
+        const cachedMessages = readCachedMessages(locale);
 
-        const fetchMessages = async (locale) => {
-            const response = await colibriAPI().translations().params({
-                locale: locale
-            }).getFrom('app');
-
-            return normalizeMessages(response.data.data ?? {});
-        };
+        if (hasMessages(cachedMessages)) {
+            return deepMerge(this.embeddedMessages(), cachedMessages);
+        }
 
         try {
-            const englishMessages = await fetchMessages('en');
-            const localeMessages = (this.langLocale && this.langLocale !== 'en') ? await fetchMessages(this.langLocale) : {};
+            const response = await this.fetchMergedMessages(locale);
 
-            return deepMerge(fallbackMessages, englishMessages, localeMessages, embeddedMessages);
+            return response.messages;
         } catch (error) {
-            console.error(`Could not load messages for locale: ${this.langLocale}`, error);
+            console.error(`Could not load messages for locale: ${locale}`, error);
 
-            return deepMerge(fallbackMessages, embeddedMessages);
+            return this.embeddedMessages();
+        }
+    },
+    fetchMergedMessages: async function(locale = this.langLocale || 'en') {
+        const fetchMessages = async (targetLocale) => {
+            return await colibriAPI().translations().params({
+                locale: targetLocale
+            }).getFrom('app');
+        };
+
+        const englishResponse = await fetchMessages('en');
+        const localeResponse = locale !== 'en' ? await fetchMessages(locale) : englishResponse;
+        const englishMessages = normalizeMessages(englishResponse?.data?.data ?? {});
+        const localeMessages = normalizeMessages(localeResponse?.data?.data ?? {});
+        const messages = deepMerge(
+            fallbackMessages,
+            englishMessages,
+            localeMessages,
+            normalizeMessages(backendEmbeds().translations)
+        );
+
+        writeCachedMessages(locale, messages);
+
+        return {
+            messages: messages,
+            serverTiming: localeResponse?.headers?.['server-timing'] ?? englishResponse?.headers?.['server-timing'] ?? null,
+            cacheHeader: localeResponse?.headers?.['x-zulors-translations-cache'] ?? englishResponse?.headers?.['x-zulors-translations-cache'] ?? null
+        };
+    },
+    hydrateI18n: async function(i18n) {
+        if (!i18n?.global) {
+            return null;
+        }
+
+        const locale = this.langLocale || 'en';
+        let activeSource = 'startup';
+        const applyMessages = (messages) => {
+            const mergedMessages = deepMerge(fallbackMessages, messages);
+
+            i18n.global.setLocaleMessage('en', mergedMessages);
+            i18n.global.setLocaleMessage(locale, mergedMessages);
+        };
+
+        const embeddedMessages = normalizeMessages(backendEmbeds().translations);
+
+        if (hasMessages(embeddedMessages)) {
+            applyMessages(deepMerge(this.startupMessages(), embeddedMessages));
+            activeSource = 'embedded';
+        }
+
+        const cachedMessages = readCachedMessages(locale);
+
+        if (hasMessages(cachedMessages)) {
+            applyMessages(deepMerge(this.startupMessages(), embeddedMessages, cachedMessages));
+            activeSource = 'cache';
+        }
+
+        try {
+            const response = await this.fetchMergedMessages(locale);
+
+            applyMessages(response.messages);
+
+            return {
+                source: 'network',
+                serverTiming: response.serverTiming,
+                cacheHeader: response.cacheHeader
+            };
+        } catch (error) {
+            console.error(`Could not hydrate messages for locale: ${locale}`, error);
+
+            return {
+                source: activeSource,
+                serverTiming: null,
+                cacheHeader: null
+            };
         }
     }
 }

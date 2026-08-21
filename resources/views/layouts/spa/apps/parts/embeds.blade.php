@@ -2,10 +2,27 @@
 	$apiMessagesPath = base_path('lang/' . app()->getLocale() . '/api/index.php');
 	$fallbackApiMessagesPath = base_path('lang/en/api/index.php');
 	$apiMessages = file_exists($apiMessagesPath) ? require $apiMessagesPath : (file_exists($fallbackApiMessagesPath) ? require $fallbackApiMessagesPath : []);
+    $startupTranslationNamespaces = [
+        'auth',
+        'chat',
+        'create_labels',
+        'dd',
+        'editor',
+        'empty_state',
+        'labels',
+        'notifications',
+        'prompt',
+        'settings',
+        'story',
+        'toast',
+        'wallet',
+    ];
+    $startupMessages = array_intersect_key($apiMessages, array_flip($startupTranslationNamespaces));
 @endphp
 
 <script>
 	window.BackendEmbeds = {
+		startup_translations: @json($startupMessages),
 		translations: @json($apiMessages),
 		assets: {
 			images: {

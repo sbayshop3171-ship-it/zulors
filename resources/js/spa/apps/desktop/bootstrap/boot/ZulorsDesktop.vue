@@ -22,7 +22,7 @@
 </template>
 
 <script>
-    import { defineComponent, computed, onMounted, onUnmounted, ref, defineAsyncComponent } from 'vue';
+    import { defineComponent, computed, onMounted, onUnmounted, ref, defineAsyncComponent, nextTick } from 'vue';
     import { useRoute, useRouter } from 'vue-router';
     import { useAppStore } from '@D/store/app/app.store.js';
     import { useAuthStore } from '@D/store/auth/auth.store.js';
@@ -31,6 +31,8 @@
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
     import BRD from '@/kernel/websockets/brd/index.js';
+    import { ensureRealtimeConnection } from '@/kernel/websockets/index.js';
+    import { markStartupEvent, signalAppShellReady } from '@/kernel/services/startup/index.js';
 
     import { Layouts } from '@D/core/constants/layouts.js';
     
@@ -123,11 +125,37 @@
                 appShellReady = true;
                 hydrateInstantHomeFeed();
                 primeHomeFeed();
+
+                if(authStore.authCheck) {
+                    ensureRealtimeConnection();
+                    markStartupEvent('realtime_connect_requested', {
+                        variant: 'desktop'
+                    });
+                }
+
                 appLoading.value = false;
 
                 setupInteractionListeners();
                 setupRealtimePostUpdates();
                 scheduleReelsWarmup();
+
+                markStartupEvent('app_shell_revealed', {
+                    variant: 'desktop',
+                    route: route.name ?? null,
+                    cachedBootstrap: hasCachedBootstrap,
+                    authenticated: authStore.authCheck
+                });
+
+                nextTick(() => {
+                    window.requestAnimationFrame(() => {
+                        signalAppShellReady({
+                            variant: 'desktop',
+                            route: route.name ?? null,
+                            cachedBootstrap: hasCachedBootstrap,
+                            authenticated: authStore.authCheck
+                        });
+                    });
+                });
             };
 
             const primeHomeFeed = () => {
@@ -196,6 +224,10 @@
 
             onMounted(async () => {
                 if(hasCachedBootstrap || authStore.authCheck) {
+                    markStartupEvent('bootstrap_cache_reused', {
+                        variant: 'desktop',
+                        authenticated: authStore.authCheck
+                    });
                     revealAppShell();
                 }
 
@@ -206,6 +238,13 @@
                 try {
                     const isBootstrapped = await appStore.bootstrapApplication();
 
+                    markStartupEvent('bootstrap_complete', {
+                        variant: 'desktop',
+                        route: route.name ?? null,
+                        serverTiming: appStore.lastBootstrapMeta?.serverTiming ?? null,
+                        cacheHeader: appStore.lastBootstrapMeta?.cacheHeader ?? null
+                    });
+
                     await finishBootstrap(isBootstrapped);
                 } catch (error) {
                     if(bootDeadlineTimer) {
@@ -214,6 +253,10 @@
                     }
 
                     console.error('Failed to bootstrap desktop application', error);
+                    markStartupEvent('bootstrap_failed', {
+                        variant: 'desktop',
+                        message: String(error?.message ?? 'unknown')
+                    });
 
                     revealAppShell();
 
