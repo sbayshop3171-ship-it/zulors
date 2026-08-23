@@ -182,7 +182,8 @@ class EmailSettingsController extends Controller
             ], Response::HTTP_NOT_FOUND);
         }
     }
-    
+
+
     private function sendConfirmationCodeEmail(string $emailAddress) {
         $confirmationCode = confirmation_unique_code();
 
