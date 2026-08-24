@@ -86,9 +86,15 @@ class TimelineResource extends JsonResource
 
         if(! is_null($this->ranking_score)) {
             $apiData['meta']['ranking'] = [
-                'score' => (float) $this->ranking_score,
-                'signals' => $this->ranking_signals ?: []
+                'version' => $this->ranking_version ?: 'candidate_ranking_v1',
+                'candidate_source' => $this->candidate_source ?: null,
+                'reasons' => array_values(array_filter($this->ranking_reasons ?: [])),
             ];
+
+            if($this->shouldExposeDebugRanking($request)) {
+                $apiData['meta']['ranking']['score'] = (float) $this->ranking_score;
+                $apiData['meta']['ranking']['signals'] = $this->ranking_signals ?: [];
+            }
         }
 
         if($this->type->isMedia()) {
@@ -122,5 +128,12 @@ class TimelineResource extends JsonResource
                 ]
             ];  
         })->toArray();
+    }
+
+    private function shouldExposeDebugRanking(Request $request): bool
+    {
+        return app()->environment(['local', 'testing'])
+            || $request->boolean('debug_ranking')
+            || $request->header('X-Zulors-Debug-Ranking') === '1';
     }
 }

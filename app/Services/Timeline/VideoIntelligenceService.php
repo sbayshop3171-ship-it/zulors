@@ -45,6 +45,16 @@ class VideoIntelligenceService
                 'position' => data_get($payload, 'position'),
                 'playback_session_id' => data_get($payload, 'playback_session_id'),
                 'is_muted' => data_get($payload, 'is_muted'),
+                'first_frame_ms' => $this->positiveFloat(data_get($payload, 'first_frame_ms', 0)),
+                'stall_count' => (int) data_get($payload, 'stall_count', 0),
+                'swipe_away_ms' => (int) data_get($payload, 'swipe_away_ms', 0),
+                '3s_view' => data_get($payload, '3s_view'),
+                '50p_complete' => data_get($payload, '50p_complete'),
+                '95p_complete' => data_get($payload, '95p_complete'),
+                'follow_after_view' => data_get($payload, 'follow_after_view'),
+                'share_after_view' => data_get($payload, 'share_after_view'),
+                'mute_state' => data_get($payload, 'mute_state'),
+                'visible_window_index' => data_get($payload, 'visible_window_index'),
             ],
         ]);
 
@@ -55,7 +65,7 @@ class VideoIntelligenceService
         ]);
 
         $this->updateMetric($metric, $eventType, $watchTimeSeconds, $completionRate, (int) data_get($payload, 'loop_count', 0));
-        $this->updateInterest($user, $post, $eventType, $completionRate);
+        $this->updateInterest($user, $post, $eventType, $completionRate, $payload);
 
         return $metric->refresh();
     }
@@ -87,7 +97,7 @@ class VideoIntelligenceService
         $metric->save();
     }
 
-    private function updateInterest(User|int|null $user, Post $post, string $eventType, float $completionRate): void
+    private function updateInterest(User|int|null $user, Post $post, string $eventType, float $completionRate, array $payload = []): void
     {
         if(empty($user)) {
             return;
@@ -100,6 +110,14 @@ class VideoIntelligenceService
             $completionRate >= 0.5 => 4.0,
             default => 1.0,
         };
+
+        if(filter_var(data_get($payload, 'follow_after_view', false), FILTER_VALIDATE_BOOLEAN)) {
+            $delta += 6.0;
+        }
+
+        if(filter_var(data_get($payload, 'share_after_view', false), FILTER_VALIDATE_BOOLEAN)) {
+            $delta += 4.0;
+        }
 
         $this->userInterestService->recordPostInteraction($user, $post, UserInterestService::EVENT_VIEW, $delta);
     }

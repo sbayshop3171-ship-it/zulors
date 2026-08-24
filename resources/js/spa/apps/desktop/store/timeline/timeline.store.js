@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 import { readCache, writeCache } from '@/kernel/services/cache/index.js';
+import { defaultFeedMeta, extractFeedMeta } from '@/kernel/services/feed-session/index.js';
 import { prefetchTimelineMedia } from '@/kernel/services/media-prefetch/index.js';
 import { useAuthStore } from '@D/store/auth/auth.store.js';
 
@@ -127,6 +128,9 @@ const useTimelineStore = defineStore('timeline_store', {
             update: [],
             warmPromise: null,
             feedType: 'for_you',
+            feedMeta: {
+                ...defaultFeedMeta
+            },
             feedSessionId: createFeedSessionId(),
             refreshReason: 'initial',
             isRefreshingFirstPage: false,
@@ -313,6 +317,7 @@ const useTimelineStore = defineStore('timeline_store', {
                 this.filter.page = 1;
                 this.filter.onset = null;
                 this.posts = posts;
+                this.applyFeedMeta(response?.data?.meta);
                 this.lastFirstPageLoadedAt = Date.now();
                 this.persistFirstPage();
 
@@ -331,6 +336,7 @@ const useTimelineStore = defineStore('timeline_store', {
             prefetchTimelineMedia(posts);
 
             this.feedType = homeFeed?.type || this.feedType;
+            this.applyFeedMeta(homeFeed?.meta || homeFeed);
             this.feedSessionId = homeFeed?.session_id || this.feedSessionId;
             this.refreshReason = homeFeed?.refresh_reason || this.refreshReason;
             this.filter.page = 1;
@@ -464,6 +470,7 @@ const useTimelineStore = defineStore('timeline_store', {
                 const cachedPosts = posts.slice(0, timelineCacheLimit);
 
                 writeCache(getTimelineCacheKey(), cachedPosts);
+                this.applyFeedMeta(response?.data?.meta, false);
 
                 if(! isAuthenticatedBoot()) {
                     writeCache(getPublicFeedCacheKey(), cachedPosts);
@@ -513,6 +520,15 @@ const useTimelineStore = defineStore('timeline_store', {
         startFeedSession: function(refreshReason = 'refresh') {
             this.feedSessionId = createFeedSessionId();
             this.refreshReason = refreshReason;
+        },
+        applyFeedMeta: function(meta, replaceSessionId = true) {
+            this.feedMeta = extractFeedMeta(meta, this.feedMeta);
+
+            if(replaceSessionId && this.feedMeta.sessionId) {
+                this.feedSessionId = this.feedMeta.sessionId;
+            }
+
+            return this.feedMeta;
         },
         shouldUseFastStart: function() {
             return ['initial', 'warm'].includes(this.refreshReason);

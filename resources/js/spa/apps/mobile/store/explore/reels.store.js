@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 import { readCache, writeCache } from '@/kernel/services/cache/index.js';
+import { defaultFeedMeta, extractFeedMeta, mergeProtectedTail } from '@/kernel/services/feed-session/index.js';
 import { prefetchReelsPlaybackWindow } from '@/kernel/services/media-prefetch/index.js';
 import { useAuthStore } from '@M/store/auth/auth.store.js';
 
@@ -42,6 +43,13 @@ const useExploreReelsStore = defineStore('mobile_explore_reels_store', {
 			posts: cachedPosts,
 			feedSessionId: createFeedSessionId(),
 			refreshReason: 'initial',
+			feedMeta: {
+				...defaultFeedMeta,
+				feedFamily: 'reels'
+			},
+			swipeCount: 0,
+			lastTailRerankAt: 0,
+			isTailReranking: false,
 			warmPromise: null,
 			filter: {
 				page: 1,
@@ -86,6 +94,9 @@ const useExploreReelsStore = defineStore('mobile_explore_reels_store', {
 			};
 
 			this.startFeedSession('initial');
+			this.swipeCount = 0;
+			this.lastTailRerankAt = 0;
+			this.isTailReranking = false;
 
 			if(! this.hydrateCachedFirstPage()) {
 				this.posts = [];
@@ -101,6 +112,7 @@ const useExploreReelsStore = defineStore('mobile_explore_reels_store', {
 				const posts = response.data.data;
 
 				this.posts = posts;
+				this.applyFeedMeta(response?.data?.meta);
 				prefetchReelsPlaybackWindow(this.posts, 0);
 				this.persistFirstPage();
 
@@ -143,6 +155,7 @@ const useExploreReelsStore = defineStore('mobile_explore_reels_store', {
 			}).getFrom('feed').then((response) => {
 				const posts = response.data.data || [];
 
+				this.applyFeedMeta(response?.data?.meta, false);
 				writeCache(cacheKey, posts.slice(0, reelsCacheLimit));
 				prefetchReelsPlaybackWindow(posts, 0);
 
@@ -264,9 +277,75 @@ const useExploreReelsStore = defineStore('mobile_explore_reels_store', {
 
 			writeCache(getExploreReelsCacheKey(this.filter.seed_hash_id), this.posts.slice(0, reelsCacheLimit));
 		},
+		recordSwipe: function() {
+			this.swipeCount += 1;
+		},
+		maybeRerankTail: async function(options = {}) {
+			const protectedRadius = Math.max(0, Number(options.protectedRadius ?? 2));
+			const activeIndex = Math.max(0, Number(options.activeIndex || 0));
+			const threshold = Math.max(1, Number(options.threshold || 8));
+			const minIntervalMs = Math.max(1000, Number(options.minIntervalMs || 6000));
+			const now = Date.now();
+
+			if(
+				! this.feedMeta.reRankAllowed
+				|| this.isTailReranking
+				|| this.swipeCount < threshold
+				|| (now - this.lastTailRerankAt) < minIntervalMs
+				|| this.posts.length <= (activeIndex + protectedRadius + 1)
+			) {
+				return this.posts;
+			}
+
+			this.isTailReranking = true;
+			this.lastTailRerankAt = now;
+			this.swipeCount = 0;
+
+			try {
+				const response = await colibriAPI().userTimeline().params({
+					filter: {
+						page: 1,
+						type: 'reels',
+						session_id: createFeedSessionId(),
+						refresh_reason: 'rerank',
+						seed_hash_id: this.filter.seed_hash_id
+					}
+				}).getFrom('feed');
+				const incomingPosts = Array.isArray(response?.data?.data) ? response.data.data : [];
+
+				if(! incomingPosts.length) {
+					return this.posts;
+				}
+
+				this.applyFeedMeta(response?.data?.meta, false);
+				this.posts = mergeProtectedTail(this.posts, incomingPosts, {
+					protectedUntilIndex: activeIndex + protectedRadius,
+					maxItems: Math.max(this.posts.length, incomingPosts.length)
+				});
+				prefetchReelsPlaybackWindow(this.posts, activeIndex);
+				this.persistFirstPage();
+
+				return this.posts;
+			}
+			catch (error) {
+				return this.posts;
+			}
+			finally {
+				this.isTailReranking = false;
+			}
+		},
 		startFeedSession: function(refreshReason = 'refresh') {
 			this.feedSessionId = createFeedSessionId();
 			this.refreshReason = refreshReason;
+		},
+		applyFeedMeta: function(meta, replaceSessionId = true) {
+			this.feedMeta = extractFeedMeta(meta, this.feedMeta);
+
+			if(replaceSessionId && this.feedMeta.sessionId) {
+				this.feedSessionId = this.feedMeta.sessionId;
+			}
+
+			return this.feedMeta;
 		},
 		requestFilter: function() {
 			return {

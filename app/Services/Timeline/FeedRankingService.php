@@ -16,8 +16,49 @@ class FeedRankingService
     public function __construct(
         private TopicExtractionService $topicExtractionService,
         private UserInterestService $userInterestService,
+        private PostAffinityService $postAffinityService,
+        private CreatorQualityService $creatorQualityService,
+        private ReelQualityService $reelQualityService,
         private SafetyService $safetyService
     ) {
+    }
+
+    public function rankVersion(string $type): string
+    {
+        if($type === FeedService::TYPE_REELS && $this->isReelsRankingV2Enabled()) {
+            return 'reels_ranking_v2';
+        }
+
+        if($type === FeedService::TYPE_FOR_YOU && $this->isHomeRankingV2Enabled()) {
+            return 'home_ranking_v2';
+        }
+
+        return 'candidate_ranking_v1';
+    }
+
+    public function feedFamily(string $type): string
+    {
+        return match($type) {
+            FeedService::TYPE_REELS => 'reels',
+            FeedService::TYPE_FOLLOWING => 'following',
+            FeedService::TYPE_LATEST => 'latest',
+            default => 'home',
+        };
+    }
+
+    public function reRankAllowed(string $type): bool
+    {
+        return in_array($type, [FeedService::TYPE_FOR_YOU, FeedService::TYPE_REELS], true)
+            && $this->rankVersion($type) !== 'candidate_ranking_v1';
+    }
+
+    public function sessionWindowSize(string $type): int
+    {
+        return match($type) {
+            FeedService::TYPE_REELS => 50,
+            FeedService::TYPE_FOR_YOU => 50,
+            default => 0,
+        };
     }
 
     public function rank(User $user, Collection $candidates, string $type, array $filter = []): Collection
@@ -30,7 +71,7 @@ class FeedRankingService
 
         $ranked = $candidates
             ->map(function(Post $post) use ($user, $type, $context) {
-                return $this->attachRanking($post, $this->scorePost($user, $post, $type, $context));
+                return $this->attachRanking($post, $this->scorePost($user, $post, $type, $context), $type);
             });
 
         $ranked = $this->sortRankedPosts($ranked);
@@ -44,10 +85,17 @@ class FeedRankingService
             'freshness' => $this->freshnessScore($post),
             'engagement' => $this->engagementScore($post),
             'relationship' => $this->relationshipScore($user, $post, $context),
-            'author_quality' => $this->authorQualityScore($post),
+            'author_quality' => $this->authorQualityScore($post, $context),
             'media_bonus' => $this->mediaBonus($post),
             'video_intelligence' => $this->videoIntelligenceScore($post),
+            'retention_quality' => $this->retentionQualityScore($post, $context),
             'interest' => $this->interestScore($post, $context),
+            'affinity_author' => $this->affinityScore($post, $context, 'author:'),
+            'affinity_language' => $this->affinityScore($post, $context, 'language:'),
+            'affinity_media_type' => $this->affinityScore($post, $context, 'media_type:'),
+            'affinity_duration' => $this->affinityScore($post, $context, 'duration_bucket:'),
+            'affinity_sound' => $this->affinityScore($post, $context, 'sound_signature:'),
+            'candidate_source_boost' => $this->candidateSourceBoost($post, $type),
             'seen_penalty' => $this->seenPenalty($post, $type, $context),
             'session_jitter' => $this->sessionJitter($user, $post, $type, $context),
             'feedback_penalty' => -$this->feedbackPenalty($post, $type, $context),
@@ -64,6 +112,7 @@ class FeedRankingService
         return [
             'score' => round($score, 4),
             'signals' => array_map(fn($value) => round($value, 4), $signals),
+            'reasons' => $this->topReasonCodes($signals),
         ];
     }
 
@@ -73,6 +122,13 @@ class FeedRankingService
         $candidateAuthors = $candidates->pluck('user_id', 'id');
         $candidateAuthorIds = $candidates->pluck('user_id')->map(fn($id) => (int) $id)->unique()->values()->all();
         $candidateTopics = $this->candidateTopics($candidates);
+        $candidateAffinityKeys = $this->postAffinityService->affinityKeysForPosts($candidates, [
+            'author:',
+            'language:',
+            'media_type:',
+            'duration_bucket:',
+            'sound_signature:',
+        ]);
         $sessionId = trim((string) data_get($filter, 'session_id', ''));
 
         $commentedPostIds = DB::table(Table::COMMENTS)
@@ -124,6 +180,12 @@ class FeedRankingService
             'interacted_author_ids' => array_map('intval', $interactedAuthorIds),
             'followed_author_ids' => array_map('intval', $followedAuthorIds),
             'interest_scores' => $this->userInterestService->scoresForTopics($user, $candidateTopics),
+            'affinity_scores' => $this->userInterestService->scoresForAffinityKeys($user, $candidateAffinityKeys),
+            'post_affinity_keys' => $candidates->mapWithKeys(function(Post $post) {
+                return [$post->id => array_keys($this->postAffinityService->weightedKeysForPost($post))];
+            })->all(),
+            'creator_quality_scores' => $this->creatorQualityService->scoresForAuthors($candidateAuthorIds),
+            'reel_quality_scores' => $this->reelQualityService->scoresForPosts($candidateIds),
             'seen_stats_by_post' => $seenStatsByPost,
             'feedback_stats_by_post' => $this->feedbackStatsByPost($user, $candidateIds),
             'feedback_author_penalty_by_author' => $this->feedbackAuthorPenaltyByAuthor($user, $candidateAuthorIds),
@@ -173,19 +235,9 @@ class FeedRankingService
         return min(55, $score);
     }
 
-    private function authorQualityScore(Post $post): float
+    private function authorQualityScore(Post $post, array $context): float
     {
-        $author = $post->user;
-
-        if(empty($author)) {
-            return 0.0;
-        }
-
-        $score = ($author->verified ? 8 : 0)
-            + (log(((int) $author->followers_count) + 1) * 2.5)
-            + (log(((int) $author->publications_count) + 1) * 1.4);
-
-        return min(22, $score);
+        return (float) data_get($context, "creator_quality_scores.{$post->user_id}", 0.0);
     }
 
     private function mediaBonus(Post $post): float
@@ -212,6 +264,23 @@ class FeedRankingService
         });
 
         return max(-35, min(45, $score));
+    }
+
+    private function affinityScore(Post $post, array $context, string $prefix): float
+    {
+        $keys = collect(data_get($context, "post_affinity_keys.{$post->id}", []))
+            ->filter(fn($key) => str_starts_with((string) $key, $prefix))
+            ->values();
+
+        if($keys->isEmpty()) {
+            return 0.0;
+        }
+
+        $score = $keys->sum(function(string $key) use ($context) {
+            return (float) data_get($context, "affinity_scores.{$key}", 0.0);
+        });
+
+        return max(-40.0, min(45.0, $score));
     }
 
     private function seenPenalty(Post $post, string $type, array $context): float
@@ -304,6 +373,11 @@ class FeedRankingService
         return max(-45, min(65, (float) $post->videoMetric->intelligence_score));
     }
 
+    private function retentionQualityScore(Post $post, array $context): float
+    {
+        return (float) data_get($context, "reel_quality_scores.{$post->id}", $this->videoIntelligenceScore($post));
+    }
+
     private function reportPenalty(Post $post): float
     {
         return min(70, ((int) ($post->reports_count ?? 0)) * 24);
@@ -321,11 +395,24 @@ class FeedRankingService
         }
 
         $seenAuthors = [];
+        $seenTopics = [];
 
-        return $ranked->map(function(Post $post) use (&$seenAuthors, $type) {
+        return $ranked->map(function(Post $post) use (&$seenAuthors, &$seenTopics, $type) {
             $seenCount = $seenAuthors[$post->user_id] ?? 0;
             $penalty = $this->authorRepetitionPenalty($seenCount, $type);
             $seenAuthors[$post->user_id] = $seenCount + 1;
+
+            if($type === FeedService::TYPE_REELS) {
+                foreach($this->postTopics($post) as $topic) {
+                    $topicSeenCount = $seenTopics[$topic] ?? 0;
+
+                    if($topicSeenCount >= 4) {
+                        $penalty += min(260.0, 145.0 + (($topicSeenCount - 4) * 40.0));
+                    }
+
+                    $seenTopics[$topic] = $topicSeenCount + 1;
+                }
+            }
 
             if($penalty > 0) {
                 $signals = $post->ranking_signals;
@@ -347,9 +434,9 @@ class FeedRankingService
 
         if($type === FeedService::TYPE_REELS) {
             return match(true) {
-                $seenCount === 1 => 28.0,
-                $seenCount === 2 => 72.0,
-                default => min(320.0, 150.0 + (($seenCount - 3) * 85.0)),
+                $seenCount === 1 => 120.0,
+                $seenCount === 2 => 320.0,
+                default => min(520.0, 360.0 + (($seenCount - 3) * 110.0)),
             };
         }
 
@@ -358,6 +445,56 @@ class FeedRankingService
 
     private function weightsForType(string $type): array
     {
+        if($type === FeedService::TYPE_REELS && $this->isReelsRankingV2Enabled()) {
+            return [
+                'freshness' => 0.45,
+                'engagement' => 0.35,
+                'relationship' => 0.30,
+                'author_quality' => 0.90,
+                'media_bonus' => 0.05,
+                'video_intelligence' => 0.20,
+                'retention_quality' => 1.75,
+                'interest' => 0.65,
+                'affinity_author' => 1.20,
+                'affinity_language' => 0.45,
+                'affinity_media_type' => 0.40,
+                'affinity_duration' => 0.55,
+                'affinity_sound' => 0.55,
+                'candidate_source_boost' => 1.00,
+                'seen_penalty' => 1.55,
+                'session_jitter' => 0.25,
+                'feedback_penalty' => 1.45,
+                'report_penalty' => 1.25,
+                'safety_penalty' => 1.25,
+                'repetition_penalty' => 1.0,
+            ];
+        }
+
+        if($type === FeedService::TYPE_FOR_YOU && $this->isHomeRankingV2Enabled()) {
+            return [
+                'freshness' => 0.95,
+                'engagement' => 0.80,
+                'relationship' => 1.15,
+                'author_quality' => 0.70,
+                'media_bonus' => 0.45,
+                'video_intelligence' => 0.20,
+                'retention_quality' => 0.30,
+                'interest' => 0.85,
+                'affinity_author' => 1.15,
+                'affinity_language' => 0.35,
+                'affinity_media_type' => 0.30,
+                'affinity_duration' => 0.30,
+                'affinity_sound' => 0.20,
+                'candidate_source_boost' => 0.90,
+                'seen_penalty' => 1.10,
+                'session_jitter' => 0.35,
+                'feedback_penalty' => 1.10,
+                'report_penalty' => 1.0,
+                'safety_penalty' => 1.0,
+                'repetition_penalty' => 1.0,
+            ];
+        }
+
         if($type === FeedService::TYPE_REELS) {
             return [
                 'freshness' => 0.55,
@@ -366,7 +503,14 @@ class FeedRankingService
                 'author_quality' => 0.45,
                 'media_bonus' => 0.10,
                 'video_intelligence' => 1.90,
+                'retention_quality' => 0.0,
                 'interest' => 1.25,
+                'affinity_author' => 0.0,
+                'affinity_language' => 0.0,
+                'affinity_media_type' => 0.0,
+                'affinity_duration' => 0.0,
+                'affinity_sound' => 0.0,
+                'candidate_source_boost' => 0.0,
                 'seen_penalty' => 1.45,
                 'session_jitter' => 0.55,
                 'feedback_penalty' => 1.35,
@@ -384,7 +528,14 @@ class FeedRankingService
                 'author_quality' => 0.25,
                 'media_bonus' => 0.2,
                 'video_intelligence' => 0.25,
+                'retention_quality' => 0.0,
                 'interest' => 0.25,
+                'affinity_author' => 0.0,
+                'affinity_language' => 0.0,
+                'affinity_media_type' => 0.0,
+                'affinity_duration' => 0.0,
+                'affinity_sound' => 0.0,
+                'candidate_source_boost' => 0.0,
                 'seen_penalty' => 1.0,
                 'session_jitter' => 0.45,
                 'feedback_penalty' => 1.1,
@@ -401,7 +552,14 @@ class FeedRankingService
             'author_quality' => 0.7,
             'media_bonus' => 0.7,
             'video_intelligence' => 0.9,
+            'retention_quality' => 0.0,
             'interest' => 1.0,
+            'affinity_author' => 0.0,
+            'affinity_language' => 0.0,
+            'affinity_media_type' => 0.0,
+            'affinity_duration' => 0.0,
+            'affinity_sound' => 0.0,
+            'candidate_source_boost' => 0.0,
             'seen_penalty' => 1.0,
             'session_jitter' => 1.0,
             'feedback_penalty' => 1.0,
@@ -411,10 +569,13 @@ class FeedRankingService
         ];
     }
 
-    private function attachRanking(Post $post, array $ranking): Post
+    private function attachRanking(Post $post, array $ranking, string $type): Post
     {
         $post->setAttribute('ranking_score', $ranking['score']);
         $post->setAttribute('ranking_signals', $ranking['signals']);
+        $post->setAttribute('ranking_version', $this->rankVersion($type));
+        $post->setAttribute('ranking_reasons', $ranking['reasons']);
+        $post->setAttribute('candidate_source', $post->candidate_source ?? null);
 
         return $post;
     }
@@ -481,6 +642,60 @@ class FeedRankingService
                 ],
             ])
             ->all();
+    }
+
+    private function candidateSourceBoost(Post $post, string $type): float
+    {
+        $source = (string) ($post->candidate_source ?? '');
+
+        if($source === '') {
+            return 0.0;
+        }
+
+        $weights = [
+            FeedService::TYPE_FOR_YOU => [
+                'followed' => 14.0,
+                'interacted_author' => 12.0,
+                'topic_match' => 8.0,
+                'fresh_exploration' => 5.0,
+                'old_good_recovery' => 4.0,
+                'recent_safe' => 7.0,
+                'popular_general' => 9.0,
+                'exploration' => 4.0,
+            ],
+            FeedService::TYPE_REELS => [
+                'affinity_creators' => 12.0,
+                'high_retention_unseen' => 11.0,
+                'followed_creators' => 6.0,
+                'exploration' => 5.0,
+                'recovery_diversity' => 4.0,
+            ],
+        ];
+
+        return (float) data_get($weights, "{$type}.{$source}", 0.0);
+    }
+
+    private function topReasonCodes(array $signals): array
+    {
+        return collect($signals)
+            ->reject(function($value, $signal) {
+                return in_array($signal, ['session_jitter', 'repetition_penalty'], true) || $value <= 0;
+            })
+            ->sortDesc()
+            ->keys()
+            ->take(3)
+            ->values()
+            ->all();
+    }
+
+    private function isHomeRankingV2Enabled(): bool
+    {
+        return (bool) config('features.feed_ranking_v2.enabled', false);
+    }
+
+    private function isReelsRankingV2Enabled(): bool
+    {
+        return (bool) config('features.reels_ranking_v2.enabled', false);
     }
 
     private function feedbackStatsByPost(User $user, array $candidateIds): array

@@ -36,6 +36,16 @@ class TelemetryController extends Controller
             'events.*.is_muted' => ['nullable', 'boolean'],
             'events.*.viewport_ratio' => ['nullable', 'numeric', 'min:0', 'max:1'],
             'events.*.visible_ms' => ['nullable', 'integer', 'min:0', 'max:86400000'],
+            'events.*.first_frame_ms' => ['nullable', 'numeric', 'min:0', 'max:600000'],
+            'events.*.stall_count' => ['nullable', 'integer', 'min:0', 'max:1000'],
+            'events.*.swipe_away_ms' => ['nullable', 'integer', 'min:0', 'max:86400000'],
+            'events.*.3s_view' => ['nullable', 'boolean'],
+            'events.*.50p_complete' => ['nullable', 'boolean'],
+            'events.*.95p_complete' => ['nullable', 'boolean'],
+            'events.*.follow_after_view' => ['nullable', 'boolean'],
+            'events.*.share_after_view' => ['nullable', 'boolean'],
+            'events.*.mute_state' => ['nullable', 'string', 'max:16'],
+            'events.*.visible_window_index' => ['nullable', 'integer', 'min:0', 'max:10000'],
         ]);
 
         $acceptedCount = 0;

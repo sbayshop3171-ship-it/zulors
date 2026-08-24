@@ -18,5 +18,11 @@ return [
 	],
 	'business_accounts' => [
 		'enabled' => true,
+	],
+	'feed_ranking_v2' => [
+		'enabled' => true,
+	],
+	'reels_ranking_v2' => [
+		'enabled' => true,
 	]
 ];

@@ -134,7 +134,11 @@ class ColdStartTimelineFeedTest extends TestCase
             ->assertJsonPath('data.auth.status', true)
             ->assertJsonPath('data.home_feed.type', 'for_you')
             ->assertJsonPath('data.home_feed.refresh_reason', 'initial')
-            ->assertJsonPath('data.home_feed.meta.feed.strategy', 'candidate_ranking_v1')
+            ->assertJsonPath('data.home_feed.meta.feed.strategy', 'home_ranking_v2')
+            ->assertJsonPath('data.home_feed.meta.feed.rank_version', 'home_ranking_v2')
+            ->assertJsonPath('data.home_feed.meta.feed.feed_family', 'home')
+            ->assertJsonPath('data.home_feed.meta.feed.re_rank_allowed', true)
+            ->assertJsonPath('data.home_feed.meta.feed.session_window_size', 50)
             ->assertJsonPath('data.home_feed.meta.feed.scored', true);
 
         $bootFeedPostIds = array_column($response->json('data.home_feed.posts'), 'id');
@@ -198,6 +202,7 @@ class ColdStartTimelineFeedTest extends TestCase
             ->assertJsonPath('data.type', 'for_you')
             ->assertJsonPath('data.refresh_reason', 'seed')
             ->assertJsonPath('data.meta.feed.strategy', 'public_seed_cache')
+            ->assertJsonPath('data.meta.feed.rank_version', 'chronological_v1')
             ->assertJsonPath('data.meta.feed.scored', false);
 
         $postIds = array_column($response->json('data.posts'), 'id');

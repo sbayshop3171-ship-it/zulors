@@ -71,15 +71,23 @@ class FeedTelemetryService
                 'refresh_reason' => data_get($payload, 'refresh_reason'),
                 'viewport_ratio' => data_get($payload, 'viewport_ratio'),
                 'visible_ms' => data_get($payload, 'visible_ms'),
+                'swipe_away_ms' => data_get($payload, 'swipe_away_ms'),
+                '3s_view' => data_get($payload, '3s_view'),
+                '50p_complete' => data_get($payload, '50p_complete'),
+                '95p_complete' => data_get($payload, '95p_complete'),
+                'follow_after_view' => data_get($payload, 'follow_after_view'),
+                'share_after_view' => data_get($payload, 'share_after_view'),
+                'mute_state' => data_get($payload, 'mute_state'),
+                'visible_window_index' => data_get($payload, 'visible_window_index'),
             ],
         ]);
 
-        $this->updateInterest($user, $post, $eventType, $dwellSeconds);
+        $this->updateInterest($user, $post, $eventType, $dwellSeconds, $payload);
 
         return $event;
     }
 
-    private function updateInterest(User|int|null $user, Post $post, string $eventType, float $dwellSeconds): void
+    private function updateInterest(User|int|null $user, Post $post, string $eventType, float $dwellSeconds, array $payload = []): void
     {
         if(empty($user) || $eventType === self::EVENT_POST_IMPRESSION) {
             return;
@@ -103,6 +111,14 @@ class FeedTelemetryService
             $dwellSeconds < 20 => 4.0,
             default => 8.0,
         };
+
+        if(filter_var(data_get($payload, 'follow_after_view', false), FILTER_VALIDATE_BOOLEAN)) {
+            $delta += 6.0;
+        }
+
+        if(filter_var(data_get($payload, 'share_after_view', false), FILTER_VALIDATE_BOOLEAN)) {
+            $delta += 4.0;
+        }
 
         $this->userInterestService->recordPostInteraction($user, $post, UserInterestService::EVENT_VIEW, $delta);
     }

@@ -51,16 +51,18 @@
 			</div>
 
 			<template v-else-if="posts.length">
+				<div class="snap-none" v-bind:style="{ height: `${virtualTopSpacerPx}px` }"></div>
 				<ReelItem
-					v-for="(postData, index) in posts"
+					v-for="(postData, index) in visiblePosts"
 					v-bind:key="postData.id"
 					v-bind:postData="postData"
-					v-bind:active="index === state.activeIndex"
-					v-bind:isNear="Math.abs(index - state.activeIndex) <= nearRadius"
-					v-bind:distanceFromActive="Math.abs(index - state.activeIndex)"
-					v-bind:position="index"
+					v-bind:active="(visibleWindow.start + index) === state.activeIndex"
+					v-bind:isNear="Math.abs((visibleWindow.start + index) - state.activeIndex) <= nearRadius"
+					v-bind:distanceFromActive="Math.abs((visibleWindow.start + index) - state.activeIndex)"
+					v-bind:position="visibleWindow.start + index"
 					v-bind:feedSessionId="reelsStore.feedSessionId"
 				></ReelItem>
+				<div class="snap-none" v-bind:style="{ height: `${virtualBottomSpacerPx}px` }"></div>
 
 				<div v-if="state.isLoadingMore" class="h-28 snap-start inline-flex-center bg-transparent text-white">
 					<div class="colibri-primary-animation"></div>
@@ -80,6 +82,7 @@
 <script>
 	import { computed, defineComponent, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 	import { useRouter } from 'vue-router';
+	import { buildViewportWindow } from '@/kernel/services/feed-session/index.js';
 	import { getNetworkProfileSnapshot, subscribeNetworkProfile } from '@/kernel/services/network/index.js';
 	import { prefetchReelsPlaybackWindow } from '@/kernel/services/media-prefetch/index.js';
 	import { useExploreReelsStore } from '@D/store/explore/reels.store.js';
@@ -106,7 +109,8 @@
 				isLoadingMore: false,
 				noMoreContent: false,
 				activeIndex: 0,
-				networkProfile: getNetworkProfileSnapshot()
+				networkProfile: getNetworkProfileSnapshot(),
+				viewportHeight: 0
 			});
 
 			let unsubscribeNetworkProfile = null;
@@ -127,30 +131,60 @@
 				return posts.value.length > (state.activeIndex + 1) || ! state.noMoreContent;
 			});
 
-				const nearRadius = computed(() => {
-					return state.networkProfile.reelsNearRadius;
-				});
+			const nearRadius = computed(() => {
+				return state.networkProfile.reelsNearRadius;
+			});
 
-				const warmPlaybackWindow = () => {
-					prefetchReelsPlaybackWindow(posts.value, state.activeIndex);
-				};
+			const visibleWindow = computed(() => {
+				return buildViewportWindow(posts.value.length, state.activeIndex, Math.max(3, nearRadius.value + 1), Math.max(5, nearRadius.value + 3));
+			});
 
-				const updateActiveIndex = () => {
-					const scroller = scrollerRef.value;
+			const visiblePosts = computed(() => {
+				if(! posts.value.length || visibleWindow.value.end < visibleWindow.value.start) {
+					return [];
+				}
 
-					if(! scroller?.clientHeight) {
-						return;
-					}
+				return posts.value.slice(visibleWindow.value.start, visibleWindow.value.end + 1);
+			});
 
-					const nextIndex = Math.max(0, Math.min(posts.value.length - 1, Math.round(scroller.scrollTop / scroller.clientHeight)));
+			const virtualTopSpacerPx = computed(() => {
+				return Math.max(0, visibleWindow.value.start) * Math.max(0, state.viewportHeight);
+			});
 
-					if(state.activeIndex === nextIndex) {
-						return;
-					}
+			const virtualBottomSpacerPx = computed(() => {
+				return Math.max(0, posts.value.length - visibleWindow.value.end - 1) * Math.max(0, state.viewportHeight);
+			});
 
-					state.activeIndex = nextIndex;
-					warmPlaybackWindow();
-				};
+			const syncViewportHeight = () => {
+				state.viewportHeight = scrollerRef.value?.clientHeight || window.innerHeight || 0;
+			};
+
+			const warmPlaybackWindow = () => {
+				prefetchReelsPlaybackWindow(posts.value, state.activeIndex);
+			};
+
+			const updateActiveIndex = () => {
+				const scroller = scrollerRef.value;
+
+				if(! scroller?.clientHeight) {
+					syncViewportHeight();
+					return;
+				}
+
+				syncViewportHeight();
+				const nextIndex = Math.max(0, Math.min(posts.value.length - 1, Math.round(scroller.scrollTop / scroller.clientHeight)));
+
+				if(state.activeIndex === nextIndex) {
+					return;
+				}
+
+				state.activeIndex = nextIndex;
+				reelsStore.recordSwipe();
+				reelsStore.maybeRerankTail({
+					activeIndex: nextIndex
+				}).catch(() => {});
+				warmPlaybackWindow();
+			};
 
 			const scrollToIndex = (index) => {
 				const scroller = scrollerRef.value;
@@ -270,6 +304,7 @@
 						scrollerRef.value.scrollTop = 0;
 					}
 
+					syncViewportHeight();
 						updateActiveIndex();
 						warmPlaybackWindow();
 					});
@@ -278,6 +313,7 @@
 				onMounted(() => {
 					unsubscribeNetworkProfile = subscribeNetworkProfile((networkProfile) => {
 						state.networkProfile = networkProfile;
+						syncViewportHeight();
 						warmPlaybackWindow();
 					});
 
@@ -309,6 +345,10 @@
 			return {
 				state: state,
 				posts: posts,
+				visibleWindow: visibleWindow,
+				visiblePosts: visiblePosts,
+				virtualTopSpacerPx: virtualTopSpacerPx,
+				virtualBottomSpacerPx: virtualBottomSpacerPx,
 				showInitialLoader: showInitialLoader,
 				scrollerRef: scrollerRef,
 				reelsStore: reelsStore,

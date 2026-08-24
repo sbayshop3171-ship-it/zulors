@@ -143,6 +143,8 @@
 				totalWatchMs: 0,
 				lastPlaybackTime: 0,
 				loopCount: 0,
+				firstFrameMs: 0,
+				playbackActivatedAt: 0,
 				sessionId: `reel-video-${Date.now()}-${Math.random().toString(36).slice(2)}`,
 				presentationSignature: '',
 				telemetryTimer: null,
@@ -347,6 +349,11 @@
 				const handleLoadedData = () => {
 					handleLoadedMetadata();
 					state.hasVisualFrame = true;
+
+					if(! state.firstFrameMs && state.playbackActivatedAt) {
+						state.firstFrameMs = Math.max(0, Date.now() - state.playbackActivatedAt);
+					}
+
 					updatePlaybackReadiness(true);
 
 					if(props.active && ! props.blocked && ! state.manualPaused && ! state.isPlaying) {
@@ -409,6 +416,7 @@
 
 				const watchSeconds = Math.round(state.watchMsSinceFlush / 100) / 10;
 				const durationSeconds = videoDurationSeconds();
+				const completionRate = durationSeconds ? Math.round((state.totalWatchMs / 1000 / durationSeconds) * 10000) / 10000 : 0;
 
 				if(watchSeconds < 1 && eventType !== 'video_loop') {
 					if(state.isPlaying) {
@@ -426,14 +434,22 @@
 						watch_time_seconds: watchSeconds,
 						duration_seconds: durationSeconds,
 						current_time_seconds: Math.round((videoPlayerRef.value.currentTime || 0) * 10) / 10,
-						completion_rate: durationSeconds ? Math.round((state.totalWatchMs / 1000 / durationSeconds) * 10000) / 10000 : 0,
+						completion_rate: completionRate,
 						loop_count: state.loopCount,
 						session_id: props.feedSessionId || state.sessionId,
 						playback_session_id: state.sessionId,
 						feed_type: 'reels',
 						source: 'reels',
 						position: props.position,
-						is_muted: state.isMuted
+						is_muted: state.isMuted,
+						first_frame_ms: state.firstFrameMs,
+						stall_count: state.stallCount,
+						swipe_away_ms: Math.round(state.totalWatchMs),
+						'3s_view': state.totalWatchMs >= 3000,
+						'50p_complete': completionRate >= 0.5,
+						'95p_complete': completionRate >= 0.95,
+						mute_state: state.isMuted ? 'muted' : 'unmuted',
+						visible_window_index: props.position
 					}]
 				}).sendTo('telemetry/events').catch(() => {});
 
@@ -472,6 +488,8 @@
 				state.totalWatchMs = 0;
 				state.watchMsSinceFlush = 0;
 				state.loopCount = 0;
+				state.firstFrameMs = 0;
+				state.playbackActivatedAt = Date.now();
 				state.lastPlaybackTime = 0;
 				state.bufferedBar = 0;
 				state.stallCount = 0;
@@ -491,6 +509,7 @@
 				destroyHlsInstance();
 				state.nativeVideoUrl = fallbackSource.url;
 				resetPlaybackState(false);
+				state.playbackActivatedAt = Date.now();
 
 				nextTick(() => {
 					const videoElement = videoPlayerRef.value;
@@ -709,6 +728,7 @@
 				destroyHlsInstance();
 				state.nativeVideoUrl = '';
 				resetPlaybackState(false);
+				state.playbackActivatedAt = Date.now();
 
 				if(! videoElement || ! source.url || ! shouldAttachPlaybackSource.value) {
 					return;

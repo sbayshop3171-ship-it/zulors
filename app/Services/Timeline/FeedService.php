@@ -23,7 +23,8 @@ class FeedService
 
     public function __construct(
         private CandidateGenerationService $candidateGenerationService,
-        private FeedRankingService $feedRankingService
+        private FeedRankingService $feedRankingService,
+        private FeedSessionSnapshotService $feedSessionSnapshotService
     ) {
     }
 
@@ -42,6 +43,11 @@ class FeedService
                 'strategy' => $type === self::TYPE_LATEST ? 'chronological' : $this->fastStartStrategy($user, $filter),
                 'candidate_count' => $timelinePosts->count(),
                 'candidate_limit' => null,
+                'candidate_sources' => ['latest'],
+                'rank_version' => 'chronological_v1',
+                'feed_family' => $this->feedRankingService->feedFamily($type),
+                're_rank_allowed' => false,
+                'session_window_size' => 0,
                 'scored' => false,
                 'page' => $page,
                 'per_page' => $perPage,
@@ -79,11 +85,19 @@ class FeedService
 
         $pagePosts = $rankedPosts->slice(($page - 1) * $perPage, $perPage)->values();
         $posts = $this->withProcessingPosts($user, $page, $pagePosts);
+        $sessionWindowSize = $this->feedRankingService->sessionWindowSize($type);
+        $snapshot = $this->feedSessionSnapshotService->remember($user, $type, $sessionId, $rankedPosts, $sessionWindowSize);
 
         return new FeedResult($posts, $this->meta($type, [
-            'strategy' => $type === self::TYPE_FOLLOWING ? 'relationship_freshness_ranking' : 'candidate_ranking_v1',
+            'strategy' => $type === self::TYPE_FOLLOWING ? 'relationship_freshness_ranking' : $this->feedRankingService->rankVersion($type),
             'candidate_count' => $candidateCount,
             'candidate_limit' => $candidateLimit,
+            'candidate_sources' => $rankedPosts->pluck('candidate_source')->filter()->unique()->values()->all(),
+            'rank_version' => $this->feedRankingService->rankVersion($type),
+            'feed_family' => $this->feedRankingService->feedFamily($type),
+            're_rank_allowed' => $this->feedRankingService->reRankAllowed($type) && $page === 1,
+            'session_window_size' => $sessionWindowSize,
+            'session_snapshot_size' => count(data_get($snapshot, 'post_ids', [])),
             'scored' => true,
             'page' => $page,
             'per_page' => $perPage,

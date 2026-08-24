@@ -17,7 +17,9 @@ use App\Info\Zulors;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
+use App\Services\Timeline\ReelQualityService;
 use App\Services\Timeline\UserInterestService;
+use App\Services\Timeline\CreatorQualityService;
 
 /*
 |--------------------------------------------------------------------------
@@ -32,6 +34,9 @@ Schedule::command('story:clear')->hourly();
 Schedule::command('chat:invite-clear')->weekly();
 
 Schedule::command('interests:decay')->dailyAt('02:30');
+Schedule::command('timeline:affinity-decay')->dailyAt('02:35');
+Schedule::command('timeline:creator-quality-daily')->dailyAt('03:15');
+Schedule::command('timeline:reel-quality-hourly')->hourlyAt(20);
 
 Schedule::command('media:cleanup-temp --hours=24')->dailyAt('03:00');
 
@@ -55,4 +60,22 @@ Artisan::command('interests:decay', function () {
     $updatedCount = app(UserInterestService::class)->decayAll();
 
     $this->info("Decayed {$updatedCount} user interest scores.");
+});
+
+Artisan::command('timeline:affinity-decay', function () {
+    $updatedCount = app(UserInterestService::class)->decayAll();
+
+    $this->info("Decayed {$updatedCount} timeline affinity scores.");
+});
+
+Artisan::command('timeline:creator-quality-daily', function () {
+    $warmedCount = app(CreatorQualityService::class)->warmRecent();
+
+    $this->info("Warmed {$warmedCount} creator quality scores.");
+});
+
+Artisan::command('timeline:reel-quality-hourly', function () {
+    $warmedCount = app(ReelQualityService::class)->warmRecent();
+
+    $this->info("Warmed {$warmedCount} reel quality scores.");
 });

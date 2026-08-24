@@ -174,6 +174,46 @@ class FeedRankingAndInterestGraphTest extends TestCase
         $this->assertEmpty(array_intersect($pageOneIds, $pageTwoIds));
     }
 
+    public function test_v2_feed_meta_exposes_rank_version_and_candidate_sources(): void
+    {
+        $viewer = $this->createUser('meta-viewer');
+        $followedAuthor = $this->createUser('meta-followed-author');
+        $topicAuthor = $this->createUser('meta-topic-author');
+        $topicOnlyAuthor = $this->createUser('meta-topic-only-author');
+
+        DB::table(Table::FOLLOWS)->insert([
+            'follower_id' => $viewer->id,
+            'following_id' => $followedAuthor->id,
+            'status' => \App\Enums\User\FollowStatus::FOLLOWING->value,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $followedPost = $this->createPost($followedAuthor, 'Followed home post #travel', now()->subMinutes(3));
+        $topicPost = $this->createPost($topicAuthor, 'Topic matched home post #travel', now()->subMinutes(5));
+        $topicOnlyPost = $this->createPost($topicOnlyAuthor, 'Fresh topic-only home post #travel', now()->subMinutes(6));
+
+        app(UserInterestService::class)->recordPostInteraction($viewer, $topicPost, UserInterestService::EVENT_COMMENT);
+
+        $response = $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/timeline/feed?type=for_you&debug_ranking=1')
+            ->assertOk()
+            ->assertJsonPath('meta.feed.rank_version', 'home_ranking_v2')
+            ->assertJsonPath('meta.feed.feed_family', 'home')
+            ->assertJsonPath('meta.feed.re_rank_allowed', true)
+            ->assertJsonPath('meta.feed.session_window_size', 50);
+
+        $candidateSources = $response->json('meta.feed.candidate_sources');
+
+        $this->assertContains('followed', $candidateSources);
+        $this->assertTrue(
+            in_array('topic_match', $candidateSources, true) || in_array('interacted_author', $candidateSources, true)
+        );
+        $this->assertSame('home_ranking_v2', data_get($response->json('data.0.meta.ranking'), 'version'));
+        $this->assertContains($topicOnlyPost->id, array_column($response->json('data'), 'id'));
+    }
+
     public function test_post_level_telemetry_updates_interests_and_seen_penalty_changes_new_session_feed(): void
     {
         $viewer = $this->createUser('telemetry-viewer');
@@ -563,6 +603,16 @@ class FeedRankingAndInterestGraphTest extends TestCase
                     'position' => 1,
                     'playback_session_id' => 'reels-playback-session',
                     'is_muted' => true,
+                    'first_frame_ms' => 220,
+                    'stall_count' => 1,
+                    'swipe_away_ms' => 4200,
+                    '3s_view' => true,
+                    '50p_complete' => true,
+                    '95p_complete' => false,
+                    'follow_after_view' => true,
+                    'share_after_view' => false,
+                    'mute_state' => 'muted',
+                    'visible_window_index' => 1,
                 ]]
             ])
             ->assertOk()
@@ -585,6 +635,11 @@ class FeedRankingAndInterestGraphTest extends TestCase
         $this->assertSame(1, $event->metadata['position']);
         $this->assertSame('reels-playback-session', $event->metadata['playback_session_id']);
         $this->assertTrue($event->metadata['is_muted']);
+        $this->assertSame(220.0, (float) $event->metadata['first_frame_ms']);
+        $this->assertSame(1, $event->metadata['stall_count']);
+        $this->assertTrue($event->metadata['3s_view']);
+        $this->assertTrue($event->metadata['50p_complete']);
+        $this->assertSame('muted', $event->metadata['mute_state']);
 
         $this->assertDatabaseHas(Table::POST_VIDEO_METRICS, [
             'post_id' => $post->id,

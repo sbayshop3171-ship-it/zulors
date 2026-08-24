@@ -23,16 +23,18 @@
 			ref="scrollerRef"
 			v-on:scroll.passive="handleScroll"
 		class="h-full overflow-y-auto snap-y snap-mandatory overscroll-contain reels-scrollbar">
+			<div class="snap-none" v-bind:style="{ height: `${virtualTopSpacerPx}px` }"></div>
 			<ReelItem
-				v-for="(postData, index) in posts"
+				v-for="(postData, index) in visiblePosts"
 				v-bind:key="postData.id"
 				v-bind:postData="postData"
-				v-bind:active="activeIndex === index"
-				v-bind:isNear="Math.abs(activeIndex - index) <= nearRadius"
-				v-bind:distanceFromActive="Math.abs(activeIndex - index)"
-				v-bind:position="index + 1"
+				v-bind:active="activeIndex === (visibleWindow.start + index)"
+				v-bind:isNear="Math.abs(activeIndex - (visibleWindow.start + index)) <= nearRadius"
+				v-bind:distanceFromActive="Math.abs(activeIndex - (visibleWindow.start + index))"
+				v-bind:position="visibleWindow.start + index + 1"
 				v-bind:feedSessionId="feedSessionId"
 			></ReelItem>
+			<div class="snap-none" v-bind:style="{ height: `${virtualBottomSpacerPx}px` }"></div>
 
 			<div v-if="state.isLoadingContent" class="h-24 inline-flex-center text-white/70">
 				<div class="colibri-primary-animation"></div>
@@ -50,6 +52,7 @@
 <script>
 	import { computed, defineComponent, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 	import { useRouter } from 'vue-router';
+	import { buildViewportWindow } from '@/kernel/services/feed-session/index.js';
 	import { getNetworkProfileSnapshot, subscribeNetworkProfile } from '@/kernel/services/network/index.js';
 	import { prefetchReelsPlaybackWindow } from '@/kernel/services/media-prefetch/index.js';
 	import { useExploreReelsStore } from '@M/store/explore/reels.store.js';
@@ -76,7 +79,8 @@
 				isLoading: true,
 				isLoadingContent: false,
 				noMoreContent: false,
-				networkProfile: getNetworkProfileSnapshot()
+				networkProfile: getNetworkProfileSnapshot(),
+				viewportHeight: 0
 			});
 
 			let scrollFrame = null;
@@ -94,34 +98,64 @@
 				return state.isLoading && ! posts.value.length;
 			});
 
-				const nearRadius = computed(() => {
-					return state.networkProfile.reelsNearRadius;
-				});
+			const nearRadius = computed(() => {
+				return state.networkProfile.reelsNearRadius;
+			});
 
-				useSwipeRouteNavigation(swipeSurfaceRef, mobileExploreSwipeSequence);
+			const visibleWindow = computed(() => {
+				return buildViewportWindow(posts.value.length, activeIndex.value, Math.max(3, nearRadius.value + 1), Math.max(5, nearRadius.value + 3));
+			});
 
-				const warmPlaybackWindow = () => {
-					prefetchReelsPlaybackWindow(posts.value, activeIndex.value);
-				};
+			const visiblePosts = computed(() => {
+				if(! posts.value.length || visibleWindow.value.end < visibleWindow.value.start) {
+					return [];
+				}
 
-				const updateActiveIndex = () => {
-					const scroller = scrollerRef.value;
+				return posts.value.slice(visibleWindow.value.start, visibleWindow.value.end + 1);
+			});
 
-					if(! scroller || ! scroller.clientHeight) {
-						activeIndex.value = 0;
-						warmPlaybackWindow();
-						return;
-					}
+			const virtualTopSpacerPx = computed(() => {
+				return Math.max(0, visibleWindow.value.start) * Math.max(0, state.viewportHeight);
+			});
 
-					const nextIndex = Math.max(0, Math.min(posts.value.length - 1, Math.round(scroller.scrollTop / scroller.clientHeight)));
+			const virtualBottomSpacerPx = computed(() => {
+				return Math.max(0, posts.value.length - visibleWindow.value.end - 1) * Math.max(0, state.viewportHeight);
+			});
 
-					if(activeIndex.value === nextIndex) {
-						return;
-					}
+			useSwipeRouteNavigation(swipeSurfaceRef, mobileExploreSwipeSequence);
 
-					activeIndex.value = nextIndex;
+			const syncViewportHeight = () => {
+				state.viewportHeight = scrollerRef.value?.clientHeight || window.innerHeight || 0;
+			};
+
+			const warmPlaybackWindow = () => {
+				prefetchReelsPlaybackWindow(posts.value, activeIndex.value);
+			};
+
+			const updateActiveIndex = () => {
+				const scroller = scrollerRef.value;
+
+				if(! scroller || ! scroller.clientHeight) {
+					activeIndex.value = 0;
+					syncViewportHeight();
 					warmPlaybackWindow();
-				};
+					return;
+				}
+
+				syncViewportHeight();
+				const nextIndex = Math.max(0, Math.min(posts.value.length - 1, Math.round(scroller.scrollTop / scroller.clientHeight)));
+
+				if(activeIndex.value === nextIndex) {
+					return;
+				}
+
+				activeIndex.value = nextIndex;
+				reelsStore.recordSwipe();
+				reelsStore.maybeRerankTail({
+					activeIndex: nextIndex
+				}).catch(() => {});
+				warmPlaybackWindow();
+			};
 
 			const maybeLoadMore = async () => {
 				const scroller = scrollerRef.value;
@@ -187,14 +221,16 @@
 				};
 
 			const handleResize = () => {
+				syncViewportHeight();
 				updateActiveIndex();
 			};
 
 				onMounted(async () => {
 					unsubscribeNetworkProfile = subscribeNetworkProfile((networkProfile) => {
-						state.networkProfile = networkProfile;
-						warmPlaybackWindow();
-					});
+					state.networkProfile = networkProfile;
+					syncViewportHeight();
+					warmPlaybackWindow();
+				});
 
 					await loadReels();
 				window.addEventListener('resize', handleResize);
@@ -229,6 +265,10 @@
 				showInitialLoader: showInitialLoader,
 				feedSessionId: feedSessionId,
 				nearRadius: nearRadius,
+				visibleWindow: visibleWindow,
+				visiblePosts: visiblePosts,
+				virtualTopSpacerPx: virtualTopSpacerPx,
+				virtualBottomSpacerPx: virtualBottomSpacerPx,
 				swipeSurfaceRef: swipeSurfaceRef,
 				scrollerRef: scrollerRef,
 				activeIndex: activeIndex,

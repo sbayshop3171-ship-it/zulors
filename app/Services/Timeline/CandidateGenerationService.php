@@ -20,6 +20,11 @@ class CandidateGenerationService
     public const MIN_CANDIDATE_LIMIT = 100;
     public const MAX_CANDIDATE_LIMIT = 150;
 
+    public function __construct(
+        private UserInterestService $userInterestService
+    ) {
+    }
+
     public function getCandidates(User $user, string $type, array $filter = []): Collection
     {
         $limit = $this->candidateLimit(data_get_integer($filter, 'candidate_limit', self::DEFAULT_CANDIDATE_LIMIT));
@@ -29,9 +34,12 @@ class CandidateGenerationService
             $query = $this->baseTimelineQuery($user, $onset, $type);
             $this->applyFeedType($query, $user, $type);
 
-            return $this->orderByRecencyAndEngagement($query, $type)
+            return $this->tagCandidateSource(
+                $this->orderByRecencyAndEngagement($query, $type)
                 ->limit($limit)
-                ->get();
+                ->get(),
+                'followed'
+            );
         }
 
         return $this->forYouCandidates($user, $onset, $limit, $type);
@@ -110,6 +118,14 @@ class CandidateGenerationService
 
     private function forYouCandidates(User $user, int $onset, int $limit, string $type = FeedService::TYPE_FOR_YOU): Collection
     {
+        if($type === FeedService::TYPE_REELS && $this->isReelsRankingV2Enabled()) {
+            return $this->reelsV2Candidates($user, $onset, $limit);
+        }
+
+        if($type === FeedService::TYPE_FOR_YOU && $this->isHomeRankingV2Enabled()) {
+            return $this->homeV2Candidates($user, $onset, $limit);
+        }
+
         $selected = collect();
         $followedAuthorIds = $this->followedAuthorIds($user);
         $userTopics = $this->positiveUserTopics($user);
@@ -128,7 +144,8 @@ class CandidateGenerationService
             $followedAuthorIds,
             $this->mergeExcludedIds([], $baselineExcludeIds),
             (int) ceil($limit * $mix['followed']),
-            $type
+            $type,
+            'followed'
         ));
         $this->appendCandidates($selected, $this->interestCandidates(
             $user,
@@ -136,21 +153,24 @@ class CandidateGenerationService
             $userTopics,
             $this->mergeExcludedIds($this->selectedIds($selected), $baselineExcludeIds),
             (int) ceil($limit * $mix['interest']),
-            $type
+            $type,
+            'interest'
         ));
         $this->appendCandidates($selected, $this->recentCandidates(
             $user,
             $onset,
             $this->mergeExcludedIds($this->selectedIds($selected), $baselineExcludeIds),
             (int) ceil($limit * $mix['recent']),
-            $type
+            $type,
+            'recent'
         ));
         $this->appendCandidates($selected, $this->oldGoodCandidates(
             $user,
             $onset,
             $this->mergeExcludedIds($this->selectedIds($selected), $baselineExcludeIds),
             $limit - $selected->count(),
-            $type
+            $type,
+            'old_good'
         ));
 
         if($selected->count() < $limit) {
@@ -159,7 +179,8 @@ class CandidateGenerationService
                 $onset,
                 $this->mergeExcludedIds($this->selectedIds($selected), $feedbackExcludeIds),
                 $limit - $selected->count(),
-                $type
+                $type,
+                'recent'
             ));
         }
 
@@ -169,14 +190,66 @@ class CandidateGenerationService
                 $onset,
                 $this->mergeExcludedIds($this->selectedIds($selected), $feedbackExcludeIds),
                 $limit - $selected->count(),
-                $type
+                $type,
+                'old_good'
             ));
         }
 
         return $selected->unique('id')->take($limit)->values();
     }
 
-    private function followedCandidates(User $user, int $onset, array $followedAuthorIds, array $excludeIds, int $limit, string $type): Collection
+    private function homeV2Candidates(User $user, int $onset, int $limit): Collection
+    {
+        $selected = collect();
+        $followedAuthorIds = $this->followedAuthorIds($user);
+        $interactedAuthorIds = $this->interactedAuthorIds($user);
+        $userTopics = $this->positiveUserTopics($user);
+        $isColdUser = ! $this->hasWarmSignals($followedAuthorIds, $interactedAuthorIds, $userTopics);
+
+        if($isColdUser) {
+            $this->appendCandidates($selected, $this->recentCandidates($user, $onset, [], (int) ceil($limit * 0.50), FeedService::TYPE_FOR_YOU, 'recent_safe'));
+            $this->appendCandidates($selected, $this->popularCandidates($user, $onset, $this->selectedIds($selected), (int) ceil($limit * 0.30), FeedService::TYPE_FOR_YOU, 'popular_general'));
+            $this->appendCandidates($selected, $this->explorationCandidates($user, $onset, $this->selectedIds($selected), $limit - $selected->count(), FeedService::TYPE_FOR_YOU, 'exploration'));
+
+            return $selected->unique('id')->take($limit)->values();
+        }
+
+        $this->appendCandidates($selected, $this->followedCandidates($user, $onset, $followedAuthorIds, [], (int) ceil($limit * 0.45), FeedService::TYPE_FOR_YOU, 'followed'));
+        $this->appendCandidates($selected, $this->authorAffinityCandidates($user, $onset, $interactedAuthorIds, $this->selectedIds($selected), (int) ceil($limit * 0.20), FeedService::TYPE_FOR_YOU, 'interacted_author'));
+        $this->appendCandidates($selected, $this->interestCandidates($user, $onset, $userTopics, $this->selectedIds($selected), (int) ceil($limit * 0.15), FeedService::TYPE_FOR_YOU, 'topic_match'));
+        $this->appendCandidates($selected, $this->recentCandidates($user, $onset, $this->selectedIds($selected), (int) ceil($limit * 0.10), FeedService::TYPE_FOR_YOU, 'fresh_exploration'));
+        $this->appendCandidates($selected, $this->oldGoodCandidates($user, $onset, $this->selectedIds($selected), $limit - $selected->count(), FeedService::TYPE_FOR_YOU, 'old_good_recovery'));
+
+        if($selected->count() < $limit) {
+            $this->appendCandidates($selected, $this->explorationCandidates($user, $onset, $this->selectedIds($selected), $limit - $selected->count(), FeedService::TYPE_FOR_YOU, 'fresh_exploration'));
+        }
+
+        return $selected->unique('id')->take($limit)->values();
+    }
+
+    private function reelsV2Candidates(User $user, int $onset, int $limit): Collection
+    {
+        $selected = collect();
+        $followedAuthorIds = $this->followedAuthorIds($user);
+        $affinityAuthorIds = $this->interactedAuthorIds($user, 24);
+        $seenExcludeIds = $this->recentlySeenReelIds($user);
+        $feedbackExcludeIds = $this->feedbackSuppressedReelIds($user);
+        $baselineExcludeIds = $this->mergeExcludedIds($seenExcludeIds, $feedbackExcludeIds);
+
+        $this->appendCandidates($selected, $this->authorAffinityCandidates($user, $onset, $affinityAuthorIds, $baselineExcludeIds, (int) ceil($limit * 0.30), FeedService::TYPE_REELS, 'affinity_creators'));
+        $this->appendCandidates($selected, $this->highRetentionCandidates($user, $onset, $this->mergeExcludedIds($this->selectedIds($selected), $baselineExcludeIds), (int) ceil($limit * 0.30), 'high_retention_unseen'));
+        $this->appendCandidates($selected, $this->followedCandidates($user, $onset, $followedAuthorIds, $this->mergeExcludedIds($this->selectedIds($selected), $baselineExcludeIds), (int) ceil($limit * 0.15), FeedService::TYPE_REELS, 'followed_creators'));
+        $this->appendCandidates($selected, $this->explorationCandidates($user, $onset, $this->mergeExcludedIds($this->selectedIds($selected), $baselineExcludeIds), (int) ceil($limit * 0.15), FeedService::TYPE_REELS, 'exploration'));
+        $this->appendCandidates($selected, $this->oldGoodCandidates($user, $onset, $this->mergeExcludedIds($this->selectedIds($selected), $baselineExcludeIds), $limit - $selected->count(), FeedService::TYPE_REELS, 'recovery_diversity'));
+
+        if($selected->count() < $limit) {
+            $this->appendCandidates($selected, $this->recentCandidates($user, $onset, $this->mergeExcludedIds($this->selectedIds($selected), $feedbackExcludeIds), $limit - $selected->count(), FeedService::TYPE_REELS, 'exploration'));
+        }
+
+        return $selected->unique('id')->take($limit)->values();
+    }
+
+    private function followedCandidates(User $user, int $onset, array $followedAuthorIds, array $excludeIds, int $limit, string $type, string $source = 'followed'): Collection
     {
         if(empty($followedAuthorIds) || $limit <= 0) {
             return collect();
@@ -187,10 +260,13 @@ class CandidateGenerationService
 
         $this->excludeSelected($query, $excludeIds);
 
-        return $this->orderByRecencyAndEngagement($query, $type)->limit($limit)->get();
+        return $this->tagCandidateSource(
+            $this->orderByRecencyAndEngagement($query, $type)->limit($limit)->get(),
+            $source
+        );
     }
 
-    private function interestCandidates(User $user, int $onset, array $topics, array $excludeIds, int $limit, string $type): Collection
+    private function interestCandidates(User $user, int $onset, array $topics, array $excludeIds, int $limit, string $type, string $source = 'interest'): Collection
     {
         if(empty($topics) || $limit <= 0) {
             return collect();
@@ -203,10 +279,13 @@ class CandidateGenerationService
 
         $this->excludeSelected($query, $excludeIds);
 
-        return $this->orderByRecencyAndEngagement($query, $type)->limit($limit)->get();
+        return $this->tagCandidateSource(
+            $this->orderByRecencyAndEngagement($query, $type)->limit($limit)->get(),
+            $source
+        );
     }
 
-    private function recentCandidates(User $user, int $onset, array $excludeIds, int $limit, string $type): Collection
+    private function recentCandidates(User $user, int $onset, array $excludeIds, int $limit, string $type, string $source = 'recent'): Collection
     {
         if($limit <= 0) {
             return collect();
@@ -215,10 +294,13 @@ class CandidateGenerationService
         $query = $this->baseTimelineQuery($user, $onset, $type);
         $this->excludeSelected($query, $excludeIds);
 
-        return $this->orderByRecencyAndEngagement($query, $type)->limit($limit)->get();
+        return $this->tagCandidateSource(
+            $this->orderByRecencyAndEngagement($query, $type)->limit($limit)->get(),
+            $source
+        );
     }
 
-    private function oldGoodCandidates(User $user, int $onset, array $excludeIds, int $limit, string $type): Collection
+    private function oldGoodCandidates(User $user, int $onset, array $excludeIds, int $limit, string $type, string $source = 'old_good'): Collection
     {
         if($limit <= 0) {
             return collect();
@@ -229,7 +311,78 @@ class CandidateGenerationService
 
         $this->excludeSelected($query, $excludeIds);
 
-        return $this->orderByEngagement($query, $type)->limit($limit)->get();
+        return $this->tagCandidateSource(
+            $this->orderByEngagement($query, $type)->limit($limit)->get(),
+            $source
+        );
+    }
+
+    private function popularCandidates(User $user, int $onset, array $excludeIds, int $limit, string $type, string $source): Collection
+    {
+        if($limit <= 0) {
+            return collect();
+        }
+
+        $query = $this->baseTimelineQuery($user, $onset, $type)
+            ->where('created_at', '>=', now()->subDays(10));
+
+        $this->excludeSelected($query, $excludeIds);
+
+        return $this->tagCandidateSource(
+            $this->orderByEngagement($query, $type)->limit($limit)->get(),
+            $source
+        );
+    }
+
+    private function explorationCandidates(User $user, int $onset, array $excludeIds, int $limit, string $type, string $source): Collection
+    {
+        if($limit <= 0) {
+            return collect();
+        }
+
+        $query = $this->baseTimelineQuery($user, $onset, $type)
+            ->where('created_at', '>=', now()->subDays(7));
+
+        $this->excludeSelected($query, $excludeIds);
+
+        return $this->tagCandidateSource(
+            $this->orderByRecencyAndEngagement($query, $type)->limit($limit)->get(),
+            $source
+        );
+    }
+
+    private function authorAffinityCandidates(User $user, int $onset, array $authorIds, array $excludeIds, int $limit, string $type, string $source): Collection
+    {
+        if(empty($authorIds) || $limit <= 0) {
+            return collect();
+        }
+
+        $query = $this->baseTimelineQuery($user, $onset, $type)
+            ->whereIn('user_id', $authorIds);
+
+        $this->excludeSelected($query, $excludeIds);
+
+        return $this->tagCandidateSource(
+            $this->orderByRecencyAndEngagement($query, $type)->limit($limit)->get(),
+            $source
+        );
+    }
+
+    private function highRetentionCandidates(User $user, int $onset, array $excludeIds, int $limit, string $source): Collection
+    {
+        if($limit <= 0) {
+            return collect();
+        }
+
+        $query = $this->baseTimelineQuery($user, $onset, FeedService::TYPE_REELS)
+            ->where('created_at', '>=', now()->subDays(14));
+
+        $this->excludeSelected($query, $excludeIds);
+
+        return $this->tagCandidateSource(
+            $this->orderByEngagement($query, FeedService::TYPE_REELS)->limit($limit)->get(),
+            $source
+        );
     }
 
     private function appendCandidates(Collection $selected, Collection $candidates): void
@@ -279,10 +432,36 @@ class CandidateGenerationService
     private function positiveUserTopics(User $user): array
     {
         return $user->interestScores()
+            ->where('topic', 'not like', '%:%')
             ->where('score', '>', 0)
             ->orderByDesc('score')
             ->limit(12)
             ->pluck('topic')
+            ->all();
+    }
+
+    private function interactedAuthorIds(User $user, int $limit = 18): array
+    {
+        $authorIds = collect($this->userInterestService->topPositiveAffinityValues($user, 'author:', $limit))
+            ->map(fn($authorId) => (int) $authorId)
+            ->filter()
+            ->unique()
+            ->values();
+
+        if($authorIds->isNotEmpty()) {
+            return $authorIds->all();
+        }
+
+        return DB::table(Table::FEED_EVENTS)
+            ->join(Table::POSTS, Table::POSTS . '.id', '=', Table::FEED_EVENTS . '.post_id')
+            ->where(Table::FEED_EVENTS . '.user_id', $user->id)
+            ->whereIn(Table::FEED_EVENTS . '.event_type', FeedTelemetryService::SEEN_EVENT_TYPES)
+            ->where(Table::FEED_EVENTS . '.created_at', '>=', now()->subDays(45))
+            ->groupBy(Table::POSTS . '.user_id')
+            ->orderByRaw('COUNT(*) DESC')
+            ->limit($limit)
+            ->pluck(Table::POSTS . '.user_id')
+            ->map(fn($authorId) => (int) $authorId)
             ->all();
     }
 
@@ -391,5 +570,29 @@ class CandidateGenerationService
             'interest' => 0.15,
             'recent' => 0.10,
         ];
+    }
+
+    private function tagCandidateSource(Collection $posts, string $source): Collection
+    {
+        return $posts->map(function(Post $post) use ($source) {
+            $post->setAttribute('candidate_source', $source);
+
+            return $post;
+        });
+    }
+
+    private function hasWarmSignals(array $followedAuthorIds, array $interactedAuthorIds, array $userTopics): bool
+    {
+        return ! empty($followedAuthorIds) || ! empty($interactedAuthorIds) || ! empty($userTopics);
+    }
+
+    private function isHomeRankingV2Enabled(): bool
+    {
+        return (bool) config('features.feed_ranking_v2.enabled', false);
+    }
+
+    private function isReelsRankingV2Enabled(): bool
+    {
+        return (bool) config('features.reels_ranking_v2.enabled', false);
     }
 }

@@ -185,8 +185,13 @@ class BootstrapController extends Controller
                 'feed' => [
                     'type' => FeedService::TYPE_FOR_YOU,
                     'strategy' => $strategy,
+                    'rank_version' => 'chronological_v1',
+                    'feed_family' => 'home',
                     'candidate_count' => $seedData['candidate_count'],
                     'candidate_limit' => null,
+                    'candidate_sources' => ['latest'],
+                    're_rank_allowed' => false,
+                    'session_window_size' => 0,
                     'scored' => false,
                     'page' => 1,
                     'per_page' => $seedData['per_page'],

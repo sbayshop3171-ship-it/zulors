@@ -32,7 +32,10 @@ class UserInterestService
     private const MIN_SCORE = -100.0;
     private const MAX_SCORE = 1000.0;
 
-    public function __construct(private TopicExtractionService $topicExtractionService)
+    public function __construct(
+        private TopicExtractionService $topicExtractionService,
+        private PostAffinityService $postAffinityService
+    )
     {
     }
 
@@ -45,11 +48,9 @@ class UserInterestService
             return;
         }
 
-        $topics = $this->topicExtractionService->syncPostTopics($post);
-
-        $topics->each(function($topic) use ($userId, $delta) {
-            $this->applyScore($userId, $topic->topic, $delta * (float) $topic->weight);
-        });
+        foreach($this->postAffinityService->weightedKeysForPost($post) as $key => $weight) {
+            $this->applyScore($userId, $key, $delta * (float) $weight);
+        }
     }
 
     public function applyScore(int $userId, string $topic, float $delta): ?UserInterestScore
@@ -103,6 +104,51 @@ class UserInterestService
             ->mapWithKeys(fn(UserInterestScore $score) => [
                 $score->topic => round($this->decayedScore($score), 4),
             ])
+            ->all();
+    }
+
+    public function scoresForAffinityKeys(User $user, array $keys): array
+    {
+        $keys = collect($keys)
+            ->map(fn($key) => trim((string) $key))
+            ->filter()
+            ->unique()
+            ->values();
+
+        if($keys->isEmpty()) {
+            return [];
+        }
+
+        return UserInterestScore::query()
+            ->where('user_id', $user->id)
+            ->whereIn('topic', $keys->all())
+            ->get()
+            ->mapWithKeys(fn(UserInterestScore $score) => [
+                $score->topic => round($this->decayedScore($score), 4),
+            ])
+            ->all();
+    }
+
+    public function topPositiveAffinityValues(User $user, string $prefix, int $limit = 12): array
+    {
+        $prefix = trim($prefix);
+
+        if($prefix === '') {
+            return [];
+        }
+
+        return UserInterestScore::query()
+            ->where('user_id', $user->id)
+            ->where('topic', 'like', $prefix . '%')
+            ->where('score', '>', 0)
+            ->orderByDesc('score')
+            ->limit(max(1, $limit))
+            ->pluck('topic')
+            ->map(function(string $topic) use ($prefix) {
+                return substr($topic, strlen($prefix));
+            })
+            ->filter()
+            ->values()
             ->all();
     }
 
