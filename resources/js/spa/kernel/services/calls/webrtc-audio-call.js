@@ -1,3 +1,8 @@
+import {
+    createRemoteAudioHealthState,
+    evaluateWebRemoteAudioHealth,
+} from './remote-audio-health.js';
+
 const defaultIceServers = [
     { urls: 'stun:stun.l.google.com:19302' }
 ];
@@ -94,6 +99,14 @@ const statsTimeoutMs = parsePositiveInteger(
     import.meta.env.VITE_CALL_STATS_TIMEOUT_MS,
     defaultStatsTimeoutMs
 );
+const remoteAudioFreshnessMs = parsePositiveInteger(
+    import.meta.env.VITE_CALL_REMOTE_AUDIO_FRESHNESS_MS,
+    12000
+);
+const remoteAudioZeroProgressTolerance = Math.max(1, parsePositiveInteger(
+    import.meta.env.VITE_CALL_REMOTE_AUDIO_ZERO_PROGRESS_WINDOWS,
+    2
+));
 const enableVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_AUDIO_PROCESSING, false);
 const enableNativeAppVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_NATIVE_APP_AUDIO_PROCESSING, false);
 const voiceProcessingOutputGain = Math.min(
@@ -649,6 +662,9 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
     let connectedNotified = false;
     let isClosed = false;
     let activeRemoteAudioTrackId = null;
+    let remoteAudioHealth = createRemoteAudioHealthState({
+        source: 'web',
+    });
 
     const emit = (name, ...args) => {
         if(isClosed) {
@@ -658,6 +674,33 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
         if(typeof callbacks[name] === 'function') {
             callbacks[name](...args);
         }
+    };
+    const emitRemoteAudioHealth = (nextHealth) => {
+        remoteAudioHealth = nextHealth;
+        emit('onRemoteAudioHealth', {
+            live: nextHealth.live === true,
+            reason: nextHealth.reason || null,
+            last_active_at_ms: nextHealth.lastActiveAtMs || 0,
+            last_active_at: nextHealth.lastActiveAtMs > 0
+                ? new Date(nextHealth.lastActiveAtMs).toISOString()
+                : null,
+        });
+
+        return remoteAudioHealth;
+    };
+    const updateRemoteAudioHealth = (sample = {}, options = {}) => {
+        return emitRemoteAudioHealth(evaluateWebRemoteAudioHealth(remoteAudioHealth, sample, {
+            nowMs: options.nowMs || Date.now(),
+            freshnessWindowMs: remoteAudioFreshnessMs,
+            zeroProgressTolerance: remoteAudioZeroProgressTolerance,
+        }));
+    };
+    const markRemoteAudioUnavailable = (reason = 'remote_audio_unavailable') => {
+        return updateRemoteAudioHealth({
+            trackPresent: false,
+            forceOffline: true,
+            reason: reason,
+        });
     };
 
     const flushPendingIceCandidates = async () => {
@@ -735,7 +778,8 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
             bytes_sent: 0,
             bytes_received: 0,
             available_outgoing_bitrate: null,
-            audio_level: null
+            audio_level: null,
+            remote_audio_level: 0
         };
 
         try {
@@ -768,6 +812,10 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
                 if(['media-source', 'track'].includes(item.type) && (item.kind === 'audio' || item.mediaType === 'audio') && item.audioLevel !== undefined) {
                     stats.audio_level = safeNumber(item.audioLevel, 3);
                 }
+
+                if(item.type === 'track' && (item.kind === 'audio' || item.mediaType === 'audio') && item.remoteSource === true && item.audioLevel !== undefined) {
+                    stats.remote_audio_level = safeNumber(item.audioLevel, 3);
+                }
             });
 
             const totalPackets = stats.packets_lost + stats.packets_received;
@@ -782,11 +830,30 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
             stats.network_quality = stabilizedQuality;
             stats.issue = stabilizedQuality === 'good' ? null : networkQuality.issue;
 
+            const remoteTrack = remoteStream?.getAudioTracks?.()?.[0] || null;
+            const remoteAudioPlaying = Boolean(
+                remoteTrack
+                && remoteTrack.readyState === 'live'
+                && remoteTrack.muted !== true
+            );
+            const nextRemoteAudioHealth = updateRemoteAudioHealth({
+                trackPresent: Boolean(remoteTrack),
+                playbackActive: remoteAudioPlaying,
+                bytesReceived: stats.bytes_received,
+                packetsReceived: stats.packets_received,
+                audioLevel: stats.remote_audio_level,
+            });
+
             if(currentNetworkQuality !== stats.network_quality) {
                 currentNetworkQuality = stats.network_quality;
                 applyAdaptiveAudioBitrate(stats.network_quality);
             }
 
+            stats.remote_audio_playing = remoteAudioPlaying;
+            stats.remote_audio_live = nextRemoteAudioHealth.live === true;
+            stats.remote_audio_last_active_at = nextRemoteAudioHealth.lastActiveAtMs > 0
+                ? new Date(nextRemoteAudioHealth.lastActiveAtMs).toISOString()
+                : null;
             emit('onQualityStats', stats);
 
             return stats;
@@ -887,12 +954,17 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
         }
 
         activeRemoteAudioTrackId = track.id;
+        updateRemoteAudioHealth({
+            trackPresent: true,
+            reason: 'track_attached',
+        });
 
         track.onmute = () => {
             if(isClosed || activeRemoteAudioTrackId !== track.id) {
                 return;
             }
 
+            markRemoteAudioUnavailable('track_muted');
             emit('onReconnectState', 'reconnecting');
         };
 
@@ -901,6 +973,7 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
                 return;
             }
 
+            markRemoteAudioUnavailable('track_ended');
             emit('onReconnectState', 'reconnecting');
         };
 
@@ -909,6 +982,11 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
                 return;
             }
 
+            updateRemoteAudioHealth({
+                trackPresent: true,
+                playbackActive: true,
+                reason: 'track_unmuted',
+            });
             clearReconnectTimer();
             emit('onReconnectState', 'stable');
         };
@@ -1199,6 +1277,15 @@ const createAudioCallPeer = (callbacks = {}, options = {}) => {
         consecutivePoorSamples = 0;
         connectedNotified = false;
         activeRemoteAudioTrackId = null;
+        remoteAudioHealth = createRemoteAudioHealthState({
+            source: 'web',
+        });
+        emit('onRemoteAudioHealth', {
+            live: false,
+            reason: 'closed',
+            last_active_at_ms: 0,
+            last_active_at: null,
+        });
     };
 
     return {

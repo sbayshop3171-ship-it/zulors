@@ -167,6 +167,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             degradedConnectionTimeoutTimer: null,
             reconnectTimeoutTimer: null,
             heartbeatTimer: null,
+            heartbeatFlushTimer: null,
             ringToneContext: null,
             ringToneTimer: null,
             ringToneTimeouts: [],
@@ -189,7 +190,17 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             resetTimer: null,
             mediaSetupAttempt: 0,
             heartbeatInFlight: false,
+            pendingHeartbeatFlush: false,
+            appVisibility: 'visible',
+            lastEngineActivityAtMs: 0,
+            heartbeatVisibilityHandler: null,
+            heartbeatFocusHandler: null,
+            heartbeatPageHideHandler: null,
+            heartbeatPageShowHandler: null,
             microphonePermissionPromise: null,
+            remoteAudioLive: false,
+            remoteAudioLastActiveAtMs: 0,
+            remoteAudioHealthReason: '',
             nativeRemoteAudioConnected: false,
             nativeAudioRoute: 'earpiece',
             busyNoticeCallUuids: [],
@@ -1049,22 +1060,45 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     }
                 },
                 onLocalStream: (stream) => {
+                    this.noteCallEngineActivity();
                     this.localStream = markRaw(stream);
                 },
                 onRemoteStream: (stream) => {
+                    this.noteCallEngineActivity();
                     this.remoteStream = markRaw(stream);
+                    if(! stream) {
+                        this.applyRemoteAudioHealth({
+                            live: false,
+                            reason: 'remote_stream_missing'
+                        });
+                    }
                     this.syncRemoteAudioWatchdog();
                     this.syncDegradedConnectionTimeout();
+                    this.requestHeartbeatFlush(stream ? 'remote_audio_gained' : 'remote_audio_lost', {
+                        immediate: true
+                    });
                 },
                 onNativeRemoteAudioState: (connected) => {
+                    this.noteCallEngineActivity();
                     this.nativeRemoteAudioConnected = Boolean(connected);
+                    this.applyRemoteAudioHealth({
+                        live: connected === true,
+                        reason: connected === true ? 'native_remote_audio_connected' : 'native_remote_audio_stale'
+                    });
                     this.syncRemoteAudioWatchdog();
                     this.syncDegradedConnectionTimeout();
+                    this.requestHeartbeatFlush(connected ? 'remote_audio_gained' : 'remote_audio_lost', {
+                        immediate: true
+                    });
+                },
+                onRemoteAudioHealth: (health) => {
+                    this.applyRemoteAudioHealth(health);
                 },
                 onConnected: () => {
                     this.markConnected(true);
                 },
                 onStateChange: (state) => {
+                    this.noteCallEngineActivity();
                     if(state === 'connected' && this.mediaProvider === 'agora') {
                         this.sendMediaReadySignal().catch(() => {});
                         this.reconcileActiveCall({
@@ -1085,7 +1119,11 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     this.handleReconnectState(state);
                 },
                 onNativeRouteChange: (route) => {
+                    this.noteCallEngineActivity();
                     this.nativeAudioRoute = String(route || 'unknown');
+                    this.requestHeartbeatFlush('route_change', {
+                        immediate: true
+                    });
                 }
             };
 
@@ -1098,7 +1136,8 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             if(useNativeAgora) {
                 peer = createNativeAgoraAudioCallPeer(callbacks, {
                     mediaSession: mediaSession,
-                    refreshMediaSession: () => this.resolveMediaSession(true)
+                    refreshMediaSession: () => this.resolveMediaSession(true),
+                    callId: this.call?.call_uuid || null
                 });
             }
             else if(isAgora) {
@@ -1200,6 +1239,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 return;
             }
 
+            this.noteCallEngineActivity();
             this.status = 'connected';
             this.networkState = 'stable';
             this.qualityNotice = '';
@@ -1213,6 +1253,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.syncRemoteOutputVolume();
             this.syncRemoteAudioWatchdog();
             this.syncDegradedConnectionTimeout();
+            this.requestHeartbeatFlush('connected', {
+                immediate: true
+            });
 
             if(shouldNotify && ! this.connectedSignalSent) {
                 this.connectedSignalSent = true;
@@ -1222,6 +1265,17 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         handleQualityStats: function(stats = {}) {
             if(! this.call?.call_uuid || ! this.isActive) {
                 return false;
+            }
+
+            this.noteCallEngineActivity();
+
+            if(
+                stats.remote_audio_live !== undefined
+                || stats.remote_audio_last_active_at !== undefined
+                || stats.last_active_at !== undefined
+                || stats.reason === 'zero_progress'
+            ) {
+                this.applyRemoteAudioHealth(stats);
             }
 
             const networkQuality = stats.network_quality || 'unknown';
@@ -1251,16 +1305,22 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.lastQualityReportAt = now;
             this.lastQualitySignature = signature;
             this.sendQualityReport(stats).catch(() => {});
+            this.requestHeartbeatFlush('quality');
 
             return true;
         },
         handleReconnectState: function(state = 'stable') {
+            this.noteCallEngineActivity();
+
             if(state === 'stable') {
                 this.stopReconnectTimeoutTimer();
                 this.networkState = 'stable';
                 this.qualityNotice = '';
                 this.syncRemoteAudioWatchdog();
                 this.syncDegradedConnectionTimeout();
+                this.requestHeartbeatFlush('reconnect_recovered', {
+                    immediate: true
+                });
 
                 return true;
             }
@@ -1275,6 +1335,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 this.startReconnectTimeoutTimer();
                 this.syncRemoteAudioWatchdog();
                 this.syncDegradedConnectionTimeout();
+                this.requestHeartbeatFlush('reconnecting', {
+                    immediate: true
+                });
 
                 return true;
             }
@@ -1291,6 +1354,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     this.startReconnectTimeoutTimer();
                     this.syncRemoteAudioWatchdog();
                     this.syncDegradedConnectionTimeout();
+                    this.requestHeartbeatFlush('reconnecting', {
+                        immediate: true
+                    });
                     this.sendQualityReport({
                         network_quality: 'reconnecting',
                         issue: 'agora_recoverable_failure',
@@ -1356,6 +1422,187 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 return false;
             }
         },
+        noteCallEngineActivity: function(timestampMs = Date.now()) {
+            const nextTimestamp = Number(timestampMs);
+
+            if(Number.isFinite(nextTimestamp) && nextTimestamp > 0) {
+                this.lastEngineActivityAtMs = nextTimestamp;
+            }
+        },
+        normalizeHealthTimestampMs: function(value) {
+            if(typeof value === 'number' && Number.isFinite(value) && value > 0) {
+                return value;
+            }
+
+            if(typeof value === 'string' && value.trim() !== '') {
+                const parsed = Date.parse(value);
+
+                return Number.isFinite(parsed) && parsed > 0
+                    ? parsed
+                    : 0;
+            }
+
+            return 0;
+        },
+        applyRemoteAudioHealth: function(health = {}) {
+            const previousLive = this.remoteAudioLive === true;
+            const nextLive = health.live === true || health.remote_audio_live === true;
+            const lastActiveAtMs = Math.max(
+                this.normalizeHealthTimestampMs(health.last_active_at_ms),
+                this.normalizeHealthTimestampMs(health.last_active_at),
+                this.normalizeHealthTimestampMs(health.remote_audio_last_active_at_ms),
+                this.normalizeHealthTimestampMs(health.remote_audio_last_active_at),
+                nextLive ? Date.now() : 0
+            );
+
+            this.remoteAudioLive = nextLive;
+
+            if(lastActiveAtMs > 0) {
+                this.remoteAudioLastActiveAtMs = lastActiveAtMs;
+                this.noteCallEngineActivity(lastActiveAtMs);
+            }
+
+            this.remoteAudioHealthReason = String(
+                health.reason
+                || health.issue
+                || (nextLive ? 'remote_audio_live' : 'remote_audio_stale')
+            );
+
+            if(previousLive !== nextLive && this.status === 'connected') {
+                this.requestHeartbeatFlush(nextLive ? 'remote_audio_gained' : 'remote_audio_lost', {
+                    immediate: true
+                });
+            }
+
+            this.syncRemoteAudioWatchdog();
+            this.syncDegradedConnectionTimeout();
+        },
+        resolveAppVisibility: function(fallback = 'visible') {
+            if(typeof document === 'undefined') {
+                return fallback;
+            }
+
+            if(document.visibilityState === 'hidden' || document.hidden) {
+                return 'hidden';
+            }
+
+            return 'visible';
+        },
+        buildHeartbeatPayload: function() {
+            const route = this.nativeAudioRoute || (this.speakerEnabled ? 'speaker' : 'browser');
+
+            return {
+                status: this.status,
+                media_provider: this.mediaProvider,
+                network_state: this.networkState,
+                call_engine: this.callEngine,
+                route: route,
+                speaker_enabled: this.speakerEnabled,
+                muted: this.isMuted,
+                reconnect_count: this.reconnectCount,
+                remote_audio_live: this.hasLiveRemoteAudio(),
+                engine_activity_at: this.lastEngineActivityAtMs > 0
+                    ? new Date(this.lastEngineActivityAtMs).toISOString()
+                    : null,
+                app_visibility: this.appVisibility || this.resolveAppVisibility()
+            };
+        },
+        handleHeartbeatVisibilityChange: function(visibility = null) {
+            const nextVisibility = visibility || this.resolveAppVisibility(this.appVisibility || 'visible');
+
+            this.appVisibility = nextVisibility;
+
+            if(this.status === 'connected') {
+                this.requestHeartbeatFlush('app_visibility', {
+                    immediate: true
+                });
+            }
+        },
+        startHeartbeatEnvironmentListeners: function() {
+            if(typeof window === 'undefined' || this.heartbeatVisibilityHandler) {
+                return;
+            }
+
+            this.appVisibility = this.resolveAppVisibility(this.appVisibility || 'visible');
+            this.heartbeatVisibilityHandler = () => {
+                this.handleHeartbeatVisibilityChange();
+            };
+            this.heartbeatFocusHandler = () => {
+                this.handleHeartbeatVisibilityChange('visible');
+            };
+            this.heartbeatPageHideHandler = () => {
+                this.handleHeartbeatVisibilityChange('hidden');
+            };
+            this.heartbeatPageShowHandler = () => {
+                this.handleHeartbeatVisibilityChange('visible');
+            };
+
+            if(typeof document !== 'undefined') {
+                document.addEventListener('visibilitychange', this.heartbeatVisibilityHandler);
+            }
+            window.addEventListener('focus', this.heartbeatFocusHandler);
+            window.addEventListener('blur', this.heartbeatVisibilityHandler);
+            window.addEventListener('pagehide', this.heartbeatPageHideHandler);
+            window.addEventListener('pageshow', this.heartbeatPageShowHandler);
+            window.addEventListener('zulors:app-resume', this.heartbeatPageShowHandler);
+        },
+        stopHeartbeatEnvironmentListeners: function() {
+            if(typeof window === 'undefined' || ! this.heartbeatVisibilityHandler) {
+                this.heartbeatVisibilityHandler = null;
+                this.heartbeatFocusHandler = null;
+                this.heartbeatPageHideHandler = null;
+                this.heartbeatPageShowHandler = null;
+
+                return;
+            }
+
+            if(typeof document !== 'undefined') {
+                document.removeEventListener('visibilitychange', this.heartbeatVisibilityHandler);
+            }
+            window.removeEventListener('focus', this.heartbeatFocusHandler);
+            window.removeEventListener('blur', this.heartbeatVisibilityHandler);
+            window.removeEventListener('pagehide', this.heartbeatPageHideHandler);
+            window.removeEventListener('pageshow', this.heartbeatPageShowHandler);
+            window.removeEventListener('zulors:app-resume', this.heartbeatPageShowHandler);
+            this.heartbeatVisibilityHandler = null;
+            this.heartbeatFocusHandler = null;
+            this.heartbeatPageHideHandler = null;
+            this.heartbeatPageShowHandler = null;
+        },
+        requestHeartbeatFlush: function(reason = 'event', options = {}) {
+            if(! this.call?.call_uuid || this.status !== 'connected' || ! this.isActive || this.isFinal || this.finalizingCallUuid === this.call.call_uuid) {
+                return false;
+            }
+
+            this.pendingHeartbeatFlush = true;
+
+            if(typeof window === 'undefined') {
+                if(! this.heartbeatInFlight) {
+                    this.sendHeartbeat().catch(() => {});
+                }
+
+                return true;
+            }
+
+            if(this.heartbeatFlushTimer) {
+                return true;
+            }
+
+            const delayMs = options.immediate === true ? 0 : 150;
+
+            this.heartbeatFlushTimer = window.setTimeout(() => {
+                this.heartbeatFlushTimer = null;
+
+                if(! this.pendingHeartbeatFlush || this.heartbeatInFlight) {
+                    return;
+                }
+
+                this.pendingHeartbeatFlush = false;
+                this.sendHeartbeat().catch(() => {});
+            }, delayMs);
+
+            return true;
+        },
         sendHeartbeat: async function() {
             if(this.heartbeatInFlight || ! this.call?.call_uuid || this.status !== 'connected' || ! this.isActive || this.isFinal || this.finalizingCallUuid === this.call.call_uuid) {
                 return false;
@@ -1364,16 +1611,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.heartbeatInFlight = true;
 
             try {
-                const response = await colibriAPI().messenger().with({
-                    status: this.status,
-                    media_provider: this.mediaProvider,
-                    network_state: this.networkState,
-                    call_engine: this.callEngine,
-                    route: this.nativeAudioRoute,
-                    speaker_enabled: this.speakerEnabled,
-                    muted: this.isMuted,
-                    reconnect_count: this.reconnectCount
-                }).sendTo(`calls/${this.call.call_uuid}/heartbeat`);
+                const response = await colibriAPI().messenger()
+                    .with(this.buildHeartbeatPayload())
+                    .sendTo(`calls/${this.call.call_uuid}/heartbeat`);
                 const call = response.data?.data?.call;
 
                 if(call?.call_uuid === this.call?.call_uuid) {
@@ -1397,6 +1637,12 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
             finally {
                 this.heartbeatInFlight = false;
+
+                if(this.pendingHeartbeatFlush && this.status === 'connected' && ! this.isFinal) {
+                    this.requestHeartbeatFlush('pending', {
+                        immediate: true
+                    });
+                }
             }
         },
         resolveIceServers: async function() {
@@ -1657,6 +1903,10 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         },
         toggleMute: function() {
             this.isMuted = ! this.isMuted;
+            this.noteCallEngineActivity();
+            this.requestHeartbeatFlush('mute_toggle', {
+                immediate: true
+            });
 
             try {
                 Promise.resolve(this.peer?.setMuted?.(this.isMuted)).catch(() => {});
@@ -1665,6 +1915,10 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         },
         toggleSpeaker: function() {
             this.speakerEnabled = ! this.speakerEnabled;
+            this.noteCallEngineActivity();
+            this.requestHeartbeatFlush('speaker_toggle', {
+                immediate: true
+            });
 
             try {
                 this.quietRemoteOutputForRouteChange();
@@ -1788,7 +2042,17 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.finalizingCallUuid = null;
             this.mediaSetupAttempt += 1;
             this.heartbeatInFlight = false;
+            this.pendingHeartbeatFlush = false;
+            this.appVisibility = 'visible';
+            this.lastEngineActivityAtMs = 0;
+            this.heartbeatVisibilityHandler = null;
+            this.heartbeatFocusHandler = null;
+            this.heartbeatPageHideHandler = null;
+            this.heartbeatPageShowHandler = null;
             this.microphonePermissionPromise = null;
+            this.remoteAudioLive = false;
+            this.remoteAudioLastActiveAtMs = 0;
+            this.remoteAudioHealthReason = '';
             this.nativeRemoteAudioConnected = false;
             this.nativeAudioRoute = 'earpiece';
             this.busyNoticeCallUuids = [];
@@ -1828,8 +2092,13 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.offerSent = false;
             this.mediaReadySent = false;
             this.connectedSignalSent = false;
+            this.remoteAudioLive = false;
+            this.remoteAudioLastActiveAtMs = 0;
+            this.remoteAudioHealthReason = '';
             this.nativeRemoteAudioConnected = false;
             this.nativeAudioRoute = 'earpiece';
+            this.pendingHeartbeatFlush = false;
+            this.lastEngineActivityAtMs = 0;
             this.exitNativeAudioMode();
             this.closeRingToneContext();
         },
@@ -1996,27 +2265,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
         },
         hasLiveRemoteAudio: function() {
-            if(this.usesNativeCallEngine) {
-                return this.nativeRemoteAudioConnected === true;
-            }
-
-            const tracks = this.remoteStream?.getAudioTracks?.() || [];
-
-            return tracks.some((track) => {
-                if(! track) {
-                    return false;
-                }
-
-                if(track.readyState && track.readyState !== 'live') {
-                    return false;
-                }
-
-                if(track.enabled === false) {
-                    return false;
-                }
-
-                return track.muted !== true;
-            });
+            return this.remoteAudioLive === true;
         },
         startRemoteAudioWatchdog: function() {
             if(this.remoteAudioWatchdogTimer || ! this.call?.call_uuid || this.status !== 'connected' || this.hasLiveRemoteAudio()) {
@@ -2184,12 +2433,13 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 return;
             }
 
+            this.startHeartbeatEnvironmentListeners();
             this.heartbeatTimer = window.setInterval(() => {
                 this.sendHeartbeat().catch(() => {});
             }, heartbeatIntervalMs);
-            window.setTimeout(() => {
-                this.sendHeartbeat().catch(() => {});
-            }, 0);
+            this.requestHeartbeatFlush('heartbeat_started', {
+                immediate: true
+            });
         },
         stopHeartbeatTimer: function() {
             if(this.heartbeatTimer) {
@@ -2197,7 +2447,14 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 this.heartbeatTimer = null;
             }
 
+            if(this.heartbeatFlushTimer) {
+                window.clearTimeout(this.heartbeatFlushTimer);
+                this.heartbeatFlushTimer = null;
+            }
+
+            this.stopHeartbeatEnvironmentListeners();
             this.heartbeatInFlight = false;
+            this.pendingHeartbeatFlush = false;
         },
         quietRemoteOutputForRouteChange: function() {
             if(typeof window === 'undefined') {

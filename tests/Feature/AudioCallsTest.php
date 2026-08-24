@@ -18,6 +18,7 @@ use App\Notifications\User\Call\CancelCallNotification;
 use App\Notifications\User\Call\IncomingCallNotification;
 use App\Notifications\User\Call\MissedCallNotification;
 use App\Services\Calls\CallLifecycleService;
+use App\Services\Calls\StaleCallCleanupService;
 use App\Services\Notifications\PushNotificationPayloadFactory;
 use App\Services\Notifications\NotificationActionTokenService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -794,6 +795,119 @@ class AudioCallsTest extends TestCase
         $this->assertNotEmpty(data_get($participant->metadata, 'heartbeat_at'));
     }
 
+    public function test_call_heartbeat_persists_extended_telemetry_fields(): void
+    {
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+        $call = $this->createRingingCall($caller, $receiver, $chat, [
+            'status' => CallStatus::CONNECTED,
+            'answered_at' => now()->subSeconds(20),
+            'connected_at' => now()->subSeconds(18),
+        ]);
+
+        Sanctum::actingAs($caller);
+
+        $this->postJson("/api/messenger/calls/{$call->call_uuid}/heartbeat", [
+            'status' => 'connected',
+            'media_provider' => 'agora',
+            'network_state' => 'reconnecting',
+            'call_engine' => 'android-native',
+            'route' => 'speaker',
+            'speaker_enabled' => true,
+            'muted' => false,
+            'reconnect_count' => 3,
+            'remote_audio_live' => true,
+            'engine_activity_at' => now()->subSeconds(4)->toIso8601String(),
+            'app_visibility' => 'background',
+        ])->assertOk();
+
+        $freshCall = $call->fresh();
+        $participant = $freshCall->participants()->where('user_id', $caller->id)->firstOrFail();
+        $participantHeartbeat = data_get($participant->metadata, 'heartbeat', []);
+        $callHeartbeat = data_get($freshCall->metadata, "heartbeat.latest.{$caller->id}", []);
+
+        $this->assertSame('android-native', $participantHeartbeat['call_engine'] ?? null);
+        $this->assertSame('reconnecting', $participantHeartbeat['network_state'] ?? null);
+        $this->assertSame('background', $participantHeartbeat['app_visibility'] ?? null);
+        $this->assertSame(true, $participantHeartbeat['remote_audio_live'] ?? null);
+        $this->assertSame('speaker', $callHeartbeat['route'] ?? null);
+        $this->assertSame(3, $callHeartbeat['reconnect_count'] ?? null);
+        $this->assertNotEmpty($callHeartbeat['engine_activity_at'] ?? null);
+    }
+
+    public function test_android_native_connected_call_uses_engine_activity_for_stale_cleanup(): void
+    {
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+        $call = $this->createRingingCall($caller, $receiver, $chat, [
+            'status' => CallStatus::CONNECTED,
+            'started_at' => now()->subSeconds(120),
+            'answered_at' => now()->subSeconds(100),
+            'connected_at' => now()->subSeconds(80),
+            'expires_at' => now()->subSeconds(70),
+        ]);
+
+        $call->participants()->where('user_id', $caller->id)->update([
+            'status' => CallStatus::CONNECTED,
+            'metadata' => [
+                'heartbeat_at' => now()->subSeconds(85)->toIso8601String(),
+                'call_engine' => 'android-native',
+                'app_visibility' => 'background',
+                'heartbeat' => [
+                    'call_engine' => 'android-native',
+                    'network_state' => 'stable',
+                    'app_visibility' => 'background',
+                    'engine_activity_at' => now()->subSeconds(10)->toIso8601String(),
+                ],
+            ],
+        ]);
+        $call->participants()->where('user_id', $receiver->id)->update([
+            'status' => CallStatus::CONNECTED,
+            'metadata' => [
+                'heartbeat_at' => now()->subSeconds(8)->toIso8601String(),
+            ],
+        ]);
+
+        $this->assertFalse(
+            app(StaleCallCleanupService::class)->isStale($call->fresh(['participants']))
+        );
+    }
+
+    public function test_reconnecting_connected_call_gets_extended_stale_cleanup_grace(): void
+    {
+        Config::set('services.calls.agora.reconnect_grace_seconds', 60);
+
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+        $call = $this->createRingingCall($caller, $receiver, $chat, [
+            'status' => CallStatus::CONNECTED,
+            'started_at' => now()->subSeconds(120),
+            'answered_at' => now()->subSeconds(100),
+            'connected_at' => now()->subSeconds(80),
+            'expires_at' => now()->subSeconds(70),
+        ]);
+
+        $call->participants()->where('user_id', $caller->id)->update([
+            'status' => CallStatus::CONNECTED,
+            'metadata' => [
+                'heartbeat_at' => now()->subSeconds(75)->toIso8601String(),
+                'heartbeat' => [
+                    'network_state' => 'reconnecting',
+                ],
+            ],
+        ]);
+        $call->participants()->where('user_id', $receiver->id)->update([
+            'status' => CallStatus::CONNECTED,
+            'metadata' => [
+                'heartbeat_at' => now()->subSeconds(74)->toIso8601String(),
+                'heartbeat' => [
+                    'network_state' => 'reconnecting',
+                ],
+            ],
+        ]);
+
+        $this->assertFalse(
+            app(StaleCallCleanupService::class)->isStale($call->fresh(['participants']))
+        );
+    }
+
     public function test_call_quality_report_updates_call_metadata(): void
     {
         [$caller, $receiver, $chat] = $this->createDirectChat();
@@ -817,6 +931,8 @@ class AudioCallsTest extends TestCase
             'packets_received' => 191,
             'bytes_sent' => 1000,
             'bytes_received' => 1200,
+            'remote_audio_live' => true,
+            'remote_audio_last_active_at' => now()->subSeconds(2)->toIso8601String(),
         ])->assertOk()
             ->assertJsonPath('data.quality.accepted', true)
             ->assertJsonPath('data.quality.summary.weak_reports', 1);
@@ -828,6 +944,8 @@ class AudioCallsTest extends TestCase
         $this->assertSame(1, $summary['weak_reports']);
         $this->assertSame('weak', $summary['last_network_quality']);
         $this->assertSame('media_quality_weak', $summary['last_issue']);
+        $this->assertSame(true, $summary['last_remote_audio_live']);
+        $this->assertNotEmpty($summary['last_remote_audio_last_active_at']);
     }
 
     public function test_oversized_call_signal_payload_is_rejected(): void

@@ -118,6 +118,12 @@ const createNativeAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
 
         if(type === 'remote-audio') {
             setRemoteAudioConnected(detail.connected === true);
+            emit('onRemoteAudioHealth', {
+                live: detail.remote_audio_live === true || detail.connected === true,
+                reason: detail.reason || null,
+                last_active_at_ms: Number(detail.last_remote_audio_active_at_ms || 0),
+                last_active_at: detail.last_remote_audio_active_at || null,
+            });
 
             if(detail.connected === true) {
                 emit('onReconnectState', 'stable');
@@ -150,6 +156,8 @@ const createNativeAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                 audio_level: detail.audio_level,
                 local_audio_published: detail.local_audio_published === true,
                 remote_audio_playing: detail.remote_audio_playing === true,
+                remote_audio_live: detail.remote_audio_live === true,
+                remote_audio_last_active_at: detail.last_remote_audio_active_at || null,
                 route: detail.route || 'unknown',
                 speaker_enabled: detail.speaker_enabled === true || detail.speaker === true,
                 muted: detail.muted === true,
@@ -219,6 +227,7 @@ const createNativeAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         currentMediaSession = mediaSession;
 
         const payload = JSON.stringify({
+            call_id: options.callId || null,
             app_id: mediaSession.app_id,
             channel: mediaSession.channel,
             token: mediaSession.token || null,

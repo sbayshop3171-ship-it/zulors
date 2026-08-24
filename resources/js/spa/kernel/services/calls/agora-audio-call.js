@@ -1,4 +1,8 @@
 import { AIDenoiserExtension } from 'agora-extension-ai-denoiser';
+import {
+    createRemoteAudioHealthState,
+    evaluateWebRemoteAudioHealth,
+} from './remote-audio-health.js';
 
 const parsePositiveNumber = (value, defaultValue) => {
     const number = Number(value);
@@ -43,7 +47,7 @@ const agoraAudioEncoderPresets = {
     speech_low_quality: {
         sampleRate: 16000,
         stereo: false,
-        bitrate: 24
+        bitrate: 18
     },
     speech_standard: {
         sampleRate: 32000,
@@ -55,15 +59,30 @@ const agoraAudioEncoderPresets = {
         stereo: false,
         bitrate: 32
     },
+    music_standard_stereo: {
+        sampleRate: 48000,
+        stereo: true,
+        bitrate: 64
+    },
     standard_stereo: {
         sampleRate: 48000,
         stereo: true,
         bitrate: 64
     },
+    music_high_quality: {
+        sampleRate: 48000,
+        stereo: false,
+        bitrate: 128
+    },
     high_quality: {
         sampleRate: 48000,
         stereo: false,
         bitrate: 128
+    },
+    music_high_quality_stereo: {
+        sampleRate: 48000,
+        stereo: true,
+        bitrate: 192
     },
     high_quality_stereo: {
         sampleRate: 48000,
@@ -86,7 +105,7 @@ const normalizeAgoraAreaCode = (value, fallback = '') => {
         ? normalizedValue
         : String(fallback || '').trim().toUpperCase();
 };
-const normalizeAgoraAudioEncoderProfile = (value, fallback = 'speech_standard') => {
+const normalizeAgoraAudioEncoderProfile = (value, fallback = 'speech_low_quality') => {
     const normalizedValue = String(value ?? fallback ?? '')
         .trim()
         .toLowerCase();
@@ -97,7 +116,7 @@ const normalizeAgoraAudioEncoderProfile = (value, fallback = 'speech_standard') 
 
     return agoraAudioEncoderPresets[fallback]
         ? fallback
-        : 'speech_standard';
+        : 'speech_low_quality';
 };
 const normalizeAgoraAudioSampleRate = (value, fallback = 16000) => {
     const sampleRate = parsePositiveInteger(value, fallback);
@@ -124,6 +143,11 @@ const agoraRemoteSubscribeFailureReportEvery = Math.max(
     1,
     parsePositiveInteger(import.meta.env.VITE_AGORA_CALL_REMOTE_SUBSCRIBE_FAILURE_REPORT_EVERY, 3)
 );
+const remoteAudioFreshnessMs = parsePositiveNumber(import.meta.env.VITE_CALL_REMOTE_AUDIO_FRESHNESS_MS, 12000);
+const remoteAudioZeroProgressTolerance = Math.max(
+    1,
+    parsePositiveInteger(import.meta.env.VITE_CALL_REMOTE_AUDIO_ZERO_PROGRESS_WINDOWS, 2)
+);
 const agoraPreferredAudioLatency = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_AUDIO_LATENCY, 0.01);
 const enableVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_AUDIO_PROCESSING, false);
 const enableNativeAppVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_NATIVE_APP_AUDIO_PROCESSING, false);
@@ -146,7 +170,7 @@ const defaultAgoraAreaCode = normalizeAgoraAreaCode(import.meta.env.VITE_AGORA_C
 const defaultAgoraExcludedArea = normalizeAgoraAreaCode(import.meta.env.VITE_AGORA_CALL_EXCLUDED_AREA, '');
 const defaultAgoraAudioEncoderProfile = normalizeAgoraAudioEncoderProfile(
     import.meta.env.VITE_AGORA_CALL_AUDIO_ENCODER_PROFILE,
-    'speech_standard'
+    'speech_low_quality'
 );
 const defaultAgoraSpeechEncoderConfig = {
     ...agoraAudioEncoderPresets[defaultAgoraAudioEncoderProfile],
@@ -156,7 +180,7 @@ const defaultAgoraSpeechEncoderConfig = {
     ),
     bitrate: clampAgoraAudioBitrateKbps(
         import.meta.env.VITE_AGORA_CALL_AUDIO_BITRATE,
-        24,
+        18,
         12,
         32
     )
@@ -461,7 +485,7 @@ const resolveAgoraEncoderConfig = (mediaSession = {}) => {
         mediaSession.audio_encoder_profile,
         defaultAgoraAudioEncoderProfile
     );
-    const preset = agoraAudioEncoderPresets[profile] || agoraAudioEncoderPresets.speech_standard;
+    const preset = agoraAudioEncoderPresets[profile] || agoraAudioEncoderPresets.speech_low_quality;
 
     return {
         sampleRate: normalizeAgoraAudioSampleRate(
@@ -896,12 +920,42 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     let localAgoraUid = null;
     let remoteOutputAecTimers = [];
     let remoteSubscribeFailures = 0;
+    let remoteAudioHealth = createRemoteAudioHealthState({
+        source: 'web',
+    });
 
     const emit = (event, ...payload) => {
         try {
             callbacks[event]?.(...payload);
         }
         catch(error) {}
+    };
+    const emitRemoteAudioHealth = (nextHealth) => {
+        remoteAudioHealth = nextHealth;
+        emit('onRemoteAudioHealth', {
+            live: nextHealth.live === true,
+            reason: nextHealth.reason || null,
+            last_active_at_ms: nextHealth.lastActiveAtMs || 0,
+            last_active_at: nextHealth.lastActiveAtMs > 0
+                ? new Date(nextHealth.lastActiveAtMs).toISOString()
+                : null,
+        });
+
+        return remoteAudioHealth;
+    };
+    const updateRemoteAudioHealth = (sample = {}, options = {}) => {
+        return emitRemoteAudioHealth(evaluateWebRemoteAudioHealth(remoteAudioHealth, sample, {
+            nowMs: options.nowMs || Date.now(),
+            freshnessWindowMs: remoteAudioFreshnessMs,
+            zeroProgressTolerance: remoteAudioZeroProgressTolerance,
+        }));
+    };
+    const markRemoteAudioUnavailable = (reason = 'remote_audio_unavailable') => {
+        return updateRemoteAudioHealth({
+            trackPresent: false,
+            forceOffline: true,
+            reason: reason,
+        });
     };
     const cleanupVoiceProcessing = () => {
         try {
@@ -1040,10 +1094,19 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             const localTrackAudioLevel = toUnitNumber(localAudioTrack?.getVolumeLevel?.(), 0);
             const localAudioLevel = Math.max(localStatsAudioLevel, localTrackAudioLevel);
             const remoteBytesReceived = toNumber(pickFirstValue(remoteStats.receiveBytes, remoteStats.bytesReceived, remoteStats.ReceiveBytes), 0);
+            const remotePacketsReceived = toNumber(remoteStats.receivePackets, 0);
+            const remoteAudioLevel = toUnitNumber(pickFirstValue(remoteStats.receiveLevel, remoteStats.audioLevel, remoteAudioTrack?.getVolumeLevel?.()), 0);
             const remoteAudioPlaying = Boolean(remoteAudioTrack && remoteStream && (
                 ! remoteOutputElement
                 || (remoteOutputElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && ! remoteOutputElement.paused)
             ));
+            const nextRemoteAudioHealth = updateRemoteAudioHealth({
+                trackPresent: Boolean(remoteAudioTrack && remoteStream),
+                playbackActive: remoteAudioPlaying,
+                bytesReceived: remoteBytesReceived,
+                packetsReceived: remotePacketsReceived,
+                audioLevel: remoteAudioLevel,
+            });
             const statsNetworkQuality = classifyNetworkQuality({
                 rtt: rtt,
                 jitter: jitter,
@@ -1061,13 +1124,18 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                 jitter_ms: jitter,
                 packet_loss_percent: packetLossPercent,
                 packets_lost: toNumber(pickFirstValue(remoteStats.receivePacketsLost, localStats.sendPacketsLost), 0),
-                packets_received: toNumber(remoteStats.receivePackets, 0),
+                packets_received: remotePacketsReceived,
                 bytes_sent: localBytesSent,
                 bytes_received: remoteBytesReceived,
                 available_outgoing_bitrate: toNumber(rtcStats.OutgoingAvailableBandwidth, 0),
                 audio_level: localAudioLevel,
                 local_audio_published: Boolean(localAudioTrack),
                 remote_audio_playing: remoteAudioPlaying,
+                remote_audio_level: remoteAudioLevel,
+                remote_audio_live: nextRemoteAudioHealth.live === true,
+                remote_audio_last_active_at: nextRemoteAudioHealth.lastActiveAtMs > 0
+                    ? new Date(nextRemoteAudioHealth.lastActiveAtMs).toISOString()
+                    : null,
                 remote_subscribe_failures: remoteSubscribeFailures
             });
         }, qualityMonitorIntervalMs);
@@ -1155,6 +1223,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         if(! mediaTrack) {
             remoteStream = null;
             remoteMediaTrackId = null;
+            markRemoteAudioUnavailable('track_missing');
 
             return null;
         }
@@ -1167,12 +1236,18 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             emit('onRemoteStream', remoteStream);
         }
 
+        updateRemoteAudioHealth({
+            trackPresent: true,
+            reason: 'track_attached',
+        });
+
         if(mediaTrack) {
             mediaTrack.onmute = () => {
                 if(closing || ! remoteAudioTrack) {
                     return;
                 }
 
+                markRemoteAudioUnavailable('track_muted');
                 emit('onReconnectState', 'reconnecting');
             };
 
@@ -1181,6 +1256,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                     return;
                 }
 
+                markRemoteAudioUnavailable('track_ended');
                 emit('onReconnectState', 'reconnecting');
             };
 
@@ -1189,6 +1265,11 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                     return;
                 }
 
+                updateRemoteAudioHealth({
+                    trackPresent: true,
+                    playbackActive: true,
+                    reason: 'track_unmuted',
+                });
                 emit('onReconnectState', 'stable');
             };
         }
@@ -1212,12 +1293,14 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             applyRemoteOutputVolume();
             refreshRemoteOutputAEC();
             remoteOutputElement.play?.().catch((error) => {
+                markRemoteAudioUnavailable('playback_blocked');
                 emit('onQualityStats', {
                     network_quality: 'reconnecting',
                     issue: 'remote_audio_play_blocked',
                     connection_state: 'reconnecting',
                     ice_connection_state: 'connected',
                     remote_audio_playing: false,
+                    remote_audio_live: false,
                     error_message: error?.message || 'Remote audio playback was blocked.'
                 });
                 emit('onReconnectState', 'reconnecting');
@@ -1308,6 +1391,10 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             remoteSubscribeFailures = 0;
 
             if(isSameRemoteTrack) {
+                updateRemoteAudioHealth({
+                    trackPresent: true,
+                    reason: 'remote_track_reused',
+                });
                 playRemoteAudio();
                 emit('onConnected');
                 startQualityTimer();
@@ -1317,6 +1404,10 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
 
             stopRemoteAudioTrackPlayback();
             remoteAudioTrack = nextRemoteTrack;
+            updateRemoteAudioHealth({
+                trackPresent: true,
+                reason: 'remote_track_subscribed',
+            });
             playRemoteAudio();
             emit('onConnected');
             startQualityTimer();
@@ -1331,6 +1422,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                 connection_state: 'reconnecting',
                 ice_connection_state: 'connected',
                 remote_audio_playing: false,
+                remote_audio_live: false,
                 remote_subscribe_failures: remoteSubscribeFailures,
                 error_message: error?.message || 'Remote audio subscribe failed.'
             });
@@ -1419,6 +1511,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                 remoteAudioTrack = null;
                 remoteStream = null;
                 remoteMediaTrackId = null;
+                markRemoteAudioUnavailable('user_unpublished');
                 emit('onRemoteStream', null);
                 emit('onReconnectState', 'reconnecting');
                 startRemoteUserSweep();
@@ -1435,6 +1528,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                 remoteAudioTrack = null;
                 remoteStream = null;
                 remoteMediaTrackId = null;
+                markRemoteAudioUnavailable('user_left');
                 emit('onRemoteStream', null);
                 emit('onReconnectState', 'reconnecting');
                 startRemoteUserSweep();
@@ -1639,6 +1733,9 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         latestNetworkQuality = null;
         consecutiveWeakSamples = 0;
         consecutivePoorSamples = 0;
+        remoteAudioHealth = createRemoteAudioHealthState({
+            source: 'web',
+        });
 
         if(activeClient) {
             Promise.resolve()
@@ -1646,6 +1743,12 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                 .catch(() => {});
         }
 
+        emit('onRemoteAudioHealth', {
+            live: false,
+            reason: 'closed',
+            last_active_at_ms: 0,
+            last_active_at: null,
+        });
         emit('onRemoteStream', null);
     };
 

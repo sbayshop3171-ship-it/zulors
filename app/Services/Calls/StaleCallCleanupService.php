@@ -13,6 +13,8 @@ class StaleCallCleanupService
     public const RING_TIMEOUT_SECONDS = 40;
     public const HANDSHAKE_TIMEOUT_SECONDS = 40;
     public const HEARTBEAT_TIMEOUT_SECONDS = 40;
+    public const NATIVE_ENGINE_TIMEOUT_GRACE_SECONDS = 30;
+    public const BACKGROUND_NATIVE_TIMEOUT_GRACE_SECONDS = 20;
 
     public function __construct(private CallLifecycleService $calls) {}
 
@@ -154,7 +156,7 @@ class StaleCallCleanupService
             return true;
         }
 
-        return $participants->contains(fn (CallParticipant $participant) => $this->participantHeartbeatExpired($participant, $threshold));
+        return $participants->contains(fn (CallParticipant $participant) => $this->participantHeartbeatExpired($participant, $now));
     }
 
     private function handshakeTimeoutSeconds(): int
@@ -173,18 +175,102 @@ class StaleCallCleanupService
         );
     }
 
-    private function participantHeartbeatExpired(CallParticipant $participant, Carbon $threshold): bool
+    private function participantHeartbeatExpired(CallParticipant $participant, Carbon $now): bool
     {
         if(! empty($participant->left_at)) {
             return true;
         }
 
-        $metadata = $participant->metadata ?: [];
-        $lastSeenAt = $this->parseTimestamp(data_get($metadata, 'heartbeat_at'))
-            ?: $this->parseTimestamp(data_get($metadata, 'media_connected_at'))
-            ?: $participant->joined_at;
+        $threshold = $now->copy()->subSeconds($this->participantHeartbeatTimeoutSeconds($participant));
+        $lastSeenAt = $this->participantLastSeenAt($participant);
 
         return empty($lastSeenAt) || $lastSeenAt->lte($threshold);
+    }
+
+    private function participantHeartbeatTimeoutSeconds(CallParticipant $participant): int
+    {
+        $metadata = $participant->metadata ?: [];
+        $timeoutSeconds = $this->heartbeatTimeoutSeconds();
+        $networkState = $this->normalizeMetadataString(
+            data_get($metadata, 'heartbeat.network_state', data_get($metadata, 'network_state'))
+        );
+        $callEngine = $this->normalizeMetadataString(
+            data_get($metadata, 'heartbeat.call_engine', data_get($metadata, 'call_engine'))
+        );
+        $appVisibility = $this->normalizeMetadataString(
+            data_get($metadata, 'heartbeat.app_visibility', data_get($metadata, 'app_visibility'))
+        );
+
+        if($networkState === 'reconnecting') {
+            $timeoutSeconds = max($timeoutSeconds, $this->reconnectingHeartbeatTimeoutSeconds());
+        }
+
+        if($callEngine === 'android-native') {
+            $timeoutSeconds = max($timeoutSeconds, $this->nativeHeartbeatTimeoutSeconds());
+
+            if(in_array($appVisibility, ['hidden', 'background'], true)) {
+                $timeoutSeconds = max($timeoutSeconds, $this->backgroundNativeHeartbeatTimeoutSeconds());
+            }
+        }
+
+        return $timeoutSeconds;
+    }
+
+    private function participantLastSeenAt(CallParticipant $participant): ?Carbon
+    {
+        $metadata = $participant->metadata ?: [];
+        $callEngine = $this->normalizeMetadataString(
+            data_get($metadata, 'heartbeat.call_engine', data_get($metadata, 'call_engine'))
+        );
+        $engineActivityAt = $this->parseTimestamp(
+            data_get($metadata, 'heartbeat.engine_activity_at', data_get($metadata, 'engine_activity_at'))
+        );
+
+        if($callEngine === 'android-native' && ! empty($engineActivityAt)) {
+            return $engineActivityAt;
+        }
+
+        return $this->parseTimestamp(data_get($metadata, 'heartbeat_at'))
+            ?: $engineActivityAt
+            ?: $this->parseTimestamp(data_get($metadata, 'media_connected_at'))
+            ?: $participant->joined_at;
+    }
+
+    private function reconnectingHeartbeatTimeoutSeconds(): int
+    {
+        return max(
+            $this->heartbeatTimeoutSeconds(),
+            min(180, (int) config('services.calls.agora.reconnect_grace_seconds', 60) + self::NATIVE_ENGINE_TIMEOUT_GRACE_SECONDS)
+        );
+    }
+
+    private function nativeHeartbeatTimeoutSeconds(): int
+    {
+        return max(
+            $this->heartbeatTimeoutSeconds(),
+            min(180, (int) config('services.calls.agora.reconnect_grace_seconds', 60) + self::NATIVE_ENGINE_TIMEOUT_GRACE_SECONDS)
+        );
+    }
+
+    private function backgroundNativeHeartbeatTimeoutSeconds(): int
+    {
+        return max(
+            $this->nativeHeartbeatTimeoutSeconds(),
+            min(180, $this->nativeHeartbeatTimeoutSeconds() + self::BACKGROUND_NATIVE_TIMEOUT_GRACE_SECONDS)
+        );
+    }
+
+    private function normalizeMetadataString(mixed $value): ?string
+    {
+        if(! is_scalar($value)) {
+            return null;
+        }
+
+        $normalizedValue = strtolower(trim((string) $value));
+
+        return $normalizedValue !== ''
+            ? $normalizedValue
+            : null;
     }
 
     private function parseTimestamp(mixed $value): ?Carbon

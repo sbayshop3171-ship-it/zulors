@@ -20,6 +20,7 @@ use App\Services\Relations\BlockService;
 use App\Traits\Http\Api\SupportsApiResponses;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
@@ -379,8 +380,26 @@ class CallController extends Controller
         ]);
     }
 
-    public function heartbeat(string $callUuid, CallLifecycleService $calls)
+    public function heartbeat(Request $request, string $callUuid)
     {
+        $validator = Validator::make($request->all(), [
+            'status' => ['nullable', 'string', 'max:40'],
+            'media_provider' => ['nullable', 'string', 'max:40'],
+            'network_state' => ['nullable', 'string', Rule::in(['stable', 'weak', 'poor', 'reconnecting', 'unknown'])],
+            'call_engine' => ['nullable', 'string', 'max:40'],
+            'route' => ['nullable', 'string', 'max:40'],
+            'speaker_enabled' => ['nullable', 'boolean'],
+            'muted' => ['nullable', 'boolean'],
+            'reconnect_count' => ['nullable', 'integer', 'min:0', 'max:1000'],
+            'remote_audio_live' => ['nullable', 'boolean'],
+            'engine_activity_at' => ['nullable', 'date'],
+            'app_visibility' => ['nullable', 'string', 'max:40'],
+        ]);
+
+        if($validator->fails()) {
+            return $this->throwValidationError($validator);
+        }
+
         $callSession = $this->resolveCallForMe($callUuid);
 
         if(empty($callSession)) {
@@ -396,7 +415,7 @@ class CallController extends Controller
             ], Response::HTTP_GONE);
         }
 
-        $callSession = DB::transaction(function () use ($callSession) {
+        $callSession = DB::transaction(function () use ($callSession, $request) {
             $lockedCallSession = CallSession::query()
                 ->whereKey($callSession->id)
                 ->lockForUpdate()
@@ -406,11 +425,11 @@ class CallController extends Controller
                 return $lockedCallSession->fresh(['chat', 'initiator', 'receiver']);
             }
 
-            $this->recordParticipantHeartbeat($lockedCallSession);
+            $sample = $this->recordParticipantHeartbeat($lockedCallSession, $request);
 
             $metadata = $lockedCallSession->metadata ?: [];
             $latestHeartbeats = data_get($metadata, 'heartbeat.latest', []);
-            $latestHeartbeats[(string) me()->id] = now()->toIso8601String();
+            $latestHeartbeats[(string) me()->id] = $sample;
 
             data_set($metadata, 'heartbeat.latest', $latestHeartbeats);
             data_set($metadata, 'heartbeat.last_seen_at', now()->toIso8601String());
@@ -460,8 +479,11 @@ class CallController extends Controller
             'audio_playout_delay_ms' => ['nullable', 'numeric', 'min:0', 'max:60000'],
             'aec_estimated_delay_ms' => ['nullable', 'numeric', 'min:0', 'max:60000'],
             'audio_level' => ['nullable', 'numeric', 'min:0', 'max:1'],
+            'remote_audio_level' => ['nullable', 'numeric', 'min:0', 'max:1'],
             'local_audio_published' => ['nullable', 'boolean'],
             'remote_audio_playing' => ['nullable', 'boolean'],
+            'remote_audio_live' => ['nullable', 'boolean'],
+            'remote_audio_last_active_at' => ['nullable', 'date'],
             'remote_subscribe_failures' => ['nullable', 'integer', 'min:0', 'max:1000'],
             'call_engine' => ['nullable', 'string', 'max:40'],
             'media_provider' => ['nullable', 'string', 'max:40'],
@@ -523,8 +545,13 @@ class CallController extends Controller
             'audio_playout_delay_ms' => $this->metricFloat($request->input('audio_playout_delay_ms')),
             'aec_estimated_delay_ms' => $this->metricFloat($request->input('aec_estimated_delay_ms')),
             'audio_level' => $this->metricFloat($request->input('audio_level')),
+            'remote_audio_level' => $this->metricFloat($request->input('remote_audio_level')),
             'local_audio_published' => $request->has('local_audio_published') ? $request->boolean('local_audio_published') : null,
             'remote_audio_playing' => $request->has('remote_audio_playing') ? $request->boolean('remote_audio_playing') : null,
+            'remote_audio_live' => $request->has('remote_audio_live') ? $request->boolean('remote_audio_live') : null,
+            'remote_audio_last_active_at' => $request->filled('remote_audio_last_active_at')
+                ? Carbon::parse((string) $request->input('remote_audio_last_active_at'))->toIso8601String()
+                : null,
             'remote_subscribe_failures' => $this->metricInt($request->input('remote_subscribe_failures')),
             'call_engine' => $request->input('call_engine'),
             'media_provider' => $request->input('media_provider'),
@@ -570,6 +597,8 @@ class CallController extends Controller
         $userSummary['last_route'] = $sample['route'] ?? null;
         $userSummary['last_local_audio_published'] = $sample['local_audio_published'] ?? null;
         $userSummary['last_remote_audio_playing'] = $sample['remote_audio_playing'] ?? null;
+        $userSummary['last_remote_audio_live'] = $sample['remote_audio_live'] ?? null;
+        $userSummary['last_remote_audio_last_active_at'] = $sample['remote_audio_last_active_at'] ?? null;
         $userSummary['last_remote_subscribe_failures'] = $sample['remote_subscribe_failures'] ?? 0;
         $userSummary['last_reconnect_count'] = $sample['reconnect_count'] ?? 0;
         $userSummary['last_device_model'] = $sample['device_model'] ?? null;
@@ -585,6 +614,8 @@ class CallController extends Controller
                 'call_engine' => $sample['call_engine'] ?? null,
                 'local_audio_published' => $sample['local_audio_published'] ?? null,
                 'remote_audio_playing' => $sample['remote_audio_playing'] ?? null,
+                'remote_audio_live' => $sample['remote_audio_live'] ?? null,
+                'remote_audio_last_active_at' => $sample['remote_audio_last_active_at'] ?? null,
                 'remote_subscribe_failures' => $sample['remote_subscribe_failures'] ?? null,
                 'reconnect_count' => $sample['reconnect_count'] ?? 0,
                 'packet_loss_percent' => $sample['packet_loss_percent'] ?? null,
@@ -771,18 +802,39 @@ class CallController extends Controller
         app(StaleCallCleanupService::class)->cleanup($userIds, 100);
     }
 
-    private function recordParticipantHeartbeat(CallSession $callSession): void
+    private function recordParticipantHeartbeat(CallSession $callSession, Request $request): array
     {
         $participant = $callSession->participants()
             ->where('user_id', me()->id)
             ->first();
 
         if(empty($participant)) {
-            return;
+            return [];
         }
 
+        $reportedAt = now()->toIso8601String();
         $metadata = $participant->metadata ?: [];
-        $metadata['heartbeat_at'] = now()->toIso8601String();
+        $heartbeat = $metadata['heartbeat'] ?? [];
+        $sample = $this->buildHeartbeatTelemetrySample($request, $reportedAt);
+
+        $metadata['heartbeat_at'] = $reportedAt;
+        $metadata['heartbeat'] = array_merge($heartbeat, $sample);
+
+        foreach(['media_provider', 'network_state', 'call_engine', 'route', 'app_visibility'] as $field) {
+            if(array_key_exists($field, $sample)) {
+                $metadata[$field] = $sample[$field];
+            }
+        }
+
+        foreach(['speaker_enabled', 'muted', 'reconnect_count', 'remote_audio_live'] as $field) {
+            if(array_key_exists($field, $sample)) {
+                $metadata[$field] = $sample[$field];
+            }
+        }
+
+        if(array_key_exists('engine_activity_at', $sample)) {
+            $metadata['engine_activity_at'] = $sample['engine_activity_at'];
+        }
 
         $participantStatus = $callSession->status === CallStatus::CONNECTED
             ? CallStatus::CONNECTED
@@ -795,6 +847,39 @@ class CallController extends Controller
             'joined_at' => $participant->joined_at ?: now(),
             'metadata' => $metadata,
         ])->save();
+
+        return $sample;
+    }
+
+    private function buildHeartbeatTelemetrySample(Request $request, string $reportedAt): array
+    {
+        $sample = [
+            'reported_at' => $reportedAt,
+        ];
+
+        foreach(['status', 'media_provider', 'network_state', 'call_engine', 'route', 'app_visibility'] as $field) {
+            $value = $request->input($field);
+
+            if($value !== null && $value !== '') {
+                $sample[$field] = $value;
+            }
+        }
+
+        foreach(['speaker_enabled', 'muted', 'remote_audio_live'] as $field) {
+            if($request->has($field)) {
+                $sample[$field] = $request->boolean($field);
+            }
+        }
+
+        if($request->filled('reconnect_count')) {
+            $sample['reconnect_count'] = $this->metricInt($request->input('reconnect_count'));
+        }
+
+        if($request->filled('engine_activity_at')) {
+            $sample['engine_activity_at'] = Carbon::parse((string) $request->input('engine_activity_at'))->toIso8601String();
+        }
+
+        return $sample;
     }
 
     private function recordParticipantSignalState(CallSession $callSession, string $signalType, array $signalPayload): void
