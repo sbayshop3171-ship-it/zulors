@@ -166,6 +166,8 @@ body.sticky-bar-open .sticky-bar-bottom-fix{
 }
 
 body.auth-page {
+    --auth-safe-top: max(env(safe-area-inset-top, 0px), var(--zulors-android-safe-top, 0px));
+    --auth-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--zulors-android-safe-bottom, 0px));
     --auth-header-height: calc(3.5rem + env(safe-area-inset-top, 0px));
     --auth-shell-max-width: 26rem;
     --auth-shell-padding-inline: clamp(0.875rem, 3.5vw, 2rem);
@@ -174,6 +176,7 @@ body.auth-page {
     min-height: 100vh;
     margin: 0;
     overflow-x: hidden;
+    --auth-header-height: calc(3.5rem + var(--auth-safe-top));
     padding-top: var(--auth-header-height);
 }
 
@@ -185,7 +188,7 @@ body.auth-page {
 
 body.auth-page > header {
     min-width: 0 !important;
-    padding-top: env(safe-area-inset-top, 0px);
+    padding-top: var(--auth-safe-top);
 }
 
 .auth-page-shell {
@@ -216,7 +219,7 @@ body.auth-page > header {
 
 .auth-app-badges {
     padding-inline: var(--auth-shell-padding-inline);
-    padding-bottom: max(env(safe-area-inset-bottom, 0px), 2rem);
+    padding-bottom: max(var(--auth-safe-bottom), 2rem);
 }
 
 .auth-app-badges > div {
@@ -229,7 +232,7 @@ body.auth-page > header {
 body.auth-page footer {
     width: 100%;
     min-width: 0 !important;
-    padding-bottom: max(env(safe-area-inset-bottom, 0px), 1rem);
+    padding-bottom: max(var(--auth-safe-bottom), 1rem);
 }
 
 .auth-form,
@@ -321,7 +324,7 @@ body.auth-page .site-footer__badges {
 @media (max-width: 767px) {
     .auth-page-main {
         align-items: flex-start;
-        padding-top: clamp(1.5rem, 6vh, 2.75rem);
+        padding-top: clamp(2rem, 7vh, 3.5rem);
         padding-bottom: 0.75rem;
     }
 
@@ -374,7 +377,7 @@ body.auth-page .site-footer__badges {
     }
 
     .auth-app-badges {
-        padding-bottom: max(env(safe-area-inset-bottom, 0px), 1.25rem);
+        padding-bottom: max(var(--auth-safe-bottom), 1.25rem);
     }
 }
 
