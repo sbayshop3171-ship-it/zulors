@@ -649,6 +649,104 @@ class FeedRankingAndInterestGraphTest extends TestCase
         $this->assertGreaterThan(0, $this->interestScore($viewer, 'music'));
     }
 
+    public function test_reels_feed_exposes_topic_match_candidates_after_video_interest_is_learned(): void
+    {
+        $viewer = $this->createUser('reels-topic-viewer');
+        $watchedAuthor = $this->createUser('reels-topic-watched-author');
+        $topicAuthor = $this->createUser('reels-topic-match-author');
+        $unrelatedAuthor = $this->createUser('reels-topic-unrelated-author');
+
+        $watchedReel = $this->createVideoPost($watchedAuthor, 'Watched sports reel #sports', now()->subDays(2), [
+            'comments_count' => 12,
+            'bookmarks_count' => 9,
+            'shares_count' => 8,
+            'views_count' => 500,
+        ]);
+        $topicMatchedReel = $this->createVideoPost($topicAuthor, 'Fresh sports pickup reel #sports', now()->subMinutes(4), [
+            'comments_count' => 14,
+            'bookmarks_count' => 10,
+            'shares_count' => 9,
+            'views_count' => 760,
+        ]);
+        $unrelatedReel = $this->createVideoPost($unrelatedAuthor, 'Fresh cooking reel #cooking', now()->subMinutes(1), [
+            'comments_count' => 1,
+            'bookmarks_count' => 1,
+            'shares_count' => 0,
+            'views_count' => 18,
+        ]);
+        $watchedMedia = $watchedReel->media()->first();
+
+        app(TopicExtractionService::class)->syncPostTopics($watchedReel);
+        app(TopicExtractionService::class)->syncPostTopics($topicMatchedReel);
+        app(TopicExtractionService::class)->syncPostTopics($unrelatedReel);
+
+        PostVideoMetric::query()->create([
+            'post_id' => $topicMatchedReel->id,
+            'media_id' => $topicMatchedReel->media()->value('id'),
+            'plays_count' => 70,
+            'completions_count' => 58,
+            'loops_count' => 8,
+            'rewatches_count' => 10,
+            'avg_completion_rate' => 0.94,
+            'completion_rate' => 0.82,
+            'skip_rate' => 0.06,
+            'rewatch_rate' => 0.14,
+            'intelligence_score' => 56,
+        ]);
+
+        PostVideoMetric::query()->create([
+            'post_id' => $unrelatedReel->id,
+            'media_id' => $unrelatedReel->media()->value('id'),
+            'plays_count' => 35,
+            'completions_count' => 10,
+            'loops_count' => 1,
+            'rewatches_count' => 1,
+            'avg_completion_rate' => 0.28,
+            'completion_rate' => 0.22,
+            'skip_rate' => 0.42,
+            'rewatch_rate' => 0.03,
+            'intelligence_score' => -8,
+        ]);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->postJson('/api/timeline/telemetry/events', [
+                'events' => [[
+                    'event_type' => 'video_complete',
+                    'post_id' => $watchedReel->id,
+                    'media_id' => $watchedMedia->id,
+                    'watch_time_seconds' => 9,
+                    'duration_seconds' => 9,
+                    'completion_rate' => 1,
+                    'session_id' => 'reels-topic-interest-session',
+                    'feed_type' => 'reels',
+                    'source' => 'reels',
+                    'position' => 1,
+                ]],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.accepted', 1);
+
+        $response = $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/timeline/feed?type=reels&session_id=reels-topic-match-session&debug_ranking=1')
+            ->assertOk()
+            ->assertJsonPath('meta.feed.rank_version', 'reels_ranking_v2')
+            ->assertJsonPath('meta.feed.re_rank_allowed', true);
+
+        $candidateSources = $response->json('meta.feed.candidate_sources');
+        $postIds = array_column($response->json('data'), 'id');
+
+        $this->assertContains('topic_match', $candidateSources);
+        $this->assertGreaterThan(0, $this->interestScore($viewer, 'sports'));
+        $this->assertContains($topicMatchedReel->id, $postIds);
+        $this->assertContains($unrelatedReel->id, $postIds);
+        $this->assertLessThan(
+            array_search($unrelatedReel->id, $postIds, true),
+            array_search($topicMatchedReel->id, $postIds, true)
+        );
+    }
+
     public function test_reels_ranking_prefers_retention_quality_over_simple_recency(): void
     {
         $viewer = $this->createUser('reels-retention-viewer');

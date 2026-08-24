@@ -83,6 +83,7 @@
 	import Hls from 'hls.js';
 	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 	import { buildAdaptiveVideoSource, canVideoElementPlayNatively, getDirectPlaybackFallback } from '@/kernel/services/media/adaptive-video/index.js';
+	import { buildReelInteractionSignal } from '@/kernel/services/feed-session/reels-session-signals.js';
 	import { getNetworkProfileSnapshot, isSlowNetworkProfile, subscribeNetworkProfile } from '@/kernel/services/network/index.js';
 	import { buildVideoPresentationMetadata } from '@/kernel/services/media/video-metadata.js';
 
@@ -90,7 +91,7 @@
 	import SvgIcon from '@/kernel/vue/components/icons/SvgIcon.vue';
 
 	export default defineComponent({
-		emits: ['double-tap', 'presentation-metadata'],
+		emits: ['double-tap', 'interaction', 'presentation-metadata'],
 		props: {
 			mediaItem: {
 				type: Object,
@@ -324,7 +325,9 @@
 
 				if(state.durationSeconds && state.lastPlaybackTime > 1 && currentTime < (state.lastPlaybackTime - 0.75)) {
 					state.loopCount += 1;
-					flushVideoTelemetry('video_loop');
+					flushVideoTelemetry('video_loop', {
+						emitInteraction: true
+					});
 				}
 
 				state.lastPlaybackTime = currentTime;
@@ -407,7 +410,7 @@
 				}
 			};
 
-			const flushVideoTelemetry = (eventType = 'video_watch') => {
+			const flushVideoTelemetry = (eventType = 'video_watch', options = {}) => {
 				collectWatchTime();
 
 				if(! props.postData?.id || ! props.mediaItem?.id || ! videoPlayerRef.value) {
@@ -417,6 +420,21 @@
 				const watchSeconds = Math.round(state.watchMsSinceFlush / 100) / 10;
 				const durationSeconds = videoDurationSeconds();
 				const completionRate = durationSeconds ? Math.round((state.totalWatchMs / 1000 / durationSeconds) * 10000) / 10000 : 0;
+				const interactionSignal = options.emitInteraction
+					? buildReelInteractionSignal({
+						postId: props.postData.id,
+						eventType: eventType,
+						watchMs: state.watchMsSinceFlush,
+						totalWatchMs: state.totalWatchMs,
+						durationSeconds: durationSeconds,
+						completionRate: completionRate,
+						loopCount: state.loopCount
+					})
+					: null;
+
+				if(interactionSignal) {
+					context.emit('interaction', interactionSignal);
+				}
 
 				if(watchSeconds < 1 && eventType !== 'video_loop') {
 					if(state.isPlaying) {
@@ -607,14 +625,14 @@
 				});
 			};
 
-			const pauseVideo = () => {
+			const pauseVideo = (options = {}) => {
 				if(videoPlayerRef.value) {
 					videoPlayerRef.value.pause();
 				}
 
 				state.isPlaying = false;
 				state.isBuffering = false;
-				flushVideoTelemetry('video_watch');
+				flushVideoTelemetry('video_watch', options);
 				stopTelemetryTimer();
 				clearBufferRecoveryTimer();
 			};
@@ -844,7 +862,9 @@
 					});
 				}
 				else {
-					pauseVideo();
+					pauseVideo({
+						emitInteraction: true
+					});
 					syncPlaybackWindow();
 				}
 			});
@@ -855,7 +875,9 @@
 
 			watch(() => props.blocked, (isBlocked) => {
 				if(isBlocked) {
-					pauseVideo();
+					pauseVideo({
+						emitInteraction: props.active
+					});
 				}
 				else if(props.active) {
 					playVideo();
@@ -863,7 +885,9 @@
 			});
 
 			watch(() => props.mediaItem?.id, () => {
-				pauseVideo();
+				pauseVideo({
+					emitInteraction: props.active
+				});
 				state.presentationSignature = '';
 				state.sessionId = `reel-video-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 				configurePlaybackSource();
@@ -897,7 +921,9 @@
 				}
 
 				unsubscribeNetworkProfile?.();
-				pauseVideo();
+				pauseVideo({
+					emitInteraction: props.active
+				});
 				destroyHlsInstance();
 				clearBufferRecoveryTimer();
 			});

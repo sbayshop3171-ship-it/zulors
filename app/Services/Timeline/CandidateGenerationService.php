@@ -232,18 +232,20 @@ class CandidateGenerationService
         $selected = collect();
         $followedAuthorIds = $this->followedAuthorIds($user);
         $affinityAuthorIds = $this->interactedAuthorIds($user, 24);
+        $userTopics = $this->positiveUserTopics($user);
         $seenExcludeIds = $this->recentlySeenReelIds($user);
         $feedbackExcludeIds = $this->feedbackSuppressedReelIds($user);
         $baselineExcludeIds = $this->mergeExcludedIds($seenExcludeIds, $feedbackExcludeIds);
 
-        $this->appendCandidates($selected, $this->authorAffinityCandidates($user, $onset, $affinityAuthorIds, $baselineExcludeIds, (int) ceil($limit * 0.30), FeedService::TYPE_REELS, 'affinity_creators'));
-        $this->appendCandidates($selected, $this->highRetentionCandidates($user, $onset, $this->mergeExcludedIds($this->selectedIds($selected), $baselineExcludeIds), (int) ceil($limit * 0.30), 'high_retention_unseen'));
-        $this->appendCandidates($selected, $this->followedCandidates($user, $onset, $followedAuthorIds, $this->mergeExcludedIds($this->selectedIds($selected), $baselineExcludeIds), (int) ceil($limit * 0.15), FeedService::TYPE_REELS, 'followed_creators'));
-        $this->appendCandidates($selected, $this->explorationCandidates($user, $onset, $this->mergeExcludedIds($this->selectedIds($selected), $baselineExcludeIds), (int) ceil($limit * 0.15), FeedService::TYPE_REELS, 'exploration'));
+        $this->appendCandidates($selected, $this->authorAffinityCandidates($user, $onset, $affinityAuthorIds, $baselineExcludeIds, (int) ceil($limit * 0.26), FeedService::TYPE_REELS, 'affinity_creators'));
+        $this->appendCandidates($selected, $this->interestCandidates($user, $onset, $userTopics, $this->mergeExcludedIds($this->selectedIds($selected), $baselineExcludeIds), (int) ceil($limit * 0.22), FeedService::TYPE_REELS, 'topic_match'));
+        $this->appendCandidates($selected, $this->highRetentionCandidates($user, $onset, $this->mergeExcludedIds($this->selectedIds($selected), $baselineExcludeIds), (int) ceil($limit * 0.22), 'high_retention_unseen'));
+        $this->appendCandidates($selected, $this->followedCandidates($user, $onset, $followedAuthorIds, $this->mergeExcludedIds($this->selectedIds($selected), $baselineExcludeIds), (int) ceil($limit * 0.14), FeedService::TYPE_REELS, 'followed_creators'));
+        $this->appendCandidates($selected, $this->explorationCandidates($user, $onset, $this->mergeExcludedIds($this->selectedIds($selected), $baselineExcludeIds), (int) ceil($limit * 0.10), FeedService::TYPE_REELS, 'exploration'));
         $this->appendCandidates($selected, $this->oldGoodCandidates($user, $onset, $this->mergeExcludedIds($this->selectedIds($selected), $baselineExcludeIds), $limit - $selected->count(), FeedService::TYPE_REELS, 'recovery_diversity'));
 
         if($selected->count() < $limit) {
-            $this->appendCandidates($selected, $this->recentCandidates($user, $onset, $this->mergeExcludedIds($this->selectedIds($selected), $feedbackExcludeIds), $limit - $selected->count(), FeedService::TYPE_REELS, 'exploration'));
+            $this->appendCandidates($selected, $this->recentCandidates($user, $onset, $this->mergeExcludedIds($this->selectedIds($selected), $feedbackExcludeIds), $limit - $selected->count(), FeedService::TYPE_REELS, 'fresh_exploration'));
         }
 
         return $selected->unique('id')->take($limit)->values();

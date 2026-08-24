@@ -33,6 +33,7 @@
 				v-bind:distanceFromActive="Math.abs(activeIndex - (visibleWindow.start + index))"
 				v-bind:position="visibleWindow.start + index + 1"
 				v-bind:feedSessionId="feedSessionId"
+				v-on:interaction="handleReelInteraction"
 			></ReelItem>
 			<div class="snap-none" v-bind:style="{ height: `${virtualBottomSpacerPx}px` }"></div>
 
@@ -157,6 +158,20 @@
 				warmPlaybackWindow();
 			};
 
+			const handleReelInteraction = (signal) => {
+				const normalizedSignal = reelsStore.recordInteractionSignal(signal);
+
+				if(! normalizedSignal) {
+					return;
+				}
+
+				reelsStore.maybeRerankTail({
+					activeIndex: activeIndex.value,
+					threshold: normalizedSignal.immediateRerank ? 2.5 : 4,
+					minIntervalMs: normalizedSignal.immediateRerank ? 1600 : 2500
+				}).catch(() => {});
+			};
+
 			const maybeLoadMore = async () => {
 				const scroller = scrollerRef.value;
 
@@ -269,6 +284,7 @@
 				visiblePosts: visiblePosts,
 				virtualTopSpacerPx: virtualTopSpacerPx,
 				virtualBottomSpacerPx: virtualBottomSpacerPx,
+				handleReelInteraction: handleReelInteraction,
 				swipeSurfaceRef: swipeSurfaceRef,
 				scrollerRef: scrollerRef,
 				activeIndex: activeIndex,

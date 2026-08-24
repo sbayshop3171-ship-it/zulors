@@ -14,6 +14,7 @@
 			v-bind:feedSessionId="feedSessionId"
 			v-bind:position="position"
 			v-on:double-tap="handleDoubleTap"
+			v-on:interaction="handlePlaybackInteraction"
 		></ReelVideoPlayer>
 
 		<div v-else class="absolute inset-0 bg-black inline-flex-center">
@@ -172,6 +173,7 @@
 	const defaultReactionId = '2764-fe0f';
 
 	export default defineComponent({
+		emits: ['interaction'],
 		props: {
 			postData: {
 				type: Object,
@@ -198,7 +200,7 @@
 				default: ''
 			}
 		},
-		setup: function(props) {
+		setup: function(props, context) {
 			const state = reactive({
 				shareMenu: useMenu(),
 				commentsMenu: useMenu(),
@@ -334,6 +336,10 @@
 
 				state.mainMenu.close();
 				state.isApplyingFeedback = true;
+				context.emit('interaction', {
+					postId: postData.value.id,
+					eventType: eventType
+				});
 
 				const snapshot = reelsStore.applyFeedbackSuppression(postData.value.id, 'feedback');
 
@@ -392,6 +398,9 @@
 					if(! hasHeartReaction.value) {
 						addReaction(defaultReactionId);
 					}
+				},
+				handlePlaybackInteraction: (signal) => {
+					context.emit('interaction', signal);
 				},
 				addReaction: addReaction,
 				sharePost: () => {

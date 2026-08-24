@@ -44,6 +44,7 @@
 					v-bind:feedSessionId="feedSessionId"
 					v-bind:position="position"
 					v-on:double-tap="handleDoubleTap"
+					v-on:interaction="handlePlaybackInteraction"
 					v-on:presentation-metadata="handlePresentationMetadata"
 				></ReelVideoPlayer>
 
@@ -207,6 +208,7 @@
 	};
 
 	export default defineComponent({
+		emits: ['interaction'],
 		props: {
 			postData: {
 				type: Object,
@@ -233,7 +235,7 @@
 				default: ''
 			}
 		},
-		setup: function(props) {
+		setup: function(props, context) {
 			const state = reactive({
 				sensitiveRevealed: false,
 				showHeartBurst: false,
@@ -456,6 +458,10 @@
 
 				state.isMenuOpen = false;
 				state.isApplyingFeedback = true;
+				context.emit('interaction', {
+					postId: postData.value.id,
+					eventType: eventType
+				});
 
 				const snapshot = reelsStore.applyFeedbackSuppression(postData.value.id, 'feedback');
 
@@ -531,6 +537,9 @@
 					if(! hasHeartReaction.value) {
 						addReaction(defaultReactionId);
 					}
+				},
+				handlePlaybackInteraction: (signal) => {
+					context.emit('interaction', signal);
 				},
 				handlePresentationMetadata: (metadata) => {
 					state.presentationMetadata = metadata || {};
