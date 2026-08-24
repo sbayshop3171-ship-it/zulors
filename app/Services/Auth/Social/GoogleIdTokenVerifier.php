@@ -55,6 +55,14 @@ class GoogleIdTokenVerifier
             ]);
         }
 
+        $expiresAt = (int) data_get($payload, 'exp', 0);
+
+        if($expiresAt > 0 && $expiresAt <= now()->timestamp) {
+            throw ValidationException::withMessages([
+                'google' => __('This Google sign in has expired. Please try again.'),
+            ]);
+        }
+
         return $payload;
     }
 }

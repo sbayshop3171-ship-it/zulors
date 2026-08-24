@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api\Auth;
 
 use App\Models\NativeAuthSession;
+use App\Models\Onboard;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use App\Http\Controllers\Controller;
@@ -57,6 +59,8 @@ class GoogleNativeAuthController extends Controller
         ]);
 
         return response()->json([
+            'is_existing_user' => (bool) $result['exists'],
+            'next_url' => $this->resolvePostAuthRedirectUrl($user),
             'redirect_url' => route('social-login.google.native.consume', [
                 'token' => $handoffToken,
             ]),
@@ -86,7 +90,7 @@ class GoogleNativeAuthController extends Controller
         Auth::login($nativeAuthSession->user, true);
         $request->session()->regenerate();
 
-        return redirect()->route('user.desktop.index');
+        return redirect()->to($this->resolvePostAuthRedirectUrl($nativeAuthSession->user));
     }
 
     private function makeSocialiteUser(array $googlePayload): SocialiteUser
@@ -107,5 +111,12 @@ class GoogleNativeAuthController extends Controller
                 'name' => (string) data_get($googlePayload, 'name', ''),
                 'picture' => data_get($googlePayload, 'picture'),
             ]);
+    }
+
+    private function resolvePostAuthRedirectUrl(User $user): string
+    {
+        return Onboard::query()->where('user_id', $user->id)->exists()
+            ? route('user.onboarding.index', 'profile')
+            : route('user.desktop.index');
     }
 }

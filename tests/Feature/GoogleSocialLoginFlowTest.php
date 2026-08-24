@@ -112,6 +112,7 @@ class GoogleSocialLoginFlowTest extends TestCase
                 'sub' => 'native-google-user-123',
                 'email' => 'native-google@example.com',
                 'email_verified' => 'true',
+                'exp' => (string) now()->addMinutes(10)->timestamp,
                 'name' => 'Native Google',
                 'given_name' => 'Native',
                 'picture' => null,
@@ -122,7 +123,12 @@ class GoogleSocialLoginFlowTest extends TestCase
             'id_token' => 'valid-native-google-id-token',
         ]);
 
-        $response->assertOk()->assertJsonStructure(['redirect_url']);
+        $response->assertOk()
+            ->assertJsonStructure(['redirect_url', 'next_url', 'is_existing_user'])
+            ->assertJson([
+                'is_existing_user' => false,
+                'next_url' => route('user.onboarding.index', 'profile'),
+            ]);
 
         $user = User::query()->where('email', 'native-google@example.com')->firstOrFail();
 
@@ -139,7 +145,7 @@ class GoogleSocialLoginFlowTest extends TestCase
 
         $consumeResponse = $this->get($handoffPath);
 
-        $consumeResponse->assertRedirect(route('user.desktop.index'));
+        $consumeResponse->assertRedirect(route('user.onboarding.index', 'profile'));
         $this->assertAuthenticatedAs($user);
 
         Auth::logout();
@@ -159,6 +165,7 @@ class GoogleSocialLoginFlowTest extends TestCase
                 'sub' => 'native-google-user-123',
                 'email' => 'native-google@example.com',
                 'email_verified' => 'true',
+                'exp' => (string) now()->addMinutes(10)->timestamp,
             ]),
         ]);
 
@@ -171,6 +178,69 @@ class GoogleSocialLoginFlowTest extends TestCase
             'provider_name' => 'google',
             'provider_id' => 'native-google-user-123',
         ]);
+    }
+
+    public function test_native_google_sign_in_logs_in_existing_user_without_leaving_native_flow(): void
+    {
+        $user = $this->createUser('existing_native_google', 'existing-native-google@example.com');
+
+        Http::fake([
+            'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
+                'iss' => 'https://accounts.google.com',
+                'aud' => 'test-google-client',
+                'sub' => 'native-google-existing-123',
+                'email' => 'existing-native-google@example.com',
+                'email_verified' => 'true',
+                'exp' => (string) now()->addMinutes(10)->timestamp,
+                'name' => 'Existing Native Google',
+                'given_name' => 'Existing',
+                'family_name' => 'Native',
+                'picture' => null,
+            ]),
+        ]);
+
+        $response = $this->postJson('/api/mobile-auth/google', [
+            'id_token' => 'valid-existing-native-google-id-token',
+        ]);
+
+        $response->assertOk()->assertJson([
+            'is_existing_user' => true,
+            'next_url' => route('user.desktop.index'),
+        ]);
+
+        $this->assertDatabaseHas(Table::SOCIAL_ACCOUNTS, [
+            'user_id' => $user->id,
+            'provider_name' => 'google',
+            'provider_id' => 'native-google-existing-123',
+        ]);
+
+        $handoffPath = parse_url($response->json('redirect_url'), PHP_URL_PATH);
+
+        $consumeResponse = $this->get($handoffPath);
+
+        $consumeResponse->assertRedirect(route('user.desktop.index'));
+        $this->assertAuthenticatedAs($user);
+    }
+
+    public function test_native_google_sign_in_rejects_expired_token(): void
+    {
+        Http::fake([
+            'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
+                'iss' => 'https://accounts.google.com',
+                'aud' => 'test-google-client',
+                'sub' => 'native-google-expired-123',
+                'email' => 'expired-native-google@example.com',
+                'email_verified' => 'true',
+                'exp' => (string) now()->subMinute()->timestamp,
+            ]),
+        ]);
+
+        $response = $this->postJson('/api/mobile-auth/google', [
+            'id_token' => 'expired-native-google-id-token',
+        ]);
+
+        $response->assertUnprocessable()
+            ->assertJsonValidationErrors(['google']);
     }
 
     private function makeGoogleUser(): SocialiteUser
