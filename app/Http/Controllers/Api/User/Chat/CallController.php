@@ -48,6 +48,37 @@ class CallController extends Controller
         ]);
     }
 
+    public function current(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'chat_id' => ['required', 'uuid'],
+        ]);
+
+        if($validator->fails()) {
+            return $this->throwValidationError($validator);
+        }
+
+        $chatUuid = (string) $request->input('chat_id');
+        $chat = Chat::query()
+            ->where('chat_id', $chatUuid)
+            ->whereHas('participants', fn ($query) => $query->where('user_id', me()->id))
+            ->first();
+
+        if(empty($chat)) {
+            return $this->responseResourceNotFoundError('Chat', $chatUuid);
+        }
+
+        $this->finalizeStaleActiveCallsForUsers([me()->id]);
+
+        $callSession = $this->resolveCurrentCallForChat($chat);
+
+        return $this->responseSuccess([
+            'data' => [
+                'call' => $callSession ? CallSessionResource::make($callSession) : null,
+            ],
+        ]);
+    }
+
     public function iceServers()
     {
         [$iceServers, $expiresAt] = $this->makeIceServers();
@@ -781,6 +812,22 @@ class CallController extends Controller
             ->where('call_uuid', $callUuid)
             ->whereHas('participants', fn ($query) => $query->where('user_id', me()->id))
             ->with(['chat', 'initiator', 'receiver'])
+            ->first();
+    }
+
+    private function resolveCurrentCallForChat(Chat $chat): ?CallSession
+    {
+        return CallSession::query()
+            ->where('chat_id', $chat->id)
+            ->whereIn('status', [
+                CallStatus::RINGING,
+                CallStatus::ACCEPTED,
+                CallStatus::CONNECTING,
+                CallStatus::CONNECTED,
+            ])
+            ->whereHas('participants', fn ($query) => $query->where('user_id', me()->id))
+            ->with(['chat', 'initiator', 'receiver'])
+            ->orderByDesc('id')
             ->first();
     }
 

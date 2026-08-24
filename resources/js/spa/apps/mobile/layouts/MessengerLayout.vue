@@ -73,14 +73,11 @@
 			};
 
 			const syncCallFromRoute = () => {
-				const callUuid = route.query.call;
-
-				if(! callUuid || callStore.call?.call_uuid === callUuid) {
-					return;
-				}
-
-				callStore.fetchCall(callUuid, {
-					action: route.query.action
+				callStore.bootstrapFromRouteOrCurrentCall({
+					chatId: getActiveChatId(),
+					callUuid: route.query.call || null,
+					action: route.query.action || null,
+					intent: route.query.intent || null
 				}).catch(() => {});
 			};
 

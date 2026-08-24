@@ -340,6 +340,63 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.attachRealtimeChannel(this.call.chat_id);
             this.warmPreferredCallEngine();
         },
+        bootstrapFromRouteOrCurrentCall: async function(options = {}) {
+            const callUuid = options.callUuid || null;
+            const chatId = options.chatId || null;
+            const shouldClearBootIntent = Boolean(callUuid || chatId)
+                && (Boolean(callUuid) || Boolean(options.intent) || options.action === 'answer');
+            let call = false;
+
+            if(callUuid) {
+                try {
+                    call = await this.fetchCall(callUuid, {
+                        ...options,
+                        skipFinal: true
+                    });
+                }
+                catch(error) {
+                    if(! [404, 410].includes(getErrorStatus(error))) {
+                        throw error;
+                    }
+                }
+
+                if(call) {
+                    return call;
+                }
+            }
+
+            if(chatId) {
+                try {
+                    call = await this.fetchCurrentCall(chatId, {
+                        ...options,
+                        skipFinal: true
+                    });
+                }
+                catch(error) {
+                    if(getErrorStatus(error) !== 404) {
+                        throw error;
+                    }
+                }
+
+                if(call) {
+                    return call;
+                }
+            }
+
+            if(
+                shouldClearBootIntent
+                && (
+                    ! this.call?.call_uuid
+                    || ! callUuid
+                    || this.call.call_uuid === callUuid
+                    || this.call.chat_id === chatId
+                )
+            ) {
+                this.reset();
+            }
+
+            return false;
+        },
         fetchCall: async function(callUuid, options = {}) {
             if(! callUuid) {
                 return false;
@@ -347,29 +404,80 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             const response = await colibriAPI().messenger().getFrom(`calls/${callUuid}`);
             const call = response.data.data.call;
-            const direction = call.receiver_id === this.currentUserId ? 'incoming' : 'outgoing';
 
-            this.setCall(call, {
+            return await this.hydrateFetchedCall(call, options);
+        },
+        fetchCurrentCall: async function(chatId, options = {}) {
+            if(! chatId) {
+                return false;
+            }
+
+            const response = await colibriAPI().messenger()
+                .params({
+                    chat_id: chatId
+                })
+                .getFrom('calls/current');
+            const call = response.data?.data?.call;
+
+            if(! call?.call_uuid) {
+                return false;
+            }
+
+            return await this.hydrateFetchedCall(call, options);
+        },
+        hydrateFetchedCall: async function(call, options = {}) {
+            const normalizedCall = normalizeCallPayload(call);
+
+            if(! normalizedCall?.call_uuid) {
+                return false;
+            }
+
+            const direction = options.direction || (normalizedCall.receiver_id === this.currentUserId ? 'incoming' : 'outgoing');
+
+            if(this.isVisible && this.call?.call_uuid !== normalizedCall.call_uuid && ! this.isFinal) {
+                if(direction === 'incoming' && normalizedCall.receiver_id === this.currentUserId) {
+                    this.sendBusyNotice(normalizedCall);
+                }
+
+                return false;
+            }
+
+            if(options.skipFinal && finalStatuses.includes(normalizedCall.status)) {
+                if(this.isCurrentCall(normalizedCall)) {
+                    this.finishCall(normalizedCall.status, 0);
+                }
+
+                return false;
+            }
+
+            this.setCall(normalizedCall, {
                 direction: direction,
-                status: call.status || 'ringing'
+                status: normalizedCall.status || 'ringing'
             });
-            this.attachRealtimeChannel(call.chat_id);
+            this.minimized = false;
+            this.attachRealtimeChannel(normalizedCall.chat_id);
             this.warmPreferredCallEngine();
 
-            if(options.action === 'answer' && direction === 'incoming' && call.status === 'ringing') {
+            if(finalStatuses.includes(normalizedCall.status)) {
+                this.finishCall(normalizedCall.status, 0);
+
+                return normalizedCall;
+            }
+
+            if(options.action === 'answer' && direction === 'incoming' && normalizedCall.status === 'ringing') {
                 await this.answerCall();
 
-                return call;
+                return normalizedCall;
             }
 
             if(
                 options.action === 'answer'
                 && direction === 'incoming'
-                && ['accepted', 'connecting', 'connected'].includes(call.status)
+                && ['accepted', 'connecting', 'connected'].includes(normalizedCall.status)
             ) {
                 await this.yieldToUiFrame();
                 this.runPeerSetupInBackground({
-                    callUuid: call.call_uuid,
+                    callUuid: normalizedCall.call_uuid,
                     taskKey: 'background-answer-bootstrap',
                     delayMs: peerSetupDrainDelayMs,
                     onErrorMessage: 'Unable to start audio call.',
@@ -387,7 +495,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 });
             }
 
-            return call;
+            return normalizedCall;
         },
         answerCall: async function() {
             if(! this.call?.call_uuid) {

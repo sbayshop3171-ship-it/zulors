@@ -81,14 +81,21 @@
 			};
 
 			const syncCallFromRoute = () => {
-				const callUuid = route.query.call;
+				callStore.bootstrapFromRouteOrCurrentCall({
+					chatId: getActiveChatId(),
+					callUuid: route.query.call || null,
+					action: route.query.action || null,
+					intent: route.query.intent || null
+				}).catch(() => {});
+			};
 
-				if(! callUuid || callStore.call?.call_uuid === callUuid) {
+			const reconcileVisibleCall = () => {
+				if(! callStore.isVisible) {
 					return;
 				}
 
-				callStore.fetchCall(callUuid, {
-					action: route.query.action
+				callStore.reconcileActiveCall({
+					setupIfNeeded: true
 				}).catch(() => {});
 			};
 
@@ -128,16 +135,19 @@
 				if(event.detail.connected) {
 					attachRealtimeListener();
 					refreshUnreadState(150);
+					reconcileVisibleCall();
 				}
 			};
 
 			const handleFocus = () => {
 				refreshUnreadState(150);
+				reconcileVisibleCall();
 			};
 
 			const handleVisibilityChange = () => {
 				if(document.visibilityState === 'visible') {
 					refreshUnreadState(150);
+					reconcileVisibleCall();
 				}
 			};
 

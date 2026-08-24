@@ -59,7 +59,10 @@ class IncomingCallNotification extends Notification
         return [
             'title' => $caller?->name ?: config('app.name', 'Zulors'),
             'body' => 'Incoming voice call',
-            'url' => url("/messenger/c/{$chatUuid}?call={$callUuid}"),
+            'url' => url('/messenger/c/' . $chatUuid . '?' . http_build_query([
+                'call' => $callUuid,
+                'intent' => 'incoming',
+            ])),
             'type' => $this->notificationType,
             'channel_id' => 'zulors_calls',
             'android' => [

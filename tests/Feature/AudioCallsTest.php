@@ -321,6 +321,9 @@ class AudioCallsTest extends TestCase
         [$caller, $receiver, $chat] = $this->createDirectChat();
         $call = $this->createRingingCall($caller, $receiver, $chat)->load(['chat', 'initiator', 'receiver']);
         $payload = (new IncomingCallNotification($call))->toPush($receiver);
+        $query = [];
+
+        parse_str((string) parse_url($payload['url'], PHP_URL_QUERY), $query);
 
         $this->assertSame('call.incoming', $payload['type']);
         $this->assertSame('zulors_calls', $payload['channel_id']);
@@ -332,6 +335,8 @@ class AudioCallsTest extends TestCase
         $this->assertSame('call', $payload['data']['notification_category']);
         $this->assertSame('public', $payload['data']['notification_visibility']);
         $this->assertNotEmpty($payload['data']['action_token']);
+        $this->assertSame($call->call_uuid, $query['call'] ?? null);
+        $this->assertSame('incoming', $query['intent'] ?? null);
 
         $fcmMessage = app(PushNotificationPayloadFactory::class)->make($receiver, new IncomingCallNotification($call));
 
@@ -344,6 +349,36 @@ class AudioCallsTest extends TestCase
         $this->assertSame($receiver->id, $verifiedToken['user_id']);
         $this->assertSame($chat->chat_id, $verifiedToken['chat_uuid']);
         $this->assertSame($call->call_uuid, $verifiedToken['call_uuid']);
+    }
+
+    public function test_participant_can_fetch_current_call_for_chat(): void
+    {
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+        $call = $this->createRingingCall($caller, $receiver, $chat)->load(['chat', 'initiator', 'receiver']);
+
+        Sanctum::actingAs($receiver);
+
+        $this->getJson('/api/messenger/calls/current?chat_id=' . $chat->chat_id)
+            ->assertOk()
+            ->assertJsonPath('data.call.call_uuid', $call->call_uuid)
+            ->assertJsonPath('data.call.chat_id', $chat->chat_id)
+            ->assertJsonPath('data.call.status', CallStatus::RINGING->value);
+    }
+
+    public function test_current_call_endpoint_returns_null_when_chat_has_no_active_call(): void
+    {
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+        $this->createRingingCall($caller, $receiver, $chat, [
+            'status' => CallStatus::ENDED,
+            'end_reason' => 'canceled',
+            'ended_at' => now(),
+        ]);
+
+        Sanctum::actingAs($receiver);
+
+        $this->getJson('/api/messenger/calls/current?chat_id=' . $chat->chat_id)
+            ->assertOk()
+            ->assertJsonPath('data.call', null);
     }
 
     public function test_android_call_cancel_push_payload_clears_incoming_notification(): void
