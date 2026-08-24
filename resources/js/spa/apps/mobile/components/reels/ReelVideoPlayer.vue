@@ -64,7 +64,7 @@
 			<span class="block h-full bg-white" v-bind:style="{ width: `${displayProgress}%` }"></span>
 		</div>
 
-		<div class="absolute top-24 right-3 z-30">
+		<div class="absolute top-32 right-3 z-30">
 			<PrimaryIconButton
 				v-on:click.stop="toggleMute"
 				v-bind:iconName="state.isMuted ? 'volume-x' : 'volume-max'"

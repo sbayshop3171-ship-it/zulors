@@ -64,10 +64,6 @@
 
 			<div v-if="postContent" class="text-par-s leading-5 text-white/95 line-clamp-3 content-text" v-html="$mdInline(postContent)"></div>
 
-			<div class="mt-3 inline-flex max-w-full items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-cap-l text-white/80 backdrop-blur">
-				<SvgIcon name="music-note-01" type="line" classes="size-4 shrink-0"></SvgIcon>
-				<span class="truncate">{{ postUser.name }}</span>
-			</div>
 		</div>
 
 		<div class="absolute right-3 bottom-20 z-20 flex flex-col items-center gap-4">
