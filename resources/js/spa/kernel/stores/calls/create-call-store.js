@@ -5,6 +5,7 @@ import BRD from '@/kernel/websockets/brd/index.js';
 import { createAgoraAudioCallPeer, isAgoraAudioCallSupported, warmAgoraAudioCallEngine } from '@/kernel/services/calls/agora-audio-call.js';
 import { createNativeAgoraAudioCallPeer, isNativeAgoraAudioCallSupported, warmNativeAgoraAudioCallEngine } from '@/kernel/services/calls/native-agora-audio-call.js';
 import { createAudioCallPeer, isAudioCallSupported } from '@/kernel/services/calls/webrtc-audio-call.js';
+import { shouldForceReconnectHangup, shouldWatchDegradedCallRecovery } from './network-recovery.js';
 
 const finalStatuses = ['ended', 'missed', 'declined', 'busy', 'failed'];
 const connectingStatuses = ['ringing', 'accepted', 'connecting'];
@@ -2065,9 +2066,11 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
         },
         shouldWatchDegradedConnection: function() {
-            return this.status === 'connected'
-                && this.hasLiveRemoteAudio()
-                && ['poor', 'reconnecting'].includes(this.networkState);
+            return shouldWatchDegradedCallRecovery({
+                status: this.status,
+                networkState: this.networkState,
+                hasLiveRemoteAudio: this.hasLiveRemoteAudio()
+            });
         },
         startDegradedConnectionTimeoutTimer: function() {
             if(this.degradedConnectionTimeoutTimer || ! this.call?.call_uuid || ! this.shouldWatchDegradedConnection()) {
@@ -2081,6 +2084,12 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     return;
                 }
 
+                if(this.hasLiveRemoteAudio()) {
+                    this.syncDegradedConnectionTimeout();
+
+                    return;
+                }
+
                 if(this.networkState === 'reconnecting') {
                     this.error = 'Audio connection was lost.';
                     await this.endCall('connection_lost');
@@ -2088,7 +2097,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     return;
                 }
 
-                this.error = 'Poor connection ended the call.';
+                this.error = 'Remote audio was lost on a poor connection.';
                 await this.endCall('connection_timeout');
             }, degradedConnectionTimeoutSeconds * 1000);
         },
@@ -2147,6 +2156,16 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 this.reconnectTimeoutTimer = null;
 
                 if(! this.isActive || this.networkState !== 'reconnecting') {
+                    return;
+                }
+
+                if(! shouldForceReconnectHangup({
+                    isActive: this.isActive,
+                    networkState: this.networkState,
+                    hasLiveRemoteAudio: this.hasLiveRemoteAudio()
+                })) {
+                    this.syncDegradedConnectionTimeout();
+
                     return;
                 }
 
