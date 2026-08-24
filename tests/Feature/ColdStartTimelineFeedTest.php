@@ -10,9 +10,12 @@ use App\Enums\User\FollowStatus;
 use App\Enums\User\UserRole;
 use App\Enums\User\UserStatus;
 use App\Enums\User\UserType;
+use App\Models\Bookmark;
+use App\Models\Comment;
 use App\Models\Post;
 use App\Models\User;
 use App\Models\UserNotificationSettings;
+use App\Services\Timeline\UserInterestService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -94,10 +97,35 @@ class ColdStartTimelineFeedTest extends TestCase
     public function test_bootstrap_payload_contains_initial_home_feed_for_authenticated_users(): void
     {
         $viewer = $this->createUser('bootstrap-feed-viewer');
-        $author = $this->createUser('bootstrap-feed-author');
+        $preferredAuthor = $this->createUser('bootstrap-feed-preferred-author');
+        $latestAuthor = $this->createUser('bootstrap-feed-latest-author');
 
-        $latestPost = $this->createPost($author, 'Latest bootstrap post', now());
-        $olderPost = $this->createPost($author, 'Older bootstrap post', now()->subMinutes(3));
+        DB::table(Table::FOLLOWS)->insert([
+            'follower_id' => $viewer->id,
+            'following_id' => $preferredAuthor->id,
+            'status' => FollowStatus::FOLLOWING->value,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $preferredPost = $this->createPost($preferredAuthor, 'Preferred bootstrap post #sports', now()->subMinutes(5));
+        $latestPost = $this->createPost($latestAuthor, 'Latest bootstrap post #random', now());
+
+        Comment::query()->create([
+            'post_id' => $preferredPost->id,
+            'user_id' => $viewer->id,
+            'parent_id' => null,
+            'content' => 'This is the best one',
+            'text_language' => 'en',
+        ]);
+
+        Bookmark::query()->create([
+            'user_id' => $viewer->id,
+            'bookmarkable_id' => $preferredPost->id,
+            'bookmarkable_type' => Post::class,
+        ]);
+
+        app(UserInterestService::class)->recordPostInteraction($viewer, $preferredPost, UserInterestService::EVENT_COMMENT);
 
         $response = $this->actingAs($viewer)
             ->withoutMiddleware()
@@ -106,13 +134,55 @@ class ColdStartTimelineFeedTest extends TestCase
             ->assertJsonPath('data.auth.status', true)
             ->assertJsonPath('data.home_feed.type', 'for_you')
             ->assertJsonPath('data.home_feed.refresh_reason', 'initial')
-            ->assertJsonPath('data.home_feed.meta.feed.strategy', 'bootstrap_public_seed')
-            ->assertJsonPath('data.home_feed.meta.feed.scored', false);
+            ->assertJsonPath('data.home_feed.meta.feed.strategy', 'candidate_ranking_v1')
+            ->assertJsonPath('data.home_feed.meta.feed.scored', true);
 
         $bootFeedPostIds = array_column($response->json('data.home_feed.posts'), 'id');
 
-        $this->assertSame($latestPost->id, $bootFeedPostIds[0]);
-        $this->assertContains($olderPost->id, $bootFeedPostIds);
+        $this->assertSame($preferredPost->id, $bootFeedPostIds[0]);
+        $this->assertContains($latestPost->id, $bootFeedPostIds);
+    }
+
+    public function test_bootstrap_home_feed_uses_personalized_order_instead_of_public_seed_order(): void
+    {
+        $viewer = $this->createUser('bootstrap-order-viewer');
+        $preferredAuthor = $this->createUser('bootstrap-order-preferred-author');
+        $latestAuthor = $this->createUser('bootstrap-order-latest-author');
+
+        $preferredPost = $this->createPost($preferredAuthor, 'Older preferred post #travel', now()->subMinutes(8));
+        $latestPost = $this->createPost($latestAuthor, 'Newest public seed post #random', now());
+
+        Comment::query()->create([
+            'post_id' => $preferredPost->id,
+            'user_id' => $viewer->id,
+            'parent_id' => null,
+            'content' => 'Show me more like this',
+            'text_language' => 'en',
+        ]);
+
+        Bookmark::query()->create([
+            'user_id' => $viewer->id,
+            'bookmarkable_id' => $preferredPost->id,
+            'bookmarkable_type' => Post::class,
+        ]);
+
+        app(UserInterestService::class)->recordPostInteraction($viewer, $preferredPost, UserInterestService::EVENT_COMMENT);
+
+        $bootstrapResponse = $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/bootstrap/bootstrap')
+            ->assertOk();
+
+        $publicSeedResponse = $this->withoutMiddleware()
+            ->getJson('/api/bootstrap/home-feed-seed')
+            ->assertOk();
+
+        $bootstrapPostIds = array_column($bootstrapResponse->json('data.home_feed.posts'), 'id');
+        $publicSeedPostIds = array_column($publicSeedResponse->json('data.posts'), 'id');
+
+        $this->assertSame($preferredPost->id, $bootstrapPostIds[0]);
+        $this->assertSame($latestPost->id, $publicSeedPostIds[0]);
+        $this->assertNotSame($bootstrapPostIds[0], $publicSeedPostIds[0]);
     }
 
     public function test_public_home_feed_seed_is_available_without_authentication(): void

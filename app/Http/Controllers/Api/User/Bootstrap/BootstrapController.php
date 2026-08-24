@@ -37,7 +37,6 @@ class BootstrapController extends Controller
         $userStartedAt = microtime(true);
         $userData = $this->getUserData();
         $userDurationMs = $this->toMilliseconds($userStartedAt);
-        $homeFeedCacheHit = ! auth_check() ? null : Cache::has(self::PUBLIC_HOME_FEED_SEED_CACHE_KEY);
         $feedStartedAt = microtime(true);
         $homeFeedData = $this->getHomeFeedData();
         $feedDurationMs = $this->toMilliseconds($feedStartedAt);
@@ -66,7 +65,7 @@ class BootstrapController extends Controller
             ])),
             'X-Zulors-Home-Feed-Cache' => ! auth_check()
                 ? 'skip'
-                : ($homeFeedCacheHit ? 'hit' : 'miss')
+                : 'personalized'
         ]);
     }
 
@@ -131,11 +130,22 @@ class BootstrapController extends Controller
             return null;
         }
 
-        return $this->resolvePublicHomeFeedSeedPayload(
-            sessionId: 'boot-' . Str::lower(Str::random(18)),
-            refreshReason: 'initial',
-            strategy: 'bootstrap_public_seed'
-        );
+        $sessionId = 'boot-' . Str::lower(Str::random(18));
+        $refreshReason = 'initial';
+        $feedResult = app(FeedService::class)->getFeed(me(), [
+            'page' => 1,
+            'type' => FeedService::TYPE_FOR_YOU,
+            'session_id' => $sessionId,
+            'refresh_reason' => $refreshReason,
+        ]);
+
+        return [
+            'type' => FeedService::TYPE_FOR_YOU,
+            'session_id' => $sessionId,
+            'refresh_reason' => $refreshReason,
+            'posts' => TimelineCollection::make($feedResult->posts)->resolve(request()),
+            'meta' => $feedResult->meta,
+        ];
     }
 
     private function resolvePublicHomeFeedSeedPayload(

@@ -47,9 +47,7 @@
                         </div>
                     </div>
                     <div v-else-if="state.isLoadingContent">
-                        <div class="flex justify-center py-24">
-                            <div class="colibri-primary-animation"></div>
-                        </div>
+                        <TimelinePublicationSkeleton v-for="i in 3" v-bind:key="i"></TimelinePublicationSkeleton>
                     </div>
                     <div v-else>
                         <div class="block py-72">
@@ -82,6 +80,7 @@
 
     import StoriesFeed from '@D/components/stories/feed/StoriesFeed.vue';
     import TimelinePublication from '@D/components/timeline/feed/TimelinePublication.vue';
+    import TimelinePublicationSkeleton from '@D/components/timeline/feed/TimelinePublicationSkeleton.vue';
     import PublicationEditorTrigger from '@D/features/home/parts/PublicationEditorTrigger.vue';
 
     import TimelineContainer from '@D/components/layout/TimelineContainer.vue';
@@ -139,8 +138,8 @@
                 }
 
                 return timelineStore.hydrateBootFeed(
-                    window.__zulorsBoot?.sharedFeed
-                    ?? window.__zulorsBoot?.cachedBootstrap?.home_feed
+                    window.__zulorsBoot?.cachedBootstrap?.home_feed
+                    ?? (window.__zulorsBoot?.isAuthenticated ? null : window.__zulorsBoot?.sharedFeed)
                     ?? null
                 );
             };
@@ -204,9 +203,10 @@
 
                 try {
                     if(hasInstantPosts) {
-                        timelineStore.refreshFirstPage({
-                            refreshReason: 'open'
-                        });
+                        timelineStore.refreshOnAppVisible({
+                            refreshReason: 'open',
+                            minIntervalMs: 0
+                        }).catch(() => {});
                     }
                     else {
                         await timelineStore.initialLoad();
@@ -291,6 +291,7 @@
         components: {
             StoriesFeed: StoriesFeed,
             TimelinePublication: TimelinePublication,
+            TimelinePublicationSkeleton: TimelinePublicationSkeleton,
             PublicationEditorTrigger: PublicationEditorTrigger,
             TimelineContainer: TimelineContainer,
             FollowRecommendationList: FollowRecommendationList,

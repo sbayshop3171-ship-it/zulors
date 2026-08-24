@@ -114,7 +114,11 @@
                     return true;
                 }
 
-                return timelineStore.hydrateBootFeed(window.__zulorsBoot?.sharedFeed ?? null);
+                return timelineStore.hydrateBootFeed(
+                    window.__zulorsBoot?.isAuthenticated
+                        ? null
+                        : (window.__zulorsBoot?.sharedFeed ?? null)
+                );
             };
 
             const revealAppShell = () => {

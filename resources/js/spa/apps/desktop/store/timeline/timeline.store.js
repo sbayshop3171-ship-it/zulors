@@ -5,9 +5,7 @@ import { prefetchTimelineMedia } from '@/kernel/services/media-prefetch/index.js
 import { useAuthStore } from '@D/store/auth/auth.store.js';
 
 const getTimelineCacheKey = function() {
-    const authStore = useAuthStore();
-
-    return `colibri.desktop.timeline.public_feed.first_page.v2.${authStore.userData?.id || 'guest'}`;
+    return `colibri.desktop.timeline.public_feed.first_page.v2.${getBootAuthUserId() || 'guest'}`;
 };
 
 const getPublicFeedCacheKey = function() {
@@ -22,14 +20,48 @@ const createFeedSessionId = function() {
     return `feed-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 };
 
+const getBootAuthUserId = function() {
+    const authStore = useAuthStore();
+
+    if(authStore.userData?.id) {
+        return authStore.userData.id;
+    }
+
+    if(typeof window === 'undefined') {
+        return null;
+    }
+
+    return window.__zulorsBoot?.authUserId
+        ?? window.__zulorsBoot?.cachedBootstrap?.auth?.user?.id
+        ?? null;
+};
+
+const isAuthenticatedBoot = function() {
+    if(typeof window === 'undefined') {
+        return Boolean(getBootAuthUserId());
+    }
+
+    return Boolean(window.__zulorsBoot?.isAuthenticated || getBootAuthUserId());
+};
+
 const wait = function(timeout) {
     return new Promise((resolve) => {
         setTimeout(resolve, timeout);
     });
 };
 
-const bootSharedFeed = function() {
+const bootHomeFeed = function() {
     if(typeof window === 'undefined') {
+        return null;
+    }
+
+    const payload = window.__zulorsBoot?.cachedBootstrap?.home_feed ?? null;
+
+    return Array.isArray(payload?.posts) && payload.posts.length ? payload : null;
+};
+
+const bootSharedFeed = function() {
+    if(typeof window === 'undefined' || isAuthenticatedBoot()) {
         return null;
     }
 
@@ -83,7 +115,9 @@ const useTimelineStore = defineStore('timeline_store', {
     // This is used only for timeline stores, on desktop and mobile with the same logic.
     deleteAware: true,
     state: function() {
-        const sharedCachedPosts = readCache(getPublicFeedCacheKey(), bootSharedFeed()?.posts ?? [], sharedFeedCacheTtl);
+        const sharedCachedPosts = isAuthenticatedBoot()
+            ? (bootHomeFeed()?.posts ?? [])
+            : readCache(getPublicFeedCacheKey(), bootSharedFeed()?.posts ?? [], sharedFeedCacheTtl);
         const cachedPosts = readCache(getTimelineCacheKey(), sharedCachedPosts, timelineCacheTtl);
 
         prefetchTimelineMedia(cachedPosts);
@@ -150,61 +184,55 @@ const useTimelineStore = defineStore('timeline_store', {
             this.persistFirstPage();
         },
         initialLoad: async function() {
-            if (! this.posts.length) {
-                const immediateSeedFeed = bootSharedFeed();
+            if(this.posts.length) {
+                return;
+            }
 
-                if(immediateSeedFeed?.posts?.length) {
-                    this.hydrateBootFeed(immediateSeedFeed);
+            const immediateBootFeed = isAuthenticatedBoot() ? bootHomeFeed() : bootSharedFeed();
+
+            if(immediateBootFeed?.posts?.length) {
+                this.hydrateBootFeed(immediateBootFeed);
+            }
+
+            if(this.posts.length) {
+                return;
+            }
+
+            if(isAuthenticatedBoot()) {
+                await waitForBootBootstrap(220);
+
+                const bootstrapHomeFeed = bootHomeFeed();
+
+                if(bootstrapHomeFeed?.posts?.length) {
+                    this.hydrateBootFeed(bootstrapHomeFeed);
+                    return;
                 }
-
-                if(! this.posts.length && ! this.warmPromise) {
-                    this.warmFirstPage();
-                }
-
+            }
+            else {
                 const seedFeed = await waitForBootSharedFeed(120);
 
                 if(seedFeed?.posts?.length) {
                     this.hydrateBootFeed(seedFeed);
-                }
-
-                if (! this.posts.length && this.warmPromise) {
-                    await Promise.race([
-                        this.warmPromise,
-                        wait(220)
-                    ]);
-                }
-
-                if(! this.posts.length) {
-                    const delayedSeedFeed = await waitForBootSharedFeed(120);
-
-                    if(delayedSeedFeed?.posts?.length) {
-                        this.hydrateBootFeed(delayedSeedFeed);
-                    }
-                }
-
-                if(! this.posts.length) {
-                    await waitForBootBootstrap(120);
-
-                    const bootstrapSeedFeed = bootSharedFeed();
-
-                    if(bootstrapSeedFeed?.posts?.length) {
-                        this.hydrateBootFeed(bootstrapSeedFeed);
-                    }
-                }
-
-                if(! this.posts.length && this.warmPromise) {
-                    await this.warmPromise.catch(() => this.posts);
-                }
-
-                if(this.posts.length) {
                     return;
                 }
-
-                await this.refreshFirstPage({
-                    refreshReason: 'initial',
-                    attempts: 2
-                });
             }
+
+            if(! this.posts.length && ! this.warmPromise) {
+                this.warmFirstPage();
+            }
+
+            if(! this.posts.length && this.warmPromise) {
+                await this.warmPromise.catch(() => this.posts);
+            }
+
+            if(this.posts.length) {
+                return;
+            }
+
+            await this.refreshFirstPage({
+                refreshReason: 'initial',
+                attempts: 2
+            });
         },
         refreshFirstPage: async function(options = {}) {
             this.startFeedSession(options.refreshReason || 'refresh');
@@ -393,7 +421,10 @@ const useTimelineStore = defineStore('timeline_store', {
             const posts = this.posts.slice(0, timelineCacheLimit);
 
             writeCache(getTimelineCacheKey(), posts);
-            writeCache(getPublicFeedCacheKey(), posts);
+
+            if(! isAuthenticatedBoot()) {
+                writeCache(getPublicFeedCacheKey(), posts);
+            }
         },
         prefetchOpenFeed: async function(options = {}) {
             const minIntervalMs = Number(options.minIntervalMs || 12000);
@@ -433,7 +464,10 @@ const useTimelineStore = defineStore('timeline_store', {
                 const cachedPosts = posts.slice(0, timelineCacheLimit);
 
                 writeCache(getTimelineCacheKey(), cachedPosts);
-                writeCache(getPublicFeedCacheKey(), cachedPosts);
+
+                if(! isAuthenticatedBoot()) {
+                    writeCache(getPublicFeedCacheKey(), cachedPosts);
+                }
 
                 return cachedPosts;
             }
@@ -459,12 +493,22 @@ const useTimelineStore = defineStore('timeline_store', {
                 return this.initialLoad();
             }
 
-            return this.refreshFirstPage({
-                refreshReason: options.refreshReason || 'open',
-                attempts: options.attempts || 1
-            }).catch(() => {
-                return this.posts;
-            });
+            return this.updateFeed()
+                .then(() => {
+                    if(this.update.length) {
+                        this.applyUpdate();
+                    }
+
+                    return this.prefetchOpenFeed({
+                        refreshReason: options.refreshReason || 'open'
+                    }).catch(() => this.posts);
+                })
+                .then(() => {
+                    return this.posts;
+                })
+                .catch(() => {
+                    return this.posts;
+                });
         },
         startFeedSession: function(refreshReason = 'refresh') {
             this.feedSessionId = createFeedSessionId();

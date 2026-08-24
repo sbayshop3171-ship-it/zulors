@@ -121,8 +121,8 @@
                 }
 
                 return timelineStore.hydrateBootFeed(
-                    window.__zulorsBoot?.sharedFeed
-                    ?? window.__zulorsBoot?.cachedBootstrap?.home_feed
+                    window.__zulorsBoot?.cachedBootstrap?.home_feed
+                    ?? (window.__zulorsBoot?.isAuthenticated ? null : window.__zulorsBoot?.sharedFeed)
                     ?? null
                 );
             };
@@ -182,9 +182,9 @@
 
                 try {
                     if(hasInstantPosts) {
-                        timelineStore.refreshFirstPage({
+                        timelineStore.refreshOnAppVisible({
                             refreshReason: 'open',
-                            attempts: 1
+                            minIntervalMs: 0
                         }).catch(() => {});
                     }
                     else {

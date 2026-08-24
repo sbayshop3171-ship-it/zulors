@@ -59,7 +59,10 @@ const useAppStore = defineStore('app', {
 
                 if(hasFreshHomeFeed) {
                     const timelineStore = useTimelineStore();
-                    timelineStore.hydrateBootFeed(this.appData?.home_feed ?? null);
+
+                    if(! timelineStore.posts.length) {
+                        timelineStore.hydrateBootFeed(this.appData?.home_feed ?? null);
+                    }
                 }
 
                 return true;
@@ -75,7 +78,11 @@ const useAppStore = defineStore('app', {
             authStore.setUser(bootstrapData?.auth?.user ?? null);
 
             const timelineStore = useTimelineStore();
-            timelineStore.hydrateBootFeed(bootstrapData?.home_feed ?? null);
+
+            if(! timelineStore.posts.length) {
+                timelineStore.hydrateBootFeed(bootstrapData?.home_feed ?? null);
+            }
+
             writeCache(bootstrapCacheKey, bootstrapData);
         },
         forgetBootstrapCache: function() {
