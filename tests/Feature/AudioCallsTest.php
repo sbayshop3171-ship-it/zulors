@@ -468,12 +468,38 @@ class AudioCallsTest extends TestCase
             ->assertJsonPath('data.media.token_ttl_seconds', 600)
             ->assertJsonPath('data.media.area_code', 'ASIA')
             ->assertJsonPath('data.media.audio_encoder_profile', 'speech_low_quality')
-            ->assertJsonPath('data.media.audio_bitrate_kbps', 20)
+            ->assertJsonPath('data.media.audio_bitrate_kbps', 18)
             ->assertJsonPath('data.media.audio_bitrate_floor_kbps', 16)
             ->assertJsonPath('data.media.audio_sample_rate', 16000);
 
         $this->assertStringStartsWith('007', $response->json('data.media.token'));
         $this->assertNotEmpty($response->json('data.media.expires_at'));
+    }
+
+    public function test_speech_agora_defaults_are_coerced_for_low_bandwidth_voice_calls(): void
+    {
+        [$caller, $receiver, $chat] = $this->createDirectChat();
+        $call = $this->createRingingCall($caller, $receiver, $chat, [
+            'status' => CallStatus::ACCEPTED,
+            'answered_at' => now(),
+        ]);
+
+        Config::set('services.calls.media_provider', 'auto');
+        Config::set('services.calls.agora.app_id', '970CA35de60c44645bbae8a215061b33');
+        Config::set('services.calls.agora.app_certificate', '5CFd2fd1755d40ecb72977518be15d3b');
+        Config::set('services.calls.agora.audio_encoder_profile', 'speech_standard');
+        Config::set('services.calls.agora.audio_bitrate_kbps', 24);
+        Config::set('services.calls.agora.audio_bitrate_floor_kbps', 16);
+        Config::set('services.calls.agora.audio_sample_rate', 32000);
+
+        Sanctum::actingAs($caller);
+
+        $this->getJson("/api/messenger/calls/{$call->call_uuid}/media-token")
+            ->assertOk()
+            ->assertJsonPath('data.media.audio_encoder_profile', 'speech_low_quality')
+            ->assertJsonPath('data.media.audio_bitrate_kbps', 18)
+            ->assertJsonPath('data.media.audio_bitrate_floor_kbps', 16)
+            ->assertJsonPath('data.media.audio_sample_rate', 16000);
     }
 
     public function test_agora_ready_signals_keep_answered_call_in_connecting_until_media_connects(): void

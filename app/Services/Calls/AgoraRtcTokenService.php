@@ -23,8 +23,11 @@ class AgoraRtcTokenService
         'speech_low_quality',
         'speech_standard',
         'music_standard',
+        'music_standard_stereo',
         'standard_stereo',
+        'music_high_quality',
         'high_quality',
+        'music_high_quality_stereo',
         'high_quality_stereo',
     ];
 
@@ -133,16 +136,22 @@ class AgoraRtcTokenService
 
     private function audioEncoderProfile(): string
     {
-        $profile = Str::lower(trim((string) config('services.calls.agora.audio_encoder_profile', 'speech_standard')));
+        $profile = $this->configuredAudioEncoderProfile();
 
-        return in_array($profile, self::SUPPORTED_AUDIO_ENCODER_PROFILES, true)
-            ? $profile
-            : 'speech_standard';
+        if(str_starts_with($profile, 'speech') && $this->audioBitrateKbps() <= 18) {
+            return 'speech_low_quality';
+        }
+
+        return $profile;
     }
 
     private function audioBitrateKbps(): int
     {
-        return max(16, min(32, (int) config('services.calls.agora.audio_bitrate_kbps', 24)));
+        $profile = $this->configuredAudioEncoderProfile();
+        $defaultBitrate = str_starts_with($profile, 'speech') ? 18 : 24;
+        $maximumBitrate = str_starts_with($profile, 'speech') ? 18 : 32;
+
+        return max(16, min($maximumBitrate, (int) config('services.calls.agora.audio_bitrate_kbps', $defaultBitrate)));
     }
 
     private function audioBitrateFloorKbps(): int
@@ -152,11 +161,24 @@ class AgoraRtcTokenService
 
     private function audioSampleRate(): int
     {
-        $sampleRate = (int) config('services.calls.agora.audio_sample_rate', 32000);
+        $sampleRate = (int) config('services.calls.agora.audio_sample_rate', 16000);
+
+        if(str_starts_with($this->audioEncoderProfile(), 'speech') && $this->audioBitrateKbps() <= 18) {
+            return 16000;
+        }
 
         return in_array($sampleRate, [16000, 32000, 48000], true)
             ? $sampleRate
             : 16000;
+    }
+
+    private function configuredAudioEncoderProfile(): string
+    {
+        $profile = Str::lower(trim((string) config('services.calls.agora.audio_encoder_profile', 'speech_low_quality')));
+
+        return in_array($profile, self::SUPPORTED_AUDIO_ENCODER_PROFILES, true)
+            ? $profile
+            : 'speech_low_quality';
     }
 
     private function audioRoutePreset(): string
