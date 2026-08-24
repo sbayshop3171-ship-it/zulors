@@ -167,48 +167,59 @@ body.sticky-bar-open .sticky-bar-bottom-fix{
 
 body.auth-page {
     --auth-safe-top: max(env(safe-area-inset-top, 0px), var(--zulors-android-safe-top, 0px));
+    --auth-safe-right: max(env(safe-area-inset-right, 0px), var(--zulors-android-safe-right, 0px));
     --auth-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--zulors-android-safe-bottom, 0px));
-    --auth-header-height: calc(3.5rem + env(safe-area-inset-top, 0px));
-    --auth-shell-max-width: 26rem;
-    --auth-shell-padding-inline: clamp(0.875rem, 3.5vw, 2rem);
+    --auth-safe-left: max(env(safe-area-inset-left, 0px), var(--zulors-android-safe-left, 0px));
+    --auth-viewport-height: 100vh;
+    --auth-viewport-width: 100vw;
+    --auth-header-bar-height: 3.5rem;
+    --auth-shell-padding-inline: max(clamp(0.875rem, 3.5vw, 2rem), var(--auth-safe-left), var(--auth-safe-right));
+    --auth-shell-max-width: min(26rem, calc(var(--auth-viewport-width) - (2 * var(--auth-shell-padding-inline))));
+    --auth-header-height: calc(var(--auth-header-bar-height) + var(--auth-safe-top));
     width: 100%;
     min-width: 0;
-    min-height: 100vh;
+    min-height: var(--auth-viewport-height);
     margin: 0;
     overflow-x: hidden;
-    --auth-header-height: calc(3.5rem + var(--auth-safe-top));
     padding-top: var(--auth-header-height);
+    scroll-padding-top: calc(var(--auth-header-height) + 1rem);
 }
 
-@supports (min-height: 100dvh) {
+@supports (height: 100svh) {
     body.auth-page {
-        min-height: 100dvh;
+        --auth-viewport-height: 100svh;
     }
 }
 
-body.auth-page > header {
-    min-width: 0 !important;
-    padding-top: var(--auth-safe-top);
+@supports (height: 100dvh) {
+    body.auth-page {
+        --auth-viewport-height: 100dvh;
+    }
+}
+
+html.zulors-android-app body.auth-page {
+    --auth-viewport-height: var(--zulors-android-viewport-height, 100dvh);
+    --auth-viewport-width: var(--zulors-android-viewport-width, 100vw);
 }
 
 .auth-page-shell {
     width: 100%;
-    min-height: calc(100vh - var(--auth-header-height));
+    min-height: calc(var(--auth-viewport-height) - var(--auth-header-height));
     min-width: 0;
     gap: clamp(1rem, 3.5vh, 2rem);
 }
 
-@supports (min-height: 100dvh) {
-    .auth-page-shell {
-        min-height: calc(100dvh - var(--auth-header-height));
-    }
+body.auth-page > header {
+    min-width: 0 !important;
+    min-height: var(--auth-header-height);
+    padding-top: var(--auth-safe-top);
 }
 
 .auth-page-main {
     width: 100%;
     min-width: 0;
     align-items: center;
-    padding: clamp(2rem, 8vh, 6rem) var(--auth-shell-padding-inline) clamp(1rem, 4vh, 2.5rem);
+    padding: clamp(2.25rem, 8vh, 6rem) var(--auth-shell-padding-inline) clamp(1rem, 4vh, 2.5rem);
 }
 
 .auth-content {
@@ -303,12 +314,30 @@ body.auth-page footer {
 
 body.auth-page .site-header__logo-link {
     left: 50%;
-    translate: -50% 0;
+    top: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    max-width: calc(var(--auth-viewport-width) - (2 * var(--auth-shell-padding-inline)) - 4.5rem);
+    transform: translate(-50%, -50%);
 }
 
 body.auth-page .site-header__logo {
+    display: block;
     width: auto;
-    max-width: min(10rem, calc(100vw - 8rem));
+    height: 1.75rem;
+    max-width: 100%;
+    object-fit: contain;
+}
+
+body.auth-page .site-header__bar {
+    min-height: var(--auth-header-bar-height);
+    height: var(--auth-header-bar-height);
+    padding-inline: var(--auth-shell-padding-inline);
+}
+
+body.auth-page .site-footer__inner {
+    padding-inline: var(--auth-shell-padding-inline);
 }
 
 body.auth-page .site-footer__nav a,
@@ -321,19 +350,20 @@ body.auth-page .site-footer__badges {
     flex-wrap: wrap;
 }
 
+html.zulors-android-app body.auth-page .auth-page-main {
+    padding-top: clamp(2.75rem, 9vh, 4.5rem);
+    padding-bottom: max(1rem, var(--auth-safe-bottom));
+}
+
 @media (max-width: 767px) {
     .auth-page-main {
         align-items: flex-start;
-        padding-top: clamp(2rem, 7vh, 3.5rem);
-        padding-bottom: 0.75rem;
+        padding-top: clamp(2.5rem, 8vh, 4rem);
+        padding-bottom: max(0.75rem, var(--auth-safe-bottom));
     }
 
     .auth-content {
         width: 100%;
-    }
-
-    body.auth-page .site-header__bar {
-        padding-inline: 0.875rem;
     }
 
     body.auth-page .site-header__actions {
@@ -352,7 +382,6 @@ body.auth-page .site-footer__badges {
 
     body.auth-page .site-footer__inner {
         max-width: 36rem;
-        padding-inline: 1rem;
     }
 
     body.auth-page .site-footer__nav {
@@ -383,7 +412,7 @@ body.auth-page .site-footer__badges {
 
 @media (max-width: 479px) {
     .auth-page-main {
-        padding-inline: 0.875rem;
+        padding-inline: var(--auth-shell-padding-inline);
     }
 
     .auth-social-button__label {
@@ -392,6 +421,12 @@ body.auth-page .site-footer__badges {
 
     body.auth-page .site-footer__copyright {
         font-size: 0.75rem;
+    }
+}
+
+@media (max-width: 767px) {
+    html.zulors-android-app body.auth-page .auth-page-main {
+        padding-top: clamp(3rem, 10vh, 5rem);
     }
 }
 
