@@ -9,7 +9,7 @@
                 href="{{ route($driver['meta']['url']) }}"
                 data-native-google-signin="{{ $driverName === 'google' ? 'true' : '' }}"
                 data-native-google-driver="{{ $driverName === 'google' ? $driverName : '' }}"
-                data-native-google-client-id="{{ $driverName === 'google' ? data_get($driver, 'credentials.client_id', '') : '' }}"
+                data-native-google-client-id="{{ $driverName === 'google' ? (string) config('social-login.providers.google.credentials.client_id', '') : '' }}"
             >
                 <x-slot:iconSlot>
                     <img class="w-full" src="{{ asset($driver['meta']['logo']) }}" alt="Logo">
