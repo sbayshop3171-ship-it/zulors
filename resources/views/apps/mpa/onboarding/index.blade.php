@@ -1,8 +1,8 @@
 @extends('authLayout::index')
 
 @section('pageContent')
-    <div>
-        <div class="mb-16">
+    <div class="auth-flow auth-flow--onboarding">
+        <div class="auth-flow__intro mb-10 md:mb-16">
             <x-auth.parts.form-header title="{{ __('labels.signup_almost_done.title') }}">
                 <x-slot:icon>
                     <x-ui-icon name="user-02" type="line"></x-ui-icon>

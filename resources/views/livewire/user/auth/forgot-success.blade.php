@@ -1,6 +1,6 @@
 <div>
-    <form method="POST" wire:submit.prevent="submitForm">
-        <div class="mb-16">
+    <form method="POST" wire:submit.prevent="submitForm" class="auth-form">
+        <div class="auth-form__status mb-10 md:mb-16">
             <div class="mb-4">
                 <x-auth.parts.form-header title="{{ __('auth.forgot_success_message.title') }}">
                     <x-slot:icon>

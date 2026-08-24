@@ -7,10 +7,8 @@
         @foreach($primaryOptions as $driverName => $driver)
             <x-auth.social.button
                 href="{{ route($driver['meta']['url']) }}"
-                @if($driverName === 'google')
-                    data-native-google-signin="true"
-                    data-native-google-driver="{{ $driverName }}"
-                @endif
+                data-native-google-signin="{{ $driverName === 'google' ? 'true' : '' }}"
+                data-native-google-driver="{{ $driverName === 'google' ? $driverName : '' }}"
             >
                 <x-slot:iconSlot>
                     <img class="w-full" src="{{ asset($driver['meta']['logo']) }}" alt="Logo">

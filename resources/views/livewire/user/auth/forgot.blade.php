@@ -1,6 +1,6 @@
 <div>
-    <form method="POST" wire:submit.prevent="submitForm">
-        <div class="mb-6">
+    <form method="POST" wire:submit.prevent="submitForm" class="auth-form">
+        <div class="auth-form__intro mb-6">
             <x-auth.parts.form-header title="{{ __('auth.restore_access')}}">
                 <x-slot:icon>
                     <x-ui-icon name="lock-unlocked-02" type="line"></x-ui-icon>

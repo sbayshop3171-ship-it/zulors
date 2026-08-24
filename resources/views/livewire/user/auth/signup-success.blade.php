@@ -1,6 +1,6 @@
 <div>
-    <form method="POST" wire:submit.prevent="verifyOtp">
-        <div class="mb-16">
+    <form method="POST" wire:submit.prevent="verifyOtp" class="auth-form">
+        <div class="auth-form__status mb-10 md:mb-16">
             <div class="mb-4">
                 <x-auth.parts.form-header title="{{ __('auth.signup_success_message.title') }}">
                     <x-slot:icon>
