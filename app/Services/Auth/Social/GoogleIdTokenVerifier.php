@@ -9,7 +9,10 @@ class GoogleIdTokenVerifier
 {
     private const TOKENINFO_URL = 'https://oauth2.googleapis.com/tokeninfo';
 
-    public function verify(string $idToken, string $expectedAudience): array
+    /**
+     * @param  string|array<int, string>  $expectedAudience
+     */
+    public function verify(string $idToken, string|array $expectedAudience): array
     {
         $response = Http::timeout(8)
             ->acceptJson()
@@ -31,7 +34,9 @@ class GoogleIdTokenVerifier
             ]);
         }
 
-        if(! hash_equals($expectedAudience, (string) data_get($payload, 'aud', ''))) {
+        $audience = (string) data_get($payload, 'aud', '');
+
+        if(! $this->audienceMatches($audience, $expectedAudience)) {
             throw ValidationException::withMessages([
                 'google' => __('This Google sign in is not configured for Zulors.'),
             ]);
@@ -64,5 +69,25 @@ class GoogleIdTokenVerifier
         }
 
         return $payload;
+    }
+
+    /**
+     * @param  string|array<int, string>  $expectedAudience
+     */
+    private function audienceMatches(string $audience, string|array $expectedAudience): bool
+    {
+        $allowedAudiences = is_array($expectedAudience) ? $expectedAudience : [$expectedAudience];
+        $allowedAudiences = array_values(array_filter(array_map(
+            fn (string $clientId) => trim($clientId),
+            $allowedAudiences
+        )));
+
+        foreach($allowedAudiences as $allowedAudience) {
+            if(hash_equals($allowedAudience, $audience)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

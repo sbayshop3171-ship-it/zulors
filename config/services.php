@@ -51,6 +51,12 @@ return [
     'ipinfo' => [
         'token' => env('IPINFO_TOKEN'),
     ],
+    'google' => [
+        'native_client_ids' => array_values(array_filter(array_map('trim', explode(',', env(
+            'GOOGLE_NATIVE_CLIENT_IDS',
+            '92185010272-6likk4ebn353qm2mjdembk8cttaivfl3.apps.googleusercontent.com'
+        ))))),
+    ],
     'translation' => [
         'api_url' => env('TRANSLATION_SERVICE_API_URL'),
         'api_key' => env('TRANSLATION_SERVICE_API_KEY'),

@@ -33,6 +33,9 @@ class GoogleSocialLoginFlowTest extends TestCase
             'client_secret' => 'test-google-secret',
             'redirect' => url('social-login/callback/google'),
         ]);
+        config()->set('services.google.native_client_ids', [
+            'test-native-google-client',
+        ]);
     }
 
     public function test_google_callback_links_existing_email_and_reuses_same_account_without_server_error(): void
@@ -177,6 +180,38 @@ class GoogleSocialLoginFlowTest extends TestCase
         $this->assertDatabaseMissing(Table::SOCIAL_ACCOUNTS, [
             'provider_name' => 'google',
             'provider_id' => 'native-google-user-123',
+        ]);
+    }
+
+    public function test_native_google_sign_in_accepts_configured_native_audience(): void
+    {
+        Http::fake([
+            'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
+                'iss' => 'https://accounts.google.com',
+                'aud' => 'test-native-google-client',
+                'sub' => 'native-google-client-user-123',
+                'email' => 'native-google-client@example.com',
+                'email_verified' => 'true',
+                'exp' => (string) now()->addMinutes(10)->timestamp,
+                'name' => 'Native Firebase Client',
+                'given_name' => 'Native',
+                'picture' => null,
+            ]),
+        ]);
+
+        $response = $this->postJson('/api/mobile-auth/google', [
+            'id_token' => 'valid-native-firebase-google-id-token',
+        ]);
+
+        $response->assertOk()
+            ->assertJson([
+                'is_existing_user' => false,
+                'next_url' => route('user.onboarding.index', 'profile'),
+            ]);
+
+        $this->assertDatabaseHas(Table::SOCIAL_ACCOUNTS, [
+            'provider_name' => 'google',
+            'provider_id' => 'native-google-client-user-123',
         ]);
     }
 

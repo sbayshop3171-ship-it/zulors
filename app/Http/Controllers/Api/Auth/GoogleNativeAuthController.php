@@ -31,7 +31,10 @@ class GoogleNativeAuthController extends Controller
         ]);
 
         $credentials = $socialAuthService->setDriver(self::DRIVER)->getCredentials();
-        $googlePayload = $googleIdTokenVerifier->verify($validatedData['id_token'], (string) $credentials['client_id']);
+        $googlePayload = $googleIdTokenVerifier->verify(
+            $validatedData['id_token'],
+            $this->trustedAudiences((string) $credentials['client_id'])
+        );
         $socialiteUser = $this->makeSocialiteUser($googlePayload);
 
         $result = $socialAuthService
@@ -118,5 +121,16 @@ class GoogleNativeAuthController extends Controller
         return Onboard::query()->where('user_id', $user->id)->exists()
             ? route('user.onboarding.index', 'profile')
             : route('user.desktop.index');
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function trustedAudiences(string $browserClientId): array
+    {
+        return array_values(array_unique(array_filter(array_merge(
+            [$browserClientId],
+            config('services.google.native_client_ids', [])
+        ))));
     }
 }
