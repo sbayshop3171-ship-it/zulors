@@ -1,7 +1,8 @@
 <template>
 	<div ref="swipeSurfaceRef">
 		<TimelineContainer>
-			<div class="mobile-safe-overlay-top sticky top-0 popup-background-tr z-10">
+			<div class="mobile-safe-overlay-top sticky top-0 popup-background-tr z-10 transition-transform duration-300"
+			v-bind:class="exploreChrome.hiddenClass">
 	            <Soundbar></Soundbar>
 				<div class="px-4 pt-4">
 					<QuickSearch v-on:cancel="handleSearchCancel" v-model.lazy="postSearchQuery" v-bind:placeholder="$t('labels.search')"></QuickSearch>
@@ -53,9 +54,10 @@
 <script>
     import { defineComponent, reactive, computed, onMounted, onUnmounted, ref, watch } from 'vue';
     import { useExplorePostsStore } from '@M/store/explore/posts.store.js';
-    import { useInfiniteScroll } from '@/kernel/vue/composables/infinite-scroll/index.js';
+	import { useInfiniteScroll } from '@/kernel/vue/composables/infinite-scroll/index.js';
 	import { useDeletePost } from '@/kernel/vue/composables/delete-post/index.js';
 	import { useInstantRevalidation } from '@/kernel/vue/composables/instant-revalidation/index.js';
+	import { useScrollAwareHeader } from '@/kernel/vue/composables/scroll-aware-header/index.js';
 	import { mobileExploreSwipeSequence, useSwipeRouteNavigation } from '@/kernel/vue/composables/swipe-route-navigation/index.js';
 	import BRD from '@/kernel/websockets/brd/index.js';
 
@@ -112,6 +114,11 @@
 
 			const isSearchActive = computed(() => {
 				return postSearchQuery.value.trim().length > 0;
+			});
+			const exploreChrome = useScrollAwareHeader({
+				disabled: computed(() => {
+					return state.isLoading || state.isSearchLoading || isSearchActive.value;
+				})
 			});
 
 			const refreshLatestFeed = async () => {
@@ -228,6 +235,7 @@
 				feedType: feedType,
 				refreshReason: refreshReason,
 				postSearchQuery: postSearchQuery,
+				exploreChrome: exploreChrome,
                 newPosts: newPosts,
                 applyNewPosts: () => {
                     explorePostsStore.applyUpdate();

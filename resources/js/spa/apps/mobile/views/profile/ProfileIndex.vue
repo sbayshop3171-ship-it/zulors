@@ -23,7 +23,8 @@
 			<ProfileActions></ProfileActions>
 		</div>
 
-		<div v-if="! state.isLoading" class="mobile-safe-sticky-top block sticky bg-bg-pr z-20">
+		<div v-if="! state.isLoading" class="mobile-safe-sticky-top block sticky bg-bg-pr z-20 transition-transform duration-300"
+		v-bind:class="profileChrome.hiddenClass">
 			<ContentTabs>
 				<TabsLink v-bind:link="{ name: 'profile_posts' }">
 					{{ $t('labels.posts') }}
@@ -47,6 +48,7 @@
 	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 	import { useRoute, useRouter } from 'vue-router';
 	import { useInstantRevalidation } from '@/kernel/vue/composables/instant-revalidation/index.js';
+	import { useScrollAwareHeader } from '@/kernel/vue/composables/scroll-aware-header/index.js';
 	import { normalizeProfileUsername, isValidProfileUsername } from '@/kernel/support/profile-routing/index.js';
 
 	import HeaderSkeleton from '@M/views/profile/parts/skeletons/HeaderSkeleton.vue';
@@ -68,6 +70,11 @@
 
 			const state = reactive({
 				isLoading: true
+			});
+			const profileChrome = useScrollAwareHeader({
+				disabled: computed(() => {
+					return state.isLoading;
+				})
 			});
 
 			const profileId = ref(normalizeProfileUsername(props.id));
@@ -134,7 +141,8 @@
 
 			return {
 				state: state,
-				profileData: profileData
+				profileData: profileData,
+				profileChrome: profileChrome
 			};
 		},
 		components: {

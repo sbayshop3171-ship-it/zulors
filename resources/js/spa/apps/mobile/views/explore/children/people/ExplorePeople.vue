@@ -1,7 +1,8 @@
 <template>
 	<div ref="swipeSurfaceRef">
 		<TimelineContainer>
-			<div class="mobile-safe-overlay-top sticky top-0 popup-background-tr z-10">
+			<div class="mobile-safe-overlay-top sticky top-0 popup-background-tr z-10 transition-transform duration-300"
+			v-bind:class="exploreChrome.hiddenClass">
 				<div class="px-4 pt-4">
 					<QuickSearch v-on:cancel="handleSearchCancel" v-model="peopleSearchQuery" v-bind:placeholder="$t('labels.search')"></QuickSearch>
 				</div>
@@ -55,6 +56,7 @@
 	import { defineComponent, reactive, onMounted, onUnmounted, ref, watch, computed } from 'vue';
 	import { useExplorePeopleStore } from '@M/store/explore/people.store.js';
 	import { useInfiniteScroll } from '@/kernel/vue/composables/infinite-scroll/index.js';
+	import { useScrollAwareHeader } from '@/kernel/vue/composables/scroll-aware-header/index.js';
 	import { mobileExploreSwipeSequence, useSwipeRouteNavigation } from '@/kernel/vue/composables/swipe-route-navigation/index.js';
 
 	import TimelineContainer from '@M/components/timeline/feed/TimelineContainer.vue';
@@ -82,8 +84,16 @@
 			const people = computed(() => {
 				return explorePeopleStore.people;
 			});
+			const isSearchActive = computed(() => {
+				return peopleSearchQuery.value.trim().length > 0;
+			});
 
 			const explorePeopleStore = useExplorePeopleStore();
+			const exploreChrome = useScrollAwareHeader({
+				disabled: computed(() => {
+					return state.isLoading || state.isSearchLoading || isSearchActive.value;
+				})
+			});
 
 			useSwipeRouteNavigation(swipeSurfaceRef, mobileExploreSwipeSequence);
 
@@ -155,6 +165,7 @@
 				state: state,
 				peopleSearchQuery: peopleSearchQuery,
 				swipeSurfaceRef: swipeSurfaceRef,
+				exploreChrome: exploreChrome,
 				handleSearchCancel: () => {
 					peopleSearchQuery.value = '';
 				}
