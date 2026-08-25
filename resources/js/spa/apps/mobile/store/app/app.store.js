@@ -7,6 +7,7 @@ import { useTimelineStore } from '@M/store/timeline/timeline.store.js';
 const bootstrapCacheKey = 'colibri.mobile.bootstrap.v1';
 const bootstrapCacheTtl = 1000 * 60 * 15;
 const bootstrapHomeFeedTtl = 1000 * 60 * 5;
+const nativeGoogleAuthSuccessKey = 'zulors.native.google.auth.success.at';
 
 const wait = (timeout) => {
     return new Promise((resolve) => {
@@ -19,6 +20,15 @@ const refreshApplication = () => {
     refreshUrl.searchParams.set('bootstrap_refresh', Date.now().toString());
 
     window.location.replace(refreshUrl.toString());
+};
+
+const clearNativeGoogleAuthSuccessFlag = () => {
+    try {
+        window.sessionStorage.removeItem(nativeGoogleAuthSuccessKey);
+    }
+    catch (error) {
+        //
+    }
 };
 
 const takeBootBootstrapRequest = async () => {
@@ -76,6 +86,10 @@ const useAppStore = defineStore('mobile_app_store', {
             this.appData = bootstrapData;
             this.appDataCachedAt = Date.now();
             authStore.setUser(bootstrapData?.auth?.user ?? null);
+
+            if (bootstrapData?.auth?.user) {
+                clearNativeGoogleAuthSuccessFlag();
+            }
 
             const timelineStore = useTimelineStore();
 
