@@ -2,7 +2,7 @@
 
 @section('pageContent')
     <div class="auth-flow auth-flow--onboarding">
-        <div class="auth-flow__intro mb-10 md:mb-16">
+        <div class="auth-flow__intro">
             <x-auth.parts.form-header title="{{ __('labels.signup_almost_done.title') }}">
                 <x-slot:icon>
                     <x-ui-icon name="user-02" type="line"></x-ui-icon>
@@ -12,7 +12,7 @@
                 </x-slot:caption>
             </x-auth.parts.form-header>
         </div>
-        <div class="mb-6">
+        <div class="auth-flow__progress">
             <span class="text-lab-sc text-par-m mb-2 inline-block">
                 {{ __('labels.signup_steps', ['current' => ($stepIndex + 1), 'total' => $totalSteps]) }}
             </span>
@@ -27,7 +27,7 @@
         ])
 
         <div>
-            <p class="text-par-s text-lab-sc text-center">
+            <p class="auth-agreement text-par-s text-lab-sc text-center">
                 {!! __('auth.auth_agreement', [
                     'app_name' => config('app.name'),
                     'terms_link' => route('document.terms.index'),

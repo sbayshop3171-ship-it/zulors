@@ -19,7 +19,7 @@
                 <x-form.label>
                     {{ __('labels.birthdate') }}
                 </x-form.label>
-                <div class="grid grid-cols-3 gap-2 mb-2">
+                <div class="grid grid-cols-1 min-[380px]:grid-cols-3 gap-2 mb-2">
                     <div class="cursor-pointer">
                         <x-form.select
                             wire:model.live="birthMonth"

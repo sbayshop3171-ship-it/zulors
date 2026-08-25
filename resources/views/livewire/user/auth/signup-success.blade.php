@@ -1,16 +1,14 @@
 <div>
     <form method="POST" wire:submit.prevent="verifyOtp" class="auth-form">
-        <div class="auth-form__status mb-10 md:mb-16">
-            <div class="mb-4">
-                <x-auth.parts.form-header title="{{ __('auth.signup_success_message.title') }}">
-                    <x-slot:icon>
-                        <x-ui-icon name="mail-01" type="line"></x-ui-icon>
-                    </x-slot:icon>
-                    <x-slot:caption>
-                        {{ __('auth.signup_success_message.caption', ['email_address' => $confirmationData->email]) }}
-                    </x-slot:caption>
-                </x-auth.parts.form-header>
-            </div>
+        <div class="auth-form__status">
+            <x-auth.parts.form-header title="{{ __('auth.signup_success_message.title') }}">
+                <x-slot:icon>
+                    <x-ui-icon name="mail-01" type="line"></x-ui-icon>
+                </x-slot:icon>
+                <x-slot:caption>
+                    {{ __('auth.signup_success_message.caption', ['email_address' => $confirmationData->email]) }}
+                </x-slot:caption>
+            </x-auth.parts.form-header>
 
             <x-div></x-div>
         </div>

@@ -1,6 +1,6 @@
 <div>
     <form method="POST" wire:submit.prevent="submitForm" class="auth-form">
-        <div class="auth-form__intro mb-6">
+        <div class="auth-form__intro">
             <x-auth.parts.form-header title="{{ __('auth.login_to_cp.title')}}">
                 <x-slot:caption>
                     {{ __('auth.login_to_cp.caption') }}

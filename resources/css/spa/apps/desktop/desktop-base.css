@@ -173,8 +173,8 @@ body.auth-page {
     --auth-viewport-height: 100vh;
     --auth-viewport-width: 100vw;
     --auth-header-bar-height: 3.5rem;
-    --auth-shell-padding-inline: max(clamp(0.875rem, 3.5vw, 2rem), var(--auth-safe-left), var(--auth-safe-right));
-    --auth-shell-max-width: min(26rem, calc(var(--auth-viewport-width) - (2 * var(--auth-shell-padding-inline))));
+    --auth-shell-padding-inline: max(clamp(1rem, 3.5vw, 2rem), var(--auth-safe-left), var(--auth-safe-right));
+    --auth-shell-max-width: min(28rem, calc(var(--auth-viewport-width) - (2 * var(--auth-shell-padding-inline))));
     --auth-header-height: calc(var(--auth-header-bar-height) + var(--auth-safe-top));
     width: 100%;
     min-width: 0;
@@ -206,7 +206,7 @@ html.zulors-android-app body.auth-page {
     width: 100%;
     min-height: calc(var(--auth-viewport-height) - var(--auth-header-height));
     min-width: 0;
-    gap: clamp(1rem, 3.5vh, 2rem);
+    gap: clamp(0.875rem, 2.5vh, 1.5rem);
 }
 
 body.auth-page > header {
@@ -219,13 +219,16 @@ body.auth-page > header {
     width: 100%;
     min-width: 0;
     align-items: center;
-    padding: clamp(2.25rem, 8vh, 6rem) var(--auth-shell-padding-inline) clamp(1rem, 4vh, 2.5rem);
+    padding: clamp(1.5rem, 5vh, 4rem) var(--auth-shell-padding-inline) clamp(1rem, 3vh, 2rem);
 }
 
 .auth-content {
     width: min(100%, var(--auth-shell-max-width));
     max-width: 100%;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(1rem, 2.5vh, 1.5rem);
 }
 
 .auth-app-badges {
@@ -243,28 +246,42 @@ body.auth-page > header {
 body.auth-page footer {
     width: 100%;
     min-width: 0 !important;
+    padding-top: 0.25rem;
     padding-bottom: max(var(--auth-safe-bottom), 1rem);
 }
 
 .auth-form,
 .auth-flow {
     width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(1rem, 2.5vh, 1.5rem);
 }
 
 .auth-form__intro {
-    margin-bottom: clamp(1.25rem, 4vh, 1.75rem);
+    margin-bottom: 0;
 }
 
 .auth-form__status,
 .auth-flow__intro {
-    margin-bottom: clamp(2rem, 8vh, 4rem);
+    margin-bottom: 0;
+}
+
+.auth-form__status {
+    display: flex;
+    flex-direction: column;
+    gap: clamp(0.875rem, 2vh, 1rem);
+}
+
+.auth-flow__progress {
+    margin-bottom: 0;
 }
 
 .auth-form-header {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 0.5rem;
+    gap: clamp(0.5rem, 1.5vh, 0.75rem);
 }
 
 .auth-form-header__icon {
@@ -273,12 +290,13 @@ body.auth-page footer {
 
 .auth-form-header__title {
     line-height: 1.2;
+    max-width: 16ch;
     text-wrap: balance;
 }
 
 .auth-form-header__caption,
 .auth-agreement {
-    max-width: 34ch;
+    max-width: 36ch;
     margin-inline: auto;
     line-height: 1.6;
     overflow-wrap: anywhere;
@@ -337,7 +355,12 @@ body.auth-page .site-header__bar {
 }
 
 body.auth-page .site-footer__inner {
+    max-width: 40rem;
     padding-inline: var(--auth-shell-padding-inline);
+}
+
+body.auth-page .site-footer__nav {
+    gap: 0.5rem 1rem;
 }
 
 body.auth-page .site-footer__nav a,
@@ -346,20 +369,28 @@ body.auth-page .site-footer__copyright {
     overflow-wrap: anywhere;
 }
 
+body.auth-page .site-footer__divider {
+    margin-block: 0.875rem;
+}
+
+body.auth-page .site-footer__meta {
+    gap: 0.625rem;
+}
+
 body.auth-page .site-footer__badges {
     flex-wrap: wrap;
 }
 
 html.zulors-android-app body.auth-page .auth-page-main {
-    padding-top: clamp(2.75rem, 9vh, 4.5rem);
+    padding-top: clamp(2rem, 7vh, 4rem);
     padding-bottom: max(1rem, var(--auth-safe-bottom));
 }
 
 @media (max-width: 767px) {
     .auth-page-main {
-        align-items: flex-start;
-        padding-top: clamp(2.5rem, 8vh, 4rem);
-        padding-bottom: max(0.75rem, var(--auth-safe-bottom));
+        align-items: center;
+        padding-top: clamp(1.25rem, 3.5vh, 2.25rem);
+        padding-bottom: max(0.875rem, var(--auth-safe-bottom));
     }
 
     .auth-content {
@@ -381,18 +412,19 @@ html.zulors-android-app body.auth-page .auth-page-main {
     }
 
     body.auth-page .site-footer__inner {
-        max-width: 36rem;
+        max-width: 30rem;
     }
 
     body.auth-page .site-footer__nav {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 0.75rem 1rem;
-        text-align: left;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 0.5rem 0.875rem;
+        text-align: center;
     }
 
     body.auth-page .site-footer__meta {
-        gap: 0.75rem;
+        gap: 0.5rem;
     }
 
     body.auth-page .site-footer__badges {
@@ -400,9 +432,14 @@ html.zulors-android-app body.auth-page .auth-page-main {
         justify-content: center;
     }
 
+    body.auth-page .site-footer__nav a {
+        font-size: 0.8125rem;
+    }
+
     .auth-form-header__caption,
     .auth-agreement {
         max-width: none;
+        text-wrap: pretty;
     }
 
     .auth-app-badges {
@@ -411,12 +448,16 @@ html.zulors-android-app body.auth-page .auth-page-main {
 }
 
 @media (max-width: 479px) {
+    body.auth-page {
+        --auth-shell-padding-inline: max(1rem, var(--auth-safe-left), var(--auth-safe-right));
+    }
+
     .auth-page-main {
         padding-inline: var(--auth-shell-padding-inline);
     }
 
     .auth-social-button__label {
-        padding-inline: 2.75rem;
+        padding-inline: 2.25rem;
     }
 
     body.auth-page .site-footer__copyright {
@@ -424,15 +465,22 @@ html.zulors-android-app body.auth-page .auth-page-main {
     }
 }
 
+@media (max-width: 767px) and (max-height: 780px) {
+    .auth-page-main {
+        align-items: flex-start;
+        padding-top: clamp(1.5rem, 5vh, 3rem);
+    }
+}
+
 @media (max-width: 767px) {
     html.zulors-android-app body.auth-page .auth-page-main {
-        padding-top: clamp(3rem, 10vh, 5rem);
+        padding-top: clamp(1.75rem, 6vh, 3.5rem);
     }
 }
 
 @media (min-width: 768px) and (max-width: 1024px) {
     .auth-content {
-        width: min(100%, 27.5rem);
+        width: min(100%, 29rem);
     }
 }
 

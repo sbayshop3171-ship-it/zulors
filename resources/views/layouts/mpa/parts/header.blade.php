@@ -1,5 +1,5 @@
-<header class="site-header fixed top-0 left-0 right-0 bg-bg-pr/80 backdrop-blur-xs" style="min-width: 320px;">
-    <div class="site-header__bar h-14 flex justify-between px-4 md:px-8 items-center relative">
+<header class="site-header fixed inset-x-0 top-0 bg-bg-pr/80 backdrop-blur-xs" style="min-width: 320px;">
+    <div class="site-header__bar relative flex h-14 items-center justify-between px-4 md:px-8">
         <div class="text-lab-pr text-par-m font-medium hidden md:block">
             @guest
                 {{ __('auth.hi_there') }}
@@ -8,8 +8,8 @@
             @endif
         </div>
 
-        <a class="site-header__logo-link absolute left-half -translate-x-3.5" href="{{ route('user.desktop.index', '/') }}">
-            <img class="site-header__logo h-7" src="{{ $logotypeUrl }}" alt="Image">
+        <a class="site-header__logo-link absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" href="{{ route('user.desktop.index', '/') }}">
+            <img class="site-header__logo h-7" src="{{ $logotypeUrl }}" alt="{{ config('app.name') }}">
         </a>
 
         <div class="site-header__actions inline-flex gap-5 text-lab-pr font-medium items-center ml-auto">

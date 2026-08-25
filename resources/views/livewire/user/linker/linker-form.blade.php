@@ -1,6 +1,6 @@
 <div>
     <form method="POST" wire:submit.prevent="submitForm" class="auth-form">
-        <div class="auth-form__intro mb-6">
+        <div class="auth-form__intro">
             <x-auth.parts.form-header title="{{ __('auth.linker_login.title')}}">
                 <x-slot:icon>
                     <x-ui-icon name="user-right-01" type="line"></x-ui-icon>
