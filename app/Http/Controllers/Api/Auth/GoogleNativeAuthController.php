@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api\Auth;
 
 use App\Models\NativeAuthSession;
-use App\Models\Onboard;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -118,7 +117,7 @@ class GoogleNativeAuthController extends Controller
 
     private function resolvePostAuthRedirectUrl(User $user): string
     {
-        return Onboard::query()->where('user_id', $user->id)->exists()
+        return $user->requiresOnboarding()
             ? route('user.onboarding.index', 'profile')
             : route('user.desktop.index');
     }

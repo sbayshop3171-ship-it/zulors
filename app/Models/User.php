@@ -240,6 +240,11 @@ class User extends Authenticatable
         return $query->whereNot('status', UserStatus::ONBOARDING);
     }
 
+    public function requiresOnboarding(): bool
+    {
+        return $this->status === UserStatus::ONBOARDING;
+    }
+
     public function scopeActiveByUsername($query, $username)
     {
         return $query->active()->where('username', $username);

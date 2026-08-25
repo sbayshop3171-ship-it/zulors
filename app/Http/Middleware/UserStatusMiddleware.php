@@ -17,7 +17,6 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
-use App\Enums\User\UserStatus;
 use Symfony\Component\HttpFoundation\Response;
 
 class UserStatusMiddleware
@@ -25,7 +24,7 @@ class UserStatusMiddleware
     public function handle(Request $request, Closure $next): Response
     {
         if(auth_check()) {
-            if(me()->status == UserStatus::ONBOARDING) {
+            if(me()->requiresOnboarding()) {
                 return redirect()->route('user.onboarding.index', 'profile');
             }
 

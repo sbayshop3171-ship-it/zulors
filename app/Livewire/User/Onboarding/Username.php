@@ -5,8 +5,10 @@ namespace App\Livewire\User\Onboarding;
 use App\Enums\User\UserStatus;
 use App\Events\User\Auth\UserSignupCompletedEvent;
 use App\Livewire\User\Onboarding\Base\OnboardingBase;
+use App\Models\Onboard;
 use App\Models\User;
 use App\Services\Relations\FollowService;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Throwable;
@@ -60,15 +62,19 @@ class Username extends OnboardingBase
 
         $randomPassword = Str::password(20);
 
-        $user->updateQuietly([
-            'username' => $this->username,
-            'password' => (config('user.require.password')) ? bcrypt($this->password) : $randomPassword,
-            'status' => UserStatus::ACTIVE
-        ]);
+        DB::transaction(function() use ($randomPassword, $user) {
+            $user->updateQuietly([
+                'username' => $this->username,
+                'password' => (config('user.require.password')) ? bcrypt($this->password) : $randomPassword,
+                'status' => UserStatus::ACTIVE,
+            ]);
+
+            Onboard::query()->where('user_id', $user->id)->delete();
+        });
 
         $this->makeFollowList();
 
-        event(new UserSignupCompletedEvent(me()));
+        event(new UserSignupCompletedEvent($user));
 
         $this->redirect($this->getNextStepRoute($this->stepIndex));
     }

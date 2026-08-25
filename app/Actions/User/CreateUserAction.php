@@ -17,6 +17,7 @@ namespace App\Actions\User;
 
 use App\Models\User;
 use App\Enums\F2AType;
+use App\Enums\User\UserStatus;
 use App\Models\Wallet;
 use Illuminate\Support\Str;
 use App\Enums\User\UserType;
@@ -44,6 +45,7 @@ class CreateUserAction
             'cover' => config('user.cover'),
             'language' => config('user.language'),
             'gender' => config('user.gender'),
+            'status' => UserStatus::ONBOARDING,
             'verified' => config('user.verified'),
             'tips' => config('user.tips'),
             'theme' => theme_name(),

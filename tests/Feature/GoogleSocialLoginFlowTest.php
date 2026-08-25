@@ -7,6 +7,7 @@ use App\Enums\NotificationType;
 use App\Enums\User\UserRole;
 use App\Enums\User\UserStatus;
 use App\Enums\User\UserType;
+use App\Models\Onboard;
 use App\Models\User;
 use App\Models\UserNotificationSettings;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -257,6 +258,98 @@ class GoogleSocialLoginFlowTest extends TestCase
         $this->assertAuthenticatedAs($user);
     }
 
+    public function test_native_google_sign_in_sends_active_user_home_even_with_stale_onboarding_row(): void
+    {
+        $user = $this->createUser('stale_native_google', 'stale-native-google@example.com');
+
+        Onboard::query()->create([
+            'user_id' => $user->id,
+            'step' => 'profile',
+        ]);
+
+        Http::fake([
+            'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
+                'iss' => 'https://accounts.google.com',
+                'aud' => 'test-google-client',
+                'sub' => 'native-google-stale-123',
+                'email' => 'stale-native-google@example.com',
+                'email_verified' => 'true',
+                'exp' => (string) now()->addMinutes(10)->timestamp,
+                'name' => 'Stale Native Google',
+                'given_name' => 'Stale',
+                'family_name' => 'Native',
+                'picture' => null,
+            ]),
+        ]);
+
+        $response = $this->postJson('/api/mobile-auth/google', [
+            'id_token' => 'valid-stale-native-google-id-token',
+        ]);
+
+        $response->assertOk()->assertJson([
+            'is_existing_user' => true,
+            'next_url' => route('user.desktop.index'),
+        ]);
+
+        $handoffPath = parse_url($response->json('redirect_url'), PHP_URL_PATH);
+
+        $consumeResponse = $this->get($handoffPath);
+
+        $consumeResponse->assertRedirect(route('user.desktop.index'));
+        $this->assertAuthenticatedAs($user);
+    }
+
+    public function test_native_google_sign_in_keeps_existing_incomplete_user_in_onboarding_flow(): void
+    {
+        $user = $this->createUser(
+            'pending_native_google',
+            'pending-native-google@example.com',
+            UserStatus::ONBOARDING
+        );
+
+        Onboard::query()->create([
+            'user_id' => $user->id,
+            'step' => 'profile',
+        ]);
+
+        Http::fake([
+            'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
+                'iss' => 'https://accounts.google.com',
+                'aud' => 'test-google-client',
+                'sub' => 'native-google-pending-123',
+                'email' => 'pending-native-google@example.com',
+                'email_verified' => 'true',
+                'exp' => (string) now()->addMinutes(10)->timestamp,
+                'name' => 'Pending Native Google',
+                'given_name' => 'Pending',
+                'family_name' => 'Native',
+                'picture' => null,
+            ]),
+        ]);
+
+        $response = $this->postJson('/api/mobile-auth/google', [
+            'id_token' => 'valid-pending-native-google-id-token',
+        ]);
+
+        $response->assertOk()->assertJson([
+            'is_existing_user' => true,
+            'next_url' => route('user.onboarding.index', 'profile'),
+        ]);
+
+        $this->assertDatabaseHas(Table::SOCIAL_ACCOUNTS, [
+            'user_id' => $user->id,
+            'provider_name' => 'google',
+            'provider_id' => 'native-google-pending-123',
+        ]);
+
+        $handoffPath = parse_url($response->json('redirect_url'), PHP_URL_PATH);
+
+        $consumeResponse = $this->get($handoffPath);
+
+        $consumeResponse->assertRedirect(route('user.onboarding.index', 'profile'));
+        $this->assertAuthenticatedAs($user);
+    }
+
     public function test_native_google_sign_in_rejects_expired_token(): void
     {
         Http::fake([
@@ -315,7 +408,7 @@ class GoogleSocialLoginFlowTest extends TestCase
             ]);
     }
 
-    private function createUser(string $username, string $email): User
+    private function createUser(string $username, string $email, UserStatus $status = UserStatus::ACTIVE): User
     {
         $user = User::query()->create([
             'first_name' => 'Google',
@@ -346,7 +439,7 @@ class GoogleSocialLoginFlowTest extends TestCase
             'publications_count' => 0,
             'followers_count' => 0,
             'following_count' => 0,
-            'status' => UserStatus::ACTIVE,
+            'status' => $status,
             'type' => UserType::AUTHOR,
         ]);
 
