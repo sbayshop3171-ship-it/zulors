@@ -7,6 +7,7 @@ INSTALL_DEPS="${INSTALL_DEPS:-1}"
 BUILD_ASSETS="${BUILD_ASSETS:-1}"
 RUN_MIGRATIONS="${RUN_MIGRATIONS:-1}"
 SHARED_STORAGE_PUBLIC_PATH="${SHARED_STORAGE_PUBLIC_PATH:-}"
+SHARED_STORAGE_SESSIONS_PATH="${SHARED_STORAGE_SESSIONS_PATH:-}"
 MEDIA_GUARD_MIN_USER_FILES="${MEDIA_GUARD_MIN_USER_FILES:-0}"
 APP_RUNTIME_USER="${APP_RUNTIME_USER:-$(stat -c '%U' .env 2>/dev/null || id -un)}"
 APP_RUNTIME_GROUP="${APP_RUNTIME_GROUP:-www-data}"
@@ -65,6 +66,29 @@ ensure_shared_public_storage() {
 	fi
 }
 
+ensure_shared_sessions_storage() {
+	if [ -z "$SHARED_STORAGE_SESSIONS_PATH" ]; then
+		return
+	fi
+
+	mkdir -p "$(dirname "$SHARED_STORAGE_SESSIONS_PATH")" "$SHARED_STORAGE_SESSIONS_PATH" storage/framework
+
+	local shared_target=""
+	local current_target=""
+	shared_target="$(readlink -f "$SHARED_STORAGE_SESSIONS_PATH" 2>/dev/null || true)"
+	current_target="$(readlink -f storage/framework/sessions 2>/dev/null || true)"
+
+	if [ -d storage/framework/sessions ] && [ "$current_target" != "$shared_target" ]; then
+		echo "Migrating existing login sessions into shared session storage..."
+		rsync -a storage/framework/sessions/ "$SHARED_STORAGE_SESSIONS_PATH/"
+	fi
+
+	if [ "$current_target" != "$shared_target" ]; then
+		rm -rf storage/framework/sessions
+		ln -s "$SHARED_STORAGE_SESSIONS_PATH" storage/framework/sessions
+	fi
+}
+
 link_public_storage() {
 	mkdir -p public storage/app
 
@@ -93,6 +117,7 @@ if [ -z "$SHARED_STORAGE_PUBLIC_PATH" ]; then
 	mkdir -p storage/app/public
 fi
 ensure_shared_public_storage
+ensure_shared_sessions_storage
 link_public_storage
 if [ ! -s storage/frontend/build.num ]; then
 	date +%s > storage/frontend/build.num
@@ -130,6 +155,7 @@ else
 fi
 
 ensure_shared_public_storage
+ensure_shared_sessions_storage
 link_public_storage
 php artisan livewire:publish --assets || true
 php artisan optimize:clear
@@ -139,6 +165,7 @@ php artisan optimize
 normalize_permissions
 chmod -R ug+rwX storage bootstrap/cache public/build 2>/dev/null || true
 ensure_shared_public_storage
+ensure_shared_sessions_storage
 link_public_storage
 
 echo "Deployment finished."
