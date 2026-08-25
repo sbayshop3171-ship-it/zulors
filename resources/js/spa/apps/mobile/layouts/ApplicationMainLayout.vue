@@ -1,5 +1,5 @@
 <template>
-	<ApplicationHeader v-if="! hideHeader" v-bind:hidden="headerChrome.isHidden"></ApplicationHeader>
+	<ApplicationHeader v-if="! hideHeader"></ApplicationHeader>
 
 	<div class="mobile-app-content" v-bind:class="{ 'mobile-app-content--no-navbar': hideNavbar }">
 		<div class="mobile-app-stage">
@@ -28,7 +28,6 @@
 	import { defineComponent, computed, onMounted, onUnmounted } from 'vue';
 	import { useRouter, useRoute } from 'vue-router';
 	import { useNotificationsStore } from '@M/store/notifications/notifications.store.js';
-	import { useAudioStore } from '@M/store/audio/audio.store.js';
 	import BRD from '@/kernel/websockets/brd/index.js';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { useAuthStore } from '@M/store/auth/auth.store.js';
@@ -37,7 +36,6 @@
 	import { colibriSounds } from '@/kernel/services/sounds/index.js';
 	import { usePostEditorStore } from '@M/store/timeline/editor.store.js';
 	import { useMobileRouteTransition } from '@M/core/services/route-transition/index.js';
-	import { useScrollAwareHeader } from '@/kernel/vue/composables/scroll-aware-header/index.js';
 
 	import ApplicationHeader from '@M/components/layout/ApplicationHeader.vue';
 	import ApplicationNavbar from '@M/components/layout/ApplicationNavbar.vue';
@@ -54,16 +52,10 @@
 			const inboxStore = useInboxStore();
 			const toastStore = useToastNotificationStore();
 			const postEditorStore = usePostEditorStore();
-			const audioStore = useAudioStore();
 			const routeTransition = useMobileRouteTransition();
 			const router = useRouter();
 			const route = useRoute();
 			let isListening = false;
-			const headerChrome = useScrollAwareHeader({
-				disabled: computed(() => {
-					return audioStore.audioData !== null || route.meta.hideHeader || false;
-				})
-			});
 
 			const openEditor = (data) => {
 				if(data?.editPost) {
@@ -136,8 +128,7 @@
 				hideHeader: computed(() => {
 					return route.meta.hideHeader || false;
 				}),
-				routeTransition: routeTransition,
-				headerChrome: headerChrome
+				routeTransition: routeTransition
 			};
 		},
 		components: {

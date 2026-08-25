@@ -1,6 +1,6 @@
 <template>
-	<header class="mobile-safe-header sticky top-0 z-[80] bg-bg-pr transition-transform duration-300"
-	v-bind:class="[hidden ? '-translate-y-full' : '']">
+	<header class="mobile-safe-header sticky top-0 z-[80] bg-bg-pr transition-all duration-300"
+	v-bind:class="[state.hideHeader ? '-translate-y-full' : '']">
 		
 		<div class="mobile-safe-header__bar relative">
 			<div class="pointer-events-none absolute inset-x-0 top-0 bottom-0 flex items-center justify-center px-24">
@@ -31,24 +31,45 @@
 </template>
 
 <script>
-	import { defineComponent, reactive } from 'vue';
+	import { defineComponent, onMounted, onUnmounted, reactive, computed } from 'vue';
+	import { useAudioStore } from '@M/store/audio/audio.store.js';
 
 	import { useMenu } from '@/kernel/vue/composables/menu/index.js';
 
-	import NotificationsButton from '@M/components/layout/parts/NotificationsButton.vue';
-	import Soundbar from '@M/components/soundbar/Soundbar.vue';
-	import HeaderMenu from '@M/components/layout/parts/HeaderMenu.vue';
+import NotificationsButton from '@M/components/layout/parts/NotificationsButton.vue';
+import Soundbar from '@M/components/soundbar/Soundbar.vue';
+import HeaderMenu from '@M/components/layout/parts/HeaderMenu.vue';
 	
 	export default defineComponent({
-		props: {
-			hidden: {
-				type: Boolean,
-				default: false
-			}
-		},
 		setup: function () {
+			const audioStore = useAudioStore();
 			const state = reactive({
+				hideHeader: false,
+				scrollPosition: 0,
 				mainMenu: useMenu()
+			});
+
+			const fixed = computed(() => {
+				return audioStore.audioData !== null;
+			});
+
+			const handleScroll = () => {
+				if(! fixed.value) {
+					const current = window.scrollY
+					state.hideHeader = current > state.scrollPosition && current > 50;
+					state.scrollPosition = current;
+				}
+				else {
+					state.hideHeader = false;
+				}
+			}
+
+			onMounted(() => {
+				window.addEventListener('scroll', handleScroll);
+			});
+
+			onUnmounted(() => {
+				window.removeEventListener('scroll', handleScroll);
 			});
 
 			return {
