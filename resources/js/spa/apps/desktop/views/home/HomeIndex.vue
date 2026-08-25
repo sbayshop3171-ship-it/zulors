@@ -76,6 +76,8 @@
     import { useDeletePost } from '@/kernel/vue/composables/delete-post/index.js';
     import { useInfiniteScroll } from '@/kernel/vue/composables/infinite-scroll/index.js';
     import { useInstantRevalidation } from '@/kernel/vue/composables/instant-revalidation/index.js';
+    import { homeScrollRefreshEvent, scrollWindowToTop } from '@/kernel/vue/composables/home-scroll-refresh/index.js';
+    import { colibriEventBus } from '@/kernel/events/bus/index.js';
     import BRD from '@/kernel/websockets/brd/index.js';
 
     import StoriesFeed from '@D/components/stories/feed/StoriesFeed.vue';
@@ -108,6 +110,7 @@
             let updateIntervalId = null;
             let realtimeChannel = null;
             let routeLoaderTimer = null;
+            let isHomeTapRefreshing = false;
             const { postDeleter } = useDeletePost();
             const timelineStore = useTimelineStore();
             const pinsStore = usePinsStore();
@@ -187,7 +190,29 @@
                 minDelay: 2000
             });
 
+            const handleHomeScrollRefresh = async () => {
+                if(isHomeTapRefreshing) {
+                    return;
+                }
+
+                isHomeTapRefreshing = true;
+
+                try {
+                    await scrollWindowToTop();
+                    await timelineStore.refreshFirstPage({
+                        refreshReason: 'home_tap'
+                    });
+                    pinsStore.fetchGlobalPins();
+                } catch (error) {
+                    console.log(error);
+                } finally {
+                    isHomeTapRefreshing = false;
+                }
+            };
+
             onMounted(async () => {
+                colibriEventBus.on(homeScrollRefreshEvent, handleHomeScrollRefresh);
+
                 const hasInstantPosts = hydrateInstantTimeline() || timelinePosts.value.length > 0;
 
                 state.isLoading = ! hasInstantPosts;
@@ -228,6 +253,8 @@
             });
 
             onUnmounted(() => {
+                colibriEventBus.off(homeScrollRefreshEvent, handleHomeScrollRefresh);
+
                 if(routeLoaderTimer) {
                     window.clearTimeout(routeLoaderTimer);
                 }

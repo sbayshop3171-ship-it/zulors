@@ -5,7 +5,7 @@
 
 		<div class="grid grid-cols-5 h-14">
 			<div class="flex items-center justify-center">
-				<RouterLink v-bind:to="{ name: 'home_index' }" class="block rounded-full transform-gpu transition-transform duration-150 ease-out active:scale-[0.94]">
+				<RouterLink v-bind:to="{ name: 'home_index' }" v-on:click="handleHomeNavigation" class="block rounded-full transform-gpu transition-transform duration-150 ease-out active:scale-[0.94]">
 					<PrimaryIconButton buttonColor="text-lab-pr" iconName="home-smile" iconType="line"></PrimaryIconButton>
 				</RouterLink>
 			</div>
@@ -69,6 +69,7 @@
 	import useToastNotificationStore from '@M/store/toast/toast.store.js';
 	import { colibriSounds } from '@/kernel/services/sounds/index.js';
 	import { makeProfileRoute } from '@/kernel/support/profile-routing/index.js';
+	import { requestHomeScrollRefresh } from '@/kernel/vue/composables/home-scroll-refresh/index.js';
 	import BRD from '@/kernel/websockets/brd/index.js';
 
 	import PrimaryIconButton from '@M/components/inter-ui/buttons/PrimaryIconButton.vue';
@@ -308,7 +309,15 @@
 					return actions;
 				}),
 				inboxCount: inboxCount,
-				profileRoute: profileRoute
+				profileRoute: profileRoute,
+				handleHomeNavigation: (event) => {
+					if(route.name !== 'home_index') {
+						return;
+					}
+
+					event?.preventDefault();
+					requestHomeScrollRefresh();
+				}
 			};
 		},
 		components: {

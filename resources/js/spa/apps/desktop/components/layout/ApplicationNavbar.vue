@@ -1,7 +1,7 @@
 <template>
     <div v-if="userData" class="flex flex-col gap-3">
         <div class="block">
-            <RouterLink v-bind:to="{ name: 'home_index' }" v-slot="{ isActive }" class="block">
+            <RouterLink v-bind:to="{ name: 'home_index' }" v-slot="{ isActive }" v-on:click="handleHomeNavigation" class="block">
                 <div class="flex items-center" v-bind:class="[((isActive == true) ? 'sidenav-active' : 'sidenav-inactive')]">
                     <span class="size-icon-normal shrink-0">
                         <SvgIcon name="home-smile" v-bind:type="(isActive == true) ? 'solid' : 'line'"></SvgIcon>
@@ -108,6 +108,7 @@
     import { colibriSounds } from '@/kernel/services/sounds/index.js';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
     import { makeProfileRoute } from '@/kernel/support/profile-routing/index.js';
+    import { requestHomeScrollRefresh } from '@/kernel/vue/composables/home-scroll-refresh/index.js';
 
     import BadgeCounter from '@D/components/general/counters/BadgeCounter.vue';
     import BRD from '@/kernel/websockets/brd/index.js';
@@ -314,7 +315,15 @@
                 openNotificationsModal: () => {
                     notificationsStore.openNotifications();
                 },
-                profileRoute: profileRoute
+                profileRoute: profileRoute,
+                handleHomeNavigation: (event) => {
+                    if(route.name !== 'home_index') {
+                        return;
+                    }
+
+                    event?.preventDefault();
+                    requestHomeScrollRefresh();
+                }
             };
         },
         components: {
