@@ -173,6 +173,7 @@ body.auth-page {
     --auth-viewport-height: 100vh;
     --auth-viewport-width: 100vw;
     --auth-header-bar-height: 3.5rem;
+    --auth-logo-clearance: clamp(2.75rem, 7vh, 4rem);
     --auth-shell-padding-inline: max(clamp(1rem, 3.5vw, 2rem), var(--auth-safe-left), var(--auth-safe-right));
     --auth-shell-max-width: min(28rem, calc(var(--auth-viewport-width) - (2 * var(--auth-shell-padding-inline))));
     --auth-header-height: calc(var(--auth-header-bar-height) + var(--auth-safe-top));
@@ -382,14 +383,14 @@ body.auth-page .site-footer__badges {
 }
 
 html.zulors-android-app body.auth-page .auth-page-main {
-    padding-top: clamp(2rem, 7vh, 4rem);
+    padding-top: var(--auth-logo-clearance);
     padding-bottom: max(1rem, var(--auth-safe-bottom));
 }
 
 @media (max-width: 767px) {
     .auth-page-main {
         align-items: center;
-        padding-top: clamp(1.25rem, 3.5vh, 2.25rem);
+        padding-top: var(--auth-logo-clearance);
         padding-bottom: max(0.875rem, var(--auth-safe-bottom));
     }
 
@@ -399,6 +400,10 @@ html.zulors-android-app body.auth-page .auth-page-main {
 
     body.auth-page .site-header__actions {
         gap: 0.875rem;
+    }
+
+    body.auth-page .site-header__logo {
+        height: 1.5rem;
     }
 
     body.auth-page .site-header__lang-menu {
@@ -450,6 +455,7 @@ html.zulors-android-app body.auth-page .auth-page-main {
 @media (max-width: 479px) {
     body.auth-page {
         --auth-shell-padding-inline: max(1rem, var(--auth-safe-left), var(--auth-safe-right));
+        --auth-logo-clearance: clamp(3rem, 8vh, 4.25rem);
     }
 
     .auth-page-main {
@@ -468,13 +474,13 @@ html.zulors-android-app body.auth-page .auth-page-main {
 @media (max-width: 767px) and (max-height: 780px) {
     .auth-page-main {
         align-items: flex-start;
-        padding-top: clamp(1.5rem, 5vh, 3rem);
+        padding-top: var(--auth-logo-clearance);
     }
 }
 
 @media (max-width: 767px) {
     html.zulors-android-app body.auth-page .auth-page-main {
-        padding-top: clamp(1.75rem, 6vh, 3.5rem);
+        padding-top: var(--auth-logo-clearance);
     }
 }
 
