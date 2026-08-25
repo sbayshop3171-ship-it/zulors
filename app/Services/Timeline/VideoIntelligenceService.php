@@ -7,6 +7,7 @@ use App\Models\Media;
 use App\Models\Post;
 use App\Models\PostVideoMetric;
 use App\Models\User;
+use Illuminate\Support\Facades\Log;
 
 class VideoIntelligenceService
 {
@@ -66,6 +67,21 @@ class VideoIntelligenceService
 
         $this->updateMetric($metric, $eventType, $watchTimeSeconds, $completionRate, (int) data_get($payload, 'loop_count', 0));
         $this->updateInterest($user, $post, $eventType, $completionRate, $payload);
+        Log::channel('timeline')->info('feed.video.recorded', [
+            'user_id' => $userId,
+            'post_id' => $post->id,
+            'media_id' => $media?->id,
+            'event_type' => $eventType,
+            'watch_time_seconds' => $watchTimeSeconds,
+            'duration_seconds' => $durationSeconds,
+            'completion_rate' => round($completionRate, 4),
+            'loop_count' => (int) data_get($payload, 'loop_count', 0),
+            'session_id' => data_get($payload, 'session_id'),
+            'feed_type' => data_get($payload, 'feed_type'),
+            'source' => data_get($payload, 'source', 'video_player'),
+            'position' => data_get($payload, 'position'),
+            'metric_score' => $metric->intelligence_score,
+        ]);
 
         return $metric->refresh();
     }

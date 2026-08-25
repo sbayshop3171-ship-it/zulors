@@ -13,6 +13,11 @@ use Illuminate\Support\Facades\DB;
 
 class FeedRankingService
 {
+    private const MIX_BUCKET_INTEREST = 'interest';
+    private const MIX_BUCKET_TRENDING = 'trending';
+    private const MIX_BUCKET_DISCOVERY = 'discovery';
+    private const MIX_BUCKET_FALLBACK = 'fallback';
+
     public function __construct(
         private TopicExtractionService $topicExtractionService,
         private UserInterestService $userInterestService,
@@ -75,8 +80,9 @@ class FeedRankingService
             });
 
         $ranked = $this->sortRankedPosts($ranked);
+        $ranked = $this->sortRankedPosts($this->applyRepetitionPenalty($ranked, $type));
 
-        return $this->sortRankedPosts($this->applyRepetitionPenalty($ranked, $type));
+        return $this->applyFeedMix($ranked, $type);
     }
 
     private function scorePost(User $user, Post $post, string $type, array $context): array
@@ -424,6 +430,164 @@ class FeedRankingService
 
             return $post;
         });
+    }
+
+    private function applyFeedMix(Collection $ranked, string $type): Collection
+    {
+        if(! in_array($type, [FeedService::TYPE_FOR_YOU, FeedService::TYPE_REELS], true) || $ranked->count() < 4) {
+            return $ranked->values();
+        }
+
+        $pattern = [
+            self::MIX_BUCKET_INTEREST,
+            self::MIX_BUCKET_INTEREST,
+            self::MIX_BUCKET_TRENDING,
+            self::MIX_BUCKET_INTEREST,
+            self::MIX_BUCKET_INTEREST,
+            self::MIX_BUCKET_DISCOVERY,
+            self::MIX_BUCKET_INTEREST,
+            self::MIX_BUCKET_TRENDING,
+            self::MIX_BUCKET_INTEREST,
+            self::MIX_BUCKET_INTEREST,
+        ];
+
+        $pools = [
+            self::MIX_BUCKET_INTEREST => collect(),
+            self::MIX_BUCKET_TRENDING => collect(),
+            self::MIX_BUCKET_DISCOVERY => collect(),
+            self::MIX_BUCKET_FALLBACK => collect(),
+        ];
+
+        $ranked->each(function(Post $post) use (&$pools, $type) {
+            $bucket = $this->mixBucket($post, $type);
+            $post->setAttribute('feed_mix_bucket', $bucket);
+            $pools[$bucket]->push($post);
+        });
+
+        $mixed = collect();
+        $remaining = $ranked->count();
+
+        while($remaining > 0) {
+            $bucket = $pattern[$mixed->count() % count($pattern)];
+            $post = $this->pullDiversePost($pools, [$bucket], $mixed)
+                ?? $this->pullDiversePost($pools, [
+                    self::MIX_BUCKET_INTEREST,
+                    self::MIX_BUCKET_TRENDING,
+                    self::MIX_BUCKET_DISCOVERY,
+                    self::MIX_BUCKET_FALLBACK,
+                ], $mixed)
+                ?? $this->pullAnyPost($pools);
+
+            if(empty($post)) {
+                break;
+            }
+
+            $post->setAttribute('feed_mix_slot', ($mixed->count() % count($pattern)) + 1);
+            $mixed->push($post);
+            $remaining--;
+        }
+
+        return $mixed->values();
+    }
+
+    private function pullDiversePost(array &$pools, array $bucketOrder, Collection $mixed): ?Post
+    {
+        foreach($bucketOrder as $bucket) {
+            if(! isset($pools[$bucket]) || $pools[$bucket]->isEmpty()) {
+                continue;
+            }
+
+            $index = $pools[$bucket]->search(function(Post $post) use ($mixed) {
+                return $this->passesDiversityWindow($post, $mixed);
+            });
+
+            if($index !== false) {
+                $post = $pools[$bucket]->splice($index, 1)->first();
+
+                return $post instanceof Post ? $post : null;
+            }
+        }
+
+        return null;
+    }
+
+    private function pullAnyPost(array &$pools): ?Post
+    {
+        foreach([self::MIX_BUCKET_INTEREST, self::MIX_BUCKET_TRENDING, self::MIX_BUCKET_DISCOVERY, self::MIX_BUCKET_FALLBACK] as $bucket) {
+            if(isset($pools[$bucket]) && $pools[$bucket]->isNotEmpty()) {
+                $post = $pools[$bucket]->shift();
+
+                return $post instanceof Post ? $post : null;
+            }
+        }
+
+        return null;
+    }
+
+    private function passesDiversityWindow(Post $post, Collection $mixed): bool
+    {
+        $recentPosts = $mixed->take(-3)->values();
+
+        if($recentPosts->take(-2)->filter(fn(Post $recentPost) => (int) $recentPost->user_id === (int) $post->user_id)->count() >= 2) {
+            return false;
+        }
+
+        $topics = $this->postTopics($post);
+
+        if(empty($topics)) {
+            return true;
+        }
+
+        $recentTopicHits = $recentPosts->filter(function(Post $recentPost) use ($topics) {
+            return ! empty(array_intersect($topics, $this->postTopics($recentPost)));
+        })->count();
+
+        return $recentTopicHits < 3;
+    }
+
+    private function mixBucket(Post $post, string $type): string
+    {
+        $source = (string) ($post->candidate_source ?? '');
+
+        $interestSources = [
+            'followed',
+            'interacted_author',
+            'topic_match',
+            'affinity_creators',
+            'followed_creators',
+        ];
+        $trendingSources = [
+            'popular_general',
+            'high_retention_unseen',
+            'old_good',
+            'old_good_recovery',
+            'recovery_diversity',
+        ];
+        $discoverySources = [
+            'recent',
+            'recent_fallback',
+            'recent_safe',
+            'fresh_exploration',
+            'exploration',
+        ];
+
+        if(in_array($source, $interestSources, true)) {
+            return self::MIX_BUCKET_INTEREST;
+        }
+
+        if(in_array($source, $trendingSources, true)) {
+            return self::MIX_BUCKET_TRENDING;
+        }
+
+        if(in_array($source, $discoverySources, true)) {
+            return self::MIX_BUCKET_DISCOVERY;
+        }
+
+        if($type === FeedService::TYPE_REELS && $post->type === PostType::VIDEO) {
+            return self::MIX_BUCKET_TRENDING;
+        }
+
+        return self::MIX_BUCKET_FALLBACK;
     }
 
     private function authorRepetitionPenalty(int $seenCount, string $type): float

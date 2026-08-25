@@ -204,24 +204,33 @@ class CandidateGenerationService
         $followedAuthorIds = $this->followedAuthorIds($user);
         $interactedAuthorIds = $this->interactedAuthorIds($user);
         $userTopics = $this->positiveUserTopics($user);
+        $recentSeenPostIds = $this->recentlySeenPostIds($user);
         $isColdUser = ! $this->hasWarmSignals($followedAuthorIds, $interactedAuthorIds, $userTopics);
 
         if($isColdUser) {
-            $this->appendCandidates($selected, $this->recentCandidates($user, $onset, [], (int) ceil($limit * 0.50), FeedService::TYPE_FOR_YOU, 'recent_safe'));
-            $this->appendCandidates($selected, $this->popularCandidates($user, $onset, $this->selectedIds($selected), (int) ceil($limit * 0.30), FeedService::TYPE_FOR_YOU, 'popular_general'));
-            $this->appendCandidates($selected, $this->explorationCandidates($user, $onset, $this->selectedIds($selected), $limit - $selected->count(), FeedService::TYPE_FOR_YOU, 'exploration'));
+            $this->appendCandidates($selected, $this->recentCandidates($user, $onset, $recentSeenPostIds, (int) ceil($limit * 0.50), FeedService::TYPE_FOR_YOU, 'recent_safe'));
+            $this->appendCandidates($selected, $this->popularCandidates($user, $onset, $this->mergeExcludedIds($this->selectedIds($selected), $recentSeenPostIds), (int) ceil($limit * 0.30), FeedService::TYPE_FOR_YOU, 'popular_general'));
+            $this->appendCandidates($selected, $this->explorationCandidates($user, $onset, $this->mergeExcludedIds($this->selectedIds($selected), $recentSeenPostIds), $limit - $selected->count(), FeedService::TYPE_FOR_YOU, 'exploration'));
+
+            if($selected->count() < $limit) {
+                $this->appendCandidates($selected, $this->recentCandidates($user, $onset, $this->selectedIds($selected), $limit - $selected->count(), FeedService::TYPE_FOR_YOU, 'recent_fallback'));
+            }
 
             return $selected->unique('id')->take($limit)->values();
         }
 
-        $this->appendCandidates($selected, $this->followedCandidates($user, $onset, $followedAuthorIds, [], (int) ceil($limit * 0.45), FeedService::TYPE_FOR_YOU, 'followed'));
-        $this->appendCandidates($selected, $this->authorAffinityCandidates($user, $onset, $interactedAuthorIds, $this->selectedIds($selected), (int) ceil($limit * 0.20), FeedService::TYPE_FOR_YOU, 'interacted_author'));
-        $this->appendCandidates($selected, $this->interestCandidates($user, $onset, $userTopics, $this->selectedIds($selected), (int) ceil($limit * 0.15), FeedService::TYPE_FOR_YOU, 'topic_match'));
-        $this->appendCandidates($selected, $this->recentCandidates($user, $onset, $this->selectedIds($selected), (int) ceil($limit * 0.10), FeedService::TYPE_FOR_YOU, 'fresh_exploration'));
-        $this->appendCandidates($selected, $this->oldGoodCandidates($user, $onset, $this->selectedIds($selected), $limit - $selected->count(), FeedService::TYPE_FOR_YOU, 'old_good_recovery'));
+        $this->appendCandidates($selected, $this->followedCandidates($user, $onset, $followedAuthorIds, $recentSeenPostIds, (int) ceil($limit * 0.45), FeedService::TYPE_FOR_YOU, 'followed'));
+        $this->appendCandidates($selected, $this->authorAffinityCandidates($user, $onset, $interactedAuthorIds, $this->mergeExcludedIds($this->selectedIds($selected), $recentSeenPostIds), (int) ceil($limit * 0.20), FeedService::TYPE_FOR_YOU, 'interacted_author'));
+        $this->appendCandidates($selected, $this->interestCandidates($user, $onset, $userTopics, $this->mergeExcludedIds($this->selectedIds($selected), $recentSeenPostIds), (int) ceil($limit * 0.15), FeedService::TYPE_FOR_YOU, 'topic_match'));
+        $this->appendCandidates($selected, $this->recentCandidates($user, $onset, $this->mergeExcludedIds($this->selectedIds($selected), $recentSeenPostIds), (int) ceil($limit * 0.10), FeedService::TYPE_FOR_YOU, 'fresh_exploration'));
+        $this->appendCandidates($selected, $this->oldGoodCandidates($user, $onset, $this->mergeExcludedIds($this->selectedIds($selected), $recentSeenPostIds), $limit - $selected->count(), FeedService::TYPE_FOR_YOU, 'old_good_recovery'));
 
         if($selected->count() < $limit) {
-            $this->appendCandidates($selected, $this->explorationCandidates($user, $onset, $this->selectedIds($selected), $limit - $selected->count(), FeedService::TYPE_FOR_YOU, 'fresh_exploration'));
+            $this->appendCandidates($selected, $this->explorationCandidates($user, $onset, $this->mergeExcludedIds($this->selectedIds($selected), $recentSeenPostIds), $limit - $selected->count(), FeedService::TYPE_FOR_YOU, 'fresh_exploration'));
+        }
+
+        if($selected->count() < $limit) {
+            $this->appendCandidates($selected, $this->recentCandidates($user, $onset, $this->selectedIds($selected), $limit - $selected->count(), FeedService::TYPE_FOR_YOU, 'recent_fallback'));
         }
 
         return $selected->unique('id')->take($limit)->values();
@@ -478,6 +487,22 @@ class CandidateGenerationService
             ->groupBy('post_id')
             ->orderByDesc('last_seen_at')
             ->limit(600)
+            ->pluck('post_id')
+            ->map(fn($id) => (int) $id)
+            ->all();
+    }
+
+    private function recentlySeenPostIds(User $user): array
+    {
+        return DB::table(Table::FEED_EVENTS)
+            ->select('post_id', DB::raw('MAX(created_at) as last_seen_at'))
+            ->where('user_id', $user->id)
+            ->whereNotNull('post_id')
+            ->whereIn('event_type', FeedTelemetryService::SEEN_EVENT_TYPES)
+            ->where('created_at', '>=', now()->subHours(18))
+            ->groupBy('post_id')
+            ->orderByDesc('last_seen_at')
+            ->limit(900)
             ->pluck('post_id')
             ->map(fn($id) => (int) $id)
             ->all();

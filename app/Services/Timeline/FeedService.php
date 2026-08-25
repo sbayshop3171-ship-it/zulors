@@ -11,6 +11,7 @@ use App\Services\Timeline\DTO\FeedResult;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class FeedService
 {
@@ -87,6 +88,8 @@ class FeedService
         $posts = $this->withProcessingPosts($user, $page, $pagePosts);
         $sessionWindowSize = $this->feedRankingService->sessionWindowSize($type);
         $snapshot = $this->feedSessionSnapshotService->remember($user, $type, $sessionId, $rankedPosts, $sessionWindowSize);
+        $mixStats = $this->mixStats($rankedPosts);
+        $this->logFeedServed($user, $type, $filter, $page, $perPage, $candidateCount, $rankedPosts, $pagePosts, $mixStats, $snapshot);
 
         return new FeedResult($posts, $this->meta($type, [
             'strategy' => $type === self::TYPE_FOLLOWING ? 'relationship_freshness_ranking' : $this->feedRankingService->rankVersion($type),
@@ -98,6 +101,7 @@ class FeedService
             're_rank_allowed' => $this->feedRankingService->reRankAllowed($type) && $page === 1,
             'session_window_size' => $sessionWindowSize,
             'session_snapshot_size' => count(data_get($snapshot, 'post_ids', [])),
+            'mix' => $mixStats,
             'scored' => true,
             'page' => $page,
             'per_page' => $perPage,
@@ -316,6 +320,11 @@ class FeedService
                 $post->id => [
                     'score' => (float) $post->ranking_score,
                     'signals' => $post->ranking_signals ?: [],
+                    'candidate_source' => $post->candidate_source ?? null,
+                    'feed_mix_bucket' => $post->feed_mix_bucket ?? null,
+                    'feed_mix_slot' => $post->feed_mix_slot ?? null,
+                    'ranking_reasons' => $post->ranking_reasons ?? [],
+                    'ranking_version' => $post->ranking_version ?? null,
                 ],
             ];
         })->all();
@@ -343,8 +352,48 @@ class FeedService
 
             $post->setAttribute('ranking_score', (float) data_get($ranking, "{$postId}.score", 0));
             $post->setAttribute('ranking_signals', data_get($ranking, "{$postId}.signals", []));
+            $post->setAttribute('candidate_source', data_get($ranking, "{$postId}.candidate_source"));
+            $post->setAttribute('feed_mix_bucket', data_get($ranking, "{$postId}.feed_mix_bucket"));
+            $post->setAttribute('feed_mix_slot', data_get($ranking, "{$postId}.feed_mix_slot"));
+            $post->setAttribute('ranking_reasons', data_get($ranking, "{$postId}.ranking_reasons", []));
+            $post->setAttribute('ranking_version', data_get($ranking, "{$postId}.ranking_version"));
 
             return $post;
         })->filter()->values();
+    }
+
+    private function mixStats(Collection $posts): array
+    {
+        return [
+            'buckets' => $posts
+                ->groupBy(fn(Post $post) => (string) ($post->feed_mix_bucket ?? 'unknown'))
+                ->map(fn(Collection $items) => $items->count())
+                ->all(),
+            'sources' => $posts
+                ->groupBy(fn(Post $post) => (string) ($post->candidate_source ?? 'unknown'))
+                ->map(fn(Collection $items) => $items->count())
+                ->all(),
+        ];
+    }
+
+    private function logFeedServed(User $user, string $type, array $filter, int $page, int $perPage, int $candidateCount, Collection $rankedPosts, Collection $pagePosts, array $mixStats, array $snapshot): void
+    {
+        Log::channel('timeline')->info('feed.served', [
+            'user_id' => $user->id,
+            'type' => $type,
+            'page' => $page,
+            'per_page' => $perPage,
+            'session_id' => $this->sessionId($filter),
+            'refresh_reason' => data_get($filter, 'refresh_reason'),
+            'candidate_count' => $candidateCount,
+            'ranked_count' => $rankedPosts->count(),
+            'page_post_ids' => $pagePosts->pluck('id')->map(fn($postId) => (int) $postId)->values()->all(),
+            'page_sources' => $pagePosts->pluck('candidate_source')->filter()->values()->all(),
+            'page_mix_buckets' => $pagePosts->pluck('feed_mix_bucket')->filter()->values()->all(),
+            'mix' => $mixStats,
+            'session_snapshot_size' => count(data_get($snapshot, 'post_ids', [])),
+            'ranking_version' => $this->feedRankingService->rankVersion($type),
+            'feed_family' => $this->feedRankingService->feedFamily($type),
+        ]);
     }
 }

@@ -5,6 +5,7 @@ namespace App\Services\Timeline;
 use App\Models\FeedEvent;
 use App\Models\Post;
 use App\Models\User;
+use Illuminate\Support\Facades\Log;
 
 class FeedTelemetryService
 {
@@ -83,6 +84,17 @@ class FeedTelemetryService
         ]);
 
         $this->updateInterest($user, $post, $eventType, $dwellSeconds, $payload);
+        Log::channel('timeline')->info('feed.telemetry.recorded', [
+            'user_id' => $userId,
+            'post_id' => $post->id,
+            'event_type' => $eventType,
+            'watch_time_seconds' => $dwellSeconds,
+            'session_id' => data_get($payload, 'session_id'),
+            'feed_type' => data_get($payload, 'feed_type'),
+            'source' => data_get($payload, 'source', 'timeline'),
+            'position' => data_get($payload, 'position'),
+            'refresh_reason' => data_get($payload, 'refresh_reason'),
+        ]);
 
         return $event;
     }
