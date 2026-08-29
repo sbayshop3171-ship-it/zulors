@@ -24,6 +24,7 @@
 	import { useCallStore } from '@D/store/calls/call.store.js';
 	import useToastNotificationStore from '@D/store/toast/toast.store.js';
 	import { colibriSounds } from '@/kernel/services/sounds/index.js';
+	import { routeRealtimeNotification } from '@/kernel/services/realtime/notification-router.js';
 	import BRD from '@/kernel/websockets/brd/index.js';
 
 	import ReportModal from '@D/components/reports/ReportModal.vue';
@@ -59,25 +60,15 @@
 			};
 
 			const syncMessengerInbox = (event) => {
-				if(event.type === 'call.notification') {
-					callStore.handleNotification(event.data);
-
-					return;
-				}
-
-				if(event.type !== 'chat.notification') {
-					return;
-				}
-
-				let shouldNotify = inboxStore.handleIncomingMessageNotification(event.data, authStore.userData.id, getActiveChatId());
-
-				if(shouldNotify) {
-					toastStore.add(getChatToastText(event.data), 4000);
-
-					if(colibriSounds.isNotificationsSoundEnabled()) {
-						colibriSounds.backgroundChatMessageReceived();
-					}
-				}
+				routeRealtimeNotification(event, {
+					callStore,
+					inboxStore,
+					toastStore,
+					sounds: colibriSounds,
+					authUserId: authStore.userData.id,
+					activeChatId: getActiveChatId(),
+					getChatToastText,
+				});
 			};
 
 			const syncCallFromRoute = () => {

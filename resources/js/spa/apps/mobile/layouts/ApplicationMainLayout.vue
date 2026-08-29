@@ -32,8 +32,10 @@
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { useAuthStore } from '@M/store/auth/auth.store.js';
 	import { useInboxStore } from '@M/store/chats/inbox.store.js';
+	import { useCallStore } from '@M/store/calls/call.store.js';
 	import useToastNotificationStore from '@M/store/toast/toast.store.js';
 	import { colibriSounds } from '@/kernel/services/sounds/index.js';
+	import { routeRealtimeNotification } from '@/kernel/services/realtime/notification-router.js';
 	import { usePostEditorStore } from '@M/store/timeline/editor.store.js';
 	import { useMobileRouteTransition } from '@M/core/services/route-transition/index.js';
 
@@ -50,6 +52,7 @@
 			const notificationsStore = useNotificationsStore();
 			const authStore = useAuthStore();
 			const inboxStore = useInboxStore();
+			const callStore = useCallStore();
 			const toastStore = useToastNotificationStore();
 			const postEditorStore = usePostEditorStore();
 			const routeTransition = useMobileRouteTransition();
@@ -82,23 +85,30 @@
 			};
 
 			const syncAppNotifications = (event) => {
-				if(event.type === 'chat.notification') {
-					let shouldNotify = inboxStore.handleIncomingMessageNotification(event.data, authStore.userData.id);
+				if(event.type === 'call.notification') {
+					callStore.handleNotification(event.data);
 
-					if(shouldNotify) {
-						toastStore.add(getChatToastText(event.data), 4000);
-
-						if(colibriSounds.isNotificationsSoundEnabled()) {
-							colibriSounds.backgroundChatMessageReceived();
-						}
-					}
+					return;
 				}
-				else {
+
+				if(event.type !== 'chat.notification') {
 					notificationsStore.setUnreadNotificationsCount(event.data);
 					colibriEventBus.emit('notifications:received');
 
 					colibriSounds.notificationReceived();
+
+					return;
 				}
+
+				routeRealtimeNotification(event, {
+					callStore: null,
+					inboxStore,
+					toastStore,
+					sounds: colibriSounds,
+					authUserId: authStore.userData.id,
+					activeChatId: route.params.chat_id || null,
+					getChatToastText,
+				});
 			};
 
 			onMounted(() => {
