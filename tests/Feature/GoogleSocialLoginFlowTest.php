@@ -15,6 +15,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Laravel\Socialite\Facades\Socialite;
 use Laravel\Socialite\Two\User as SocialiteUser;
@@ -40,6 +42,32 @@ class GoogleSocialLoginFlowTest extends TestCase
         ]);
     }
 
+    public function test_google_redirect_generates_oauth_state(): void
+    {
+        $response = $this->get(route('social-login.google.redirect'));
+
+        $response->assertRedirect();
+        $location = $response->headers->get('Location');
+
+        parse_str((string) parse_url($location, PHP_URL_QUERY), $query);
+
+        $this->assertNotEmpty($query['state'] ?? null);
+        $response->assertSessionHas('state', $query['state']);
+    }
+
+    public function test_google_callback_rejects_mismatched_oauth_state(): void
+    {
+        $response = $this->withSession(['state' => 'expected-oauth-state'])
+            ->get(route('social-login.google.callback', [
+                'state' => 'attacker-oauth-state',
+                'code' => 'fake-google-code',
+            ]));
+
+        $response->assertRedirect(route('user.auth.index'));
+        $response->assertSessionHasErrors('google');
+        $this->assertGuest();
+    }
+
     public function test_google_callback_links_existing_email_and_reuses_same_account_without_server_error(): void
     {
         $user = $this->createUser('google_existing_user', 'google-existing@example.com');
@@ -49,10 +77,14 @@ class GoogleSocialLoginFlowTest extends TestCase
 
         Socialite::shouldReceive('buildProvider')->twice()->andReturn($provider);
 
-        $firstResponse = $this->get(route('social-login.google.callback'));
+        $firstResponse = $this->withSession(['signup_return_state' => 'preserve-me'])
+            ->get(route('social-login.google.callback'));
 
         $firstResponse->assertRedirect(route('user.desktop.index'));
+        $firstResponse->assertSessionHas('signup_return_state', 'preserve-me');
         $this->assertAuthenticatedAs($user);
+        $this->assertSame(1, User::query()->where('email', 'google-existing@example.com')->count());
+        $this->assertTrue(Hash::check('password', $user->fresh()->password));
         $this->assertDatabaseHas(Table::SOCIAL_ACCOUNTS, [
             'user_id' => $user->id,
             'provider_name' => 'google',
@@ -329,6 +361,78 @@ class GoogleSocialLoginFlowTest extends TestCase
 
         $consumeResponse->assertRedirect(route('user.onboarding.index', 'profile'));
         $this->assertAuthenticatedAs($user);
+    }
+
+    public function test_native_google_sign_in_stores_google_picture_for_new_user(): void
+    {
+        Storage::fake(static_storage_disk());
+        Http::fake([
+            'https://lh3.googleusercontent.com/*' => Http::response('google-avatar-binary', 200, [
+                'Content-Type' => 'image/jpeg',
+            ]),
+        ]);
+
+        $this->mockGoogleToken([
+                'iss' => 'https://accounts.google.com',
+                'aud' => 'test-google-client',
+                'sub' => 'native-google-avatar-user-123',
+                'email' => 'native-google-avatar@example.com',
+                'email_verified' => 'true',
+                'exp' => (string) now()->addMinutes(10)->timestamp,
+                'name' => 'Native Avatar',
+                'given_name' => 'Native',
+                'picture' => 'https://lh3.googleusercontent.com/a/avatar-photo',
+        ]);
+
+        $response = $this->postJson('/api/auth/google', [
+            'id_token' => 'valid-native-google-avatar-token',
+        ]);
+
+        $response->assertOk();
+
+        $user = User::query()->where('email', 'native-google-avatar@example.com')->firstOrFail();
+
+        $this->assertStringStartsWith('uploads/users/avatars/', $user->avatar);
+        $this->assertStringEndsWith('.jpg', $user->avatar);
+        Storage::disk(static_storage_disk())->assertExists($user->avatar);
+        $this->assertSame('google-avatar-binary', Storage::disk(static_storage_disk())->get($user->avatar));
+        Http::assertSent(fn ($request) => $request->url() === 'https://lh3.googleusercontent.com/a/avatar-photo');
+    }
+
+    public function test_native_google_sign_in_does_not_create_duplicate_user_when_linking_password_account(): void
+    {
+        $user = $this->createUser('password_first_google', 'password-first-google@example.com');
+
+        $this->mockGoogleToken([
+                'iss' => 'https://accounts.google.com',
+                'aud' => 'test-google-client',
+                'sub' => 'native-google-password-first-123',
+                'email' => 'password-first-google@example.com',
+                'email_verified' => 'true',
+                'exp' => (string) now()->addMinutes(10)->timestamp,
+                'name' => 'Password First Google',
+                'given_name' => 'Password',
+                'family_name' => 'First',
+                'picture' => null,
+        ]);
+
+        $response = $this->postJson('/api/auth/google', [
+            'id_token' => 'valid-password-first-native-token',
+        ]);
+
+        $response->assertOk()->assertJson([
+            'status' => 'authenticated',
+            'is_existing_user' => true,
+            'next_url' => route('user.desktop.index'),
+        ]);
+
+        $this->assertSame(1, User::query()->where('email', 'password-first-google@example.com')->count());
+        $this->assertTrue(Hash::check('password', $user->fresh()->password));
+        $this->assertDatabaseHas(Table::SOCIAL_ACCOUNTS, [
+            'user_id' => $user->id,
+            'provider_name' => 'google',
+            'provider_id' => 'native-google-password-first-123',
+        ]);
     }
 
     public function test_native_google_sign_in_rejects_expired_token(): void

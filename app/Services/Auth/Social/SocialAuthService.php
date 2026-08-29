@@ -53,17 +53,13 @@ class SocialAuthService
         $existingUser = $this->existingUserByEmail();
 
         if($existingUser) {
-            DB::transaction(function() use ($driver, $existingUser) {
-                $existingUser->socialAccounts()->firstOrCreate([
-                    'provider_name' => $driver,
-                    'provider_id' => $this->socialUserId,
-                ]);
-            });
+            $socialAccount = $this->linkSocialAccountToUser($existingUser, $driver);
+            $resolvedUser = $socialAccount->user ?: $existingUser;
 
-            $this->loginUser($existingUser);
+            $this->loginUser($resolvedUser);
 
             return [
-                'user' => $existingUser,
+                'user' => $resolvedUser,
                 'socialiteUser' => $socialiteUser,
                 'exists' => true,
             ];
@@ -175,6 +171,38 @@ class SocialAuthService
         return User::query()
             ->whereRaw('LOWER(email) = ?', [mb_strtolower($email)])
             ->first();
+    }
+
+    private function linkSocialAccountToUser(User $user, string $driver): SocialAccount
+    {
+        try {
+            return DB::transaction(function() use ($user, $driver) {
+                $socialAccount = $user->socialAccounts()->firstOrCreate([
+                    'provider_name' => $driver,
+                    'provider_id' => $this->socialUserId,
+                ]);
+
+                $socialAccount->setRelation('user', $user);
+
+                return $socialAccount;
+            });
+        } catch (QueryException $exception) {
+            if(! $this->isSocialIdentityConflict($exception)) {
+                throw $exception;
+            }
+
+            $existingSocialAccount = SocialAccount::query()
+                ->with('user')
+                ->where('provider_name', $driver)
+                ->where('provider_id', $this->socialUserId)
+                ->first();
+
+            if(! $existingSocialAccount) {
+                throw $exception;
+            }
+
+            return $existingSocialAccount;
+        }
     }
 
     private function loginUser(User $user): void

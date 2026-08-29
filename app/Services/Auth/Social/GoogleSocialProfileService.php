@@ -5,32 +5,21 @@ namespace App\Services\Auth\Social;
 use Throwable;
 use App\Models\User;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Contracts\Support\Arrayable;
 
 class GoogleSocialProfileService
 {
+    private const MAX_AVATAR_BYTES = 2097152;
+
     public function syncUser(User $user, $socialiteUser, string $driverName = 'google'): void
     {
         $rawUser = $this->getRawUserData($socialiteUser);
         $profileNames = $this->resolveProfileNames($user, $socialiteUser, $rawUser);
         $username = $this->resolveAvailableUsername($socialiteUser, $user->id, $driverName);
-        $userAvatarFilePath = $user->avatar ?: config('user.avatar');
         $userPicture = $socialiteUser->getAvatar() ?: data_get($rawUser, 'picture');
-
-        if(! empty($userPicture)) {
-            try {
-                $filename = Str::random(40) . '.jpeg';
-                $filepath = 'uploads/users/avatars/' . $filename;
-                $fileUploaded = Storage::disk(static_storage_disk())->put($filepath, file_get_contents($userPicture));
-
-                if($fileUploaded) {
-                    $userAvatarFilePath = $filepath;
-                }
-            } catch (Throwable $th) {
-                // Keep the account usable even if Google's remote avatar is unavailable.
-            }
-        }
+        $userAvatarFilePath = $this->resolveAvatarFilePath($user, $userPicture);
 
         $user->update([
             'username' => $username,
@@ -97,6 +86,79 @@ class GoogleSocialProfileService
         }
 
         return is_array($rawUser) ? $rawUser : [];
+    }
+
+    private function resolveAvatarFilePath(User $user, mixed $avatarUrl): string
+    {
+        if($user->hasCustomAvatar()) {
+            return $user->avatar;
+        }
+
+        $storedAvatarPath = $this->storeGoogleAvatar($avatarUrl);
+
+        return $storedAvatarPath ?: ($user->avatar ?: config('user.avatar'));
+    }
+
+    private function storeGoogleAvatar(mixed $avatarUrl): ?string
+    {
+        $avatarUrl = trim((string) $avatarUrl);
+
+        if(! $this->isTrustedGoogleAvatarUrl($avatarUrl)) {
+            return null;
+        }
+
+        try {
+            $response = Http::timeout(5)
+                ->accept('image/avif,image/webp,image/png,image/jpeg,image/*')
+                ->get($avatarUrl);
+
+            if(! $response->ok()) {
+                return null;
+            }
+
+            $contentType = mb_strtolower(trim((string) Str::before($response->header('Content-Type', ''), ';')));
+            $extension = $this->avatarExtensionForContentType($contentType);
+            $body = $response->body();
+            $bodySize = strlen($body);
+
+            if($extension === null || $bodySize === 0 || $bodySize > self::MAX_AVATAR_BYTES) {
+                return null;
+            }
+
+            $filepath = 'uploads/users/avatars/' . Str::random(40) . ".{$extension}";
+            $fileUploaded = Storage::disk(static_storage_disk())->put($filepath, $body, [
+                'visibility' => 'public',
+                'ContentType' => $contentType,
+            ]);
+
+            return $fileUploaded ? $filepath : null;
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    private function isTrustedGoogleAvatarUrl(string $avatarUrl): bool
+    {
+        if($avatarUrl === '') {
+            return false;
+        }
+
+        $scheme = mb_strtolower((string) parse_url($avatarUrl, PHP_URL_SCHEME));
+        $host = mb_strtolower((string) parse_url($avatarUrl, PHP_URL_HOST));
+
+        return $scheme === 'https'
+            && ($host === 'googleusercontent.com' || str_ends_with($host, '.googleusercontent.com'));
+    }
+
+    private function avatarExtensionForContentType(string $contentType): ?string
+    {
+        return match ($contentType) {
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/webp' => 'webp',
+            'image/gif' => 'gif',
+            default => null,
+        };
     }
 
     private function resolveProfileNames(User $user, $socialiteUser, array $rawUser): array

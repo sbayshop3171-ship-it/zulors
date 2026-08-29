@@ -1,0 +1,6 @@
+firebase/*.json
+build/
+keystores/
+*.jks
+*.keystore
+.env.play-upload-key
