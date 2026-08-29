@@ -161,6 +161,8 @@ php artisan livewire:publish --assets || true
 php artisan optimize:clear
 php artisan settings:discover
 php artisan optimize
+echo "Restarting Horizon workers..."
+php artisan horizon:terminate || true
 
 normalize_permissions
 chmod -R ug+rwX storage bootstrap/cache public/build 2>/dev/null || true

@@ -100,7 +100,7 @@
             const messageVideoFileInput = ref(null);
             const messageDocumentFileInput = ref(null);
 			const inputMessageText = ref('');
-			const { autoResize, insertSymbolAtCaret } = useInputHandlers();
+			const { autoResize, insertSymbolAtCaret, preserveInputFocus } = useInputHandlers();
 			const state = reactive({
 				isSubmitting: false,
 				isEmojisPickerOpen: false,
@@ -160,12 +160,8 @@
                             content: inputMessageText.value,
                         });
 
-                        inputMessageText.value = '';
-
-                        messageInputHandler();
-                        nextTick(() => {
-                            messageInputField.value?.focus();
-                        });
+                        preserveInputFocus(messageInputField.value, '');
+                        autoResize(messageInputField.value);
 					}
 				}
             }

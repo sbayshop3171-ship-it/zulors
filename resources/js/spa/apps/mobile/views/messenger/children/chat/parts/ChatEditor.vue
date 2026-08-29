@@ -98,7 +98,7 @@
             const messageDocumentFileInput = ref(null);
 			const messageContent = ref('');
 			const repliedMessage = ref(null);
-			const { autoResize } = useInputHandlers();
+			const { autoResize, preserveInputFocus } = useInputHandlers();
 
 			const state = reactive({
 				isSubmitting: false,
@@ -149,11 +149,8 @@
             repliedMessage.value = null;
             state.isSubmitting = false;
 
-            nextTick(() => {
-                messageInputHandler();
-                messageInputField.value?.focus();
-            });
-
+            preserveInputFocus(messageContentField.value, '');
+            autoResize(messageContentField.value);
             colibriSounds.chatMessageSent();
             chatStore.sendMessage(payload).catch((error) => {
                 alert(error);

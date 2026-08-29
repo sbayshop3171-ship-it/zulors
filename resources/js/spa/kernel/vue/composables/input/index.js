@@ -1,13 +1,49 @@
 import { nextTick } from 'vue';
 
+const buildViewportMetaContent = function({ userScalable = false, interactiveWidget = 'resizes-content' } = {}) {
+    return `width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=${interactiveWidget}, user-scalable=${userScalable ? 'yes' : 'no'}`;
+};
+
 function useInputHandlers() {
     const autoResize = function(textInputFiled) {
         nextTick(() => {
             if (textInputFiled) {
-                textInputFiled.style.height = '1rem';
-                textInputFiled.style.height = textInputFiled.scrollHeight + 'px';
+                const nextHeight = Math.max(48, textInputFiled.scrollHeight + 2);
+                textInputFiled.style.height = 'auto';
+                textInputFiled.style.height = `${nextHeight}px`;
             }
         });
+    }
+
+    const preserveInputFocus = function(inputField, nextValue = '', { preventScroll = true } = {}) {
+        if(! inputField) {
+            return false;
+        }
+
+        const selectionStart = typeof inputField.selectionStart === 'number' ? inputField.selectionStart : null;
+
+        inputField.value = nextValue;
+        inputField.style.height = 'auto';
+
+        if(inputField.scrollHeight) {
+            const nextHeight = Math.max(48, inputField.scrollHeight + 2);
+            inputField.style.height = `${nextHeight}px`;
+        }
+
+        requestAnimationFrame(() => {
+            inputField.focus({ preventScroll });
+
+            if(selectionStart !== null && typeof inputField.setSelectionRange === 'function') {
+                const position = Math.min(selectionStart, String(nextValue).length);
+                inputField.setSelectionRange(position, position);
+            }
+
+            if(typeof document !== 'undefined' && document.activeElement !== inputField) {
+                inputField.focus({ preventScroll });
+            }
+        });
+
+        return true;
     }
 
     const insertSymbolAtCaret = function(inputField, symbol) {
@@ -69,6 +105,7 @@ function useInputHandlers() {
 
     return {
         autoResize: autoResize,
+        preserveInputFocus: preserveInputFocus,
         insertSymbolAtCaret: insertSymbolAtCaret,
         matchMention: matchMention,
         completeText: completeText,
@@ -76,4 +113,4 @@ function useInputHandlers() {
     };
 }
 
-export { useInputHandlers };
+export { useInputHandlers, buildViewportMetaContent };

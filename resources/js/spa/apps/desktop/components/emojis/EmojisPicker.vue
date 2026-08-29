@@ -1,7 +1,7 @@
 <template>
     <div class="popup-card">
         <PopupPanel v-outside-click="close">
-            <div class="flex flex-col h-full overflow-hidden">
+            <div class="flex h-[22rem] max-h-[65vh] min-h-[22rem] flex-col overflow-hidden">
                 <div class="shrink-0 relative">
                     <div class="flex items-center px-1 border-b border-b-fill-pr">
                         <button v-on:click="switchEmojiCategory('fused')" type="button" class="grayscale py-3 px-2 outline-hidden opacity-80 cursor-pointer hover:grayscale-0 relative" v-bind:class="{ 'grayscale-0 emojis-picker-active-tab': TS.activeCategory == 'fused' }">
@@ -25,16 +25,16 @@
                     </div>
                 </div>
                 <template v-if="isLoading">
-                    <div class="h-full">
-                        <div class="w-full h-16 flex items-center justify-center">
+                    <div class="flex h-full min-h-[18rem] items-center justify-center">
+                        <div class="flex h-16 w-full items-center justify-center">
                             <span class="colibri-primary-animation"></span>
                         </div>
                     </div>
                 </template>
                 <template v-else>
-                    <div class="max-h-96 overflow-y-auto">
+                    <div class="h-full min-h-0 overflow-y-auto overscroll-contain">
                         <div class="flex-1 overflow-hidden py-4">
-                            <div class="h-full overflow-y-auto">
+                            <div class="h-full overflow-y-auto overscroll-contain">
                                 <div class="px-2 mb-4 last:mb-0" v-for="emojisGroup in emojiMap">
                                     <div class="mb-2">
                                         <span class="text-lab-sc text-par-n">{{ $t(emojisGroup.title) }}</span>
