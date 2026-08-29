@@ -54,7 +54,7 @@ return [
     'google' => [
         'native_client_ids' => array_values(array_filter(array_map('trim', explode(',', env(
             'GOOGLE_NATIVE_CLIENT_IDS',
-            '92185010272-6likk4ebn353qm2mjdembk8cttaivfl3.apps.googleusercontent.com'
+            '505126705219-c4alnqlmvgio1oh1p1qedjj2unj6s6m3.apps.googleusercontent.com'
         ))))),
     ],
     'translation' => [
