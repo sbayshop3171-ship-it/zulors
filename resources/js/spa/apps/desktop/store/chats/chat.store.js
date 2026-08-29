@@ -8,6 +8,10 @@ import {
 } from '@/kernel/helpers/chat/pending-audio-message.js';
 import { useInboxStore } from '@D/store/chats/inbox.store.js';
 import { useAuthStore } from '@D/store/auth/auth.store.js';
+import {
+	createOptimisticOutgoingMessage,
+	findPendingOutgoingMessageIndex,
+} from '@/kernel/helpers/chat/pending-outgoing-message.js';
 import { readMessengerCache, writeMessengerCache } from '@/kernel/services/cache/messenger-cache.js';
 
 const CHAT_CACHE_TTL = 1000 * 60 * 60 * 24;
@@ -146,20 +150,39 @@ const useChatStore = defineStore('chats_chat', {
 			});
 		},
 		sendMessage: async function(messageData = {}) {
-			let state = this;
+			const clientUid = messageData.client_uid || `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+			const optimisticMessage = createOptimisticOutgoingMessage({
+				chatId: this.chatId,
+				userData: useAuthStore().userData || {},
+				content: messageData.content || '',
+				messageType: messageData.message_type || messageData.type || 'text',
+				parentMessage: messageData.parent_message || null,
+				parentId: messageData.parent_id || null,
+				clientUid: clientUid,
+			});
 
-			await colibriAPI().messenger().with({
-				chat_id: state.chatId,
-				...messageData
-			}).sendTo('send').then(function(response) {
+			this.appendMessage(optimisticMessage);
+
+			try {
+				const response = await colibriAPI().messenger().with({
+					chat_id: this.chatId,
+					...messageData,
+					client_uid: clientUid,
+				}).sendTo('send');
+
 				if(response.data.data) {
-					state.upsertMessage(response.data.data);
+					this.upsertMessage(response.data.data);
 				}
-			}).catch(function(error) {
+			}
+			catch(error) {
+				this.removeMessage(optimisticMessage.id);
+
 				if(error.response) {
 					throw new Error(error.response.data.message);
 				}
-			});
+
+				throw error;
+			}
 		},
         sendMediaMessage: async function(mediaData) {
             const formData = new FormData();
@@ -488,7 +511,15 @@ const useChatStore = defineStore('chats_chat', {
             return true;
         },
 		upsertMessage: function(messageData = {}) {
-			let messageIndex = this.chatMessages.findIndex((item) => {
+			let messageIndex = findPendingOutgoingMessageIndex(this.chatMessages, messageData);
+
+			if(messageIndex !== -1) {
+				this.replaceTemporaryMessage(this.chatMessages[messageIndex].id, messageData);
+
+				return;
+			}
+
+			messageIndex = this.chatMessages.findIndex((item) => {
 				return item.id == messageData.id;
 			});
             const nextMessage = messageIndex === -1

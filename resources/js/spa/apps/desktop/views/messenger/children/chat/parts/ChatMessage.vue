@@ -96,7 +96,10 @@
 
 				<div class="flex items-center gap-1 mt-0.5 px-1" v-bind:class="[isSender ? 'justify-end' : 'justify-start']">
 					<time class="text-cap-l text-lab-sc">{{ messageData.date.time_ago }}</time>
-					<span v-if="isSender && isMessageSeen" class="size-icon-x-small text-brand-900">
+					<span v-if="isSender && isPendingOutgoingMessage" class="size-icon-x-small text-lab-sc">
+						<SvgIcon type="line" name="message-check"></SvgIcon>
+					</span>
+					<span v-else-if="isSender && isMessageSeen" class="size-icon-x-small text-brand-900">
 						<SvgIcon type="line" name="message-double-check"></SvgIcon>
 					</span>
 				</div>
@@ -263,6 +266,9 @@
                 isPendingAudioMessage: computed(() => {
                     return isPendingAudioMessageHelper(messageData.value);
                 }),
+				isPendingOutgoingMessage: computed(() => {
+					return messageData.value.meta?.local_outgoing?.pending === true;
+				}),
                 pendingAudioProgress: computed(() => {
                     return Number(messageData.value.meta?.local_audio?.upload_progress || 0);
                 }),

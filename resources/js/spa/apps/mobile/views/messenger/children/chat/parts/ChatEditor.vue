@@ -23,7 +23,7 @@
 
                 <div class="shrink-0 pt-2">
                     <div class="inline-flex gap-2">
-                        <PrimaryIconButton v-if="hasTyped" v-bind:disabled="state.isSubmitting" v-on:click="submitForm" iconName="send-03" iconSize="icon-normal" buttonColor="text-brand-900"></PrimaryIconButton>
+                        <PrimaryIconButton v-if="hasTyped" v-on:click="submitForm" iconName="send-03" iconSize="icon-normal" buttonColor="text-brand-900"></PrimaryIconButton>
                         <template v-else>
                             <div class="relative">
                                 <PrimaryIconButton v-on:click.stop="state.attachments.open = ! state.attachments.open" v-bind:disabled="state.isSubmitting" iconName="paperclip" iconType="line"></PrimaryIconButton>
@@ -130,38 +130,34 @@
 			}
 
 			const submitForm = async function(event) {
-				try {
-					state.isSubmitting = true;
+            const content = messageContent.value;
 
-					if(messageContent.value.length) {
-						const content = messageContent.value;
+            if(! content.length) {
+                return;
+            }
 
-						const payload = {
-							content: content
-						};
+            const payload = {
+                content: content,
+                parent_message: repliedMessage.value || null,
+            };
 
-						messageContent.value = '';
+            if(repliedMessage.value) {
+                payload.parent_id = repliedMessage.value.id;
+            }
 
-						if(repliedMessage.value) {
-							payload['parent_id'] = repliedMessage.value.id;
-						}
+            messageContent.value = '';
+            repliedMessage.value = null;
+            state.isSubmitting = false;
 
-						repliedMessage.value = null;
+            nextTick(() => {
+                messageInputHandler();
+                messageInputField.value?.focus();
+            });
 
-						await chatStore.sendMessage(payload);
-
-						nextTick(() => {
-							messageInputHandler();
-						});
-
-						colibriSounds.chatMessageSent();
-					}
-
-					state.isSubmitting = false;
-				} catch (error) {
-                    state.isSubmitting = false;
-					alert(error);
-				}
+            colibriSounds.chatMessageSent();
+            chatStore.sendMessage(payload).catch((error) => {
+                alert(error);
+            });
             }
 
             const getFileExtension = (file) => {

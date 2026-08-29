@@ -33,7 +33,7 @@
 
                     <div class="absolute right-4 top-3">
                         <div class="flex gap-4">
-                            <IconButton v-if="hasTyped" v-bind:disabled="state.isSubmitting" v-on:click="submitForm" iconName="send-03" iconType="solid"></IconButton>
+                            <IconButton v-if="hasTyped" v-on:click="submitForm" iconName="send-03" iconType="solid"></IconButton>
                             <template v-else>
                                 <div class="relative">
                                     <IconButton v-on:click.stop="state.attachments.open = ! state.attachments.open" iconName="paperclip" iconType="line"></IconButton>
@@ -131,26 +131,19 @@
 				});
 			});
 
-            const sendMessage = async function(payload = null) {
+            const sendMessage = function(payload = null) {
                 if(payload !== null) {
-                    try {
-                        state.isSubmitting = true;
+					if(repliedMessage.value) {
+						payload.parent_id = repliedMessage.value.id;
+						payload.parent_message = repliedMessage.value;
+					}
 
-                        if(repliedMessage.value) {
-                            payload['parent_id'] = repliedMessage.value.id;
-                        }
-
-                        await chatStore.sendMessage(payload);
-
-                        state.isSubmitting = false;
-                        colibriSounds.chatMessageSent();
-
-
-                        repliedMessage.value = null;
-                    } catch (error) {
-                        state.isSubmitting = false;
-                        alert(error);
-                    }
+					state.isSubmitting = false;
+					repliedMessage.value = null;
+					colibriSounds.chatMessageSent();
+					chatStore.sendMessage(payload).catch((error) => {
+						alert(error);
+					});
                 }
             }
 
@@ -163,13 +156,16 @@
 						event.preventDefault();
 						state.isEmojisPickerOpen = false;
 
-						await sendMessage({
+                        sendMessage({
                             content: inputMessageText.value,
                         });
 
                         inputMessageText.value = '';
 
                         messageInputHandler();
+                        nextTick(() => {
+                            messageInputField.value?.focus();
+                        });
 					}
 				}
             }
