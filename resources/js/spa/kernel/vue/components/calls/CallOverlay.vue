@@ -59,6 +59,18 @@
                     <p v-if="callStore.error" class="mt-3 rounded-lg bg-red-900/10 px-3 py-2 text-par-s font-medium text-red-900">
                         {{ callStore.error }}
                     </p>
+                    <button
+                        v-if="callStore.isActive && callStore.audioPlaybackBlocked"
+                        type="button"
+                        class="mt-3 rounded-lg bg-green-600 px-4 py-2 text-par-s font-semibold text-white shadow-sm"
+                        v-on:click.stop.prevent="onResumeAudio"
+                        v-on:pointerup.stop.prevent="onResumeAudio"
+                        v-on:touchend.stop.prevent="onResumeAudio">
+                        Tap to enable call audio
+                    </button>
+                    <p v-if="callStore.isActive && callStore.remoteMuted" class="mt-3 text-par-s font-medium text-lab-sc">
+                        The other person is muted
+                    </p>
 
                     <div v-if="callStore.isIncoming" class="call-overlay-controls mt-8 grid grid-cols-2 gap-4">
                         <button
@@ -179,11 +191,11 @@
 
                 lastControlActionAt.value = now;
 
-                window.setTimeout(() => {
-                    Promise.resolve()
-                        .then(() => callback?.())
-                        .catch(() => {});
-                }, 0);
+                // Invoke immediately so browser user activation is available for audio playback.
+                try {
+                    Promise.resolve(callback?.()).catch(() => {});
+                }
+                catch(error) {}
 
                 return true;
             };
@@ -226,7 +238,29 @@
 
                 remoteAudioRef.value.volume = remoteVolume();
                 remoteAudioRef.value.muted = remoteVolume() <= 0;
-                remoteAudioRef.value.play?.().catch(() => {});
+                Promise.resolve(remoteAudioRef.value.play?.())
+                    .then(() => props.callStore.clearAudioPlaybackBlocked?.())
+                    .catch(() => props.callStore.markAudioPlaybackBlocked?.());
+            };
+            const retryRemoteAudioPlayback = () => {
+                Promise.resolve(remoteAudioRef.value?.play?.())
+                    .then(() => props.callStore.clearAudioPlaybackBlocked?.())
+                    .catch(() => props.callStore.markAudioPlaybackBlocked?.());
+            };
+            const onResumeAudio = () => {
+                if(props.callStore.peer?.resumeAudioPlayback) {
+                    Promise.resolve(props.callStore.resumeAudioPlayback())
+                        .then((resumed) => {
+                            if(! resumed) {
+                                retryRemoteAudioPlayback();
+                            }
+                        })
+                        .catch(() => retryRemoteAudioPlayback());
+
+                    return;
+                }
+
+                retryRemoteAudioPlayback();
             };
             const remoteVolume = () => {
                 const normalizedVolume = Number(props.callStore.remoteOutputVolumeLevel);
@@ -287,6 +321,7 @@
                 onMinimize: () => runControlAction(() => props.callStore.minimize()),
                 onDecline: () => runControlAction(() => props.callStore.declineCall()),
                 onAnswer: () => runControlAction(() => props.callStore.answerCall()),
+                onResumeAudio: () => runControlAction(onResumeAudio),
                 onSpeakerToggle: () => runControlAction(() => props.callStore.toggleSpeaker()),
                 onMuteToggle: () => runControlAction(() => props.callStore.toggleMute()),
                 onEndCall: () => runControlAction(() => props.callStore.endCall()),

@@ -676,7 +676,7 @@ const buildPreferredAudioConstraints = (
     const baseConstraints = {
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: false,
+        autoGainControl: true,
         channelCount: { ideal: 1 },
         sampleRate: { ideal: sampleRate },
         sampleSize: { ideal: 16 },
@@ -693,8 +693,8 @@ const buildPreferredAudioConstraints = (
         googEchoCancellation: true,
         googEchoCancellation2: true,
         googDAEchoCancellation: true,
-        googAutoGainControl: false,
-        googAutoGainControl2: false,
+        googAutoGainControl: true,
+        googAutoGainControl2: true,
         googNoiseSuppression: true,
         googNoiseSuppression2: true,
         googHighpassFilter: true,
@@ -713,7 +713,7 @@ const requestPreferredAudioCaptureStream = async (sampleRate = defaultAgoraSpeec
                 audio: {
                     echoCancellation: true,
                     noiseSuppression: true,
-                    autoGainControl: false
+                    autoGainControl: true
                 }
             },
             {
@@ -731,7 +731,7 @@ const requestPreferredAudioCaptureStream = async (sampleRate = defaultAgoraSpeec
                 audio: {
                     echoCancellation: true,
                     noiseSuppression: true,
-                    autoGainControl: false
+                    autoGainControl: true
                 }
             },
             {
@@ -813,13 +813,13 @@ const createMicrophoneTrackWithFallback = async (AgoraRTC, prewarmedStream = nul
     const configs = [
         {
             AEC: true,
-            AGC: false,
+            AGC: true,
             ANS: true,
             encoderConfig: encoderConfig
         },
         {
             AEC: true,
-            AGC: false,
+            AGC: true,
             ANS: true
         },
         {}
@@ -920,6 +920,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     let localAgoraUid = null;
     let remoteOutputAecTimers = [];
     let remoteSubscribeFailures = 0;
+    let playbackDeviceChangeListener = null;
     let remoteAudioHealth = createRemoteAudioHealthState({
         source: 'web',
     });
@@ -980,11 +981,11 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     const applyLocalMuteState = async () => {
         const shouldEnable = ! isMuted;
 
-        setMediaStreamAudioTracksEnabled(rawCaptureStream, shouldEnable);
-        setMediaStreamAudioTracksEnabled(localCaptureStream, shouldEnable);
-        setMediaStreamAudioTracksEnabled(localStream, shouldEnable);
-
         if(! localAudioTrack) {
+            setMediaStreamAudioTracksEnabled(rawCaptureStream, shouldEnable);
+            setMediaStreamAudioTracksEnabled(localCaptureStream, shouldEnable);
+            setMediaStreamAudioTracksEnabled(localStream, shouldEnable);
+
             return;
         }
 
@@ -1168,6 +1169,84 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         catch(error) {}
     };
 
+    const reportRemoteAudioPlaybackBlocked = (error = null) => {
+        markRemoteAudioUnavailable('playback_blocked');
+        emit('onAudioPlaybackBlocked', {
+            reason: 'playback_blocked',
+            error_message: error?.message || 'Remote audio playback was blocked.'
+        });
+        emit('onQualityStats', {
+            network_quality: 'good',
+            issue: 'remote_audio_play_blocked',
+            connection_state: 'connected',
+            ice_connection_state: 'connected',
+            remote_audio_playing: false,
+            remote_audio_live: false,
+            error_message: error?.message || 'Remote audio playback was blocked.'
+        });
+    };
+
+    const reportRemoteAudioPlaybackResumed = () => {
+        updateRemoteAudioHealth({
+            trackPresent: Boolean(remoteAudioTrack && remoteStream),
+            playbackActive: true,
+            reason: 'playback_resumed'
+        });
+        emit('onAudioPlaybackResumed');
+    };
+
+    const setBrowserAudioOutput = async (deviceId = 'default') => {
+        let applied = false;
+
+        try {
+            if(typeof remoteAudioTrack?.setPlaybackDevice === 'function') {
+                await remoteAudioTrack.setPlaybackDevice(deviceId);
+                applied = true;
+            }
+        }
+        catch(error) {}
+
+        try {
+            if(typeof remoteOutputElement?.setSinkId === 'function') {
+                await remoteOutputElement.setSinkId(deviceId);
+                applied = true;
+            }
+        }
+        catch(error) {}
+
+        return applied;
+    };
+
+    const attachPlaybackDeviceChangeListener = () => {
+        if(
+            typeof navigator === 'undefined'
+            || ! navigator.mediaDevices?.addEventListener
+            || playbackDeviceChangeListener
+        ) {
+            return;
+        }
+
+        playbackDeviceChangeListener = () => {
+            setBrowserAudioOutput('default').catch(() => {});
+        };
+        navigator.mediaDevices.addEventListener('devicechange', playbackDeviceChangeListener);
+    };
+
+    const detachPlaybackDeviceChangeListener = () => {
+        if(
+            typeof navigator === 'undefined'
+            || ! navigator.mediaDevices?.removeEventListener
+            || ! playbackDeviceChangeListener
+        ) {
+            playbackDeviceChangeListener = null;
+
+            return;
+        }
+
+        navigator.mediaDevices.removeEventListener('devicechange', playbackDeviceChangeListener);
+        playbackDeviceChangeListener = null;
+    };
+
     const processRemoteOutputAEC = () => {
         if(! remoteOutputElement || ! AgoraRTCModule?.processExternalMediaAEC) {
             return;
@@ -1292,19 +1371,9 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
 
             applyRemoteOutputVolume();
             refreshRemoteOutputAEC();
-            remoteOutputElement.play?.().catch((error) => {
-                markRemoteAudioUnavailable('playback_blocked');
-                emit('onQualityStats', {
-                    network_quality: 'reconnecting',
-                    issue: 'remote_audio_play_blocked',
-                    connection_state: 'reconnecting',
-                    ice_connection_state: 'connected',
-                    remote_audio_playing: false,
-                    remote_audio_live: false,
-                    error_message: error?.message || 'Remote audio playback was blocked.'
-                });
-                emit('onReconnectState', 'reconnecting');
-            });
+            Promise.resolve(remoteOutputElement.play?.())
+                .then(() => reportRemoteAudioPlaybackResumed())
+                .catch((error) => reportRemoteAudioPlaybackBlocked(error));
         }
         catch(error) {}
 
@@ -1717,6 +1786,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         catch(error) {}
 
         disposeLocalCaptureStreams();
+        detachPlaybackDeviceChangeListener();
 
         const activeClient = client;
 
@@ -1772,8 +1842,34 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             ));
             applyRemoteOutputVolume();
         },
+        setSpeakerEnabled: async () => {
+            attachPlaybackDeviceChangeListener();
+
+            return setBrowserAudioOutput('default');
+        },
+        resumeAudioPlayback: async () => {
+            if(! remoteOutputElement || ! remoteStream) {
+                return false;
+            }
+
+            try {
+                // Start playback while the click/tap user activation is still live.
+                const playbackPromise = remoteOutputElement.play?.();
+                await AgoraRTCModule?.resumeAudioContext?.();
+                await playbackPromise;
+                reportRemoteAudioPlaybackResumed();
+
+                return true;
+            }
+            catch(error) {
+                reportRemoteAudioPlaybackBlocked(error);
+
+                return false;
+            }
+        },
         attachRemoteOutputElement: (element) => {
             remoteOutputElement = element || null;
+            attachPlaybackDeviceChangeListener();
             refreshRemoteOutputAEC();
             applyRemoteOutputVolume();
 

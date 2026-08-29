@@ -684,7 +684,7 @@ class CallController extends Controller
     public function signal(Request $request, string $callUuid)
     {
         $validator = Validator::make($request->all(), [
-            'signal_type' => ['required', 'string', Rule::in(['offer', 'answer', 'ice', 'candidate', 'ready', 'connected'])],
+            'signal_type' => ['required', 'string', Rule::in(['offer', 'answer', 'ice', 'candidate', 'ready', 'connected', 'mute'])],
             'signal' => ['nullable', 'array'],
         ]);
 

@@ -357,7 +357,7 @@ const requestLocalMediaStream = async (mediaType = 'audio') => {
     const voiceAudioConstraints = {
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: false,
+        autoGainControl: true,
         channelCount: { ideal: 1 },
         sampleRate: { ideal: preferredAudioSampleRate },
         sampleSize: { ideal: 16 },
@@ -366,8 +366,8 @@ const requestLocalMediaStream = async (mediaType = 'audio') => {
         googEchoCancellation: true,
         googEchoCancellation2: true,
         googDAEchoCancellation: true,
-        googAutoGainControl: false,
-        googAutoGainControl2: false,
+        googAutoGainControl: true,
+        googAutoGainControl2: true,
         googNoiseSuppression: true,
         googNoiseSuppression2: true,
         googHighpassFilter: true,
@@ -380,7 +380,7 @@ const requestLocalMediaStream = async (mediaType = 'audio') => {
                 audio: {
                     echoCancellation: true,
                     noiseSuppression: true,
-                    autoGainControl: false
+                    autoGainControl: true
                 },
                 video: wantsVideo
             },
@@ -402,7 +402,7 @@ const requestLocalMediaStream = async (mediaType = 'audio') => {
                 audio: {
                     echoCancellation: true,
                     noiseSuppression: true,
-                    autoGainControl: false
+                    autoGainControl: true
                 },
                 video: wantsVideo
             },

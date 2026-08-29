@@ -145,6 +145,8 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             error: '',
             minimized: false,
             isMuted: false,
+            remoteMuted: false,
+            audioPlaybackBlocked: false,
             speakerEnabled: false,
             localStream: null,
             remoteStream: null,
@@ -1077,6 +1079,16 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 else if(data.signal_type === 'connected') {
                     this.markConnected(false);
                 }
+                else if(data.signal_type === 'mute') {
+                    this.remoteMuted = data.signal?.muted === true;
+                    this.noteCallEngineActivity();
+                    this.syncRemoteAudioWatchdog();
+                    this.syncDegradedConnectionTimeout();
+
+                    if(! this.remoteMuted) {
+                        Promise.resolve(this.peer?.refreshRemoteAudio?.()).catch(() => {});
+                    }
+                }
                 else if(data.signal_type === 'ready' && this.call?.initiator_id === this.currentUserId) {
                     this.runPeerSetupInBackground({
                         callUuid: this.call?.call_uuid,
@@ -1201,6 +1213,16 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 },
                 onRemoteAudioHealth: (health) => {
                     this.applyRemoteAudioHealth(health);
+                },
+                onAudioPlaybackBlocked: () => {
+                    this.audioPlaybackBlocked = true;
+                    this.syncRemoteAudioWatchdog();
+                    this.syncDegradedConnectionTimeout();
+                },
+                onAudioPlaybackResumed: () => {
+                    this.audioPlaybackBlocked = false;
+                    this.syncRemoteAudioWatchdog();
+                    this.syncDegradedConnectionTimeout();
                 },
                 onConnected: () => {
                     this.markConnected(true);
@@ -2018,6 +2040,11 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             try {
                 Promise.resolve(this.peer?.setMuted?.(this.isMuted)).catch(() => {});
+                this.sendSignal('mute', {
+                    muted: this.isMuted
+                }, {
+                    syncCallState: false
+                }).catch(() => {});
             }
             catch(error) {}
         },
@@ -2031,8 +2058,32 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             try {
                 this.quietRemoteOutputForRouteChange();
                 this.setNativeSpeakerEnabled(this.speakerEnabled);
+                Promise.resolve(this.peer?.setSpeakerEnabled?.(this.speakerEnabled)).catch(() => {});
             }
             catch(error) {}
+        },
+        resumeAudioPlayback: async function() {
+            if(! this.isActive || ! this.peer?.resumeAudioPlayback) {
+                return false;
+            }
+
+            const resumed = await this.peer.resumeAudioPlayback();
+
+            if(resumed) {
+                this.audioPlaybackBlocked = false;
+            }
+
+            return resumed;
+        },
+        markAudioPlaybackBlocked: function() {
+            this.audioPlaybackBlocked = true;
+            this.syncRemoteAudioWatchdog();
+            this.syncDegradedConnectionTimeout();
+        },
+        clearAudioPlaybackBlocked: function() {
+            this.audioPlaybackBlocked = false;
+            this.syncRemoteAudioWatchdog();
+            this.syncDegradedConnectionTimeout();
         },
         getTargetRemoteOutputVolume: function() {
             if(this.audioRouteSettling) {
@@ -2063,6 +2114,10 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
 
             this.error = '';
+            if(! sameCall) {
+                this.remoteMuted = false;
+                this.audioPlaybackBlocked = false;
+            }
             this.syncCallSideEffects();
         },
         finishCall: function(status = 'ended', resetDelay = 900) {
@@ -2126,6 +2181,8 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.error = '';
             this.minimized = false;
             this.isMuted = false;
+            this.remoteMuted = false;
+            this.audioPlaybackBlocked = false;
             this.speakerEnabled = false;
             this.localStream = null;
             this.remoteStream = null;
@@ -2205,6 +2262,8 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.remoteAudioHealthReason = '';
             this.nativeRemoteAudioConnected = false;
             this.nativeAudioRoute = 'earpiece';
+            this.remoteMuted = false;
+            this.audioPlaybackBlocked = false;
             this.pendingHeartbeatFlush = false;
             this.lastEngineActivityAtMs = 0;
             this.exitNativeAudioMode();
@@ -2376,14 +2435,14 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             return this.remoteAudioLive === true;
         },
         startRemoteAudioWatchdog: function() {
-            if(this.remoteAudioWatchdogTimer || ! this.call?.call_uuid || this.status !== 'connected' || this.hasLiveRemoteAudio()) {
+            if(this.remoteAudioWatchdogTimer || ! this.call?.call_uuid || this.status !== 'connected' || this.hasLiveRemoteAudio() || this.remoteMuted || this.audioPlaybackBlocked) {
                 return;
             }
 
             this.remoteAudioWatchdogTimer = window.setTimeout(async () => {
                 this.remoteAudioWatchdogTimer = null;
 
-                if(this.status !== 'connected' || this.hasLiveRemoteAudio() || this.isFinal) {
+                if(this.status !== 'connected' || this.hasLiveRemoteAudio() || this.isFinal || this.remoteMuted || this.audioPlaybackBlocked) {
                     return;
                 }
 
@@ -2393,7 +2452,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 }
                 catch(error) {}
 
-                if(this.status !== 'connected' || this.hasLiveRemoteAudio() || this.isFinal) {
+                if(this.status !== 'connected' || this.hasLiveRemoteAudio() || this.isFinal || this.remoteMuted || this.audioPlaybackBlocked) {
                     return;
                 }
 
@@ -2415,7 +2474,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
         },
         syncRemoteAudioWatchdog: function() {
-            if(this.status === 'connected' && ! this.hasLiveRemoteAudio()) {
+            if(this.status === 'connected' && ! this.hasLiveRemoteAudio() && ! this.remoteMuted && ! this.audioPlaybackBlocked) {
                 this.startRemoteAudioWatchdog();
             }
             else {
@@ -2426,7 +2485,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             return shouldWatchDegradedCallRecovery({
                 status: this.status,
                 networkState: this.networkState,
-                hasLiveRemoteAudio: this.hasLiveRemoteAudio()
+                hasLiveRemoteAudio: this.hasLiveRemoteAudio(),
+                remoteMuted: this.remoteMuted,
+                audioPlaybackBlocked: this.audioPlaybackBlocked
             });
         },
         startDegradedConnectionTimeoutTimer: function() {
@@ -2519,7 +2580,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 if(! shouldForceReconnectHangup({
                     isActive: this.isActive,
                     networkState: this.networkState,
-                    hasLiveRemoteAudio: this.hasLiveRemoteAudio()
+                    hasLiveRemoteAudio: this.hasLiveRemoteAudio(),
+                    remoteMuted: this.remoteMuted,
+                    audioPlaybackBlocked: this.audioPlaybackBlocked
                 })) {
                     this.syncDegradedConnectionTimeout();
 
