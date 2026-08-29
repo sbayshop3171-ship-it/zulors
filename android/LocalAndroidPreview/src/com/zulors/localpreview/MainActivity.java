@@ -784,19 +784,21 @@ public class MainActivity extends Activity {
     }
 
     private String resolveNativeGoogleServerClientId(String requestedServerClientId) {
-        String googleServicesClientId = resolveGoogleServicesWebClientId();
-
-        if (!googleServicesClientId.isEmpty()) {
-            return googleServicesClientId;
-        }
-
         String candidate = requestedServerClientId == null ? "" : requestedServerClientId.trim();
 
         if (!candidate.isEmpty()) {
             return candidate;
         }
 
-        return BuildConfig.GOOGLE_WEB_CLIENT_ID == null ? "" : BuildConfig.GOOGLE_WEB_CLIENT_ID.trim();
+        String configuredClientId = BuildConfig.GOOGLE_WEB_CLIENT_ID == null
+            ? ""
+            : BuildConfig.GOOGLE_WEB_CLIENT_ID.trim();
+
+        if (!configuredClientId.isEmpty()) {
+            return configuredClientId;
+        }
+
+        return resolveGoogleServicesWebClientId();
     }
 
     private String resolveGoogleServicesWebClientId() {
