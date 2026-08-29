@@ -17,6 +17,7 @@ namespace App\Events\User\Chat;
 
 use App\Http\Resources\User\Chat\MessageResource;
 use App\Models\Message;
+use App\Services\RealTime\NonBlockingBroadcaster;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Foundation\Events\Dispatchable;
@@ -29,11 +30,13 @@ class MessageReceivedEvent implements ShouldBroadcastNow
 
     private $messageData;
     private ?string $clientUid;
+    private float $startTime;
 
     public function __construct(Message $messageData, ?string $clientUid = null)
     {
         $this->messageData = $messageData;
         $this->clientUid = $clientUid;
+        $this->startTime = microtime(true);
     }
 
     public function broadcastAs()
@@ -56,8 +59,26 @@ class MessageReceivedEvent implements ShouldBroadcastNow
             $payload['meta']['client_uid'] = $this->clientUid;
         }
 
+        // Add latency tracking
+        $elapsedMs = (microtime(true) - $this->startTime) * 1000;
+        $payload['meta']['server_broadcast_time_ms'] = round($elapsedMs, 2);
+
         return [
             'data' => $payload
         ];
+    }
+
+    /**
+     * Use non-blocking broadcast for instant delivery
+     * Heavy DB operations run async after event is published
+     */
+    public function shouldBroadcast()
+    {
+        // Broadcast immediately via Redis pub/sub
+        $broadcaster = app(NonBlockingBroadcaster::class);
+        $broadcaster->broadcastInstant($this, 'high');
+
+        // Return false to prevent Laravel's default broadcasting
+        return false;
     }
 }
