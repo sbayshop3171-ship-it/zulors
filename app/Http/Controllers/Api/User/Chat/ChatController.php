@@ -560,6 +560,7 @@ class ChatController extends Controller
             'chat_id' => $request->get('chat_id'),
             'content' => $request->get('content'),
             'parent_id' => $request->get('parent_id'),
+            'client_uid' => $request->get('client_uid'),
             'media_type' => $request->get('media_type'),
             'message_type' => $request->get('message_type'),
             'media' => $request->file('media'),
@@ -567,6 +568,7 @@ class ChatController extends Controller
         ], [
             'chat_id' => ['required', 'uuid'],
             'parent_id' => ['nullable', 'integer'],
+            'client_uid' => ['nullable', 'string', 'max:100'],
             'content' => ['nullable', 'required_without:media', 'string', 'min:1', XRule::join('max', config('chat.message.validation.content.max'))],
             'media_type' => ['nullable', 'required_with:media', 'string', Rule::in(config('chat.validation.message.media_type.types'))],
             'message_type' => ['nullable', 'string', Rule::in(config('chat.validation.message.message_type.types'))],
@@ -635,9 +637,14 @@ class ChatController extends Controller
                 }
 
                 $messageData = $this->loadMessageRealtimeRelations($messageData);
+                $clientUid = $request->input('client_uid');
+
+                if(! empty($clientUid)) {
+                    $messageData->setAttribute('client_uid', $clientUid);
+                }
 
                 try {
-                    event(new MessageReceivedEvent($messageData));
+                    event(new MessageReceivedEvent($messageData, $clientUid));
 
                     $otherParticipants->each(function ($participantData) use ($messageData) {
                         $participantData->user->notify(new MessageReceivedNotification($messageData));

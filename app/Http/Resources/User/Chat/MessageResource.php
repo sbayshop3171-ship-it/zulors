@@ -55,7 +55,8 @@ class MessageResource extends JsonResource
                     'can_edit' => true,
                     'can_delete' => true
                 ],
-                'is_translatable' => $this->isMessageTranslatable()
+                'is_translatable' => $this->isMessageTranslatable(),
+                'client_uid' => $this->client_uid ?? null,
             ]
         ];
 

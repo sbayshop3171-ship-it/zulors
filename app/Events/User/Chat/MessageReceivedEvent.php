@@ -28,10 +28,12 @@ class MessageReceivedEvent implements ShouldBroadcastNow
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     private $messageData;
+    private ?string $clientUid;
 
-    public function __construct(Message $messageData)
+    public function __construct(Message $messageData, ?string $clientUid = null)
     {
         $this->messageData = $messageData;
+        $this->clientUid = $clientUid;
     }
 
     public function broadcastAs()
@@ -48,8 +50,14 @@ class MessageReceivedEvent implements ShouldBroadcastNow
 
     public function broadcastWith()
     {
+        $payload = MessageResource::make($this->messageData)->resolve();
+
+        if(! empty($this->clientUid)) {
+            $payload['meta']['client_uid'] = $this->clientUid;
+        }
+
         return [
-            'data' => MessageResource::make($this->messageData)
+            'data' => $payload
         ];
     }
 }
