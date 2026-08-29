@@ -8,6 +8,9 @@ import {
 } from '@/kernel/helpers/chat/pending-audio-message.js';
 import { useInboxStore } from '@D/store/chats/inbox.store.js';
 import { useAuthStore } from '@D/store/auth/auth.store.js';
+import { readMessengerCache, writeMessengerCache } from '@/kernel/services/cache/messenger-cache.js';
+
+const CHAT_CACHE_TTL = 1000 * 60 * 60 * 24;
 
 const useChatStore = defineStore('chats_chat', {
 	state: () => {
@@ -41,13 +44,60 @@ const useChatStore = defineStore('chats_chat', {
 		}
 	},
 	actions: {
-		fetchChatData: async function(chatId) {
+		hydrateChatCache: function(chatId = this.chatId) {
+			if(! chatId) {
+				return false;
+			}
+
+			const chatEntry = readMessengerCache('chat', `${chatId}:data`, null, CHAT_CACHE_TTL);
+			const messagesEntry = readMessengerCache('chat', `${chatId}:messages`, null, CHAT_CACHE_TTL);
+			const participantsEntry = readMessengerCache('chat', `${chatId}:participants`, null, CHAT_CACHE_TTL);
+			let hydrated = false;
+
+			if(chatEntry?.data) {
+				this.chatData = chatEntry.data;
+				hydrated = true;
+			}
+
+			if(Array.isArray(messagesEntry?.data)) {
+				this.chatMessages = messagesEntry.data;
+				hydrated = true;
+			}
+
+			if(Array.isArray(participantsEntry?.data)) {
+				this.chatParticipants = participantsEntry.data;
+				hydrated = true;
+			}
+
+			this.chatId = chatId;
+
+			return hydrated;
+		},
+		persistChatCache: function() {
+			if(! this.chatId) {
+				return false;
+			}
+
+			writeMessengerCache('chat', `${this.chatId}:data`, this.chatData);
+			writeMessengerCache('chat', `${this.chatId}:messages`, this.chatMessages.slice(-100));
+			writeMessengerCache('chat', `${this.chatId}:participants`, this.chatParticipants);
+
+			return true;
+		},
+		fetchChatData: async function(chatId, options = {}) {
+			const { preferCache = true } = options;
+
+			if(preferCache) {
+				this.hydrateChatCache(chatId);
+			}
+
 			let state = this;
 
 			await colibriAPI().messenger().getFrom(`chat/${chatId}`).then(function(response) {
 				state.chatData = response.data.data;
 
 				state.chatId = chatId;
+				state.persistChatCache();
 			}).catch(function(error) {
 				if(error.response) {
 					throw new Error(error.response.data.message);
@@ -59,6 +109,7 @@ const useChatStore = defineStore('chats_chat', {
 
 			await colibriAPI().messenger().getFrom(`chat/${state.chatId}/participants`).then(function(response) {
 				state.chatParticipants = response.data.data;
+				state.persistChatCache();
 			}).catch(function(error) {
 				if(error.response) {
 					throw new Error(error.response.data.message);
@@ -76,11 +127,18 @@ const useChatStore = defineStore('chats_chat', {
 				alert(error.response.data.message);
 			});
 		},
-		fetchChatMessages: async function() {
+		fetchChatMessages: async function(options = {}) {
+			const { preferCache = true } = options;
+
+			if(preferCache) {
+				this.hydrateChatCache(this.chatId);
+			}
+
 			let state = this;
 
 			await colibriAPI().messenger().getFrom(`chat/${state.chatId}/messages`).then(function(response) {
 				state.chatMessages = response.data.data;
+				state.persistChatCache();
 			}).catch(function(error) {
 				if(error.response) {
 					throw new Error(error.response.data.message);

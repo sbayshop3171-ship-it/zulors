@@ -1,10 +1,8 @@
 <template>
     <ChatCallout iconName="message-question-circle" v-bind:title="$t('chat.chat_requests.title')" v-bind:description="$t('chat.chat_requests.description')"></ChatCallout>
     <Border></Border>
-	<div v-if="state.isLoading" class="block">
-		<ChatItemSkeleton v-for="i in 7"></ChatItemSkeleton>
-	</div>
-	<template v-else-if="isEmptyList">
+	<div class="block">
+	<template v-if="isEmptyList">
 		<div class="py-24 text-center">
 			<p class="text-par-s text-lab-sc">
 				{{  $t('chat.no_chat_requests') }}
@@ -14,6 +12,7 @@
 	<template v-else>
 		<RequestItem v-for="requestData in chatRequests" v-bind:requestData="requestData" v-bind:key="requestData.id"></RequestItem>
 	</template>
+    </div>
 </template>
 
 <script>

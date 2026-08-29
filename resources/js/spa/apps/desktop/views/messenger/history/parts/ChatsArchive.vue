@@ -1,8 +1,5 @@
 <template>
-	<div v-if="state.isLoading" class="block">
-		<ChatItemSkeleton v-for="i in 7"></ChatItemSkeleton>
-	</div>
-	<div v-else class="block">
+	<div class="block">
         <div class="px-4 mb-4">
             <QuickSearch v-on:cancel="handleSearchCancel" v-model.lazy="chatsSearchQuery" v-bind:placeholder="$t('chat.search')"></QuickSearch>
         </div>
@@ -98,10 +95,10 @@
             }
         },
         components: {
-            ChatItem: ChatItem,
             ChatItemSkeleton: ChatItemSkeleton,
+            ChatCallout: ChatCallout,
             QuickSearch: QuickSearch,
-            ChatCallout: ChatCallout
+            ChatItem: ChatItem
         }
     });
 </script>

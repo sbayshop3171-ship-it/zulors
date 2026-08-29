@@ -3,20 +3,15 @@
         <div class="flex h-screen">
             <div class="flex flex-1 min-h-0 h-full flex-col overflow-hidden">
                 <div class="border-b border-bord-card shrink-0">
-                    <ChatHeaderSkeleton v-if="state.isLoading"></ChatHeaderSkeleton>
-                    <ChatHeader v-else v-bind:typingUser="state.typing"></ChatHeader>
+                    <ChatHeader v-bind:typingUser="state.typing"></ChatHeader>
                 </div>
                 <div ref="chatContainerBlock" class="flex-1 min-h-0 overflow-x-hidden overflow-y-auto">
                     <div class="flex min-h-full flex-col py-4">
                         <div class="shrink-0 border-b border-bord-card py-8">
-                            <ChatOverviewSkeleton v-if="state.isLoading"></ChatOverviewSkeleton>
-                            <ChatOverview v-else></ChatOverview>
+                            <ChatOverview></ChatOverview>
                         </div>
                         <div class="mt-auto pb-4 pt-2">
-                            <div v-if="state.isLoading" class="flex flex-col gap-4 opacity-70">
-                                <ChatMessageSkeleton v-for="i in 3"></ChatMessageSkeleton>
-                            </div>
-                            <div v-else>
+                            <div>
                                 <template v-if="chatMessages.length">
                                     <div v-for="(messageData, messageIndex) in chatMessages" class="block">
                                         <div v-if="showDateSeparator(messageIndex)" class="py-4">
@@ -48,14 +43,11 @@
                     </div>
                 </div>
                 <div class="shrink-0">
-                    <ChatFormSkeleton v-if="state.isLoading"></ChatFormSkeleton>
+                    <template v-if="! isGroup && chatData.chat_info?.meta?.relationship?.block?.blocking">
+                        <ChatFormLock></ChatFormLock>
+                    </template>
                     <template v-else>
-                        <template v-if="! isGroup && chatData.chat_info.meta.relationship.block.blocking">
-                            <ChatFormLock></ChatFormLock>
-                        </template>
-                        <template v-else>
-                            <ChatForm v-on:typing="handleMessageTyping"></ChatForm>
-                        </template>
+                        <ChatForm v-on:typing="handleMessageTyping"></ChatForm>
                     </template>
                 </div>
             </div>
@@ -75,10 +67,6 @@
     import { useInstantRevalidation } from '@/kernel/vue/composables/instant-revalidation/index.js';
 
     import ChatHeader from '@D/views/messenger/children/chat/parts/ChatHeader.vue';
-    import ChatHeaderSkeleton from '@D/views/messenger/children/chat/parts/skeletons/ChatHeaderSkeleton.vue';
-    import ChatFormSkeleton from '@D/views/messenger/children/chat/parts/skeletons/ChatFormSkeleton.vue';
-    import ChatOverviewSkeleton from '@D/views/messenger/children/chat/parts/skeletons/ChatOverviewSkeleton.vue';
-    import ChatMessageSkeleton from '@D/views/messenger/children/chat/parts/skeletons/ChatMessageSkeleton.vue';
     import ChatOverview from '@D/views/messenger/children/chat/parts/ChatOverview.vue';
     import ChatMessage from '@D/views/messenger/children/chat/parts/ChatMessage.vue';
     import ChatMessageTyping from '@D/views/messenger/children/chat/parts/ChatMessageTyping.vue';
@@ -162,9 +150,18 @@
             });
 
             onMounted(async function() {
+                const chatId = route.params.chat_id;
+                const hasCachedChat = chatStore.hydrateChatCache(chatId);
+
+                state.isLoading = false;
+                window.addEventListener('colibri:ws-status', handleWSStatus);
+                attachRealtimeListeners();
+
                 try {
-                    await chatStore.fetchChatData(route.params.chat_id);
-                    await chatStore.fetchChatMessages();
+                    await Promise.allSettled([
+                        chatStore.fetchChatData(chatId, { preferCache: true }),
+                        chatStore.fetchChatMessages({ preferCache: true })
+                    ]);
 
                     if (chatMessages.value.length > 0) {
                         chatStore.markMessagesAsRead();
@@ -174,17 +171,16 @@
                         }, 500);
                     }
 
-                    state.isLoading = false;
-
-                    window.addEventListener('colibri:ws-status', handleWSStatus);
                     attachRealtimeListeners();
                 } catch (error) {
-                    router.push({
-                        name: 'error_404',
-                        params: { pathMatch: route.path.substring(1).split('/') },
-                        query: route.query,
-                        hash: route.hash
-                    });
+                    if(! hasCachedChat) {
+                        router.push({
+                            name: 'error_404',
+                            params: { pathMatch: route.path.substring(1).split('/') },
+                            query: route.query,
+                            hash: route.hash
+                        });
+                    }
                 }
             });
 
@@ -399,10 +395,6 @@
             ChatMessage: ChatMessage,
             ChatMessageTyping: ChatMessageTyping,
             ChatForm: ChatForm,
-            ChatHeaderSkeleton: ChatHeaderSkeleton,
-            ChatFormSkeleton: ChatFormSkeleton,
-            ChatOverviewSkeleton: ChatOverviewSkeleton,
-            ChatMessageSkeleton: ChatMessageSkeleton,
             ChatFormLock: ChatFormLock,
         }
     });

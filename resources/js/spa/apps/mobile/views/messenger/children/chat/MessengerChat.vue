@@ -6,11 +6,7 @@
 				<button type="button" class="size-10 flex items-center justify-center text-lab-pr" v-on:click="$router.push({ name: 'messenger_inbox' })">
 					<SvgIcon type="line" name="chevron-left" classes="size-icon-medium"></SvgIcon>
 				</button>
-				<div class="size-x-small-avatar shrink-0 rounded-full bg-fill-qt"></div>
-				<div class="flex-1">
-					<div class="h-3.5 w-32 rounded-full bg-fill-qt"></div>
-					<div class="mt-2 h-2.5 w-24 rounded-full bg-fill-qt"></div>
-				</div>
+				<span class="text-par-m text-lab-pr">{{ $t('labels.message') }}</span>
 				<div class="size-10 shrink-0"></div>
 			</div>
             <Soundbar v-if="hasChatData"></Soundbar>
@@ -26,23 +22,6 @@
 				</div>
 				<ChatMessageTyping v-bind:typingUser="state.typing"></ChatMessageTyping>
 			</div>
-			<div v-else-if="state.isLoading" class="flex min-h-full flex-col justify-end gap-4 px-4 py-4">
-				<div class="flex items-end gap-2">
-					<div class="size-7 shrink-0 rounded-full bg-fill-qt"></div>
-					<div class="space-y-2">
-						<div class="h-10 w-40 rounded-2xl bg-fill-qt"></div>
-						<div class="h-3 w-16 rounded-full bg-fill-qt"></div>
-					</div>
-				</div>
-				<div class="ml-auto space-y-2">
-					<div class="h-10 w-36 rounded-2xl bg-fill-qt"></div>
-					<div class="ml-auto h-3 w-14 rounded-full bg-fill-qt"></div>
-				</div>
-				<div class="flex items-end gap-2">
-					<div class="size-7 shrink-0 rounded-full bg-fill-qt"></div>
-					<div class="h-16 w-52 max-w-[72vw] rounded-2xl bg-fill-qt"></div>
-				</div>
-			</div>
 			<div v-else class="flex h-full items-center justify-center py-4">
 				<p class="text-par-s text-lab-sc">
 					{{  $t('chat.no_messages_found') }}
@@ -52,12 +31,7 @@
 		<div class="shrink-0" v-bind:class="{ 'pb-5': $isStandalone() }">
             <ChatEditorLock v-if="isEditorBlocked"></ChatEditorLock>
 			<ChatEditor v-else-if="canRenderEditor" v-on:typing="handleMessageTyping"></ChatEditor>
-			<div v-else class="relative z-20 pb-3 px-4 pt-3">
-				<div class="flex gap-2">
-					<div class="flex-1 h-12 rounded-3xl border border-bord-pr bg-fill-qt"></div>
-					<div class="size-10 rounded-full bg-fill-qt"></div>
-				</div>
-			</div>
+			<div v-else class="relative z-20 pb-3 px-4 pt-3"></div>
 		</div>
 	</div>
 </template>

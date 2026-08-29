@@ -3,11 +3,7 @@
 		<QuickSearch v-model="searchQuery" v-on:cancel="cancelSearch" v-bind:placeholder="searchPlaceholder"></QuickSearch>
 	</div>
 
-	<div v-if="state.isLoading">
-		<ChatItemSkeleton v-for="i in 7"></ChatItemSkeleton>
-	</div>
-
-	<template v-else-if="isSearchPanelOpen">
+	<template v-if="isSearchPanelOpen">
 		<div class="pb-4">
 			<template v-if="hasSearchQuery">
 				<div v-if="state.isSearching" class="py-12 text-center">
@@ -39,11 +35,11 @@
 			</template>
 
 			<template v-else>
-				<div v-if="state.isBootstrapLoading" class="py-12 text-center">
-					<p class="text-par-s text-lab-sc">
-						{{ $t('labels.loading') }}...
-					</p>
-				</div>
+			<div v-if="state.isBootstrapLoading" class="py-12 text-center">
+				<p class="text-par-s text-lab-sc">
+					{{ $t('labels.loading') }}...
+				</p>
+			</div>
 				<template v-else>
 					<div v-if="recentUsers.length" class="mb-2">
 						<div class="flex items-center justify-between gap-4 px-4 py-3">
