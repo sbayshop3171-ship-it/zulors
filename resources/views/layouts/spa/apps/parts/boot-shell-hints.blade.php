@@ -41,15 +41,6 @@
             marks: {},
             nativeReadySent: false
         };
-        var nativeGoogleAuthSuccessKey = 'zulors.native.google.auth.success.at';
-        var nativeGoogleAuthSuccessAt = 0;
-
-        try {
-            nativeGoogleAuthSuccessAt = Number(window.sessionStorage.getItem(nativeGoogleAuthSuccessKey) || 0);
-        } catch (error) {
-            nativeGoogleAuthSuccessAt = 0;
-        }
-
         window.__zulorsRealtime = {
             reverb: {
                 enabled: @json((bool) ($runtimeReverb['enabled'] ?? false) && filled($runtimeReverb['app_key'] ?? null)),
@@ -67,36 +58,8 @@
         bootState.cacheTtl = cacheTtl;
         bootState.sharedFeedCacheKey = sharedFeedCacheKey;
         bootState.sharedFeedCacheTtl = sharedFeedCacheTtl;
-        bootState.lastNativeGoogleAuthSuccessAt = Number.isFinite(nativeGoogleAuthSuccessAt) ? nativeGoogleAuthSuccessAt : 0;
         startupState.variant = variant;
         startupState.cacheHit = false;
-
-        window.addEventListener('zulors:native-google-auth', function(event) {
-            var detail = event && event.detail ? event.detail : {};
-            var state = String(detail.state || '').toLowerCase();
-
-            if (state === 'success') {
-                bootState.lastNativeGoogleAuthSuccessAt = Date.now();
-
-                try {
-                    window.sessionStorage.setItem(nativeGoogleAuthSuccessKey, String(bootState.lastNativeGoogleAuthSuccessAt));
-                } catch (error) {
-                    //
-                }
-
-                return;
-            }
-
-            if (state === 'failed' || state === 'cancelled') {
-                bootState.lastNativeGoogleAuthSuccessAt = 0;
-
-                try {
-                    window.sessionStorage.removeItem(nativeGoogleAuthSuccessKey);
-                } catch (error) {
-                    //
-                }
-            }
-        });
 
         var writeSharedFeedCache = function(posts) {
             if (bootState.isAuthenticated || !Array.isArray(posts) || !posts.length) {
@@ -139,14 +102,6 @@
             bootState.authUserId = payload.auth && payload.auth.user ? payload.auth.user.id : null;
 
             if (bootState.isAuthenticated) {
-                bootState.lastNativeGoogleAuthSuccessAt = 0;
-
-                try {
-                    window.sessionStorage.removeItem(nativeGoogleAuthSuccessKey);
-                } catch (error) {
-                    //
-                }
-
                 bootState.sharedFeed = null;
                 return;
             }

@@ -10,11 +10,12 @@ use App\Enums\User\UserType;
 use App\Models\Onboard;
 use App\Models\User;
 use App\Models\UserNotificationSettings;
+use App\Services\Auth\Social\GoogleIdTokenVerifier;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Http;
+use Illuminate\Validation\ValidationException;
 use Laravel\Socialite\Facades\Socialite;
 use Laravel\Socialite\Two\User as SocialiteUser;
 use Mockery;
@@ -44,7 +45,6 @@ class GoogleSocialLoginFlowTest extends TestCase
         $user = $this->createUser('google_existing_user', 'google-existing@example.com');
 
         $provider = Mockery::mock();
-        $provider->shouldReceive('stateless')->twice()->andReturnSelf();
         $provider->shouldReceive('user')->twice()->andReturn($this->makeGoogleUser());
 
         Socialite::shouldReceive('buildProvider')->twice()->andReturn($provider);
@@ -69,14 +69,13 @@ class GoogleSocialLoginFlowTest extends TestCase
     public function test_google_callback_creates_user_when_family_name_is_missing(): void
     {
         $provider = Mockery::mock();
-        $provider->shouldReceive('stateless')->once()->andReturnSelf();
         $provider->shouldReceive('user')->once()->andReturn($this->makeGoogleUserWithoutFamilyName());
 
         Socialite::shouldReceive('buildProvider')->once()->andReturn($provider);
 
         $response = $this->get(route('social-login.google.callback'));
 
-        $response->assertRedirect(route('user.desktop.index'));
+        $response->assertRedirect(route('user.onboarding.index', 'profile'));
 
         $user = User::query()->where('email', 'sierracode0@example.com')->firstOrFail();
 
@@ -95,7 +94,6 @@ class GoogleSocialLoginFlowTest extends TestCase
     public function test_google_callback_redirects_to_login_when_google_rejects_callback(): void
     {
         $provider = Mockery::mock();
-        $provider->shouldReceive('stateless')->once()->andReturnSelf();
         $provider->shouldReceive('user')->once()->andThrow(new \RuntimeException('Invalid OAuth callback.'));
 
         Socialite::shouldReceive('buildProvider')->once()->andReturn($provider);
@@ -109,8 +107,7 @@ class GoogleSocialLoginFlowTest extends TestCase
 
     public function test_native_google_sign_in_issues_handoff_and_consumes_it_once(): void
     {
-        Http::fake([
-            'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
+        $this->mockGoogleToken([
                 'iss' => 'https://accounts.google.com',
                 'aud' => 'test-google-client',
                 'sub' => 'native-google-user-123',
@@ -120,16 +117,16 @@ class GoogleSocialLoginFlowTest extends TestCase
                 'name' => 'Native Google',
                 'given_name' => 'Native',
                 'picture' => null,
-            ]),
         ]);
 
-        $response = $this->postJson('/api/mobile-auth/google', [
+        $response = $this->postJson('/api/auth/google', [
             'id_token' => 'valid-native-google-id-token',
         ]);
 
         $response->assertOk()
-            ->assertJsonStructure(['redirect_url', 'next_url', 'is_existing_user'])
+            ->assertJsonStructure(['status', 'redirect_url', 'next_url', 'is_existing_user'])
             ->assertJson([
+                'status' => 'onboarding',
                 'is_existing_user' => false,
                 'next_url' => route('user.onboarding.index', 'profile'),
             ]);
@@ -157,21 +154,12 @@ class GoogleSocialLoginFlowTest extends TestCase
         $secondConsumeResponse = $this->get($handoffPath);
 
         $secondConsumeResponse->assertRedirect(route('user.auth.index'));
-        $secondConsumeResponse->assertSessionHasErrors('google');
+        $secondConsumeResponse->assertSessionHas('flashMessage');
     }
 
     public function test_native_google_sign_in_rejects_wrong_audience(): void
     {
-        Http::fake([
-            'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
-                'iss' => 'https://accounts.google.com',
-                'aud' => 'another-client',
-                'sub' => 'native-google-user-123',
-                'email' => 'native-google@example.com',
-                'email_verified' => 'true',
-                'exp' => (string) now()->addMinutes(10)->timestamp,
-            ]),
-        ]);
+        $this->mockGoogleTokenFailure('This Google sign in is not configured for Zulors.');
 
         $response = $this->postJson('/api/mobile-auth/google', [
             'id_token' => 'valid-native-google-id-token',
@@ -186,8 +174,7 @@ class GoogleSocialLoginFlowTest extends TestCase
 
     public function test_native_google_sign_in_accepts_configured_native_audience(): void
     {
-        Http::fake([
-            'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
+        $this->mockGoogleToken([
                 'iss' => 'https://accounts.google.com',
                 'aud' => 'test-native-google-client',
                 'sub' => 'native-google-client-user-123',
@@ -197,7 +184,6 @@ class GoogleSocialLoginFlowTest extends TestCase
                 'name' => 'Native Firebase Client',
                 'given_name' => 'Native',
                 'picture' => null,
-            ]),
         ]);
 
         $response = $this->postJson('/api/mobile-auth/google', [
@@ -220,8 +206,7 @@ class GoogleSocialLoginFlowTest extends TestCase
     {
         $user = $this->createUser('existing_native_google', 'existing-native-google@example.com');
 
-        Http::fake([
-            'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
+        $this->mockGoogleToken([
                 'iss' => 'https://accounts.google.com',
                 'aud' => 'test-google-client',
                 'sub' => 'native-google-existing-123',
@@ -232,7 +217,6 @@ class GoogleSocialLoginFlowTest extends TestCase
                 'given_name' => 'Existing',
                 'family_name' => 'Native',
                 'picture' => null,
-            ]),
         ]);
 
         $response = $this->postJson('/api/mobile-auth/google', [
@@ -240,6 +224,7 @@ class GoogleSocialLoginFlowTest extends TestCase
         ]);
 
         $response->assertOk()->assertJson([
+            'status' => 'authenticated',
             'is_existing_user' => true,
             'next_url' => route('user.desktop.index'),
         ]);
@@ -267,8 +252,7 @@ class GoogleSocialLoginFlowTest extends TestCase
             'step' => 'profile',
         ]);
 
-        Http::fake([
-            'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
+        $this->mockGoogleToken([
                 'iss' => 'https://accounts.google.com',
                 'aud' => 'test-google-client',
                 'sub' => 'native-google-stale-123',
@@ -279,7 +263,6 @@ class GoogleSocialLoginFlowTest extends TestCase
                 'given_name' => 'Stale',
                 'family_name' => 'Native',
                 'picture' => null,
-            ]),
         ]);
 
         $response = $this->postJson('/api/mobile-auth/google', [
@@ -312,8 +295,7 @@ class GoogleSocialLoginFlowTest extends TestCase
             'step' => 'profile',
         ]);
 
-        Http::fake([
-            'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
+        $this->mockGoogleToken([
                 'iss' => 'https://accounts.google.com',
                 'aud' => 'test-google-client',
                 'sub' => 'native-google-pending-123',
@@ -324,7 +306,6 @@ class GoogleSocialLoginFlowTest extends TestCase
                 'given_name' => 'Pending',
                 'family_name' => 'Native',
                 'picture' => null,
-            ]),
         ]);
 
         $response = $this->postJson('/api/mobile-auth/google', [
@@ -352,16 +333,7 @@ class GoogleSocialLoginFlowTest extends TestCase
 
     public function test_native_google_sign_in_rejects_expired_token(): void
     {
-        Http::fake([
-            'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
-                'iss' => 'https://accounts.google.com',
-                'aud' => 'test-google-client',
-                'sub' => 'native-google-expired-123',
-                'email' => 'expired-native-google@example.com',
-                'email_verified' => 'true',
-                'exp' => (string) now()->subMinute()->timestamp,
-            ]),
-        ]);
+        $this->mockGoogleTokenFailure('This Google sign in has expired. Please try again.');
 
         $response = $this->postJson('/api/mobile-auth/google', [
             'id_token' => 'expired-native-google-id-token',
@@ -387,6 +359,24 @@ class GoogleSocialLoginFlowTest extends TestCase
                 'family_name' => 'Existing',
                 'picture' => null,
             ]);
+    }
+
+    private function mockGoogleToken(array $payload): void
+    {
+        $verifier = Mockery::mock(GoogleIdTokenVerifier::class);
+        $verifier->shouldReceive('verify')->once()->andReturn($payload);
+
+        $this->app->instance(GoogleIdTokenVerifier::class, $verifier);
+    }
+
+    private function mockGoogleTokenFailure(string $message): void
+    {
+        $verifier = Mockery::mock(GoogleIdTokenVerifier::class);
+        $verifier->shouldReceive('verify')->once()->andThrow(
+            ValidationException::withMessages(['google' => $message])
+        );
+
+        $this->app->instance(GoogleIdTokenVerifier::class, $verifier);
     }
 
     private function makeGoogleUserWithoutFamilyName(): SocialiteUser

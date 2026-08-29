@@ -71,18 +71,25 @@ class GoogleAuthController extends Controller
         }
 
         if(! $result['exists']) {
-            Auth::login($user);
+            Auth::login($user, true);
 
             app(AutoVerifyUserService::class)->verifyIfEnabled($user);
         }
 
         request()->session()->regenerate();
 
-        return redirect()->route('user.desktop.index');
+        return redirect()->to($this->resolvePostAuthRedirectUrl($user));
     }
 
     private function fetchUserData()
     {
-        return Socialite::buildProvider(GoogleProvider::class, $this->driverCredentials)->stateless()->user();
+        return Socialite::buildProvider(GoogleProvider::class, $this->driverCredentials)->user();
+    }
+
+    private function resolvePostAuthRedirectUrl(\App\Models\User $user): string
+    {
+        return $user->requiresOnboarding()
+            ? route('user.onboarding.index', 'profile')
+            : route('user.desktop.index');
     }
 }

@@ -8,6 +8,7 @@ use App\Models\SocialAccount;
 use App\Support\SocialLoginDrivers;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Database\QueryException;
 use App\Actions\User\CreateUserAction;
 use App\Services\User\AutoVerifyUserService;
 use App\Services\Blacklist\BlacklistService;
@@ -68,28 +69,51 @@ class SocialAuthService
             ];
         }
 
-        $newUser = DB::transaction(function() use ($driver) {
-            $now = time();
+        try {
+            $newUser = DB::transaction(function() use ($driver) {
+                $now = time();
 
-            $userData = [
-                'username' => "{$driver}_{$now}",
-                'email' => empty($this->socialUserEmail) ? "{$now}@{$driver}.com" : $this->socialUserEmail,
+                $userData = [
+                    'username' => "{$driver}_{$now}",
+                    'email' => empty($this->socialUserEmail) ? "{$now}@{$driver}.com" : $this->socialUserEmail,
+                ];
+
+                $createdUser = (new CreateUserAction($userData))->execute();
+
+                $createdUser->socialAccounts()->create([
+                    'provider_name' => $driver,
+                    'provider_id' => $this->socialUserId,
+                ]);
+
+                Onboard::create([
+                    'user_id' => $createdUser->id,
+                    'step' => 'one',
+                ]);
+
+                return $createdUser;
+            });
+        } catch (QueryException $exception) {
+            if(! $this->isSocialIdentityConflict($exception)) {
+                throw $exception;
+            }
+
+            $existingSocialAccount = SocialAccount::query()
+                ->where('provider_name', $driver)
+                ->where('provider_id', $this->socialUserId)
+                ->first();
+
+            if(! $existingSocialAccount) {
+                throw $exception;
+            }
+
+            $this->loginUser($existingSocialAccount->user);
+
+            return [
+                'user' => $existingSocialAccount->user,
+                'socialiteUser' => $socialiteUser,
+                'exists' => true,
             ];
-
-            $createdUser = (new CreateUserAction($userData))->execute();
-
-            $createdUser->socialAccounts()->create([
-                'provider_name' => $driver,
-                'provider_id' => $this->socialUserId,
-            ]);
-
-            Onboard::create([
-                'user_id' => $createdUser->id,
-                'step' => 'one',
-            ]);
-
-            return $createdUser;
-        });
+        }
 
         return [
             'user' => $newUser,
@@ -159,8 +183,16 @@ class SocialAuthService
             return;
         }
 
-        Auth::login($user);
+        Auth::login($user, true);
 
         app(AutoVerifyUserService::class)->verifyIfEnabled($user);
+    }
+
+    private function isSocialIdentityConflict(QueryException $exception): bool
+    {
+        $sqlState = (string) $exception->getCode();
+        $driverCode = (int) data_get($exception->errorInfo, 1, 0);
+
+        return $sqlState === '23000' || $sqlState === '23505' || $driverCode === 1062;
     }
 }

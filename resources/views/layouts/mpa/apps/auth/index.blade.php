@@ -37,6 +37,12 @@
         <div class="auth-page-shell flex-col flex">
             <main class="auth-page-main flex justify-center flex-1">
                 <div class="auth-content">
+                    <x-messages.primary></x-messages.primary>
+                    @if($errors->has('google'))
+                        <div class="mb-4 border p-3 rounded-lg callout-error" role="alert">
+                            {{ $errors->first('google') }}
+                        </div>
+                    @endif
                     @yield('pageContent')
                 </div>
             </main>

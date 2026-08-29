@@ -2,31 +2,42 @@
 
 namespace App\Services\Auth\Social;
 
-use Illuminate\Support\Facades\Http;
+use Google\Client as GoogleClient;
+use Throwable;
 use Illuminate\Validation\ValidationException;
 
 class GoogleIdTokenVerifier
 {
-    private const TOKENINFO_URL = 'https://oauth2.googleapis.com/tokeninfo';
-
     /**
      * @param  string|array<int, string>  $expectedAudience
      */
     public function verify(string $idToken, string|array $expectedAudience): array
     {
-        $response = Http::timeout(8)
-            ->acceptJson()
-            ->get(self::TOKENINFO_URL, [
-                'id_token' => $idToken,
-            ]);
+        $allowedAudiences = $this->normalizeAudiences($expectedAudience);
 
-        if(! $response->ok()) {
+        if(empty($allowedAudiences)) {
             throw ValidationException::withMessages([
-                'google' => __('We could not verify this Google sign in. Please try again.'),
+                'google' => __('This Google sign in is not configured for Zulors.'),
             ]);
         }
 
-        $payload = $response->json();
+        $payload = null;
+
+        foreach($allowedAudiences as $audience) {
+            try {
+                $client = new GoogleClient();
+                $client->setClientId($audience);
+                $verifiedPayload = $client->verifyIdToken($idToken);
+
+                if(is_array($verifiedPayload)) {
+                    $payload = $verifiedPayload;
+                    break;
+                }
+            } catch (Throwable) {
+                // Try the next configured audience. The token is accepted only
+                // when Google's official client verifies its signature and claims.
+            }
+        }
 
         if(! is_array($payload)) {
             throw ValidationException::withMessages([
@@ -36,7 +47,7 @@ class GoogleIdTokenVerifier
 
         $audience = (string) data_get($payload, 'aud', '');
 
-        if(! $this->audienceMatches($audience, $expectedAudience)) {
+        if(! $this->audienceMatches($audience, $allowedAudiences)) {
             throw ValidationException::withMessages([
                 'google' => __('This Google sign in is not configured for Zulors.'),
             ]);
@@ -69,6 +80,20 @@ class GoogleIdTokenVerifier
         }
 
         return $payload;
+    }
+
+    /**
+     * @param  string|array<int, string>  $expectedAudience
+     * @return array<int, string>
+     */
+    private function normalizeAudiences(string|array $expectedAudience): array
+    {
+        $audiences = is_array($expectedAudience) ? $expectedAudience : [$expectedAudience];
+
+        return array_values(array_unique(array_filter(array_map(
+            fn (mixed $audience) => is_string($audience) ? trim($audience) : '',
+            $audiences
+        ))));
     }
 
     /**

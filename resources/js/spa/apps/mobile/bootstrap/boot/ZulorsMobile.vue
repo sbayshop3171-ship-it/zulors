@@ -35,7 +35,6 @@
 	import FlatLayout from '@M/layouts/FlatLayout.vue';
 
 	const maxBootScreenMs = 320;
-    const nativeGoogleAuthRetryWindowMs = 7000;
 
 	export default defineComponent({
 		setup: function() {
@@ -155,18 +154,6 @@
 				reelsWarmupHandle = null;
 			};
 
-            const hasRecentNativeGoogleAuthSuccess = () => {
-                const successAt = Number(window.__zulorsBoot?.lastNativeGoogleAuthSuccessAt || 0);
-
-                return successAt > 0 && (Date.now() - successAt) <= nativeGoogleAuthRetryWindowMs;
-            };
-
-            const wait = (timeoutMs) => {
-                return new Promise((resolve) => {
-                    window.setTimeout(resolve, timeoutMs);
-                });
-            };
-
 			const scheduleReelsWarmup = () => {
 				if(reelsWarmupScheduled || ! authStore.authCheck || typeof window === 'undefined') {
 					return;
@@ -201,19 +188,6 @@
 				}
 
 				if(route.meta.auth && ! authStore.authCheck) {
-                    if(hasRecentNativeGoogleAuthSuccess()) {
-                        await wait(750);
-
-                        const retried = await appStore.bootstrapApplication();
-
-                        if (retried && authStore.authCheck) {
-                            revealAppShell();
-                            setupRealtimePostUpdates();
-                            ensureRealtimeConnection();
-                            return;
-                        }
-                    }
-
 					window.location.href = embedder('routes.user_auth_index');
 					return;
 				}

@@ -58,9 +58,14 @@ Route::prefix('push-actions')->middleware(['throttle:120,1'])->group(function ()
     Route::post('/decline-call', [PushActionController::class, 'declineCall']);
 });
 
-Route::prefix('mobile-auth')->middleware(['throttle:30,1'])->group(function () {
-    Route::post('/google', [GoogleNativeAuthController::class, 'issue']);
-});
+Route::post('/auth/google', [GoogleNativeAuthController::class, 'issue'])
+    ->middleware(['throttle:30,1'])
+    ->name('api.auth.google');
+
+// Kept for older Android builds; new clients must use /api/auth/google.
+Route::post('/mobile-auth/google', [GoogleNativeAuthController::class, 'issue'])
+    ->middleware(['throttle:30,1'])
+    ->name('api.mobile-auth.google');
 
 Route::prefix('bootstrap')->middleware(['auth:sanctum', $readApiThrottle])->group(base_path('routes/api/user/bootstrap.php'));
 

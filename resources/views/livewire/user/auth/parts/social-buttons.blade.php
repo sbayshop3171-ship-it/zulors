@@ -60,6 +60,8 @@
                             if (isBusy) {
                                 button.dataset.nativeGoogleBusy = 'true';
                                 button.setAttribute('aria-busy', 'true');
+                                button.setAttribute('aria-disabled', 'true');
+                                button.setAttribute('tabindex', '-1');
                                 button.style.pointerEvents = 'none';
                                 button.style.opacity = '0.6';
                                 return;
@@ -67,6 +69,8 @@
 
                             delete button.dataset.nativeGoogleBusy;
                             button.removeAttribute('aria-busy');
+                            button.removeAttribute('aria-disabled');
+                            button.removeAttribute('tabindex');
                             button.style.pointerEvents = '';
                             button.style.opacity = '';
                         });
@@ -125,7 +129,7 @@
                     window.addEventListener('zulors:native-google-auth', function (event) {
                         const state = event && event.detail ? event.detail.state : '';
 
-                        if (state === 'started') {
+                        if (state === 'started' || state === 'success') {
                             return;
                         }
 

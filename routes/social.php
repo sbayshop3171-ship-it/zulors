@@ -21,5 +21,7 @@ Route::name('social-login.')->prefix('social-login')->group(function() {
 
     Route::get('/callback/google',[App\Http\Controllers\User\Auth\Social\GoogleAuthController::class, 'callbackHandler'])->name('google.callback');
 
-    Route::get('/native/google/session/{token}', [App\Http\Controllers\Api\Auth\GoogleNativeAuthController::class, 'consume'])->name('google.native.consume');
+    Route::get('/native/google/session/{token}', [App\Http\Controllers\Api\Auth\GoogleNativeAuthController::class, 'consume'])
+        ->where('token', '[A-Za-z0-9]{64}')
+        ->name('google.native.consume');
 });
