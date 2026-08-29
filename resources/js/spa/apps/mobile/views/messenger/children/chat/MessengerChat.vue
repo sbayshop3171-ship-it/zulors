@@ -1,8 +1,8 @@
 <template>
-	<div class="fixed inset-0 bg-bg-pr flex flex-col mb-safe-bottom overflow-hidden">
-		<div class="shrink-0">
+	<div class="chat-layout fixed inset-0 bg-bg-pr mb-safe-bottom">
+		<div class="chat-header-wrapper shrink-0">
 			<ChatHeader v-if="hasChatData" v-on:close="$router.push({ name: 'messenger_inbox' })" v-bind:chatData="chatData" v-bind:typingUser="state.typing"></ChatHeader>
-			<div v-else class="mobile-safe-chat-header flex items-center leading-none gap-2.5">
+			<div v-else class="chat-header mobile-safe-chat-header flex items-center leading-none gap-2.5">
 				<button type="button" class="size-10 flex items-center justify-center text-lab-pr" v-on:click="$router.push({ name: 'messenger_inbox' })">
 					<SvgIcon type="line" name="chevron-left" classes="size-icon-medium"></SvgIcon>
 				</button>
@@ -12,7 +12,7 @@
             <Soundbar v-if="hasChatData"></Soundbar>
             <Border></Border>
 		</div>
-		<div class="flex-1 min-h-0 overflow-y-auto" ref="messagesHistoryContainer" v-on:load.capture="scrollHistoryDownSettled" v-on:loadedmetadata.capture="scrollHistoryDownSettled" v-on:canplay.capture="scrollHistoryDownSettled">
+		<div class="chat-messages-container" ref="messagesHistoryContainer" v-on:load.capture="scrollHistoryDownSettled" v-on:loadedmetadata.capture="scrollHistoryDownSettled" v-on:canplay.capture="scrollHistoryDownSettled">
 			<div v-if="chatMessages.length" class="flex min-h-full flex-col justify-end py-4">
 				<div v-for="messageData in chatMessages" class="block">
 					<ChatMessage v-on:delete="handleMessageDelete"
@@ -28,13 +28,55 @@
 				</p>
 			</div>
 		</div>
-		<div class="shrink-0" v-bind:class="{ 'pb-5': $isStandalone() }">
+		<div class="chat-input-footer shrink-0" v-bind:class="{ 'pb-5': $isStandalone() }">
             <ChatEditorLock v-if="isEditorBlocked"></ChatEditorLock>
 			<ChatEditor v-else-if="canRenderEditor" v-on:typing="handleMessageTyping"></ChatEditor>
 			<div v-else class="relative z-20 pb-3 px-4 pt-3"></div>
 		</div>
 	</div>
 </template>
+
+<style scoped>
+	.chat-layout {
+		display: flex;
+		flex-direction: column;
+		height: 100dvh;
+		min-height: 100dvh;
+		overflow: hidden;
+		position: fixed;
+		inset: 0;
+		background: var(--bg-pr, #f8f8f8);
+	}
+
+	.chat-header-wrapper,
+	.chat-input-footer {
+		flex-shrink: 0;
+	}
+
+	.chat-messages-container {
+		flex: 1 1 auto;
+		min-height: 0;
+		overflow-y: auto;
+		overflow-x: hidden;
+		-webkit-overflow-scrolling: touch;
+		overflow-scrolling: touch;
+		overscroll-behavior: contain;
+	}
+
+	.chat-header {
+		position: sticky;
+		top: 0;
+		z-index: 20;
+		flex-shrink: 0;
+	}
+
+	@supports not (height: 100dvh) {
+		.chat-layout {
+			height: 100vh;
+			min-height: 100vh;
+		}
+	}
+</style>
 
 <script>
 	import { defineComponent, reactive, ref, computed, onMounted, nextTick, onUnmounted, watch } from 'vue';

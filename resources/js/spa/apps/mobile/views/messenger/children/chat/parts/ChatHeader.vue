@@ -1,5 +1,5 @@
 <template>
-	<div class="mobile-safe-chat-header flex items-center leading-none gap-2.5">
+	<div class="chat-header mobile-safe-chat-header flex items-center leading-none gap-2.5">
 		<div class="shrink-0">
 			<PrimaryIconButton
 				v-on:click="$emit('close')"
@@ -124,3 +124,14 @@
 		}
 	});
 </script>
+
+<style scoped>
+	.chat-header {
+		position: sticky;
+		top: 0;
+		z-index: 20;
+		flex-shrink: 0;
+		background: rgba(255, 255, 255, 0.96);
+		backdrop-filter: blur(8px);
+	}
+</style>
