@@ -211,7 +211,7 @@ class SocialAuthService
             return;
         }
 
-        Auth::login($user, true);
+        Auth::guard('web')->login($user, true);
 
         app(AutoVerifyUserService::class)->verifyIfEnabled($user);
     }

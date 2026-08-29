@@ -105,6 +105,7 @@ class AuthController extends Controller
         $newUser = (new CreateUserAction($insertData))->execute();
 
         Auth::guard('web')->login($newUser, true);
+        request()->session()->regenerate();
 
         app(AutoVerifyUserService::class)->verifyIfEnabled($newUser);
 

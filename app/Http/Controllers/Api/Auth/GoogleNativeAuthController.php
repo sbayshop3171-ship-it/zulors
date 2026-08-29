@@ -129,7 +129,7 @@ class GoogleNativeAuthController extends Controller
                 ))->get());
         }
 
-        Auth::login($nativeAuthSession->user, true);
+        Auth::guard('web')->login($nativeAuthSession->user, true);
         $request->session()->regenerate();
 
         return redirect()->to($this->resolvePostAuthRedirectUrl($nativeAuthSession->user));

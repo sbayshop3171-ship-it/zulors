@@ -83,6 +83,10 @@ class GoogleSocialLoginFlowTest extends TestCase
         $firstResponse->assertRedirect(route('user.desktop.index'));
         $firstResponse->assertSessionHas('signup_return_state', 'preserve-me');
         $this->assertAuthenticatedAs($user);
+        $this->getJson('/api/bootstrap/bootstrap')
+            ->assertOk()
+            ->assertJsonPath('data.auth.status', true)
+            ->assertJsonPath('data.auth.user.id', $user->id);
         $this->assertSame(1, User::query()->where('email', 'google-existing@example.com')->count());
         $this->assertTrue(Hash::check('password', $user->fresh()->password));
         $this->assertDatabaseHas(Table::SOCIAL_ACCOUNTS, [
@@ -94,7 +98,8 @@ class GoogleSocialLoginFlowTest extends TestCase
         $secondResponse = $this->get(route('social-login.google.callback'));
 
         $secondResponse->assertRedirect(route('user.desktop.index'));
-        $this->assertAuthenticatedAs($user);
+        $this->assertTrue(Auth::guard('web')->check());
+        $this->assertSame($user->id, Auth::guard('web')->id());
         $this->assertSame(1, DB::table(Table::SOCIAL_ACCOUNTS)->count());
     }
 

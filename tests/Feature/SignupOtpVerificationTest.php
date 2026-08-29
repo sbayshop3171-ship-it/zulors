@@ -8,6 +8,7 @@ use App\Livewire\User\Auth\SignupSuccess;
 use App\Mail\User\Auth\VerifyEmailMail;
 use App\Models\EmailConfirmation;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
@@ -74,6 +75,26 @@ class SignupOtpVerificationTest extends TestCase
             ->set('otpCode', '1234')
             ->call('verifyOtp')
             ->assertHasErrors(['otpCode']);
+    }
+
+    public function test_confirmed_signup_keeps_authentication_for_the_first_bootstrap_request(): void
+    {
+        config(['features.reg_verification.enabled' => true]);
+
+        $confirmation = $this->createConfirmation([
+            'email' => 'new-session-user@example.test',
+        ]);
+
+        $response = $this->get(route('user.auth.confirm-signup', ['token' => $confirmation->token]));
+
+        $response->assertRedirect(route('user.onboarding.index', 'profile'));
+        $this->assertTrue(Auth::guard('web')->check());
+        $userId = Auth::guard('web')->id();
+
+        $this->getJson('/api/bootstrap/bootstrap')
+            ->assertOk()
+            ->assertJsonPath('data.auth.status', true)
+            ->assertJsonPath('data.auth.user.id', $userId);
     }
 
     public function test_signup_success_can_resend_a_fresh_otp_code(): void
