@@ -94,3 +94,20 @@ test('viewport sizing keeps the app height locked so keyboard resize does not pa
     globalThis.window = previousWindow;
     globalThis.document = previousDocument;
 });
+
+test('autoResize clamps the composer to the WhatsApp-style 1-to-4-line range without leaving a blank gap at the keyboard', async () => {
+    const api = useInputHandlers();
+    const field = {
+        style: {
+            height: 'auto',
+            overflowY: 'hidden',
+        },
+        scrollHeight: 220,
+    };
+
+    api.autoResize(field);
+    await Promise.resolve();
+
+    assert.equal(field.style.height, '112px');
+    assert.equal(field.style.overflowY, 'auto');
+});

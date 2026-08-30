@@ -12,10 +12,10 @@
             <MessageReplyPreview v-bind:messageData="repliedMessage" v-on:cancel="cancelReply" v-bind:key="repliedMessage.id"></MessageReplyPreview>
         </template>
 
-        <div class="relative z-20 pb-3 px-4 pt-3">
-            <div class="flex overflow-visible gap-2">
-                <div class="flex-1">
-                    <textarea ref="messageContentField" class="resize-none border border-bord-pr pl-4 pt-2.5 pr-22 pb-2 leading-normal text-lab-pr text-par-l bg-fill-qt w-full h-12 min-h-12 max-h-40 overflow-x-hidden overflow-y-auto rounded-3xl outline-hidden placeholder:whitespace-nowrap placeholder:text-par-l placeholder:text-lab-sc placeholder:font-normal"
+        <div class="chat-composer-shell">
+            <div class="flex overflow-visible items-end gap-2">
+                <div class="flex-1 min-w-0">
+                    <textarea ref="messageContentField" class="chat-composer-field"
                         v-model.trim="messageContent"
                         v-on:input="messageInputHandler"
                     v-bind:placeholder="inputPlaceholder"></textarea>
@@ -72,6 +72,48 @@
         <VideoRecorder v-on:sendVideo="sendVideo" v-on:cancel="state.videoRecorder.open = false"></VideoRecorder>
     </template>
 </template>
+
+<style scoped>
+    .chat-composer-shell {
+        position: relative;
+        z-index: 20;
+        padding: 0.5rem 1rem 0.25rem;
+        background: rgba(255, 255, 255, 0.02);
+    }
+
+    .chat-composer-field {
+        width: 100%;
+        min-width: 0;
+        height: 2.5rem;
+        min-height: 2.5rem;
+        max-height: 7rem;
+        resize: none;
+        border: 1px solid rgba(17, 24, 39, 0.08);
+        border-radius: 1.25rem;
+        background: var(--color-fill-qt, #f3f4f6);
+        color: var(--color-lab-pr, #111827);
+        font-size: var(--font-par-l, 1rem);
+        line-height: 1.4;
+        padding: 0.65rem 3.25rem 0.65rem 1rem;
+        overflow-x: hidden;
+        overflow-y: hidden;
+        outline: none;
+        box-sizing: border-box;
+        -webkit-appearance: none;
+        appearance: none;
+        scrollbar-width: none;
+    }
+
+    .chat-composer-field::-webkit-scrollbar {
+        display: none;
+    }
+
+    .chat-composer-field::placeholder {
+        color: var(--color-lab-sc, #6b7280);
+        white-space: nowrap;
+        font-size: var(--font-par-l, 1rem);
+    }
+</style>
 
 <script>
 	import { defineComponent, ref, reactive, computed, nextTick, onMounted } from 'vue';

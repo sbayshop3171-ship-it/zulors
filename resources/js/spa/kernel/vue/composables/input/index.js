@@ -61,9 +61,16 @@ function useInputHandlers() {
     const autoResize = function(textInputFiled) {
         nextTick(() => {
             if (textInputFiled) {
-                const nextHeight = Math.max(48, textInputFiled.scrollHeight + 2);
+                const minHeight = 40;
+                const maxHeight = 112;
+                const viewportPadding = 0;
+                const measuredHeight = Math.max(0, Number(textInputFiled.scrollHeight || 0) + viewportPadding);
+                const clampedHeight = Math.min(maxHeight, Math.max(minHeight, measuredHeight));
+
                 textInputFiled.style.height = 'auto';
-                textInputFiled.style.height = `${nextHeight}px`;
+                textInputFiled.style.height = `${clampedHeight}px`;
+                textInputFiled.style.overflowY = measuredHeight > maxHeight ? 'auto' : 'hidden';
+                textInputFiled.style.maxHeight = `${maxHeight}px`;
             }
         });
     }

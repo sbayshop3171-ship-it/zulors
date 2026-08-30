@@ -28,7 +28,7 @@
 				</p>
 			</div>
 		</div>
-		<div class="chat-input-footer shrink-0" v-bind:class="{ 'pb-5': $isStandalone() }">
+		<div class="chat-input-footer shrink-0" v-bind:class="{ 'pb-safe-bottom': $isStandalone() }">
             <ChatEditorLock v-if="isEditorBlocked"></ChatEditorLock>
 			<ChatEditor v-else-if="canRenderEditor" v-on:typing="handleMessageTyping"></ChatEditor>
 			<div v-else class="relative z-20 pb-3 px-4 pt-3"></div>
@@ -48,11 +48,15 @@
 		background: var(--bg-pr, #f8f8f8);
 		transform: translateZ(0);
 		-webkit-transform: translateZ(0);
+		padding-bottom: env(safe-area-inset-bottom, 0px);
 	}
 
 	.chat-header-wrapper,
 	.chat-input-footer {
 		flex-shrink: 0;
+		margin-bottom: 0;
+		padding-bottom: max(0px, env(safe-area-inset-bottom, 0px));
+		background: var(--bg-pr, #ffffff);
 	}
 
 	.chat-messages-container {
