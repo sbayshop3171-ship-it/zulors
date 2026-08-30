@@ -12,6 +12,34 @@ MEDIA_GUARD_MIN_USER_FILES="${MEDIA_GUARD_MIN_USER_FILES:-0}"
 APP_RUNTIME_USER="${APP_RUNTIME_USER:-$(stat -c '%U' .env 2>/dev/null || id -un)}"
 APP_RUNTIME_GROUP="${APP_RUNTIME_GROUP:-www-data}"
 
+ensure_php_dependencies() {
+	if [ -f vendor/autoload.php ]; then
+		return
+	fi
+
+	if ! command -v composer >/dev/null 2>&1; then
+		echo "Composer is required before Laravel boot validation on a new release."
+		exit 1
+	fi
+
+	echo "Installing PHP dependencies for fresh release bootstrap..."
+	composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-progress
+}
+
+ensure_php_dependencies() {
+	if [ -f vendor/autoload.php ]; then
+		return
+	fi
+
+	if ! command -v composer >/dev/null 2>&1; then
+		echo "Composer is required before Laravel boot validation on a new release."
+		exit 1
+	fi
+
+	echo "Installing PHP dependencies for fresh release bootstrap..."
+	composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-progress
+}
+
 validate_runtime_config() {
 	if [ ! -f ".env" ]; then
 		echo "Missing .env on live server. Deployment stopped."
@@ -139,6 +167,7 @@ normalize_permissions() {
     chmod -R a+rX storage/app/public 2>/dev/null || true
 }
 
+ensure_php_dependencies
 validate_runtime_config
 
 mkdir -p bootstrap/cache storage/app storage/frontend storage/framework/cache storage/framework/sessions storage/framework/views storage/logs
@@ -155,7 +184,7 @@ normalize_permissions
 
 if [ "$INSTALL_DEPS" = "1" ]; then
 	echo "Installing PHP dependencies..."
-	composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction
+	composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-progress
 
 	echo "Installing Node dependencies..."
 	npm ci --no-audit --no-fund
