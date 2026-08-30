@@ -4,6 +4,59 @@ const buildViewportMetaContent = function({ userScalable = false, interactiveWid
     return `width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=${interactiveWidget}, user-scalable=${userScalable ? 'yes' : 'no'}`;
 };
 
+const getSafeViewportHeight = function({ fallback = 0 } = {}) {
+    if(typeof window === 'undefined') {
+        return fallback;
+    }
+
+    const visualViewportHeight = Number(window.visualViewport?.height || 0);
+    const innerHeight = Number(window.innerHeight || 0);
+    const documentHeight = Number(document.documentElement?.clientHeight || 0);
+
+    return Math.max(visualViewportHeight, innerHeight, documentHeight, fallback);
+};
+
+const syncViewportHeight = function({ element = document.documentElement, variableName = '--app-viewport-height' } = {}) {
+    if(! element || typeof window === 'undefined') {
+        return null;
+    }
+
+    const nextHeight = getSafeViewportHeight({ fallback: window.innerHeight || 0 });
+    const nextValue = `${nextHeight}px`;
+
+    element.style.setProperty(variableName, nextValue);
+
+    return nextValue;
+};
+
+const installViewportKeyboardGuard = function({ element = document.documentElement, variableName = '--app-viewport-height' } = {}) {
+    if(typeof window === 'undefined' || ! element) {
+        return () => {};
+    }
+
+    const update = () => syncViewportHeight({ element, variableName });
+
+    update();
+
+    window.addEventListener('resize', update, { passive: true });
+    window.addEventListener('orientationchange', update, { passive: true });
+
+    if(window.visualViewport) {
+        window.visualViewport.addEventListener('resize', update, { passive: true });
+        window.visualViewport.addEventListener('scroll', update, { passive: true });
+    }
+
+    return () => {
+        window.removeEventListener('resize', update);
+        window.removeEventListener('orientationchange', update);
+
+        if(window.visualViewport) {
+            window.visualViewport.removeEventListener('resize', update);
+            window.visualViewport.removeEventListener('scroll', update);
+        }
+    };
+};
+
 function useInputHandlers() {
     const autoResize = function(textInputFiled) {
         nextTick(() => {
@@ -113,4 +166,10 @@ function useInputHandlers() {
     };
 }
 
-export { useInputHandlers, buildViewportMetaContent };
+export {
+    useInputHandlers,
+    buildViewportMetaContent,
+    getSafeViewportHeight,
+    syncViewportHeight,
+    installViewportKeyboardGuard,
+};

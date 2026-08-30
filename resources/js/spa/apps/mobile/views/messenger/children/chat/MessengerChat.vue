@@ -40,12 +40,14 @@
 	.chat-layout {
 		display: flex;
 		flex-direction: column;
-		height: 100dvh;
-		min-height: 100dvh;
+		height: var(--app-viewport-height, 100dvh);
+		min-height: var(--app-viewport-height, 100dvh);
 		overflow: hidden;
 		position: fixed;
 		inset: 0;
 		background: var(--bg-pr, #f8f8f8);
+		transform: translateZ(0);
+		-webkit-transform: translateZ(0);
 	}
 
 	.chat-header-wrapper,
@@ -72,8 +74,8 @@
 
 	@supports not (height: 100dvh) {
 		.chat-layout {
-			height: 100vh;
-			min-height: 100vh;
+			height: var(--app-viewport-height, 100vh);
+			min-height: var(--app-viewport-height, 100vh);
 		}
 	}
 </style>

@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import {
     useInputHandlers,
     buildViewportMetaContent,
+    getSafeViewportHeight,
+    syncViewportHeight,
 } from '../../resources/js/spa/kernel/vue/composables/input/index.js';
 
 test('preserveInputFocus clears a textarea and keeps it focused without collapsing the keyboard state', () => {
@@ -49,4 +51,46 @@ test('buildViewportMetaContent keeps the mobile viewport keyboard-safe and resiz
     assert.match(content, /viewport-fit=cover/);
     assert.match(content, /interactive-widget=resizes-content/);
     assert.match(content, /user-scalable=no/);
+});
+
+test('viewport sizing keeps the app height locked so keyboard resize does not pan the whole screen', () => {
+    const previousWindow = globalThis.window;
+    const previousDocument = globalThis.document;
+
+    const element = {
+        style: {
+            setProperty: (name, value) => {
+                globalThis.__lastViewportValue = { name, value };
+            },
+        },
+    };
+
+    globalThis.window = {
+        visualViewport: { height: 640 },
+        innerHeight: 800,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+    };
+
+    globalThis.document = {
+        documentElement: {
+            clientHeight: 760,
+            ...element,
+        },
+    };
+
+    const viewportHeight = getSafeViewportHeight({ fallback: 0 });
+    assert.equal(viewportHeight, 800);
+
+    const renderedHeight = syncViewportHeight({
+        element: globalThis.document.documentElement,
+        variableName: '--app-viewport-height',
+    });
+
+    assert.equal(renderedHeight, '800px');
+    assert.equal(globalThis.__lastViewportValue.name, '--app-viewport-height');
+    assert.equal(globalThis.__lastViewportValue.value, '800px');
+
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
 });
