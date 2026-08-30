@@ -3,6 +3,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+mkdir -p bootstrap/cache storage/app storage/frontend storage/framework/cache storage/framework/sessions storage/framework/views storage/logs
+chmod -R u+rwX bootstrap storage 2>/dev/null || true
+
 INSTALL_DEPS="${INSTALL_DEPS:-1}"
 BUILD_ASSETS="${BUILD_ASSETS:-1}"
 RUN_MIGRATIONS="${RUN_MIGRATIONS:-1}"
