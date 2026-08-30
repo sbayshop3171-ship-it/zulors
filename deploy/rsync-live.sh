@@ -117,7 +117,11 @@ echo "Building staged release..."
 ssh "${SSH_OPTS[@]}" "${LIVE_USER}@${LIVE_HOST}" "set -e && \
 	cp '$LIVE_PATH/.env' '$REMOTE_RELEASE/.env' && \
 	cd '$REMOTE_RELEASE' && \
+	grep -q '^APP_ENV=production' .env && \
+	grep -q '^APP_KEY=' .env && \
 	SHARED_STORAGE_PUBLIC_PATH='$SHARED_STORAGE_PUBLIC' SHARED_STORAGE_SESSIONS_PATH='$SHARED_STORAGE_SESSIONS' bash deploy/live-deploy.sh && \
+	php artisan config:clear >/dev/null && \
+	php artisan route:list --no-ansi >/dev/null && \
 	php artisan about --only=environment --no-ansi >/dev/null"
 
 echo "Promoting staged release to live..."

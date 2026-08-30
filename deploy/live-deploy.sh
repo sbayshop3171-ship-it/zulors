@@ -12,6 +12,33 @@ MEDIA_GUARD_MIN_USER_FILES="${MEDIA_GUARD_MIN_USER_FILES:-0}"
 APP_RUNTIME_USER="${APP_RUNTIME_USER:-$(stat -c '%U' .env 2>/dev/null || id -un)}"
 APP_RUNTIME_GROUP="${APP_RUNTIME_GROUP:-www-data}"
 
+validate_runtime_config() {
+	if [ ! -f ".env" ]; then
+		echo "Missing .env on live server. Deployment stopped."
+		exit 1
+	fi
+
+	if grep -Eq '^APP_ENV=(local|testing)$' .env; then
+		echo "Live deployment refused because APP_ENV is not production-safe."
+		exit 1
+	fi
+
+	if ! grep -Eq '^APP_KEY=' .env || grep -Eq '^APP_KEY=$' .env; then
+		echo "Live deployment refused because APP_KEY is missing or empty."
+		exit 1
+	fi
+
+	if ! php artisan config:clear >/dev/null 2>&1; then
+		echo "Live deployment refused because Laravel config boot failed on the target release."
+		exit 1
+	fi
+
+	if ! php artisan route:list --no-ansi >/dev/null 2>&1; then
+		echo "Live deployment refused because Laravel route boot failed on the target release."
+		exit 1
+	fi
+}
+
 if [ ! -f ".env" ]; then
 	echo "Missing .env on live server. Deployment stopped."
 	exit 1
@@ -111,6 +138,8 @@ normalize_permissions() {
     chmod -R a+rX public bootstrap config database deploy lang resources routes scripts services var vendor 2>/dev/null || true
     chmod -R a+rX storage/app/public 2>/dev/null || true
 }
+
+validate_runtime_config
 
 mkdir -p bootstrap/cache storage/app storage/frontend storage/framework/cache storage/framework/sessions storage/framework/views storage/logs
 if [ -z "$SHARED_STORAGE_PUBLIC_PATH" ]; then
