@@ -17,6 +17,14 @@ class ThemeRenderingTest extends TestCase
             ->assertSee('content="dark light"', false);
     }
 
+    public function test_auth_layout_renders_without_session_error_bag(): void
+    {
+        $this->assertStringContainsString(
+            'auth-page',
+            view('auth::index')->render()
+        );
+    }
+
     public function test_plain_dark_theme_cookie_controls_document_layout_initial_render(): void
     {
         $this->withUnencryptedCookie('theme', 'dark')
