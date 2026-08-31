@@ -20,13 +20,15 @@ function getBusinessNavigationTarget(href) {
 }
 
 function activateBusinessTab(tabName) {
-	const items = document.querySelectorAll('[data-business-tab]');
+	window.requestAnimationFrame(() => {
+		const items = document.querySelectorAll('[data-business-tab]');
 
-	for(const item of items) {
-		const isActive = item.dataset.businessTab === tabName;
-		item.classList.toggle('business-mobile-nav-item-active', isActive);
-		item.classList.toggle('business-mobile-more-item-active', isActive);
-	}
+		for(const item of items) {
+			const isActive = item.dataset.businessTab === tabName;
+			item.classList.toggle('business-mobile-nav-item-active', isActive);
+			item.classList.toggle('business-mobile-more-item-active', isActive);
+		}
+	});
 }
 
 function resolveBusinessTabName(pathname) {

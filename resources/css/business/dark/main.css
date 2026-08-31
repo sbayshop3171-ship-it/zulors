@@ -120,6 +120,16 @@
 
         .business-mobile-nav-item {
             @apply flex min-w-0 flex-col items-center justify-center gap-1 px-1 py-2 text-cap-s font-semibold text-lab-sc;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+            will-change: transform;
+            transform: translateZ(0);
+            transition: transform 0.1s ease;
+        }
+
+        .business-mobile-nav-item:active {
+            transform: translateZ(0) scale(0.95);
+            transition: transform 0.1s ease;
         }
 
         .business-mobile-nav-item > span:last-child {
