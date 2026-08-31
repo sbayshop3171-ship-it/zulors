@@ -32,7 +32,7 @@
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
     import BRD from '@/kernel/websockets/brd/index.js';
     import { ensureRealtimeConnection } from '@/kernel/websockets/index.js';
-    import { markStartupEvent, signalAppShellReady } from '@/kernel/services/startup/index.js';
+    import { cancelDeferredStartupTask, deferStartupTask, markStartupEvent, signalAppShellReady, signalFirstVisualReadyAfterPaint } from '@/kernel/services/startup/index.js';
 
     import { Layouts } from '@D/core/constants/layouts.js';
     
@@ -54,6 +54,7 @@
             let realtimeChannel = null;
             let appShellReady = false;
             let bootDeadlineTimer = null;
+            let postVisualStartupHandle = null;
             let reelsWarmupHandle = null;
             let reelsWarmupScheduled = false;
 
@@ -118,7 +119,43 @@
                     window.__zulorsBoot?.isAuthenticated
                         ? null
                         : (window.__zulorsBoot?.sharedFeed ?? null)
-                );
+                    );
+            };
+
+            const startupReadyDetail = () => {
+                return {
+                    variant: 'desktop',
+                    route: route.name ?? null,
+                    cachedBootstrap: hasCachedBootstrap,
+                    authenticated: authStore.authCheck,
+                    homePosts: timelineStore.posts.length
+                };
+            };
+
+            const runPostVisualStartupTasks = () => {
+                postVisualStartupHandle = null;
+
+                if(authStore.authCheck) {
+                    ensureRealtimeConnection();
+                    markStartupEvent('realtime_connect_requested', {
+                        variant: 'desktop'
+                    });
+                }
+
+                setupRealtimePostUpdates();
+                scheduleReelsWarmup();
+            };
+
+            const schedulePostVisualStartupTasks = () => {
+                if(postVisualStartupHandle || typeof window === 'undefined') {
+                    return;
+                }
+
+                postVisualStartupHandle = deferStartupTask(runPostVisualStartupTasks, 900);
+
+                if(! postVisualStartupHandle) {
+                    runPostVisualStartupTasks();
+                }
             };
 
             const revealAppShell = () => {
@@ -130,18 +167,9 @@
                 hydrateInstantHomeFeed();
                 primeHomeFeed();
 
-                if(authStore.authCheck) {
-                    ensureRealtimeConnection();
-                    markStartupEvent('realtime_connect_requested', {
-                        variant: 'desktop'
-                    });
-                }
-
                 appLoading.value = false;
 
                 setupInteractionListeners();
-                setupRealtimePostUpdates();
-                scheduleReelsWarmup();
 
                 markStartupEvent('app_shell_revealed', {
                     variant: 'desktop',
@@ -152,12 +180,11 @@
 
                 nextTick(() => {
                     window.requestAnimationFrame(() => {
-                        signalAppShellReady({
-                            variant: 'desktop',
-                            route: route.name ?? null,
-                            cachedBootstrap: hasCachedBootstrap,
-                            authenticated: authStore.authCheck
-                        });
+                        const detail = startupReadyDetail();
+
+                        signalAppShellReady(detail);
+                        signalFirstVisualReadyAfterPaint(detail);
+                        schedulePostVisualStartupTasks();
                     });
                 });
             };
@@ -223,7 +250,6 @@
                 }
 
                 revealAppShell();
-                setupRealtimePostUpdates();
             };
 
             onMounted(async () => {
@@ -277,6 +303,7 @@
 
                 removeInteractionListeners();
                 clearReelsWarmup();
+                cancelDeferredStartupTask(postVisualStartupHandle);
 
                 if(realtimeChannel) {
                     realtimeChannel.stopListening(BRD.getEvent('TIMELINE_POST_UPDATED'));

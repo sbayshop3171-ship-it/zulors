@@ -31,7 +31,8 @@ const getStartupState = () => {
     if (typeof window === 'undefined') {
         return {
             marks: {},
-            nativeReadySent: false
+            nativeReadySent: false,
+            nativeFirstVisualSent: false
         };
     }
 
@@ -39,7 +40,8 @@ const getStartupState = () => {
         launchedAt: Date.now(),
         perfStartedAt: performanceNow(),
         marks: {},
-        nativeReadySent: false
+        nativeReadySent: false,
+        nativeFirstVisualSent: false
     };
 
     if (!window.__zulorsStartup.marks || typeof window.__zulorsStartup.marks !== 'object') {
@@ -48,6 +50,10 @@ const getStartupState = () => {
 
     if (typeof window.__zulorsStartup.nativeReadySent !== 'boolean') {
         window.__zulorsStartup.nativeReadySent = false;
+    }
+
+    if (typeof window.__zulorsStartup.nativeFirstVisualSent !== 'boolean') {
+        window.__zulorsStartup.nativeFirstVisualSent = false;
     }
 
     return window.__zulorsStartup;
@@ -162,10 +168,63 @@ const signalAppShellReady = (detail = {}) => {
     return false;
 };
 
+const signalFirstVisualReady = (detail = {}) => {
+    if (typeof window === 'undefined') {
+        return false;
+    }
+
+    const startupState = getStartupState();
+    const safeDetail = serializeDetail(detail);
+
+    markStartupEvent('first_visual_ready', safeDetail);
+
+    if (startupState.nativeFirstVisualSent) {
+        return true;
+    }
+
+    if (window.ZulorsStartup && typeof window.ZulorsStartup.firstVisualReady === 'function') {
+        try {
+            window.ZulorsStartup.firstVisualReady(JSON.stringify(safeDetail));
+            startupState.nativeFirstVisualSent = true;
+
+            return true;
+        }
+        catch (error) {
+            //
+        }
+    }
+
+    return false;
+};
+
+const signalFirstVisualReadyAfterPaint = (detail = {}) => {
+    if (typeof window === 'undefined') {
+        return false;
+    }
+
+    const signal = () => {
+        signalFirstVisualReady(detail);
+    };
+
+    if (typeof window.requestAnimationFrame === 'function') {
+        window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(signal);
+        });
+
+        return true;
+    }
+
+    window.setTimeout(signal, 0);
+
+    return true;
+};
+
 export {
     cancelDeferredStartupTask,
     deferStartupTask,
     markStartupEvent,
     markStartupResponse,
-    signalAppShellReady
+    signalAppShellReady,
+    signalFirstVisualReady,
+    signalFirstVisualReadyAfterPaint
 };

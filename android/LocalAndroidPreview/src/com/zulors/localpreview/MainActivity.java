@@ -110,7 +110,8 @@ public class MainActivity extends Activity {
     private static final String APP_UPDATE_PREFS = "zulors_play_updates";
     private static final String PREF_LAST_FLEXIBLE_UPDATE_PROMPT_AT = "last_flexible_update_prompt_at";
     private static final String PREF_LAST_FLEXIBLE_UPDATE_VERSION = "last_flexible_update_version";
-    private static final long STARTUP_SPLASH_MAX_HOLD_MS = 1200L;
+    private static final long STARTUP_SPLASH_MAX_HOLD_MS = 300L;
+    private static final long STARTUP_LAUNCH_COVER_MAX_HOLD_MS = 4500L;
     private static final long DEFERRED_STARTUP_TASK_DELAY_MS = 180L;
     private static final long FLEXIBLE_UPDATE_CHECK_DELAY_MS = 1800L;
     private static final long FLEXIBLE_UPDATE_PROMPT_COOLDOWN_MS = 6L * 60L * 60L * 1000L;
@@ -130,6 +131,7 @@ public class MainActivity extends Activity {
     private View customView;
     private WebChromeClient.CustomViewCallback customViewCallback;
     private FrameLayout rootLayout;
+    private FrameLayout startupLaunchCover;
     private boolean backNavigationPending = false;
     private boolean nativeGoogleSignInInProgress = false;
     private String nativeGoogleSignInSource = "google_button";
@@ -164,8 +166,11 @@ public class MainActivity extends Activity {
     private boolean startupSplashReleased = false;
     private boolean startupFirstPageCommitted = false;
     private boolean startupAppShellReady = false;
+    private boolean startupFirstVisualReady = false;
+    private boolean startupLaunchCoverRemoved = false;
     private boolean deferredStartupTasksStarted = false;
     private Runnable deferredStartupTasksRunnable;
+    private Runnable startupLaunchCoverFallbackRunnable;
     private long startupStartedAtMs = 0L;
     private String startupSplashReleaseReason = "pending";
     private String lastNotificationLaunchUrl = null;
@@ -266,15 +271,18 @@ public class MainActivity extends Activity {
         );
         webViewLayoutParams.setMargins(0, 0, 0, 0);
         rootLayout.addView(webView, webViewLayoutParams);
+        attachStartupLaunchCover();
 
         setContentView(rootLayout);
         rootLayout.requestApplyInsets();
+        releaseStartupSplash("native_cover_ready");
         applySystemChrome(false);
         configureWebView();
         seedCookies();
         prepareFreshPreview();
         configureBackNavigation();
         scheduleStartupSplashTimeout();
+        scheduleStartupLaunchCoverFallback();
         String launchUrl = resolveLaunchUrl(getIntent());
 
         if (hasLaunchUrl(getIntent())) {
@@ -314,6 +322,67 @@ public class MainActivity extends Activity {
         startupSplashVisible = false;
         startupSplashReleaseReason = reason == null ? "unknown" : reason;
         recordStartupEvent("splash_released", startupSplashReleaseReason);
+    }
+
+    private void attachStartupLaunchCover() {
+        if (rootLayout == null || startupLaunchCover != null) {
+            return;
+        }
+
+        startupLaunchCover = new FrameLayout(this);
+        startupLaunchCover.setBackgroundResource(R.drawable.launch_screen);
+        startupLaunchCover.setClickable(true);
+        startupLaunchCover.setFocusable(false);
+        startupLaunchCover.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        rootLayout.addView(
+            startupLaunchCover,
+            new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        );
+        recordStartupEvent("launch_cover_attached");
+    }
+
+    private void scheduleStartupLaunchCoverFallback() {
+        if (mainHandler == null || startupLaunchCoverFallbackRunnable != null) {
+            return;
+        }
+
+        startupLaunchCoverFallbackRunnable = new Runnable() {
+            @Override
+            public void run() {
+                startupLaunchCoverFallbackRunnable = null;
+                removeStartupLaunchCover("fallback_timeout");
+            }
+        };
+
+        mainHandler.postDelayed(startupLaunchCoverFallbackRunnable, STARTUP_LAUNCH_COVER_MAX_HOLD_MS);
+    }
+
+    private void removeStartupLaunchCover(String reason) {
+        if (startupLaunchCoverRemoved) {
+            return;
+        }
+
+        startupLaunchCoverRemoved = true;
+
+        if (mainHandler != null && startupLaunchCoverFallbackRunnable != null) {
+            mainHandler.removeCallbacks(startupLaunchCoverFallbackRunnable);
+            startupLaunchCoverFallbackRunnable = null;
+        }
+
+        if (startupLaunchCover != null) {
+            startupLaunchCover.setVisibility(View.GONE);
+
+            if (rootLayout != null) {
+                rootLayout.removeView(startupLaunchCover);
+            }
+
+            startupLaunchCover = null;
+        }
+
+        recordStartupEvent("launch_cover_removed", reason);
         scheduleDeferredStartupTasks(DEFERRED_STARTUP_TASK_DELAY_MS);
     }
 
@@ -544,7 +613,6 @@ public class MainActivity extends Activity {
                 super.onPageCommitVisible(view, url);
                 startupFirstPageCommitted = true;
                 recordStartupEvent("page_commit_visible", url);
-                releaseStartupSplash("page_commit_visible");
             }
 
             @Override
@@ -553,10 +621,6 @@ public class MainActivity extends Activity {
                 recordStartupEvent("page_finished", url);
                 installAndroidViewportGuards(view);
                 syncSystemChromeWithPage(view);
-
-                if (!startupFirstPageCommitted) {
-                    releaseStartupSplash("page_finished");
-                }
 
                 if (deferredStartupTasksStarted) {
                     PushTokenBridge.syncLatestToken(MainActivity.this, view);
@@ -2072,7 +2136,18 @@ public class MainActivity extends Activity {
                 public void run() {
                     startupAppShellReady = true;
                     recordStartupEvent("app_shell_ready", detailJson);
-                    releaseStartupSplash("app_shell_ready");
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void firstVisualReady(final String detailJson) {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    startupFirstVisualReady = true;
+                    recordStartupEvent("first_visual_ready", detailJson);
+                    removeStartupLaunchCover("first_visual_ready");
                 }
             });
         }
@@ -2907,6 +2982,11 @@ public class MainActivity extends Activity {
         if (mainHandler != null && deferredStartupTasksRunnable != null) {
             mainHandler.removeCallbacks(deferredStartupTasksRunnable);
             deferredStartupTasksRunnable = null;
+        }
+
+        if (mainHandler != null && startupLaunchCoverFallbackRunnable != null) {
+            mainHandler.removeCallbacks(startupLaunchCoverFallbackRunnable);
+            startupLaunchCoverFallbackRunnable = null;
         }
 
         unregisterFlexibleUpdateListener();

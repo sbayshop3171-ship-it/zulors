@@ -27,7 +27,7 @@
 	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 	import BRD from '@/kernel/websockets/brd/index.js';
 	import { ensureRealtimeConnection } from '@/kernel/websockets/index.js';
-	import { markStartupEvent, signalAppShellReady } from '@/kernel/services/startup/index.js';
+	import { cancelDeferredStartupTask, deferStartupTask, markStartupEvent, signalAppShellReady, signalFirstVisualReadyAfterPaint } from '@/kernel/services/startup/index.js';
 
 	import ApplicationMainLayout from '@M/layouts/ApplicationMainLayout.vue';
 	import PostEditorLayout from '@M/layouts/PostEditorLayout.vue';
@@ -49,6 +49,7 @@
 			let realtimeChannel = null;
 			let appShellReady = false;
 			let bootDeadlineTimer = null;
+			let postVisualStartupHandle = null;
 			let reelsWarmupHandle = null;
 			let reelsWarmupScheduled = false;
 
@@ -88,7 +89,43 @@
 					window.__zulorsBoot?.isAuthenticated
 						? null
 						: (window.__zulorsBoot?.sharedFeed ?? null)
-				);
+					);
+			};
+
+			const startupReadyDetail = () => {
+				return {
+					variant: 'mobile',
+					route: route.name ?? null,
+					cachedBootstrap: hasCachedBootstrap,
+					authenticated: authStore.authCheck,
+					homePosts: timelineStore.posts.length
+				};
+			};
+
+			const runPostVisualStartupTasks = () => {
+				postVisualStartupHandle = null;
+
+				if(authStore.authCheck) {
+					ensureRealtimeConnection();
+					markStartupEvent('realtime_connect_requested', {
+						variant: 'mobile'
+					});
+				}
+
+				setupRealtimePostUpdates();
+				scheduleReelsWarmup();
+			};
+
+			const schedulePostVisualStartupTasks = () => {
+				if(postVisualStartupHandle || typeof window === 'undefined') {
+					return;
+				}
+
+				postVisualStartupHandle = deferStartupTask(runPostVisualStartupTasks, 900);
+
+				if(! postVisualStartupHandle) {
+					runPostVisualStartupTasks();
+				}
 			};
 
 			const revealAppShell = () => {
@@ -100,18 +137,9 @@
 				hydrateInstantHomeFeed();
 				primeHomeFeed();
 
-				if(authStore.authCheck) {
-					ensureRealtimeConnection();
-					markStartupEvent('realtime_connect_requested', {
-						variant: 'mobile'
-					});
-				}
-
 				appLoading.value = false;
 
 				colibriEventBus.on('auth:logout', logoutUser);
-				setupRealtimePostUpdates();
-				scheduleReelsWarmup();
 
 				markStartupEvent('app_shell_revealed', {
 					variant: 'mobile',
@@ -122,12 +150,11 @@
 
 				nextTick(() => {
 					window.requestAnimationFrame(() => {
-						signalAppShellReady({
-							variant: 'mobile',
-							route: route.name ?? null,
-							cachedBootstrap: hasCachedBootstrap,
-							authenticated: authStore.authCheck
-						});
+						const detail = startupReadyDetail();
+
+						signalAppShellReady(detail);
+						signalFirstVisualReadyAfterPaint(detail);
+						schedulePostVisualStartupTasks();
 					});
 				});
 			};
@@ -193,7 +220,6 @@
 				}
 
 				revealAppShell();
-				setupRealtimePostUpdates();
 			};
 
 			onMounted(async () => {
@@ -258,6 +284,7 @@
 				}
 
 				clearReelsWarmup();
+				cancelDeferredStartupTask(postVisualStartupHandle);
 
 				colibriEventBus.off('auth:logout', logoutUser);
 
