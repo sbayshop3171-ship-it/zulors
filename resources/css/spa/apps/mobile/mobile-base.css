@@ -162,7 +162,13 @@ html.zulors-android-app #zulors-mobile-app {
 }
 
 .mobile-safe-sticky-top {
-    top: var(--mobile-safe-top);
+    top: max(0px, var(--mobile-safe-top, env(safe-area-inset-top, 0px)));
+}
+
+html.zulors-android-app .mobile-safe-chat-header {
+    position: sticky;
+    top: max(0px, var(--mobile-safe-top, env(safe-area-inset-top, 0px)));
+    z-index: 20;
 }
 
 .mobile-safe-overlay-top {

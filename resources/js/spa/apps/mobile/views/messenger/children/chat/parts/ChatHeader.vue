@@ -128,7 +128,7 @@
 <style scoped>
 	.chat-header {
 		position: sticky;
-		top: 0;
+		top: max(0px, var(--mobile-safe-top, env(safe-area-inset-top, 0px)));
 		z-index: 20;
 		flex-shrink: 0;
 		background: rgba(255, 255, 255, 0.96);

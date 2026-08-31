@@ -48,7 +48,8 @@
 		background: var(--bg-pr, #f8f8f8);
 		transform: translateZ(0);
 		-webkit-transform: translateZ(0);
-		padding-bottom: env(safe-area-inset-bottom, 0px);
+		padding-top: max(0px, var(--mobile-safe-top, env(safe-area-inset-top, 0px)));
+		padding-bottom: max(0px, env(safe-area-inset-bottom, 0px));
 	}
 
 	.chat-header-wrapper,
@@ -57,6 +58,12 @@
 		margin-bottom: 0;
 		padding-bottom: max(0px, env(safe-area-inset-bottom, 0px));
 		background: var(--bg-pr, #ffffff);
+	}
+
+	.chat-header-wrapper {
+		position: sticky;
+		top: max(0px, var(--mobile-safe-top, env(safe-area-inset-top, 0px)));
+		z-index: 25;
 	}
 
 	.chat-messages-container {
