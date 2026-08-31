@@ -1,12 +1,16 @@
 import { defineStore } from 'pinia';
 import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
-import { readCacheEntry, readLocalFirstSnapshot, writeCache, writeLocalFirstSnapshot } from '@/kernel/services/cache/index.js';
+import { readLocalFirstSnapshot, writeLocalFirstSnapshot } from '@/kernel/services/cache/index.js';
+import {
+    evictViewerFeedSnapshots,
+    feedSnapshotMaxAgeMs,
+} from '@/kernel/services/cache/feed-cache.js';
 import { useAuthStore } from '@M/store/auth/auth.store.js';
 import { useTimelineStore } from '@M/store/timeline/timeline.store.js';
 
 const bootstrapCacheKey = 'colibri.mobile.bootstrap.v1';
 const bootstrapCacheTtl = 1000 * 60 * 15;
-const bootstrapHomeFeedTtl = 1000 * 60 * 5;
+const bootstrapCacheMaxAge = feedSnapshotMaxAgeMs;
 
 const wait = (timeout) => {
     return new Promise((resolve) => {
@@ -40,7 +44,7 @@ const takeBootBootstrapRequest = async () => {
 
 const useAppStore = defineStore('mobile_app_store', {
     state: () => {
-        const cachedEntry = readLocalFirstSnapshot(bootstrapCacheKey, null, bootstrapCacheTtl, bootstrapCacheTtl * 2);
+        const cachedEntry = readLocalFirstSnapshot(bootstrapCacheKey, null, bootstrapCacheTtl, bootstrapCacheMaxAge);
 
         return {
             appData: cachedEntry?.data ?? null,
@@ -53,12 +57,12 @@ const useAppStore = defineStore('mobile_app_store', {
         hydrateCachedBootstrap: function() {
             const authStore = useAuthStore();
             const userData = this.appData?.auth?.user ?? null;
-            const hasFreshHomeFeed = this.appDataCachedAt && ((Date.now() - this.appDataCachedAt) <= bootstrapHomeFeedTtl);
+            const hasUsableHomeFeed = this.appDataCachedAt && ((Date.now() - this.appDataCachedAt) <= bootstrapCacheMaxAge);
 
             if(userData) {
                 authStore.setUser(userData);
 
-                if(hasFreshHomeFeed) {
+                if(hasUsableHomeFeed) {
                     const timelineStore = useTimelineStore();
 
                     if(! timelineStore.posts.length) {
@@ -141,6 +145,12 @@ const useAppStore = defineStore('mobile_app_store', {
                         error?.name === 'ChunkLoadError';
 
                     if (isSessionError) {
+                        const cachedUserId = authStore.userData?.id ?? this.appData?.auth?.user?.id ?? window.__zulorsBoot?.authUserId ?? null;
+
+                        if(cachedUserId) {
+                            evictViewerFeedSnapshots(`user:${cachedUserId}`).catch(() => {});
+                        }
+
                         authStore.setUser(null);
                         this.forgetBootstrapCache();
                         window.location.href = loginUrl;

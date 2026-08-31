@@ -1,5 +1,6 @@
 import Axios from 'axios';
 import { normalizeRateLimitError } from '@/kernel/services/errors/index.js';
+import { evictCurrentFeedViewerSnapshots } from '@/kernel/services/cache/feed-cache.js';
 
 
 const configuredBaseURL = import.meta.env.VITE_API_BASE_URL;
@@ -79,6 +80,10 @@ const refreshCsrfCookie = (() => {
 const normalizeExpiredSessionError = (error) => {
     error = normalizeRateLimitError(error);
 
+    if([401, 403, 419].includes(Number(error?.response?.status || 0))) {
+        evictCurrentFeedViewerSnapshots().catch(() => {});
+    }
+
     if(error?.response?.status === 401 && error.response.data) {
         error.response.data.message = 'Your session expired. Please refresh the page and sign in again.';
     }
@@ -98,7 +103,10 @@ if(window.ColibriBRD) {
 // Create an Axios instance
 const AxiosAuth = Axios.create({
     baseURL: `${resolveApiBaseUrl()}/`,
-    headers: AxiosAuthHeaders
+    headers: AxiosAuthHeaders,
+    validateStatus: (status) => {
+        return (status >= 200 && status < 300) || status === 304;
+    }
 });
 
 AxiosAuth.defaults.withCredentials = true;

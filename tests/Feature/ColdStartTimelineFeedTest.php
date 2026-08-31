@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Models\UserNotificationSettings;
 use App\Services\Timeline\UserInterestService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
@@ -92,6 +93,79 @@ class ColdStartTimelineFeedTest extends TestCase
 
         $this->assertSame($newerPost->id, $postIds[0]);
         $this->assertContains($olderPost->id, $postIds);
+    }
+
+    public function test_home_feed_response_includes_private_swr_headers_and_etag(): void
+    {
+        Cache::flush();
+
+        $viewer = $this->createUser('home-swr-viewer');
+        $author = $this->createUser('home-swr-author');
+
+        $this->createPost($author, 'Home SWR post', now());
+
+        $response = $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/timeline/feed?type=for_you&refresh_reason=initial&fast_start=1')
+            ->assertOk()
+            ->assertJsonPath('meta.feed.type', 'for_you');
+
+        $this->assertStringContainsString('private', (string) $response->headers->get('Cache-Control'));
+        $this->assertStringContainsString('stale-while-revalidate=60', (string) $response->headers->get('Cache-Control'));
+        $this->assertNotEmpty($response->headers->get('ETag'));
+        $this->assertNotEmpty($response->headers->get('X-Zulors-Feed-Snapshot'));
+        $this->assertSame('miss', $response->headers->get('X-Zulors-Feed-Cache'));
+    }
+
+    public function test_home_feed_matching_etag_returns_not_modified(): void
+    {
+        Cache::flush();
+
+        $viewer = $this->createUser('home-304-viewer');
+        $author = $this->createUser('home-304-author');
+
+        $this->createPost($author, 'Home ETag post', now());
+
+        $firstResponse = $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/timeline/feed?type=for_you&refresh_reason=initial&fast_start=1')
+            ->assertOk();
+
+        $etag = $firstResponse->headers->get('ETag');
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->withHeaders([
+                'If-None-Match' => $etag,
+            ])
+            ->getJson('/api/timeline/feed?type=for_you&refresh_reason=initial&fast_start=1')
+            ->assertStatus(304)
+            ->assertHeader('ETag', $etag)
+            ->assertHeader('X-Zulors-Feed-Cache', 'hit');
+    }
+
+    public function test_home_feed_non_matching_etag_returns_fresh_payload(): void
+    {
+        Cache::flush();
+
+        $viewer = $this->createUser('home-etag-miss-viewer');
+        $author = $this->createUser('home-etag-miss-author');
+
+        $latestPost = $this->createPost($author, 'Home non-matching ETag post', now());
+
+        $response = $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->withHeaders([
+                'If-None-Match' => '"zulors-home-feed-stale"',
+            ])
+            ->getJson('/api/timeline/feed?type=for_you&refresh_reason=initial&fast_start=1')
+            ->assertOk()
+            ->assertJsonPath('meta.feed.type', 'for_you');
+
+        $postIds = array_column($response->json('data'), 'id');
+
+        $this->assertContains($latestPost->id, $postIds);
+        $this->assertNotSame('"zulors-home-feed-stale"', $response->headers->get('ETag'));
     }
 
     public function test_bootstrap_payload_contains_initial_home_feed_for_authenticated_users(): void

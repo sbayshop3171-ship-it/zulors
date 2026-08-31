@@ -74,7 +74,7 @@
     import FollowRecommendation from '@M/components/recommend/follow/FollowRecommendation.vue';
     import FeedUpdate from '@M/components/timeline/update/FeedUpdate.vue';
 
-    const maxRouteLoaderMs = 320;
+    const maxRouteLoaderMs = 120;
 
     export default defineComponent({
         setup: function() {
@@ -118,16 +118,22 @@
                 return timelineStore.refreshReason;
             });
 
-            const hydrateInstantTimeline = () => {
+            const hydrateInstantTimeline = async () => {
                 if(timelinePosts.value.length) {
                     return true;
                 }
 
-                return timelineStore.hydrateBootFeed(
+                if(timelineStore.hydrateBootFeed(
                     window.__zulorsBoot?.cachedBootstrap?.home_feed
                     ?? (window.__zulorsBoot?.isAuthenticated ? null : window.__zulorsBoot?.sharedFeed)
                     ?? null
-                );
+                )) {
+                    return true;
+                }
+
+                return await timelineStore.hydrateCachedFirstPage({
+                    timeoutMs: maxRouteLoaderMs
+                });
             };
 
             useSwipeRouteNavigation(swipeSurfaceRef, mobileHomeSwipeSequence);
@@ -193,7 +199,7 @@
             onMounted(async () => {
                 colibriEventBus.on(homeScrollRefreshEvent, handleHomeScrollRefresh);
 
-                const hasInstantPosts = hydrateInstantTimeline() || timelinePosts.value.length > 0;
+                const hasInstantPosts = await hydrateInstantTimeline();
 
                 state.isLoading = ! hasInstantPosts;
 

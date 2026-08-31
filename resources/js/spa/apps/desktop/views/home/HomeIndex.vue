@@ -93,7 +93,7 @@
     import HomeHeader from '@D/views/home/parts/HomeHeader.vue';
     import FeedUpdate from '@D/components/timeline/update/FeedUpdate.vue';
 
-    const maxRouteLoaderMs = 320;
+    const maxRouteLoaderMs = 120;
 
     export default defineComponent({
         setup: function() {
@@ -135,16 +135,22 @@
                 return timelineStore.refreshReason;
             });
 
-            const hydrateInstantTimeline = () => {
+            const hydrateInstantTimeline = async () => {
                 if(timelinePosts.value.length) {
                     return true;
                 }
 
-                return timelineStore.hydrateBootFeed(
+                if(timelineStore.hydrateBootFeed(
                     window.__zulorsBoot?.cachedBootstrap?.home_feed
                     ?? (window.__zulorsBoot?.isAuthenticated ? null : window.__zulorsBoot?.sharedFeed)
                     ?? null
-                );
+                )) {
+                    return true;
+                }
+
+                return await timelineStore.hydrateCachedFirstPage({
+                    timeoutMs: maxRouteLoaderMs
+                });
             };
 
             const globalPinnedPosts = computed(() => {
@@ -213,7 +219,7 @@
             onMounted(async () => {
                 colibriEventBus.on(homeScrollRefreshEvent, handleHomeScrollRefresh);
 
-                const hasInstantPosts = hydrateInstantTimeline() || timelinePosts.value.length > 0;
+                const hasInstantPosts = await hydrateInstantTimeline();
 
                 state.isLoading = ! hasInstantPosts;
 

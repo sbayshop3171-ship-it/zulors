@@ -1,9 +1,10 @@
 import { defineStore } from 'pinia';
 import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 import { readCacheEntry } from '@/kernel/services/cache/index.js';
+import { evictViewerFeedSnapshots, feedSnapshotMaxAgeMs } from '@/kernel/services/cache/feed-cache.js';
 
 const bootstrapCacheKey = 'colibri.mobile.bootstrap.v1';
-const bootstrapCacheTtl = 1000 * 60 * 15;
+const bootstrapCacheTtl = feedSnapshotMaxAgeMs;
 
 const useAuthStore = defineStore('mobile_auth_store', {
     state: function() {
@@ -29,7 +30,18 @@ const useAuthStore = defineStore('mobile_auth_store', {
             this.user[key] = value;
         },
         logoutUser: async function() {
-            return await colibriAPI().userAuth().sendTo('logout');
+            const userId = this.user?.id ?? null;
+
+            try {
+                return await colibriAPI().userAuth().sendTo('logout');
+            }
+            finally {
+                if(userId) {
+                    evictViewerFeedSnapshots(`user:${userId}`).catch(() => {});
+                }
+
+                this.user = null;
+            }
         }
     }
 });

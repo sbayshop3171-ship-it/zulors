@@ -14,7 +14,11 @@
 	<script>
 		if ('serviceWorker' in navigator) {
 			window.addEventListener('load', () => {
-				navigator.serviceWorker.register('/pwa/service-worker.js').then((reg) => {
+				const swVersion = @json((string) ($buildNumber ?? '1'));
+				const swUrl = `/pwa/service-worker.js?v=${encodeURIComponent(swVersion)}`;
+
+				navigator.serviceWorker.register(swUrl).then((reg) => {
+					reg.update().catch(() => {});
 					console.log('Service worker registered');
 				}).catch((err) => {
 					console.error('Service worker error', err);

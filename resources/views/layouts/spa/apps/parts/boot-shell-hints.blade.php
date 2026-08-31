@@ -9,7 +9,9 @@
         ? 'colibri.desktop.timeline.public_feed.first_page.shared.v1'
         : 'colibri.mobile.timeline.public_feed.first_page.shared.v1';
     $bootCacheTtl = 1000 * 60 * 15;
+    $bootCacheMaxAge = 1000 * 60 * 60 * 24 * 7;
     $sharedFeedCacheTtl = 1000 * 60 * 20;
+    $sharedFeedCacheMaxAge = 1000 * 60 * 60 * 24 * 7;
     $bootBootstrapUrl = url('/api/bootstrap/bootstrap');
     $sharedFeedUrl = url('/api/bootstrap/home-feed-seed');
     $runtimeReverb = config('realtime.reverb', []);
@@ -31,7 +33,9 @@
         var cacheKey = @json($bootCacheKey);
         var sharedFeedCacheKey = @json($sharedFeedCacheKey);
         var cacheTtl = @json($bootCacheTtl);
+        var cacheMaxAge = @json($bootCacheMaxAge);
         var sharedFeedCacheTtl = @json($sharedFeedCacheTtl);
+        var sharedFeedCacheMaxAge = @json($sharedFeedCacheMaxAge);
         var bootstrapUrl = @json($bootBootstrapUrl);
         var sharedFeedUrl = @json($sharedFeedUrl);
         var bootState = window.__zulorsBoot = window.__zulorsBoot || {};
@@ -56,8 +60,10 @@
         bootState.authUserId = authUserId;
         bootState.cacheKey = cacheKey;
         bootState.cacheTtl = cacheTtl;
+        bootState.cacheMaxAge = cacheMaxAge;
         bootState.sharedFeedCacheKey = sharedFeedCacheKey;
         bootState.sharedFeedCacheTtl = sharedFeedCacheTtl;
+        bootState.sharedFeedCacheMaxAge = sharedFeedCacheMaxAge;
         startupState.variant = variant;
         startupState.cacheHit = false;
 
@@ -118,7 +124,7 @@
                 if (
                     cacheEntry &&
                     cacheEntry.timestamp &&
-                    (Date.now() - Number(cacheEntry.timestamp)) <= cacheTtl &&
+                    (Date.now() - Number(cacheEntry.timestamp)) <= cacheMaxAge &&
                     cacheEntry.data &&
                     cacheEntry.data.auth &&
                     cacheEntry.data.auth.user
@@ -142,7 +148,7 @@
                     if (
                         sharedFeedEntry &&
                         sharedFeedEntry.timestamp &&
-                        (Date.now() - Number(sharedFeedEntry.timestamp)) <= sharedFeedCacheTtl &&
+                        (Date.now() - Number(sharedFeedEntry.timestamp)) <= sharedFeedCacheMaxAge &&
                         Array.isArray(sharedFeedEntry.data) &&
                         sharedFeedEntry.data.length
                     ) {

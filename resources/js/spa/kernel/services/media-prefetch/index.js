@@ -214,4 +214,23 @@ function prefetchReelsPlaybackWindow(posts = [], activeIndex = 0) {
     });
 }
 
-export { prefetchTimelineMedia, prefetchReelsPlaybackWindow };
+function warmHomeFeedMedia(posts = [], options = {}) {
+    const networkProfile = getNetworkProfileSnapshot();
+
+    if(networkProfile.offline) {
+        return;
+    }
+
+    const limit = isSlowNetworkProfile(networkProfile)
+        ? Number(options.slowLimit || 4)
+        : Number(options.limit || 8);
+
+    prefetchTimelineMedia(posts, limit, {
+        immediate: true,
+        videoPreload: 'metadata',
+        includeFallbackSource: false,
+        ...options
+    });
+}
+
+export { prefetchTimelineMedia, prefetchReelsPlaybackWindow, warmHomeFeedMedia };

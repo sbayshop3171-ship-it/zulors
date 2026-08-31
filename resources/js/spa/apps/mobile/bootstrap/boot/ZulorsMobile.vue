@@ -34,7 +34,7 @@
 	import MessengerLayout from '@M/layouts/MessengerLayout.vue';
 	import FlatLayout from '@M/layouts/FlatLayout.vue';
 
-	const maxBootScreenMs = 320;
+	const maxBootScreenMs = 120;
 
 	export default defineComponent({
 		setup: function() {
