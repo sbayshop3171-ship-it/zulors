@@ -22,7 +22,7 @@ html {
     --zulors-android-safe-bottom: 0px;
     --mobile-safe-top: env(safe-area-inset-top, 0px);
     --mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
-    --mobile-header-bar-height: 3.5rem;
+    --mobile-header-bar-height: 3.2rem;
     --mobile-navbar-height: 3.5rem;
     --app-viewport-height: 100dvh;
 }
@@ -151,8 +151,8 @@ html.zulors-android-app #zulors-mobile-app {
 }
 
 .mobile-safe-header__bar {
-    height: calc(var(--mobile-header-bar-height) + 0.1rem);
-    min-height: calc(var(--mobile-header-bar-height) + 0.1rem);
+    height: var(--mobile-header-bar-height);
+    min-height: var(--mobile-header-bar-height);
 }
 
 .mobile-safe-toolbar {
@@ -192,10 +192,11 @@ html.zulors-android-app .mobile-safe-chat-header {
 }
 
 .mobile-safe-header__wordmark {
-    max-width: min(42vw, 9rem);
+    max-width: min(40vw, 8.5rem);
     overflow: hidden;
     text-align: center;
-    transform: translateY(2px);
+    transform: translateY(1px);
+    letter-spacing: -0.03em;
 }
 
 .mobile-safe-action {
@@ -471,7 +472,7 @@ html.zulors-android-app .base-publication img {
 
 .zulors-wordmark {
     font-family: 'Grand Hotel', cursive;
-    font-size: 2.25rem;
+    font-size: 2.1rem;
     line-height: 1;
     color: var(--lab-pr);
     letter-spacing: 0;
