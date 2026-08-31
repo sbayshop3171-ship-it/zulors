@@ -321,7 +321,7 @@ cd "$LIVE_PATH"
 attach_shared_public_storage "$LIVE_PATH"
 attach_shared_private_storage "$LIVE_PATH"
 attach_shared_sessions_storage "$LIVE_PATH"
-SHARED_STORAGE_PUBLIC_PATH="$SHARED_STORAGE_PUBLIC" SHARED_STORAGE_SESSIONS_PATH="$SHARED_STORAGE_SESSIONS" MEDIA_GUARD_MIN_USER_FILES="$pre_media_count" INSTALL_DEPS=0 BUILD_ASSETS=0 RUN_MIGRATIONS=0 bash deploy/live-deploy.sh
+SHARED_STORAGE_PUBLIC_PATH="$SHARED_STORAGE_PUBLIC" SHARED_STORAGE_SESSIONS_PATH="$SHARED_STORAGE_SESSIONS" MEDIA_GUARD_MIN_USER_FILES="$pre_media_count" INSTALL_DEPS=1 BUILD_ASSETS=1 RUN_MIGRATIONS=1 bash deploy/live-deploy.sh
 put_live_up
 curl -fsSL --max-time 20 "$LIVE_URL/" -o /dev/null
 curl -fsSL --max-time 20 "$LIVE_URL/admin/login" -o /dev/null

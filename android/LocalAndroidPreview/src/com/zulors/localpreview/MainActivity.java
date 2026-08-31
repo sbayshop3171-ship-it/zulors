@@ -825,6 +825,24 @@ public class MainActivity extends Activity {
             && !serverClientId.isEmpty();
     }
 
+    private void fallbackToWebGoogleOAuth(final String reason) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                nativeGoogleSignInInProgress = false;
+                dispatchNativeGoogleAuthEvent("fallback_web_oauth", nativeGoogleSignInProvider, reason);
+
+                if (webView != null) {
+                    webView.loadUrl(resolveAppUrl("/social-login/auth/google"), noCacheHeaders());
+                }
+
+                if (reason != null && !reason.trim().isEmpty()) {
+                    Toast.makeText(MainActivity.this, reason, Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
+    }
+
     private boolean startNativeGoogleSignIn(String source) {
         return startNativeGoogleSignIn(source, null);
     }
@@ -837,7 +855,7 @@ public class MainActivity extends Activity {
         String serverClientId = resolveNativeGoogleServerClientId(requestedServerClientId);
 
         if (!isNativeGoogleSignInSupported(serverClientId)) {
-            finishNativeGoogleSignInWithFailure("Google sign in is not available right now. Please try again later.");
+            fallbackToWebGoogleOAuth("Google sign in is not available on this device. Continuing with web login.");
             return false;
         }
 
@@ -907,7 +925,7 @@ public class MainActivity extends Activity {
         Log.w(TAG, "Native Google sign in failed: " + exceptionName + " " + exceptionMessage);
 
         if (normalizedMessage.contains("reauth failed")) {
-            finishNativeGoogleSignInWithFailure("Google account verification failed on this device. Please update Google Play Services or try the account again.");
+            fallbackToWebGoogleOAuth("Google account verification failed on this device. Continuing with web login.");
             return;
         }
 
@@ -917,16 +935,16 @@ public class MainActivity extends Activity {
         }
 
         if (exceptionName.contains("NoCredential")) {
-            finishNativeGoogleSignInWithFailure("No Google account is available. Add an account or use email login.");
+            fallbackToWebGoogleOAuth("No Google account is available on this device. Continuing with web login.");
             return;
         }
 
         if (exceptionName.contains("Unsupported") || exceptionName.contains("ProviderConfiguration")) {
-            finishNativeGoogleSignInWithFailure("Google sign in is not available on this device. Please use email login.");
+            fallbackToWebGoogleOAuth("Google sign in is not available on this device. Continuing with web login.");
             return;
         }
 
-        finishNativeGoogleSignInWithFailure("Google sign in could not start. Please try again.");
+        fallbackToWebGoogleOAuth("Google sign in could not start. Continuing with web login.");
     }
 
     private void handleNativeGoogleCredential(GetCredentialResponse response) {
@@ -1130,6 +1148,13 @@ public class MainActivity extends Activity {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
+                if (message != null && message.contains("Google sign in is not available")
+                    || message != null && message.contains("Google sign in could not start")
+                    || message != null && message.contains("Please try again")) {
+                    fallbackToWebGoogleOAuth("Google sign in is unavailable on this device. Continuing with web login.");
+                    return;
+                }
+
                 nativeGoogleSignInInProgress = false;
                 dispatchNativeGoogleAuthEvent("failed", nativeGoogleSignInProvider, message);
                 Toast.makeText(MainActivity.this, message, Toast.LENGTH_SHORT).show();

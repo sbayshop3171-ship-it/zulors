@@ -12,8 +12,35 @@ RUN_MIGRATIONS="${RUN_MIGRATIONS:-1}"
 SHARED_STORAGE_PUBLIC_PATH="${SHARED_STORAGE_PUBLIC_PATH:-}"
 SHARED_STORAGE_SESSIONS_PATH="${SHARED_STORAGE_SESSIONS_PATH:-}"
 MEDIA_GUARD_MIN_USER_FILES="${MEDIA_GUARD_MIN_USER_FILES:-0}"
-APP_RUNTIME_USER="${APP_RUNTIME_USER:-$(stat -c '%U' .env 2>/dev/null || id -un)}"
-APP_RUNTIME_GROUP="${APP_RUNTIME_GROUP:-www-data}"
+detect_runtime_user() {
+	local candidate_user="${APP_RUNTIME_USER:-}"
+	local candidate_group="${APP_RUNTIME_GROUP:-}"
+
+	if [ -n "$candidate_user" ] && [ "$candidate_user" != "root" ]; then
+		:
+	elif id -u zulors >/dev/null 2>&1; then
+		candidate_user="zulors"
+	elif id -u www-data >/dev/null 2>&1; then
+		candidate_user="www-data"
+	else
+		candidate_user="$(stat -c '%U' .env 2>/dev/null || id -un)"
+	fi
+
+	if [ -n "$candidate_group" ] && [ "$candidate_group" != "root" ]; then
+		:
+	elif getent group zulors >/dev/null 2>&1; then
+		candidate_group="zulors"
+	elif getent group www-data >/dev/null 2>&1; then
+		candidate_group="www-data"
+	else
+		candidate_group="$(stat -c '%G' .env 2>/dev/null || id -gn)"
+	fi
+
+	APP_RUNTIME_USER="$candidate_user"
+	APP_RUNTIME_GROUP="$candidate_group"
+}
+
+detect_runtime_user
 
 ensure_php_dependencies() {
 	if [ -f vendor/autoload.php ]; then
