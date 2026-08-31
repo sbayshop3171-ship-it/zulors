@@ -144,6 +144,54 @@ class ColdStartTimelineFeedTest extends TestCase
             ->assertHeader('X-Zulors-Feed-Cache', 'hit');
     }
 
+    public function test_home_feed_response_cache_reuses_snapshot_across_session_ids(): void
+    {
+        Cache::flush();
+
+        $viewer = $this->createUser('home-session-cache-viewer');
+        $author = $this->createUser('home-session-cache-author');
+
+        DB::table(Table::FOLLOWS)->insert([
+            'follower_id' => $viewer->id,
+            'following_id' => $author->id,
+            'status' => FollowStatus::FOLLOWING->value,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->createPost($author, 'Home session cache post', now());
+
+        $firstResponse = $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/timeline/feed?type=for_you&page=1&session_id=session-one')
+            ->assertOk()
+            ->assertJsonPath('meta.feed.session_id', 'session-one')
+            ->assertHeader('X-Zulors-Feed-Cache', 'miss');
+
+        $etag = $firstResponse->headers->get('ETag');
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->withHeaders([
+                'If-None-Match' => $etag,
+            ])
+            ->getJson('/api/timeline/feed?type=for_you&page=1&session_id=session-two')
+            ->assertStatus(304)
+            ->assertHeader('ETag', $etag)
+            ->assertHeader('X-Zulors-Feed-Cache', 'hit');
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->withHeaders([
+                'If-None-Match' => '"zulors-home-feed-different"',
+            ])
+            ->getJson('/api/timeline/feed?type=for_you&page=1&session_id=session-three')
+            ->assertOk()
+            ->assertHeader('ETag', $etag)
+            ->assertHeader('X-Zulors-Feed-Cache', 'hit')
+            ->assertJsonPath('meta.feed.session_id', 'session-three');
+    }
+
     public function test_home_feed_non_matching_etag_returns_fresh_payload(): void
     {
         Cache::flush();

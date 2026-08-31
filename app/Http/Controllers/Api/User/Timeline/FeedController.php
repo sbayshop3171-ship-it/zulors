@@ -58,7 +58,13 @@ class FeedController extends Controller
                 return $this->homeFeedNotModifiedResponse($etag, $snapshotHash, $startedAt, 'hit');
             }
 
-            return $this->homeFeedSuccessResponse($cachedResponse['payload'], $etag, $snapshotHash, $startedAt, 'hit');
+            return $this->homeFeedSuccessResponse(
+                $this->homeFeedPayloadForRequest($cachedResponse['payload'], $filter),
+                $etag,
+                $snapshotHash,
+                $startedAt,
+                'hit'
+            );
         }
 
         $feedResult = app(FeedService::class)->getFeed($this->me, $filter);
@@ -197,8 +203,32 @@ class FeedController extends Controller
             'candidate_limit' => data_get_integer($filter, 'candidate_limit', 0),
             'seed_hash_id' => substr((string) data_get($filter, 'seed_hash_id', ''), 0, 80),
             'fast_start' => filter_var(data_get($filter, 'fast_start', false), FILTER_VALIDATE_BOOLEAN),
-            'session_id' => substr((string) data_get($filter, 'session_id', ''), 0, 80),
+            'refresh_profile' => $this->homeFeedRefreshProfile($filter),
         ]));
+    }
+
+    private function homeFeedPayloadForRequest(array $payload, array $filter): array
+    {
+        $sessionId = substr(trim((string) data_get($filter, 'session_id', '')), 0, 80);
+
+        if($sessionId !== '' && data_get($payload, 'meta.feed.session_id') !== null) {
+            data_set($payload, 'meta.feed.session_id', $sessionId);
+        }
+
+        return $payload;
+    }
+
+    private function homeFeedRefreshProfile(array $filter): string
+    {
+        $refreshReason = strtolower(substr(trim((string) data_get($filter, 'refresh_reason', '')), 0, 32));
+
+        if(filter_var(data_get($filter, 'fast_start', false), FILTER_VALIDATE_BOOLEAN)) {
+            return in_array($refreshReason, ['initial', 'open', 'warm', 'resume'], true)
+                ? "fast_start:{$refreshReason}"
+                : 'fast_start:other';
+        }
+
+        return 'ranked';
     }
 
     private function homeFeedSnapshotHash(array $payload): string
@@ -214,7 +244,7 @@ class FeedController extends Controller
         return sha1(json_encode([
             'viewer' => $this->me->id,
             'posts' => $postMarkers,
-            'meta' => data_get($payload, 'meta.feed', []),
+            'meta' => collect(data_get($payload, 'meta.feed', []))->except('session_id')->all(),
         ]));
     }
 
