@@ -80,16 +80,16 @@ test('viewport sizing keeps the app height locked so keyboard resize does not pa
     };
 
     const viewportHeight = getSafeViewportHeight({ fallback: 0 });
-    assert.equal(viewportHeight, 800);
+    assert.equal(viewportHeight, 640);
 
     const renderedHeight = syncViewportHeight({
         element: globalThis.document.documentElement,
         variableName: '--app-viewport-height',
     });
 
-    assert.equal(renderedHeight, '800px');
+    assert.equal(renderedHeight, '640px');
     assert.equal(globalThis.__lastViewportValue.name, '--app-viewport-height');
-    assert.equal(globalThis.__lastViewportValue.value, '800px');
+    assert.equal(globalThis.__lastViewportValue.value, '640px');
 
     globalThis.window = previousWindow;
     globalThis.document = previousDocument;

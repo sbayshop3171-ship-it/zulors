@@ -1,8 +1,8 @@
 <template>
-	<header class="mobile-safe-header sticky top-0 z-[80] bg-bg-pr transition-all duration-300"
+	<header class="mobile-safe-header sticky top-0 z-[80] bg-bg-pr transition-all duration-300 will-change-transform"
 	v-bind:class="[state.hideHeader ? '-translate-y-full' : '']">
 		
-		<div class="mobile-safe-header__bar relative">
+		<div class="mobile-safe-header__bar relative h-[3.5rem]">
 			<div class="pointer-events-none absolute inset-x-0 top-0 bottom-0 flex items-center justify-center px-24">
 				<h1 class="zulors-wordmark mobile-safe-header__wordmark">
 					Zulors

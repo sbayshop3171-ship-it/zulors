@@ -277,7 +277,7 @@
 						></PrimaryIconButton>
 					</header>
 
-					<div class="max-h-[calc(100vh-13rem)] overflow-y-auto px-4 py-4">
+					<div class="max-h-[calc(var(--app-viewport-height,100dvh)-13rem)] overflow-y-auto px-4 py-4">
 						<div class="rounded-3xl bg-fill-fv p-4">
 							<div class="flex items-start gap-3">
 								<span class="inline-flex size-10 shrink-0 items-center justify-center rounded-2xl bg-bg-pr text-lab-pr2">

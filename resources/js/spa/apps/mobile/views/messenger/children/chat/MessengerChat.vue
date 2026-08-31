@@ -40,8 +40,8 @@
 	.chat-layout {
 		display: flex;
 		flex-direction: column;
-		height: 100vh;
-		height: 100dvh;
+		height: var(--app-viewport-height, 100dvh);
+		min-height: var(--app-viewport-height, 100dvh);
 		overflow: hidden;
 		position: fixed;
 		inset: 0;

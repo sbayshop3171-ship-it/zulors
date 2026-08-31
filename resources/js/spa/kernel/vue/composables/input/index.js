@@ -12,8 +12,18 @@ const getSafeViewportHeight = function({ fallback = 0 } = {}) {
     const visualViewportHeight = Number(window.visualViewport?.height || 0);
     const innerHeight = Number(window.innerHeight || 0);
     const documentHeight = Number(document.documentElement?.clientHeight || 0);
+    const candidates = [
+        visualViewportHeight,
+        innerHeight,
+        documentHeight,
+        fallback,
+    ].filter((value) => Number.isFinite(value) && value > 0);
 
-    return Math.max(visualViewportHeight, innerHeight, documentHeight, fallback);
+    if(candidates.length === 0) {
+        return fallback;
+    }
+
+    return Math.min(...candidates);
 };
 
 const syncViewportHeight = function({ element = document.documentElement, variableName = '--app-viewport-height' } = {}) {
