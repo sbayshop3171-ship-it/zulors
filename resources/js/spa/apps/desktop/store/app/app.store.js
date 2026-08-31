@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
-import { readCacheEntry, writeCache } from '@/kernel/services/cache/index.js';
+import { readLocalFirstSnapshot, writeLocalFirstSnapshot } from '@/kernel/services/cache/index.js';
 import { useAuthStore } from '@D/store/auth/auth.store.js';
 import { useTimelineStore } from '@D/store/timeline/timeline.store.js';
 
@@ -40,11 +40,12 @@ const takeBootBootstrapRequest = async () => {
 
 const useAppStore = defineStore('app', {
     state: () => {
-        const cachedEntry = readCacheEntry(bootstrapCacheKey, bootstrapCacheTtl);
+        const cachedEntry = readLocalFirstSnapshot(bootstrapCacheKey, null, bootstrapCacheTtl, bootstrapCacheTtl * 2);
 
         return {
             appData: cachedEntry?.data ?? null,
             appDataCachedAt: cachedEntry?.timestamp ?? 0,
+            appDataStale: cachedEntry?.isStale ?? false,
             lastBootstrapMeta: null
         };
     },
@@ -75,6 +76,7 @@ const useAppStore = defineStore('app', {
 
             this.appData = bootstrapData;
             this.appDataCachedAt = Date.now();
+            this.appDataStale = false;
             authStore.setUser(bootstrapData?.auth?.user ?? null);
 
             const timelineStore = useTimelineStore();
@@ -83,7 +85,7 @@ const useAppStore = defineStore('app', {
                 timelineStore.hydrateBootFeed(bootstrapData?.home_feed ?? null);
             }
 
-            writeCache(bootstrapCacheKey, bootstrapData);
+            writeLocalFirstSnapshot(bootstrapCacheKey, bootstrapData);
         },
         forgetBootstrapCache: function() {
             try {

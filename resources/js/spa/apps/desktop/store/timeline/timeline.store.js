@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
-import { readCache, writeCache } from '@/kernel/services/cache/index.js';
+import { readLocalFirstSnapshot, writeCache } from '@/kernel/services/cache/index.js';
 import { defaultFeedMeta, extractFeedMeta } from '@/kernel/services/feed-session/index.js';
 import { prefetchTimelineMedia } from '@/kernel/services/media-prefetch/index.js';
 import { useAuthStore } from '@D/store/auth/auth.store.js';
@@ -116,10 +116,11 @@ const useTimelineStore = defineStore('timeline_store', {
     // This is used only for timeline stores, on desktop and mobile with the same logic.
     deleteAware: true,
     state: function() {
-        const sharedCachedPosts = isAuthenticatedBoot()
-            ? (bootHomeFeed()?.posts ?? [])
-            : readCache(getPublicFeedCacheKey(), bootSharedFeed()?.posts ?? [], sharedFeedCacheTtl);
-        const cachedPosts = readCache(getTimelineCacheKey(), sharedCachedPosts, timelineCacheTtl);
+        const sharedCachedSnapshot = isAuthenticatedBoot()
+            ? { data: bootHomeFeed()?.posts ?? [], isFresh: true, isStale: false }
+            : readLocalFirstSnapshot(getPublicFeedCacheKey(), bootSharedFeed()?.posts ?? [], sharedFeedCacheTtl, sharedFeedCacheTtl * 2);
+        const cachedSnapshot = readLocalFirstSnapshot(getTimelineCacheKey(), sharedCachedSnapshot.data, timelineCacheTtl, timelineCacheTtl * 2);
+        const cachedPosts = cachedSnapshot.data;
 
         prefetchTimelineMedia(cachedPosts);
 

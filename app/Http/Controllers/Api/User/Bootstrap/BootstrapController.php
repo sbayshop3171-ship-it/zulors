@@ -72,9 +72,10 @@ class BootstrapController extends Controller
     public function homeFeedSeed()
     {
         $startedAt = microtime(true);
-        $cacheHit = Cache::has(self::PUBLIC_HOME_FEED_SEED_CACHE_KEY);
+        $cacheKey = $this->publicHomeFeedSeedCacheKey();
+        $cacheHit = Cache::has($cacheKey);
         $response = $this->responseSuccess([
-            'data' => $this->resolvePublicHomeFeedSeedPayload(),
+            'data' => $this->resolvePublicHomeFeedSeedPayload($cacheKey),
         ]);
 
         return $response->withHeaders([
@@ -149,12 +150,15 @@ class BootstrapController extends Controller
     }
 
     private function resolvePublicHomeFeedSeedPayload(
+        string $cacheKey = null,
         string $sessionId = 'public-seed',
         string $refreshReason = 'seed',
         string $strategy = 'public_seed_cache'
     ): array {
-        $seedData = Cache::remember(
-            self::PUBLIC_HOME_FEED_SEED_CACHE_KEY,
+        $cacheKey ??= $this->publicHomeFeedSeedCacheKey();
+        $cacheStore = $this->publicHomeFeedCacheStore();
+        $seedData = $cacheStore->remember(
+            $cacheKey,
             now()->addSeconds(self::PUBLIC_HOME_FEED_SEED_TTL_SECONDS),
             function() {
                 $perPage = min((int) config('post.paginate_per'), 12);
@@ -199,6 +203,36 @@ class BootstrapController extends Controller
                 ],
             ],
         ];
+    }
+
+    private function publicHomeFeedCacheStore()
+    {
+        $redisAvailable = extension_loaded('redis') && class_exists('Redis');
+
+        if($redisAvailable && config('cache.default') === 'redis') {
+            return Cache::store('redis');
+        }
+
+        if($redisAvailable && filled(config('database.redis.default.host'))) {
+            return Cache::store('redis');
+        }
+
+        return Cache::store('file');
+    }
+
+    private function publicHomeFeedSeedCacheKey(): string
+    {
+        $latestPost = Post::query()
+            ->select('id', 'updated_at')
+            ->orderByDesc('updated_at')
+            ->orderByDesc('id')
+            ->first();
+
+        $suffix = $latestPost
+            ? $latestPost->updated_at->format('YmdHis') . ':' . $latestPost->id
+            : 'empty';
+
+        return self::PUBLIC_HOME_FEED_SEED_CACHE_KEY . ':' . md5($suffix);
     }
 
     private function toMilliseconds(float $startedAt): string
