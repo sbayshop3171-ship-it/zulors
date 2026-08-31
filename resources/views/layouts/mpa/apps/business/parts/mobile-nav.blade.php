@@ -69,21 +69,21 @@
     <input id="business-more-toggle" class="business-more-toggle" type="checkbox">
 
     <nav class="business-mobile-bottomnav" aria-label="{{ __('business/labels.business_account') }}">
-        <a href="{{ route('business.dashboard.index') }}" @class(['business-mobile-nav-item', 'business-mobile-nav-item-active' => route_is('business.dashboard.*')])>
+        <a href="{{ route('business.dashboard.index') }}" data-business-tab="overview" @class(['business-mobile-nav-item', 'business-mobile-nav-item-active' => route_is('business.dashboard.*')])>
             <span class="business-mobile-nav-icon">
                 <x-ui-icon name="dash-02" type="solar"></x-ui-icon>
             </span>
             <span>{{ __('business/labels.overview') }}</span>
         </a>
 
-        <a href="{{ route('business.market.index') }}" @class(['business-mobile-nav-item', 'business-mobile-nav-item-active' => route_is('business.market.*')])>
+        <a href="{{ route('business.market.index') }}" data-business-tab="marketplace" @class(['business-mobile-nav-item', 'business-mobile-nav-item-active' => route_is('business.market.*')])>
             <span class="business-mobile-nav-icon">
                 <x-ui-icon name="bag-01" type="solar"></x-ui-icon>
             </span>
             <span>{{ __('business/labels.marketplace') }}</span>
         </a>
 
-        <a href="{{ route('business.jobs.index') }}" @class(['business-mobile-nav-item', 'business-mobile-nav-item-active' => route_is('business.jobs.*')])>
+        <a href="{{ route('business.jobs.index') }}" data-business-tab="jobs" @class(['business-mobile-nav-item', 'business-mobile-nav-item-active' => route_is('business.jobs.*')])>
             <span class="business-mobile-nav-icon">
                 <x-ui-icon name="case-01" type="solar"></x-ui-icon>
             </span>
@@ -91,7 +91,7 @@
         </a>
 
         @if(config('features.wallet.enabled'))
-            <a href="{{ route('business.wallet.index') }}" @class(['business-mobile-nav-item', 'business-mobile-nav-item-active' => route_is('business.wallet.*')])>
+            <a href="{{ route('business.wallet.index') }}" data-business-tab="wallet" @class(['business-mobile-nav-item', 'business-mobile-nav-item-active' => route_is('business.wallet.*')])>
                 <span class="business-mobile-nav-icon">
                     <x-ui-icon name="wallet-01" type="solar"></x-ui-icon>
                 </span>
@@ -99,7 +99,7 @@
             </a>
         @endif
 
-        <label for="business-more-toggle" @class(['business-mobile-nav-item cursor-pointer', 'business-mobile-nav-item-active' => $moreActive])>
+        <label for="business-more-toggle" data-business-tab="more" @class(['business-mobile-nav-item cursor-pointer', 'business-mobile-nav-item-active' => $moreActive])>
             <span class="business-mobile-nav-icon">
                 <x-ui-icon name="dots-horizontal" type="solid"></x-ui-icon>
             </span>
@@ -112,12 +112,12 @@
     <div class="business-mobile-more-sheet">
         <div class="business-mobile-more-handle"></div>
         <div class="business-mobile-more-list">
-            <a href="{{ route('business.ads.index') }}" @class(['business-mobile-more-item', 'business-mobile-more-item-active' => route_is('business.ads.*')])>
+            <a href="{{ route('business.ads.index') }}" data-business-tab="campaign" @class(['business-mobile-more-item', 'business-mobile-more-item-active' => route_is('business.ads.*')])>
                 <span><x-ui-icon name="chart-01" type="solar"></x-ui-icon></span>
                 <strong>{{ __('business/labels.campaign') }}</strong>
             </a>
 
-            <a href="{{ route('business.settings.index') }}" @class(['business-mobile-more-item', 'business-mobile-more-item-active' => route_is('business.settings.*')])>
+            <a href="{{ route('business.settings.index') }}" data-business-tab="settings" @class(['business-mobile-more-item', 'business-mobile-more-item-active' => route_is('business.settings.*')])>
                 <span><x-ui-icon name="settings-01" type="solar"></x-ui-icon></span>
                 <strong>{{ __('business/labels.account_settings') }}</strong>
             </a>

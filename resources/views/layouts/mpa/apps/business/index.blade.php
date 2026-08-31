@@ -2,10 +2,12 @@
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}" data-theme="{{ theme_name() }}">
     <head>
         <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover, user-scalable=no, interactive-widget=resizes-content">
         <meta name="csrf-token" content="{{ csrf_token() }}">
         <meta name="theme-color" content="{{ theme_name() == 'dark' ? '#111111' : '#ffffff' }}">
         <meta name="color-scheme" content="{{ theme_name() == 'dark' ? 'dark light' : 'light dark' }}">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
         <title>{{ config('app.name') }}</title>
 
@@ -46,6 +48,7 @@
         @class(['business-app pt-20', (theme_name() == 'dark' ? 'bg-black' : 'bg-pr')])
         data-theme="{{ theme_name() }}"
         data-business-auto-refresh="{{ $businessAutoRefresh ? 'on' : 'off' }}"
+        style="--business-safe-top: max(env(safe-area-inset-top, 0px), var(--zulors-android-safe-top, 0px)); --business-safe-right: max(env(safe-area-inset-right, 0px), var(--zulors-android-safe-right, 0px)); --business-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--zulors-android-safe-bottom, 0px)); --business-safe-left: max(env(safe-area-inset-left, 0px), var(--zulors-android-safe-left, 0px));"
     >
         <x-main>
             @include('businessLayout::parts.sidebar')

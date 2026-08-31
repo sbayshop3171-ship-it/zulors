@@ -10,8 +10,17 @@
 @import "../ads.css";
 
 @layer components {
+    :root {
+        --business-safe-top: max(env(safe-area-inset-top, 0px), var(--zulors-android-safe-top, 0px));
+        --business-safe-right: max(env(safe-area-inset-right, 0px), var(--zulors-android-safe-right, 0px));
+        --business-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--zulors-android-safe-bottom, 0px));
+        --business-safe-left: max(env(safe-area-inset-left, 0px), var(--zulors-android-safe-left, 0px));
+    }
+
     .business-content-shell {
         @apply block ml-72 pr-8 pb-12 pl-8;
+        padding-left: calc(var(--business-safe-left) + 2rem);
+        padding-right: calc(var(--business-safe-right) + 2rem);
     }
 
     .business-form-actions {
@@ -32,8 +41,10 @@
     @media (max-width: 1023px) {
         .business-app {
             @apply pt-16 pb-20 overflow-x-hidden;
-            padding-top: 4rem !important;
-            padding-bottom: 5rem !important;
+            padding-top: calc(var(--business-safe-top) + 4rem) !important;
+            padding-bottom: calc(var(--business-safe-bottom) + 5rem) !important;
+            padding-left: var(--business-safe-left);
+            padding-right: var(--business-safe-right);
         }
 
         .business-app > main > aside,
@@ -43,6 +54,8 @@
 
         .business-content-shell {
             @apply ml-0 px-4 pb-28;
+            padding-left: calc(var(--business-safe-left) + 1rem);
+            padding-right: calc(var(--business-safe-right) + 1rem);
         }
 
         .business-content-shell .w-content {
@@ -81,6 +94,11 @@
 
         .business-mobile-topbar {
             @apply fixed left-0 right-0 top-0 z-50 flex h-16 items-center gap-3 border-b border-bord-pr bg-bg-pr/95 px-4 backdrop-blur-sm;
+            top: var(--business-safe-top);
+            left: var(--business-safe-left);
+            right: var(--business-safe-right);
+            padding-top: 0;
+            height: calc(4rem + var(--business-safe-top));
         }
 
         .business-mobile-icon-btn {
@@ -94,7 +112,10 @@
         .business-mobile-bottomnav {
             @apply fixed bottom-0 left-0 right-0 z-50 grid border-t border-bord-pr bg-bg-pr/95 backdrop-blur-sm;
             grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
-            padding-bottom: max(env(safe-area-inset-bottom), 0.35rem);
+            left: var(--business-safe-left);
+            right: var(--business-safe-right);
+            bottom: var(--business-safe-bottom);
+            padding-bottom: max(env(safe-area-inset-bottom, 0px), 0.35rem);
         }
 
         .business-mobile-nav-item {
@@ -131,7 +152,10 @@
 
         .business-more-toggle:checked ~ .business-mobile-more-sheet {
             @apply fixed bottom-0 left-0 right-0 z-50 block rounded-t-3xl border-t border-bord-pr bg-bg-pr p-4 shadow-2xl;
-            padding-bottom: max(env(safe-area-inset-bottom), 1rem);
+            left: var(--business-safe-left);
+            right: var(--business-safe-right);
+            bottom: var(--business-safe-bottom);
+            padding-bottom: max(env(safe-area-inset-bottom, 0px), 1rem);
         }
 
         .business-mobile-more-handle {
