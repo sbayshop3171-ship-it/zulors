@@ -154,7 +154,7 @@ html.zulors-android-app #zulors-mobile-app {
 }
 
 .mobile-safe-chat-header {
-    padding: calc(var(--mobile-safe-top) + 0.75rem) 1rem 0.75rem;
+    padding: 0.75rem 1rem;
 }
 
 .mobile-safe-page-start {
@@ -167,7 +167,7 @@ html.zulors-android-app #zulors-mobile-app {
 
 html.zulors-android-app .mobile-safe-chat-header {
     position: sticky;
-    top: max(0px, var(--mobile-safe-top, env(safe-area-inset-top, 0px)));
+    top: 0;
     z-index: 20;
 }
 

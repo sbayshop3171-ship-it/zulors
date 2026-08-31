@@ -40,34 +40,32 @@
 	.chat-layout {
 		display: flex;
 		flex-direction: column;
-		height: var(--app-viewport-height, 100dvh);
-		min-height: var(--app-viewport-height, 100dvh);
+		height: 100vh;
+		height: 100dvh;
 		overflow: hidden;
 		position: fixed;
 		inset: 0;
 		background: var(--bg-pr, #f8f8f8);
 		transform: translateZ(0);
 		-webkit-transform: translateZ(0);
-		padding-top: max(0px, var(--mobile-safe-top, env(safe-area-inset-top, 0px)));
-		padding-bottom: max(0px, env(safe-area-inset-bottom, 0px));
+		padding: 0;
 	}
 
 	.chat-header-wrapper,
 	.chat-input-footer {
 		flex-shrink: 0;
 		margin-bottom: 0;
-		padding-bottom: max(0px, env(safe-area-inset-bottom, 0px));
 		background: var(--bg-pr, #ffffff);
 	}
 
 	.chat-header-wrapper {
 		position: sticky;
-		top: max(0px, var(--mobile-safe-top, env(safe-area-inset-top, 0px)));
+		top: 0;
 		z-index: 25;
 	}
 
 	.chat-messages-container {
-		flex: 1 1 auto;
+		flex: 1;
 		min-height: 0;
 		overflow-y: auto;
 		overflow-x: hidden;
@@ -79,7 +77,7 @@
 	.chat-header {
 		position: sticky;
 		top: 0;
-		z-index: 20;
+		z-index: 50;
 		flex-shrink: 0;
 	}
 

@@ -128,8 +128,8 @@
 <style scoped>
 	.chat-header {
 		position: sticky;
-		top: max(0px, var(--mobile-safe-top, env(safe-area-inset-top, 0px)));
-		z-index: 20;
+		top: 0;
+		z-index: 50;
 		flex-shrink: 0;
 		background: rgba(255, 255, 255, 0.96);
 		backdrop-filter: blur(8px);
