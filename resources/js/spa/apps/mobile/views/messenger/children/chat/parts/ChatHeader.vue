@@ -131,6 +131,7 @@
 		top: 0;
 		z-index: 50;
 		flex-shrink: 0;
+		padding-top: env(safe-area-inset-top, 0px);
 		background: rgba(255, 255, 255, 0.96);
 		backdrop-filter: blur(8px);
 	}
