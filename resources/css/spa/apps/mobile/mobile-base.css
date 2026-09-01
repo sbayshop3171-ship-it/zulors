@@ -122,6 +122,12 @@ html.zulors-android-app #zulors-mobile-app {
         overflow-x: clip;
         overflow-y: visible;
     }
+
+    html.zulors-android-app.zulors-android-app body,
+    html.zulors-android-app.zulors-android-app #zulors-mobile-app {
+        overflow-x: clip !important;
+        overflow-y: visible !important;
+    }
 }
 
 @supports (padding-top: constant(safe-area-inset-top)) {
