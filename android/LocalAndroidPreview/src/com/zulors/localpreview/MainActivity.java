@@ -114,7 +114,6 @@ public class MainActivity extends Activity {
     private static final long STARTUP_LAUNCH_COVER_MAX_HOLD_MS = 4500L;
     private static final long DEFERRED_STARTUP_TASK_DELAY_MS = 180L;
     private static final long FLEXIBLE_UPDATE_CHECK_DELAY_MS = 1800L;
-    private static final long FLEXIBLE_UPDATE_PROMPT_COOLDOWN_MS = 6L * 60L * 60L * 1000L;
     private static final long FLEXIBLE_UPDATE_INSTALL_DELAY_MS = 1200L;
     private static final long DUPLICATE_NOTIFICATION_LAUNCH_WINDOW_MS = 1800L;
     private static final int FILE_CHOOSER_FLAGS =
@@ -159,6 +158,7 @@ public class MainActivity extends Activity {
     private AppUpdateManager appUpdateManager;
     private InstallStateUpdatedListener flexibleUpdateListener;
     private boolean flexibleUpdateFlowStarted = false;
+    private int flexibleUpdatePromptedVersionThisLaunch = -1;
     private boolean flexibleUpdateReadyToInstall = false;
     private boolean flexibleUpdateDeferredToastShown = false;
     private boolean appInForeground = false;
@@ -1312,16 +1312,12 @@ public class MainActivity extends Activity {
     }
 
     private boolean shouldPromptForFlexibleUpdate(AppUpdateInfo appUpdateInfo) {
-        SharedPreferences preferences = getSharedPreferences(APP_UPDATE_PREFS, MODE_PRIVATE);
-        int availableVersionCode = appUpdateInfo.availableVersionCode();
-        int lastVersionCode = preferences.getInt(PREF_LAST_FLEXIBLE_UPDATE_VERSION, -1);
-        long lastPromptAt = preferences.getLong(PREF_LAST_FLEXIBLE_UPDATE_PROMPT_AT, 0L);
-
-        return availableVersionCode != lastVersionCode
-            || System.currentTimeMillis() - lastPromptAt >= FLEXIBLE_UPDATE_PROMPT_COOLDOWN_MS;
+        return appUpdateInfo.availableVersionCode() != flexibleUpdatePromptedVersionThisLaunch;
     }
 
     private void recordFlexibleUpdatePrompt(AppUpdateInfo appUpdateInfo) {
+        flexibleUpdatePromptedVersionThisLaunch = appUpdateInfo.availableVersionCode();
+
         getSharedPreferences(APP_UPDATE_PREFS, MODE_PRIVATE)
             .edit()
             .putInt(PREF_LAST_FLEXIBLE_UPDATE_VERSION, appUpdateInfo.availableVersionCode())
@@ -1367,7 +1363,6 @@ public class MainActivity extends Activity {
             || state.installStatus() == InstallStatus.CANCELED) {
             flexibleUpdateReadyToInstall = false;
             flexibleUpdateFlowStarted = false;
-            scheduleFlexibleUpdateCheck(FLEXIBLE_UPDATE_PROMPT_COOLDOWN_MS);
         }
     }
 
@@ -2519,10 +2514,6 @@ public class MainActivity extends Activity {
 
         if (requestCode == FLEXIBLE_UPDATE_REQUEST) {
             flexibleUpdateFlowStarted = false;
-
-            if (resultCode != Activity.RESULT_OK) {
-                scheduleFlexibleUpdateCheck(FLEXIBLE_UPDATE_PROMPT_COOLDOWN_MS);
-            }
 
             return;
         }
