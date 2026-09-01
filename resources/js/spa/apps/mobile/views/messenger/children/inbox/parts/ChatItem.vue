@@ -45,13 +45,11 @@
 </template>
 
 <script>
-	import { defineComponent, computed, onMounted, reactive, toRef, onUnmounted } from 'vue';
-	import { useAuthStore } from '@M/store/auth/auth.store.js';
+	import { defineComponent, computed, reactive, toRef } from 'vue';
 	import { useInboxStore } from '@M/store/chats/inbox.store.js';
 	import { useChatStore } from '@M/store/chats/chat.store.js';
 
 	import AvatarNormal from '@M/components/general/avatars/AvatarNormal.vue';
-	import BRD from '@/kernel/websockets/brd/index.js';
 	import BadgeCounter from '@M/components/general/counters/BadgeCounter.vue';
 
 	export default defineComponent({
@@ -63,83 +61,35 @@
 		},
 		setup: function(props) {
 			const chatData = toRef(props, 'chatData');
-			const authStore = useAuthStore();
 			const inboxStore = useInboxStore();
 			const chatStore = useChatStore();
 
 			const state = reactive({
-				typing: BRD.createEmptyTypingState(),
-				realtimeReady: false
-			});
-			const remoteTyping = BRD.createIncomingTypingController((nextState) => {
-				state.typing = nextState;
-			});
-
-			onUnmounted(() => {
-				window.removeEventListener('colibri:ws-status', handleWSStatus);
-				remoteTyping.stop();
-				detachRealtimeListeners();
-			});
-
-			onMounted(() => {
-				window.addEventListener('colibri:ws-status', handleWSStatus);
-				attachRealtimeListeners();
-			});
-
-			const getChatChannel = () => {
-				return BRD.getChannel('CHAT', [chatData.value.chat_id]);
-			}
-
-			const detachRealtimeListeners = () => {
-				if(state.realtimeReady && window.ColibriBRD) {
-					ColibriBRD.private(getChatChannel()).stopListeningForWhisper(BRD.getEvent('CHAT_MESSAGE_TYPING'));
-					ColibriBRD.private(getChatChannel()).stopListening(BRD.getEvent('CHAT_MESSAGE_RECEIVED'));
-					ColibriBRD.private(getChatChannel()).stopListening(BRD.getEvent('CHAT_MESSAGE_DELETED'));
-					remoteTyping.stop();
-
-					state.realtimeReady = false;
+				typing: {
+					is_typing: false,
+					user: null
 				}
-			}
-
-			const attachRealtimeListeners = () => {
-				if(state.realtimeReady || ! window.ColibriBRD) {
-					return false;
-				}
-
-				ColibriBRD.private(getChatChannel()).listenForWhisper(BRD.getEvent('CHAT_MESSAGE_TYPING'), remoteTyping.receive);
-
-				ColibriBRD.private(getChatChannel()).listen(BRD.getEvent('CHAT_MESSAGE_RECEIVED'), function (event) {
-					inboxStore.updateChatFromMessage(event.data, authStore.userData.id);
-				});
-
-				ColibriBRD.private(getChatChannel()).listen(BRD.getEvent('CHAT_MESSAGE_DELETED'), function (event) {
-					inboxStore.markChatMessageAsDeleted(chatData.value.chat_id, event.data.message_id);
-				});
-
-				state.realtimeReady = true;
-			}
-
-			const handleWSStatus = (event) => {
-				if(event.detail.connected) {
-					attachRealtimeListeners();
-				}
-			}
+			});
 
 			const hasUnread = computed(() => {
 				return Number(chatData.value.unread_messages_count?.raw || 0) > 0;
 			});
 
 			return {
-					state: state,
-					hasUnread: hasUnread,
-					presence: computed(() => {
-						return chatData.value.chat_info?.presence || {};
-					}),
-					isTyping: computed(() => {
-	                    return state.typing.is_typing;
-					}),
-					markAsRead: () => {
-						chatStore.primeChatDataFromInbox(chatData.value);
+				state: state,
+				hasUnread: hasUnread,
+				presence: computed(() => {
+					return chatData.value.chat_info?.presence || {};
+				}),
+				isTyping: computed(() => {
+					return state.typing.is_typing;
+				}),
+				markAsRead: () => {
+					inboxStore.setActiveChatId(chatData.value.chat_id);
+					chatStore.prepareChatForRoute(chatData.value.chat_id, {
+						preferCache: true,
+						primeChatData: chatData.value
+					});
 					inboxStore.markChatAsRead(chatData.value.chat_id);
 				}
 			}

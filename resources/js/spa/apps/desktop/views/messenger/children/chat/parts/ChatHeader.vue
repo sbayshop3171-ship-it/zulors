@@ -28,7 +28,7 @@
 		</div>
 		<div class="inline-flex gap-2.5">
 			<template v-if="chatData.is_group">
-				<RouterLink v-bind:to="{ name: 'messenger_group_show', params: { chat_id: chatData.id } }">
+				<RouterLink v-bind:to="{ name: 'messenger_group_show', params: { chat_id: chatData.chat_id } }">
 					<PrimaryIconButton iconName="info-circle" iconType="line"></PrimaryIconButton>
 				</RouterLink>
 			</template>
@@ -44,7 +44,7 @@
 </template>
 
 <script>
-	import { defineComponent, ref, computed, onMounted, onBeforeUnmount } from 'vue';
+	import { defineComponent, computed, onMounted, onBeforeUnmount } from 'vue';
 	import { useChatStore } from '@D/store/chats/chat.store.js';
 	import { useCallStore } from '@D/store/calls/call.store.js';
 	import { useRouter } from 'vue-router';
@@ -67,7 +67,9 @@
 		},
 		setup: function (props, context) {
 			const chatStore = useChatStore();
-			const chatData = ref(chatStore.chatData);
+			const chatData = computed(() => {
+				return chatStore.chatData || {};
+			});
 			const callStore = useCallStore();
 			const router = useRouter();
             const audioStore = useAudioStore();

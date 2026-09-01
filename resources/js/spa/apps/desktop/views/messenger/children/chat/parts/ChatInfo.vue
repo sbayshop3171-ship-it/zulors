@@ -22,7 +22,7 @@
 
         <ModalRowButton v-on:click="clearConversation" v-bind:buttonText="$t('chat.clear_conversation')" iconName="brush-03"></ModalRowButton>
 
-        <ModalRowButton v-if="! chatData.chat_info.meta.relationship.block.blocking" v-on:click="reportInterlocutor" buttonRole="danger" v-bind:buttonText="$t('labels.report_this_user', { user_name: chatData.chat_info.name })" iconName="annotation-alert"></ModalRowButton>
+        <ModalRowButton v-if="! isBlocked" v-on:click="reportInterlocutor" buttonRole="danger" v-bind:buttonText="$t('labels.report_this_user', { user_name: chatData.chat_info.name })" iconName="annotation-alert"></ModalRowButton>
 
         <!-- <ModalRowButton v-on:click="$comingSoon" buttonRole="danger" v-bind:buttonText="$t('labels.block_this_user', { user_name: chatData.chat_info.name })" iconName="slash-circle-01"></ModalRowButton> -->
 
@@ -37,7 +37,7 @@
 </template>
 
 <script>
-	import { computed, defineComponent, ref, onMounted, onUnmounted } from 'vue';
+	import { computed, defineComponent, onMounted, onUnmounted } from 'vue';
     import { useChatStore } from '@D/store/chats/chat.store.js';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
     import { useRouter } from 'vue-router';
@@ -53,7 +53,9 @@
 		setup: function (props, context) {
             const router = useRouter();
             const chatStore = useChatStore();
-            const chatData = ref(chatStore.chatData);
+            const chatData = computed(() => {
+                return chatStore.chatData || {};
+            });
 
             const closeInfo = () => {
                 context.emit('close');
@@ -74,6 +76,9 @@
                 closeInfo: closeInfo,
                 isGroup: computed(() => {
                     return chatData.value.type == 'group';
+                }),
+                isBlocked: computed(() => {
+                    return Boolean(chatData.value.chat_info?.meta?.relationship?.block?.blocking);
                 }),
                 archiveChat: async () => {
                     await chatStore.archiveChat(chatData.value.chat_id);

@@ -43,6 +43,25 @@ class Chat extends Model
         })->excludeDeleted();
     }
 
+    public function scopeWithUnreadMessagesCountForUser($query, int $userId)
+    {
+        return $query->withCount([
+            'messages as unread_messages_count' => function ($q) use ($userId) {
+                $q->excludeDeleted()
+                    ->whereNot('user_id', $userId)
+                    ->whereRaw(sprintf(
+                        '%s.id > COALESCE((SELECT %s.last_read_message_id FROM %s WHERE %s.chat_id = %s.chat_id AND %s.user_id = ? LIMIT 1), 0)',
+                        Table::MESSAGES,
+                        Table::CHAT_PARTICIPANTS,
+                        Table::CHAT_PARTICIPANTS,
+                        Table::CHAT_PARTICIPANTS,
+                        Table::MESSAGES,
+                        Table::CHAT_PARTICIPANTS
+                    ), [$userId]);
+            }
+        ]);
+    }
+
     public function scopeExcludeArchived($query)
     {
         return $query->whereNotIn('id', function ($subQuery) {
@@ -91,6 +110,10 @@ class Chat extends Model
 
     public function getUnreadMessagesCount()
     {
+        if(array_key_exists('unread_messages_count', $this->getAttributes())) {
+            return (int) $this->getAttribute('unread_messages_count');
+        }
+
         $userParticipant = $this->participants()->where('user_id', me()->id)->first();
 
         if(empty($userParticipant)) {

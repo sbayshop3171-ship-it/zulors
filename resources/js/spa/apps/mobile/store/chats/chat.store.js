@@ -16,6 +16,48 @@ import { useAuthStore } from '@M/store/auth/auth.store.js';
 
 const CHAT_CACHE_TTL = 1000 * 60 * 60;
 const CHAT_CACHE_NAMESPACE = 'colibri:mobile:messenger-chat:';
+const MESSAGE_PAGE_SIZE = 30;
+
+function createMessagesPagination() {
+	return {
+		hasMore: false,
+		nextBeforeId: null,
+		isLoadingOlder: false
+	};
+}
+
+function compareMessagesByTimeOrId(firstMessage = {}, secondMessage = {}) {
+	const firstId = Number(firstMessage.id);
+	const secondId = Number(secondMessage.id);
+
+	if(Number.isFinite(firstId) && Number.isFinite(secondId)) {
+		return firstId - secondId;
+	}
+
+	const firstTime = Date.parse(firstMessage.date?.iso || firstMessage.created_at || '');
+	const secondTime = Date.parse(secondMessage.date?.iso || secondMessage.created_at || '');
+
+	if(Number.isFinite(firstTime) && Number.isFinite(secondTime) && firstTime !== secondTime) {
+		return firstTime - secondTime;
+	}
+
+	return 0;
+}
+
+function mergeMessageLists(currentMessages = [], incomingMessages = []) {
+	const messageMap = new Map();
+
+	currentMessages.concat(incomingMessages).forEach((messageData) => {
+		const clientUid = messageData?.meta?.client_uid || messageData?.meta?.local_outgoing?.client_uid || null;
+		const messageKey = clientUid ? `client:${clientUid}` : (messageData?.id ? `id:${messageData.id}` : null);
+
+		if(messageKey) {
+			messageMap.set(messageKey, messageData);
+		}
+	});
+
+	return Array.from(messageMap.values()).sort(compareMessagesByTimeOrId);
+}
 
 function chatCacheKey(chatId) {
 	return `${CHAT_CACHE_NAMESPACE}${chatId}`;
@@ -74,10 +116,16 @@ const useChatStore = defineStore('mobile_chats_chat', {
 		return {
 			chatId: null,
 			chatData: {},
+			chatDataChatId: null,
 			chatMessages: [],
+			chatMessagesChatId: null,
 			chatMessagesLoaded: false,
 			chatMessagesFetchedAt: 0,
+			chatMessagesPagination: createMessagesPagination(),
 			chatParticipants: [],
+			chatDataRequestToken: 0,
+			chatMessagesRequestToken: 0,
+			chatParticipantsRequestToken: 0,
 			inboxStore: useInboxStore(),
             messageForm: {
                 videoRecorder: {
@@ -92,6 +140,57 @@ const useChatStore = defineStore('mobile_chats_chat', {
 		}
 	},
 	actions: {
+		resetChatState: function(chatId = null) {
+			this.chatId = chatId;
+			this.chatData = {};
+			this.chatDataChatId = null;
+			this.chatMessages = [];
+			this.chatMessagesChatId = chatId;
+			this.chatMessagesLoaded = false;
+			this.chatMessagesFetchedAt = 0;
+			this.chatMessagesPagination = createMessagesPagination();
+			this.chatParticipants = [];
+		},
+		clearChatSlicesForTarget: function(chatId) {
+			if(this.chatDataChatId !== chatId) {
+				this.chatData = {};
+				this.chatDataChatId = null;
+				this.chatParticipants = [];
+			}
+
+			if(this.chatMessagesChatId !== chatId) {
+				this.chatMessages = [];
+				this.chatMessagesChatId = chatId;
+				this.chatMessagesLoaded = false;
+				this.chatMessagesFetchedAt = 0;
+				this.chatMessagesPagination = createMessagesPagination();
+			}
+		},
+		prepareChatForRoute: function(chatId, options = {}) {
+			const { preferCache = true, primeChatData = null } = options;
+
+			if(! chatId) {
+				this.resetChatState(null);
+				this.inboxStore.setActiveChatId(null);
+
+				return false;
+			}
+
+			this.chatDataRequestToken++;
+			this.chatMessagesRequestToken++;
+			this.chatParticipantsRequestToken++;
+			this.chatId = chatId;
+			this.inboxStore.setActiveChatId(chatId);
+			this.clearChatSlicesForTarget(chatId);
+
+			const hasCachedChat = preferCache ? this.hydrateChatMessagesCache(chatId) : false;
+
+			if(primeChatData?.chat_id === chatId && ! this.chatData?.chat_info) {
+				this.primeChatDataFromInbox(primeChatData);
+			}
+
+			return hasCachedChat || Boolean(primeChatData?.chat_id === chatId);
+		},
 		hydrateChatMessagesCache: function(chatId = this.chatId) {
 			let payload = readChatCache(chatId);
 
@@ -101,11 +200,17 @@ const useChatStore = defineStore('mobile_chats_chat', {
 
 			if(payload.data?.chatData?.chat_info) {
 				this.chatData = payload.data.chatData;
+				this.chatDataChatId = chatId;
 			}
 
 			this.chatMessages = Array.isArray(payload.data?.messages) ? payload.data.messages : [];
+			this.chatMessagesChatId = chatId;
 			this.chatMessagesLoaded = true;
 			this.chatMessagesFetchedAt = payload.timestamp || Date.now();
+			this.chatMessagesPagination = {
+				...createMessagesPagination(),
+				...(payload.data?.pagination || {})
+			};
 
 			return true;
 		},
@@ -116,13 +221,20 @@ const useChatStore = defineStore('mobile_chats_chat', {
 
 			this.chatId = chatData.chat_id;
 			this.chatData = chatData;
+			this.chatDataChatId = chatData.chat_id;
+			this.inboxStore.setActiveChatId(chatData.chat_id);
 
 			let payload = readChatCache(chatData.chat_id);
-			let messages = Array.isArray(payload?.data?.messages) ? payload.data.messages : this.chatMessages;
+			let messages = Array.isArray(payload?.data?.messages) ? payload.data.messages : [];
+
+			if(! messages.length && this.chatMessagesChatId === chatData.chat_id) {
+				messages = this.chatMessages;
+			}
 
 			writeChatCache(chatData.chat_id, {
 				chatData: chatData,
-				messages: messages.slice(-50)
+				messages: messages.slice(-50),
+				pagination: payload?.data?.pagination || createMessagesPagination()
 			});
 
 			return true;
@@ -132,54 +244,130 @@ const useChatStore = defineStore('mobile_chats_chat', {
 				return false;
 			}
 
+			let payload = readChatCache(chatId);
+			let cachedChatData = payload?.data?.chatData || {};
+			let cachedMessages = Array.isArray(payload?.data?.messages) ? payload.data.messages : [];
+			let cachedPagination = payload?.data?.pagination || createMessagesPagination();
+			let chatData = this.chatDataChatId === chatId ? this.chatData : cachedChatData;
+			let messages = this.chatMessagesChatId === chatId ? this.chatMessages : cachedMessages;
+			let pagination = this.chatMessagesChatId === chatId ? this.chatMessagesPagination : cachedPagination;
+
 			this.chatMessagesLoaded = true;
 			this.chatMessagesFetchedAt = Date.now();
+			this.chatMessagesChatId = chatId;
 
 			writeChatCache(chatId, {
-				chatData: this.chatData,
-				messages: this.chatMessages.slice(-50)
+				chatData: chatData,
+				messages: messages.slice(-50),
+				pagination: pagination
 			});
 		},
 		fetchChatData: async function(chatId) {
-			await colibriAPI().messenger().getFrom(`chat/${chatId}`).then((response) => {
-				this.chatData = response.data.data;
+			const targetChatId = chatId || this.chatId;
+			const requestToken = ++this.chatDataRequestToken;
 
-				this.chatId = chatId;
-				this.persistChatMessagesCache(chatId);
+			if(! targetChatId) {
+				return this.chatData;
+			}
+
+			await colibriAPI().messenger().getFrom(`chat/${targetChatId}`).then((response) => {
+				if(requestToken !== this.chatDataRequestToken || this.chatId !== targetChatId) {
+					return;
+				}
+
+				this.chatData = response.data.data;
+				this.chatDataChatId = targetChatId;
+
+				this.chatId = targetChatId;
+				this.persistChatMessagesCache(targetChatId);
 			}).catch((error) => {
 				if(error.response) {
 					throw new Error(error.response.data.message);
 				}
 			});
+
+			return this.chatData;
 		},
 		fetchChatParticipants: async function() {
-			await colibriAPI().messenger().getFrom(`chat/${this.chatId}/participants`).then((response) => {
+			const targetChatId = this.chatId;
+			const requestToken = ++this.chatParticipantsRequestToken;
+
+			if(! targetChatId) {
+				return this.chatParticipants;
+			}
+
+			await colibriAPI().messenger().getFrom(`chat/${targetChatId}/participants`).then((response) => {
+				if(requestToken !== this.chatParticipantsRequestToken || this.chatId !== targetChatId) {
+					return;
+				}
+
 				this.chatParticipants = response.data.data;
 			}).catch((error) => {
 				if(error.response) {
 					throw new Error(error.response.data.message);
 				}
 			});
+
+			return this.chatParticipants;
 		},
 		fetchChatMessages: async function(options = {}) {
-			let { force = false, preferCache = true } = options;
+			let {
+				force = false,
+				preferCache = true,
+				beforeId = null,
+				limit = MESSAGE_PAGE_SIZE
+			} = options;
+			const targetChatId = this.chatId;
+			const isLoadingOlder = Boolean(beforeId);
+			const requestToken = ++this.chatMessagesRequestToken;
 			let hasCache = false;
 
-			if(preferCache && ! force) {
-				if(this.chatMessagesLoaded && isFresh(this.chatMessagesFetchedAt) && this.chatMessages.length) {
+			if(! targetChatId) {
+				return this.chatMessages;
+			}
+
+			if(preferCache && ! force && ! isLoadingOlder) {
+				if(this.chatMessagesLoaded && this.chatMessagesChatId === targetChatId && isFresh(this.chatMessagesFetchedAt) && this.chatMessages.length) {
 					hasCache = true;
 				}
 				else {
-					hasCache = this.hydrateChatMessagesCache(this.chatId);
+					hasCache = this.hydrateChatMessagesCache(targetChatId);
 				}
 			}
 
-			return await colibriAPI().messenger().getFrom(`chat/${this.chatId}/messages`).then((response) => {
-				this.chatMessages = response.data.data;
+			if(isLoadingOlder) {
+				this.chatMessagesPagination.isLoadingOlder = true;
+			}
+
+			return await colibriAPI().messenger().params({
+				limit: limit,
+				...(beforeId ? { before_id: beforeId } : {})
+			}).getFrom(`chat/${targetChatId}/messages`).then((response) => {
+				if(requestToken !== this.chatMessagesRequestToken || this.chatId !== targetChatId) {
+					return this.chatMessages;
+				}
+
+				const responseMessages = response.data.data || [];
+				const responsePagination = response.data.meta?.pagination || {};
+
+				this.chatMessages = mergeMessageLists(isLoadingOlder ? responseMessages : this.chatMessages, isLoadingOlder ? this.chatMessages : responseMessages);
+				this.chatMessagesChatId = targetChatId;
+				this.chatMessagesLoaded = true;
+				this.chatMessagesFetchedAt = Date.now();
+				this.chatMessagesPagination = {
+					...this.chatMessagesPagination,
+					hasMore: Boolean(responsePagination.has_more),
+					nextBeforeId: responsePagination.next_before_id || this.chatMessages[0]?.id || null,
+					isLoadingOlder: false
+				};
 				this.persistChatMessagesCache();
 
 				return this.chatMessages;
 			}).catch((error) => {
+				if(isLoadingOlder) {
+					this.chatMessagesPagination.isLoadingOlder = false;
+				}
+
 				if(! hasCache && ! this.chatMessagesLoaded) {
 					this.chatMessages = [];
 				}
@@ -189,6 +377,19 @@ const useChatStore = defineStore('mobile_chats_chat', {
 				}
 
 				return this.chatMessages;
+			});
+		},
+		fetchOlderMessages: async function(options = {}) {
+			const beforeId = this.chatMessagesPagination.nextBeforeId || this.chatMessages[0]?.id || null;
+
+			if(! beforeId || this.chatMessagesPagination.isLoadingOlder || ! this.chatMessagesPagination.hasMore) {
+				return this.chatMessages;
+			}
+
+			return await this.fetchChatMessages({
+				...options,
+				preferCache: false,
+				beforeId: beforeId
 			});
 		},
 		deleteMessage: async function(messageId, deleteForAll = false) {
@@ -215,9 +416,10 @@ const useChatStore = defineStore('mobile_chats_chat', {
 			});
 		},
 		sendMessage: async function(messageData = {}) {
+			const targetChatId = this.chatId;
 			const clientUid = messageData.client_uid || `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 			const optimisticMessage = createOptimisticOutgoingMessage({
-				chatId: this.chatId,
+				chatId: targetChatId,
 				userData: useAuthStore().userData || {},
 				content: messageData.content || '',
 				messageType: messageData.message_type || messageData.type || 'text',
@@ -230,17 +432,24 @@ const useChatStore = defineStore('mobile_chats_chat', {
 
 			try {
 				const response = await colibriAPI().messenger().with({
-					chat_id: this.chatId,
+					chat_id: targetChatId,
 					...messageData,
 					client_uid: clientUid,
 				}).sendTo('send');
 
 				if(response.data.data) {
-					this.upsertMessage(response.data.data);
+					if(this.chatId === targetChatId) {
+						this.upsertMessage(response.data.data);
+					}
+					else {
+						this.inboxStore.updateChatFromMessage(response.data.data, useAuthStore().userData.id, this.chatId);
+					}
 				}
 			}
 			catch(error) {
-				this.removeMessage(optimisticMessage.id);
+				if(this.chatId === targetChatId) {
+					this.removeMessage(optimisticMessage.id);
+				}
 
 				if(error.response) {
 					throw new Error(error.response.data.message);
@@ -252,8 +461,9 @@ const useChatStore = defineStore('mobile_chats_chat', {
         sendMediaMessage: async function(mediaData) {
             const formData = new FormData();
             const dateTime = new Date().toISOString();
+            const targetChatId = this.chatId;
 
-            formData.append('chat_id', this.chatId);
+            formData.append('chat_id', targetChatId);
             formData.append('media_type', mediaData.type);
 
             // In case if it's audio or video, we need to add the duration.
@@ -271,7 +481,12 @@ const useChatStore = defineStore('mobile_chats_chat', {
 				'Content-Type': 'multipart/form-data'
 			}).sendTo('send').then((response) => {
                 if(response.data.data) {
-                    this.upsertMessage(response.data.data);
+                    if(this.chatId === targetChatId) {
+                        this.upsertMessage(response.data.data);
+                    }
+                    else {
+                        this.inboxStore.updateChatFromMessage(response.data.data, useAuthStore().userData.id, this.chatId);
+                    }
                 }
             }).catch(function(error) {
                 if(error.response) {
@@ -281,6 +496,7 @@ const useChatStore = defineStore('mobile_chats_chat', {
         },
         sendAudioMessage: async function(audioData = {}) {
             const authStore = useAuthStore();
+            const targetChatId = this.chatId;
             const durationSeconds = Math.max(1, Math.ceil(Number(audioData.duration) || 1));
             const extension = audioData.extension || 'webm';
             const fileName = audioData.name || `voice-note-${Date.now()}.${extension}`;
@@ -294,7 +510,7 @@ const useChatStore = defineStore('mobile_chats_chat', {
 
             this.appendMessage(createPendingAudioMessage({
                 localId: localMessageId,
-                chatId: this.chatId,
+                chatId: targetChatId,
                 userData: authStore.userData || {},
                 durationSeconds: durationSeconds,
                 extension: extension,
@@ -308,7 +524,7 @@ const useChatStore = defineStore('mobile_chats_chat', {
 
             try {
                 const initResponse = await colibriAPI().messenger().with({
-                    chat_id: this.chatId,
+                    chat_id: targetChatId,
                     parent_id: audioData.parent_id || null,
                     duration_seconds: durationSeconds,
                     extension: extension,
@@ -347,7 +563,12 @@ const useChatStore = defineStore('mobile_chats_chat', {
                 }
 
                 if(uploadResponse.data?.data) {
-                    this.upsertMessage(uploadResponse.data.data);
+                    if(this.chatId === targetChatId) {
+                        this.upsertMessage(uploadResponse.data.data);
+                    }
+                    else {
+                        this.inboxStore.updateChatFromMessage(uploadResponse.data.data, authStore.userData.id, this.chatId);
+                    }
                 }
 
                 return uploadResponse.data?.data || null;
@@ -409,6 +630,12 @@ const useChatStore = defineStore('mobile_chats_chat', {
             }
         },
         replaceTemporaryMessage: function(tempMessageId, messageData = {}) {
+            if(messageData?.chat_uuid && this.chatId && messageData.chat_uuid !== this.chatId) {
+                this.inboxStore.updateChatFromMessage(messageData, useAuthStore().userData.id, this.chatId);
+
+                return false;
+            }
+
             const tempIndex = this.chatMessages.findIndex((item) => {
                 return item.id == tempMessageId;
             });
@@ -456,6 +683,12 @@ const useChatStore = defineStore('mobile_chats_chat', {
             return true;
         },
 		upsertMessage: function(messageData = {}) {
+			if(messageData?.chat_uuid && this.chatId && messageData.chat_uuid !== this.chatId) {
+				this.inboxStore.updateChatFromMessage(messageData, useAuthStore().userData.id, this.chatId);
+
+				return false;
+			}
+
 			let messageIndex = findPendingOutgoingMessageIndex(this.chatMessages, messageData);
 
 			if(messageIndex !== -1) {
@@ -481,6 +714,12 @@ const useChatStore = defineStore('mobile_chats_chat', {
 			}
 		},
 		appendMessage: function(messageData = {}) {
+			if(messageData?.chat_uuid && this.chatId && messageData.chat_uuid !== this.chatId) {
+				this.inboxStore.updateChatFromMessage(messageData, useAuthStore().userData.id, this.chatId);
+
+				return false;
+			}
+
 			if(this.chatMessages.some((item) => {
 				return item.id == messageData.id;
 			})) {

@@ -119,7 +119,8 @@
 					return;
 				}
 
-				let shouldNotify = inboxStore.handleIncomingMessageNotification(event.data, authStore.userData.id);
+				let activeChatId = inboxStore.activeChatId || (route.name === 'messenger_chat' ? route.params.chat_id : null);
+				let shouldNotify = inboxStore.handleIncomingMessageNotification(event.data, authStore.userData.id, activeChatId);
 
 				if(shouldNotify) {
 					toastStore.add(getChatToastText(event.data), 4000);

@@ -3,17 +3,24 @@
         <div class="flex h-screen">
             <div class="flex flex-1 min-h-0 h-full flex-col overflow-hidden">
                 <div class="border-b border-bord-card shrink-0">
-                    <ChatHeader v-bind:typingUser="state.typing"></ChatHeader>
+                    <ChatHeader v-if="hasChatData" v-bind:typingUser="state.typing"></ChatHeader>
+                    <div v-else class="h-16"></div>
                 </div>
-                <div ref="chatContainerBlock" class="flex-1 min-h-0 overflow-x-hidden overflow-y-auto">
+                <div
+                    ref="chatContainerBlock"
+                    class="flex-1 min-h-0 overflow-x-hidden overflow-y-auto"
+                    v-on:scroll.passive="handleHistoryScroll"
+                    v-on:load.capture="handleMediaSettled"
+                    v-on:loadedmetadata.capture="handleMediaSettled"
+                    v-on:canplay.capture="handleMediaSettled">
                     <div class="flex min-h-full flex-col py-4">
-                        <div class="shrink-0 border-b border-bord-card py-8">
+                        <div v-if="hasChatData" class="shrink-0 border-b border-bord-card py-8">
                             <ChatOverview></ChatOverview>
                         </div>
                         <div class="mt-auto pb-4 pt-2">
                             <div>
                                 <template v-if="chatMessages.length">
-                                    <div v-for="(messageData, messageIndex) in chatMessages" class="block">
+                                    <div v-for="(messageData, messageIndex) in chatMessages" v-bind:key="messageData.id" class="block">
                                         <div v-if="showDateSeparator(messageIndex)" class="py-4">
                                             <p class="text-par-n font-semibold text-lab-pr3 text-center">
                                                 {{ messageData.date.date }}
@@ -25,8 +32,14 @@
                                             v-on:reply="handleMessageReply"
                                             v-on:copy="handleMessageCopy"
                                             v-bind:isCompacted="isCompacted(messageIndex)"
-                                        v-bind:messageData="messageData"
-                                        v-bind:key="messageData.id"></ChatMessage>
+                                        v-bind:messageData="messageData"></ChatMessage>
+                                    </div>
+                                </template>
+                                <template v-else-if="state.isLoading">
+                                    <div class="py-12 text-center">
+                                        <p class="text-par-s text-lab-sc">
+                                            {{ $t('labels.loading') }}...
+                                        </p>
                                     </div>
                                 </template>
                                 <template v-else>
@@ -57,7 +70,7 @@
 </template>
 
 <script>
-    import { defineComponent, ref, nextTick, onMounted, reactive, computed, onUnmounted } from 'vue';
+    import { defineComponent, ref, nextTick, onMounted, reactive, computed, onUnmounted, watch } from 'vue';
     import { colibriSounds } from '@/kernel/services/sounds/index.js';
     import { useRoute, useRouter } from 'vue-router';
     import { useChatStore } from '@D/store/chats/chat.store.js';
@@ -76,7 +89,7 @@
     import BRD from '@/kernel/websockets/brd/index.js';
 
     export default defineComponent({
-        setup: function(props, context) {
+        setup: function() {
             const state = reactive({
                 isLoading: true,
                 typing: BRD.createEmptyTypingState(),
@@ -88,149 +101,144 @@
             const callStore = useCallStore();
             const router = useRouter();
             const route = useRoute();
-            const userData = ref(authStore.userData);
+            const chatContainerBlock = ref(null);
+            const shouldStickToBottom = ref(true);
+            let activeLoadToken = 0;
+            let activeRealtimeChannel = null;
+            let isPreservingScroll = false;
+
+            const userData = computed(() => {
+                return authStore.userData || {};
+            });
+
             const chatData = computed(() => {
-                return chatStore.chatData;
+                return chatStore.chatData || {};
+            });
+
+            const hasChatData = computed(() => {
+                return Boolean(chatData.value?.chat_info);
             });
 
             const isGroup = computed(() => {
-                return chatData.value.is_group;
+                return Boolean(chatData.value?.is_group);
             });
 
             const chatMessages = computed(() => {
                 return chatStore.chatMessages;
             });
 
-            const chatContainerBlock = ref(null);
             const remoteTyping = BRD.createIncomingTypingController((nextState) => {
                 state.typing = nextState;
             });
 
-            const scrollHistoryDown = function() {
-                nextTick(() => {
-                    if(chatContainerBlock.value) {
-                        chatContainerBlock.value.scrollTop = chatContainerBlock.value.scrollHeight;
-                    }
-                });
-            }
+            const getScrollSnapshot = () => {
+                if(! chatContainerBlock.value) {
+                    return null;
+                }
 
-            const refreshActiveChat = async () => {
-                const chatId = route.params.chat_id;
+                return {
+                    scrollTop: chatContainerBlock.value.scrollTop,
+                    scrollHeight: chatContainerBlock.value.scrollHeight
+                };
+            };
 
-                if(! chatId || chatStore.chatId !== chatId) {
+            const restoreScrollSnapshot = (snapshot) => {
+                if(! snapshot) {
                     return false;
                 }
 
-                await Promise.allSettled([
-                    chatStore.fetchChatData(chatId),
-                    chatStore.fetchChatMessages()
-                ]);
+                return nextTick(() => {
+                    if(chatContainerBlock.value) {
+                        chatContainerBlock.value.scrollTop = snapshot.scrollTop + (chatContainerBlock.value.scrollHeight - snapshot.scrollHeight);
+                    }
+                });
+            };
 
-                if(chatMessages.value.length > 0) {
-                    chatStore.markMessagesAsRead();
+            const isNearBottom = (threshold = 120) => {
+                if(! chatContainerBlock.value) {
+                    return true;
                 }
 
-                attachRealtimeListeners();
-                scrollHistoryDown();
-            }
+                return (chatContainerBlock.value.scrollHeight - chatContainerBlock.value.scrollTop - chatContainerBlock.value.clientHeight) <= threshold;
+            };
 
-            useInstantRevalidation(refreshActiveChat, {
-                routeKey: () => {
-                    return route.params.chat_id;
-                },
-                interval: 10000,
-                minDelay: 1500
-            });
+            const syncBottomAffinity = () => {
+                shouldStickToBottom.value = isNearBottom();
+            };
 
-            onUnmounted(() => {
-                window.removeEventListener('colibri:ws-status', handleWSStatus);
-                outgoingTyping.stop(null, { silent: true });
-                remoteTyping.stop();
-                detachRealtimeListeners();
-            });
-
-            onMounted(async function() {
-                const chatId = route.params.chat_id;
-                const hasCachedChat = chatStore.hydrateChatCache(chatId);
-
-                state.isLoading = false;
-                window.addEventListener('colibri:ws-status', handleWSStatus);
-                attachRealtimeListeners();
-
-                try {
-                    await Promise.allSettled([
-                        chatStore.fetchChatData(chatId, { preferCache: true }),
-                        chatStore.fetchChatMessages({ preferCache: true })
-                    ]);
-
-                    if (chatMessages.value.length > 0) {
-                        chatStore.markMessagesAsRead();
-
-                        debounce(() => {
-                            scrollHistoryDown();
-                        }, 500);
-                    }
-
-                    attachRealtimeListeners();
-                } catch (error) {
-                    if(! hasCachedChat) {
-                        router.push({
-                            name: 'error_404',
-                            params: { pathMatch: route.path.substring(1).split('/') },
-                            query: route.query,
-                            hash: route.hash
+            const scrollHistoryDown = function(behavior = 'auto') {
+                nextTick(() => {
+                    if(chatContainerBlock.value) {
+                        chatContainerBlock.value.scrollTo({
+                            top: chatContainerBlock.value.scrollHeight,
+                            behavior: behavior
                         });
                     }
-                }
-            });
+                });
+            };
 
-            const getChatChannel = () => {
-                if(chatData.value?.chat_id) {
-                    return BRD.getChannel('CHAT', [chatData.value.chat_id]);
+            const handleMediaSettled = () => {
+                if(shouldStickToBottom.value) {
+                    scrollHistoryDown();
+                }
+            };
+
+            const loadOlderMessages = async () => {
+                if(state.isLoading || isPreservingScroll || ! chatStore.chatMessagesPagination.hasMore || chatStore.chatMessagesPagination.isLoadingOlder) {
+                    return false;
                 }
 
-                return null;
-            }
+                const snapshot = getScrollSnapshot();
+
+                isPreservingScroll = true;
+
+                try {
+                    await chatStore.fetchOlderMessages();
+                    await restoreScrollSnapshot(snapshot);
+                }
+                finally {
+                    isPreservingScroll = false;
+                    syncBottomAffinity();
+                }
+            };
+
+            const handleHistoryScroll = () => {
+                syncBottomAffinity();
+
+                if(chatContainerBlock.value && chatContainerBlock.value.scrollTop <= 96) {
+                    loadOlderMessages();
+                }
+            };
 
             const stopListenEventInChat = (eventName) => {
-                const chatChannel = getChatChannel();
-
-                if(chatChannel && window.ColibriBRD) {
-                    ColibriBRD.private(chatChannel).stopListening(eventName);
+                if(activeRealtimeChannel && window.ColibriBRD) {
+                    ColibriBRD.private(activeRealtimeChannel).stopListening(eventName);
                 }
-            }
+            };
 
             const listenEventInChat = (eventName, callback) => {
-                const chatChannel = getChatChannel();
-
-                if(chatChannel && window.ColibriBRD) {
-                    ColibriBRD.private(chatChannel).listen(eventName, callback);
+                if(activeRealtimeChannel && window.ColibriBRD) {
+                    ColibriBRD.private(activeRealtimeChannel).listen(eventName, callback);
                 }
-            }
+            };
 
             const stopListeningForWhisperInChat = (whisperEvent) => {
-                const chatChannel = getChatChannel();
-
-                if(chatChannel && window.ColibriBRD) {
-                    ColibriBRD.private(chatChannel).stopListeningForWhisper(whisperEvent);
+                if(activeRealtimeChannel && window.ColibriBRD) {
+                    ColibriBRD.private(activeRealtimeChannel).stopListeningForWhisper(whisperEvent);
                 }
-            }
+            };
 
             const listenWhisperInChat = (whisperEvent, callback) => {
-                const chatChannel = getChatChannel();
-
-                if(chatChannel && window.ColibriBRD) {
-                    ColibriBRD.private(chatChannel).listenForWhisper(whisperEvent, callback);
+                if(activeRealtimeChannel && window.ColibriBRD) {
+                    ColibriBRD.private(activeRealtimeChannel).listenForWhisper(whisperEvent, callback);
                 }
-            }
+            };
 
             const whisperToChat = (whisperEvent, eventData) => {
-                const chatChannel = getChatChannel();
-
-                if(chatChannel && window.ColibriBRD) {
-                    ColibriBRD.private(chatChannel).whisper(whisperEvent, eventData);
+                if(activeRealtimeChannel && window.ColibriBRD) {
+                    ColibriBRD.private(activeRealtimeChannel).whisper(whisperEvent, eventData);
                 }
-            }
+            };
 
             const detachRealtimeListeners = () => {
                 if(state.realtimeReady) {
@@ -248,15 +256,15 @@
                 if(! callStore.isVisible) {
                     callStore.detachRealtimeChannel();
                 }
-            }
+            };
 
             const attachRealtimeListeners = () => {
-                if(! window.ColibriBRD || ! getChatChannel()) {
+                if(! window.ColibriBRD || ! activeRealtimeChannel) {
                     return false;
                 }
 
-                if(! chatData.value?.is_group && chatData.value?.chat_id) {
-                    callStore.attachRealtimeChannel(chatData.value.chat_id);
+                if(! chatData.value?.is_group && (chatData.value?.chat_id || chatStore.chatId)) {
+                    callStore.attachRealtimeChannel(chatData.value?.chat_id || chatStore.chatId);
                 }
 
                 if(state.realtimeReady) {
@@ -264,13 +272,22 @@
                 }
 
                 listenEventInChat(BRD.getEvent('CHAT_MESSAGE_RECEIVED'), function (event) {
-                    let messageData = event.data;
+                    const messageData = event.data;
+
+                    if(messageData?.chat_uuid && messageData.chat_uuid !== chatStore.chatId) {
+                        chatStore.upsertMessage(messageData);
+
+                        return;
+                    }
+
+                    const wasNearBottom = isNearBottom();
+                    const isSender = (userData.value.id == messageData.user_id);
 
                     chatStore.upsertMessage(messageData);
 
-                    scrollHistoryDown();
-
-                    let isSender = (userData.value.id == messageData.user_id);
+                    if(wasNearBottom || isSender) {
+                        scrollHistoryDown(isSender ? 'smooth' : 'auto');
+                    }
 
                     if(! isSender) {
                         colibriSounds.activeChatMessageReceived();
@@ -279,6 +296,7 @@
                 });
 
                 listenEventInChat(BRD.getEvent('CHAT_MESSAGE_DELETED'), function (event) {
+                    const wasNearBottom = isNearBottom();
                     const deletedMessage = chatStore.chatMessages.find((item) => {
                         return item.id == event.data.message_id;
                     });
@@ -292,6 +310,10 @@
                     if(shouldRevalidateInbox) {
                         chatStore.inboxStore.scheduleUnreadStateSync(0);
                     }
+
+                    if(wasNearBottom) {
+                        scrollHistoryDown();
+                    }
                 });
 
                 listenEventInChat(BRD.getEvent('CHAT_MESSAGE_REACTIONS_UPDATED'), function (event) {
@@ -299,8 +321,13 @@
                 });
 
                 listenEventInChat(BRD.getEvent('CHAT_MEDIA_READY'), function (event) {
+                    const wasNearBottom = isNearBottom();
+
                     chatStore.upsertMessage(event.data);
-                    scrollHistoryDown();
+
+                    if(wasNearBottom || userData.value.id == event.data.user_id) {
+                        scrollHistoryDown();
+                    }
                 });
 
                 listenWhisperInChat(BRD.getEvent('CHAT_MESSAGE_TYPING'), remoteTyping.receive);
@@ -310,26 +337,187 @@
                 });
 
                 state.realtimeReady = true;
-            }
+            };
+
+            const bindRealtimeChannel = (chatId) => {
+                if(! chatId) {
+                    return false;
+                }
+
+                const nextChannel = BRD.getChannel('CHAT', [chatId]);
+
+                if(activeRealtimeChannel === nextChannel && state.realtimeReady) {
+                    return true;
+                }
+
+                detachRealtimeListeners();
+                activeRealtimeChannel = nextChannel;
+                attachRealtimeListeners();
+
+                return true;
+            };
+
+            const refreshActiveChat = async () => {
+                const chatId = route.params.chat_id;
+
+                if(! chatId || chatStore.chatId !== chatId) {
+                    return false;
+                }
+
+                const loadToken = activeLoadToken;
+                const wasNearBottom = isNearBottom();
+                const snapshot = getScrollSnapshot();
+
+                await Promise.allSettled([
+                    chatStore.fetchChatData(chatId, { preferCache: false }),
+                    chatStore.fetchChatMessages({ force: true, preferCache: false })
+                ]);
+
+                if(loadToken !== activeLoadToken || route.params.chat_id !== chatId) {
+                    return false;
+                }
+
+                if(chatMessages.value.length > 0) {
+                    chatStore.markMessagesAsRead();
+                }
+
+                state.isLoading = false;
+                bindRealtimeChannel(chatData.value?.chat_id || chatId);
+
+                if(wasNearBottom) {
+                    scrollHistoryDown();
+                }
+                else {
+                    restoreScrollSnapshot(snapshot);
+                }
+            };
 
             const handleWSStatus = (event) => {
-                if(event.detail.connected) {
-                    detachRealtimeListeners();
-                    attachRealtimeListeners();
+                if(event?.detail?.connected) {
+                    bindRealtimeChannel(chatData.value?.chat_id || chatStore.chatId || route.params.chat_id);
                     refreshActiveChat();
                 }
-            }
+            };
+
+            const loadChat = async (chatId) => {
+                if(! chatId) {
+                    return false;
+                }
+
+                const loadToken = ++activeLoadToken;
+                const inboxChatData = chatStore.inboxStore.findChatById(chatId);
+
+                state.typing = BRD.createEmptyTypingState();
+                remoteTyping.stop();
+                shouldStickToBottom.value = true;
+
+                chatStore.prepareChatForRoute(chatId, {
+                    preferCache: true,
+                    primeChatData: inboxChatData
+                });
+
+                state.isLoading = ! (chatStore.chatMessagesLoaded && chatStore.chatMessagesChatId === chatId);
+                bindRealtimeChannel(chatId);
+
+                await nextTick();
+
+                if(chatMessages.value.length) {
+                    scrollHistoryDown();
+                }
+
+                const [chatDataResult] = await Promise.allSettled([
+                    chatStore.fetchChatData(chatId, { preferCache: true }),
+                    chatStore.fetchChatMessages({ preferCache: true })
+                ]);
+
+                if(loadToken !== activeLoadToken || route.params.chat_id !== chatId) {
+                    return false;
+                }
+
+                if(chatDataResult.status === 'rejected' && ! hasChatData.value) {
+                    router.push({
+                        name: 'error_404',
+                        params: { pathMatch: route.path.substring(1).split('/') },
+                        query: route.query,
+                        hash: route.hash
+                    });
+
+                    return false;
+                }
+
+                if(chatMessages.value.length > 0) {
+                    chatStore.markMessagesAsRead();
+                }
+
+                state.isLoading = false;
+                bindRealtimeChannel(chatData.value?.chat_id || chatId);
+                scrollHistoryDown();
+            };
+
+            useInstantRevalidation(refreshActiveChat, {
+                routeKey: () => {
+                    return route.params.chat_id;
+                },
+                interval: 10000,
+                minDelay: 1500
+            });
 
             const outgoingTyping = BRD.createOutgoingTypingController((payload) => {
                 whisperToChat(BRD.getEvent('CHAT_MESSAGE_TYPING'), payload);
             });
 
+            onMounted(async function() {
+                window.addEventListener('colibri:ws-status', handleWSStatus);
+                await loadChat(route.params.chat_id);
+            });
+
+            onUnmounted(() => {
+                window.removeEventListener('colibri:ws-status', handleWSStatus);
+                outgoingTyping.stop(null, { silent: true });
+                remoteTyping.stop();
+                detachRealtimeListeners();
+            });
+
+            watch(() => {
+                return route.params.chat_id;
+            }, (chatId, previousChatId) => {
+                if(chatId && chatId !== previousChatId) {
+                    loadChat(chatId);
+                }
+            });
+
+            watch(() => {
+                return chatMessages.value.length;
+            }, (messagesCount, oldMessagesCount) => {
+                if(! messagesCount || messagesCount === oldMessagesCount || isPreservingScroll) {
+                    return;
+                }
+
+                const latestMessage = chatMessages.value[messagesCount - 1];
+                const isSender = latestMessage && userData.value.id == latestMessage.user_id;
+
+                if(shouldStickToBottom.value || isSender) {
+                    scrollHistoryDown(isSender ? 'smooth' : 'auto');
+                }
+            });
+
+            watch(() => {
+                return state.typing.is_typing;
+            }, () => {
+                if(shouldStickToBottom.value) {
+                    scrollHistoryDown();
+                }
+            });
+
             return {
                 state: state,
                 chatData: chatData,
+                hasChatData: hasChatData,
                 chatMessages: chatMessages,
                 isGroup: isGroup,
                 chatContainerBlock: chatContainerBlock,
+                handleHistoryScroll: handleHistoryScroll,
+                handleMediaSettled: handleMediaSettled,
                 isTyping: computed(() => {
                     return state.typing.is_typing;
                 }),

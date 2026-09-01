@@ -53,6 +53,7 @@ const useInboxStore = defineStore('mobile_chats_inbox', {
             chatsArchive: [],
             chatRequests: [],
             chatRequestsCount: 0,
+            activeChatId: null,
             chatsHistoryLoaded: false,
             chatsHistoryFetchedAt: 0,
             chatsArchiveLoaded: false,
@@ -75,6 +76,20 @@ const useInboxStore = defineStore('mobile_chats_inbox', {
         };
     },
     actions: {
+        setActiveChatId: function(chatId = null) {
+            this.activeChatId = chatId || null;
+        },
+        findChatById: function(chatId) {
+            if(! chatId) {
+                return null;
+            }
+
+            return this.chatsHistory.find((chatData) => {
+                return chatData.chat_id == chatId;
+            }) || this.chatsArchive.find((chatData) => {
+                return chatData.chat_id == chatId;
+            }) || null;
+        },
         hydrateChatsHistoryCache: function() {
             let payload = readCache('chats-history');
 

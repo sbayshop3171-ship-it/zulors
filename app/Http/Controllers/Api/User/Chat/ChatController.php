@@ -70,8 +70,6 @@ class ChatController extends Controller
         WithMediaUpload,
         AuthorizesRequests;
 
-    private $unreadCount = 0;
-
     private function loadMessageRealtimeRelations(Message $messageData): Message
     {
         return $messageData->load([
@@ -157,7 +155,11 @@ class ChatController extends Controller
 
     public function getChats()
     {
-        $chatsHistory = Chat::chatsHistory()->with(['interlocutor.user', 'group', 'lastMessage'])->latest('last_activity')->get();
+        $chatsHistory = Chat::chatsHistory()
+            ->withUnreadMessagesCountForUser(me()->id)
+            ->with(['interlocutor.user', 'group', 'lastMessage'])
+            ->latest('last_activity')
+            ->get();
 
         return $this->responseSuccess([
             'data' => ChatCollection::make($chatsHistory)
@@ -166,7 +168,11 @@ class ChatController extends Controller
 
     public function getArchive()
     {
-        $chatsHistory = Chat::chatsArchive()->with(['interlocutor.user', 'group', 'lastMessage'])->latest('last_activity')->get();
+        $chatsHistory = Chat::chatsArchive()
+            ->withUnreadMessagesCountForUser(me()->id)
+            ->with(['interlocutor.user', 'group', 'lastMessage'])
+            ->latest('last_activity')
+            ->get();
 
         return $this->responseSuccess([
             'data' => ChatCollection::make($chatsHistory)
@@ -195,25 +201,24 @@ class ChatController extends Controller
 
     public function getUnreadCount()
     {
-        // TODO: Optimize this query. Make it more efficient.
-
-        $participatedChats = Chat::participatedChats()->get();
-
-        $participatedChats->each(function ($chatData) {
-            $participantData = $chatData->participants()->where('user_id', me()->id)->first();
-
-            if($participantData) {
-                $this->unreadCount += $chatData->messages()
-                    ->whereNot('user_id', me()->id)
-                    ->where('id', '>', $participantData->last_read_message_id)
-                    ->count();
-            }
-        });
+        $userId = me()->id;
+        $unreadCount = Message::query()
+            ->join(Table::CHAT_PARTICIPANTS, Table::CHAT_PARTICIPANTS . '.chat_id', '=', Table::MESSAGES . '.chat_id')
+            ->where(Table::CHAT_PARTICIPANTS . '.user_id', $userId)
+            ->where(Table::MESSAGES . '.user_id', '!=', $userId)
+            ->whereRaw(Table::MESSAGES . '.id > COALESCE(' . Table::CHAT_PARTICIPANTS . '.last_read_message_id, 0)')
+            ->whereNotIn(Table::MESSAGES . '.id', function ($subQuery) use ($userId) {
+                $subQuery->select('message_id')->from(Table::HIDDEN_MESSAGES)->where('user_id', $userId);
+            })
+            ->whereNotIn(Table::MESSAGES . '.chat_id', function ($subQuery) use ($userId) {
+                $subQuery->select('chat_id')->from(Table::HIDDEN_CHATS)->where('user_id', $userId);
+            })
+            ->count(Table::MESSAGES . '.id');
 
         return $this->responseSuccess([
             'data' => [
-                'formatted' => Num::abbreviate($this->unreadCount),
-                'raw' => $this->unreadCount
+                'formatted' => Num::abbreviate($unreadCount),
+                'raw' => $unreadCount
             ]
         ]);
     }
@@ -283,7 +288,9 @@ class ChatController extends Controller
             $chatData = Chat::participatedChats()->where('chat_id', $chatId)->first();
 
             if($chatData) {
-                $chatMessages = $chatData->messages()->excludeDeleted()->with([
+                $limit = min(50, max(1, $request->integer('limit', 30)));
+                $beforeId = $request->integer('before_id');
+                $chatMessagesQuery = $chatData->messages()->excludeDeleted()->with([
                     'reactions',
                     'media',
                     'participant',
@@ -293,10 +300,26 @@ class ChatController extends Controller
                     'parent.media',
                     'parent.linkSnapshot',
                     'linkSnapshot'
-                ])->latest()->take(30)->get();
+                ]);
+
+                if($beforeId > 0) {
+                    $chatMessagesQuery->where('id', '<', $beforeId);
+                }
+
+                $fetchedMessages = $chatMessagesQuery->latest('id')->take($limit + 1)->get();
+                $hasMoreMessages = $fetchedMessages->count() > $limit;
+                $chatMessages = $fetchedMessages->take($limit)->reverse()->values();
 
                 return $this->responseSuccess([
-                    'data' => MessageCollection::make($chatMessages->reverse())
+                    'data' => MessageCollection::make($chatMessages),
+                    'meta' => [
+                        'pagination' => [
+                            'limit' => $limit,
+                            'has_more' => $hasMoreMessages,
+                            'oldest_id' => $chatMessages->first()?->id,
+                            'next_before_id' => $hasMoreMessages ? $chatMessages->first()?->id : null
+                        ]
+                    ]
                 ]);
             }
         }

@@ -15,14 +15,82 @@ import {
 import { readMessengerCache, writeMessengerCache } from '@/kernel/services/cache/messenger-cache.js';
 
 const CHAT_CACHE_TTL = 1000 * 60 * 60 * 24;
+const MESSAGE_PAGE_SIZE = 30;
+
+function createMessagesPagination() {
+	return {
+		hasMore: false,
+		nextBeforeId: null,
+		isLoadingOlder: false
+	};
+}
+
+function normalizeMessagesCachePayload(payload = {}) {
+	if(Array.isArray(payload)) {
+		return {
+			messages: payload,
+			pagination: createMessagesPagination()
+		};
+	}
+
+	return {
+		messages: Array.isArray(payload?.messages) ? payload.messages : [],
+		pagination: {
+			...createMessagesPagination(),
+			...(payload?.pagination || {})
+		}
+	};
+}
+
+function compareMessagesByTimeOrId(firstMessage = {}, secondMessage = {}) {
+	const firstId = Number(firstMessage.id);
+	const secondId = Number(secondMessage.id);
+
+	if(Number.isFinite(firstId) && Number.isFinite(secondId)) {
+		return firstId - secondId;
+	}
+
+	const firstTime = Date.parse(firstMessage.date?.iso || firstMessage.created_at || '');
+	const secondTime = Date.parse(secondMessage.date?.iso || secondMessage.created_at || '');
+
+	if(Number.isFinite(firstTime) && Number.isFinite(secondTime) && firstTime !== secondTime) {
+		return firstTime - secondTime;
+	}
+
+	return 0;
+}
+
+function mergeMessageLists(currentMessages = [], incomingMessages = []) {
+	const messageMap = new Map();
+
+	currentMessages.concat(incomingMessages).forEach((messageData) => {
+		const clientUid = messageData?.meta?.client_uid || messageData?.meta?.local_outgoing?.client_uid || null;
+		const messageKey = clientUid ? `client:${clientUid}` : (messageData?.id ? `id:${messageData.id}` : null);
+
+		if(messageKey) {
+			messageMap.set(messageKey, messageData);
+		}
+	});
+
+	return Array.from(messageMap.values()).sort(compareMessagesByTimeOrId);
+}
 
 const useChatStore = defineStore('chats_chat', {
 	state: () => {
 		return {
 			chatId: null,
 			chatData: {},
+			chatDataChatId: null,
 			chatMessages: [],
+			chatMessagesChatId: null,
+			chatMessagesLoaded: false,
+			chatMessagesFetchedAt: 0,
+			chatMessagesPagination: createMessagesPagination(),
 			chatParticipants: [],
+			chatParticipantsChatId: null,
+			chatDataRequestToken: 0,
+			chatMessagesRequestToken: 0,
+			chatParticipantsRequestToken: 0,
 			inboxStore: useInboxStore(),
             messageForm: {
                 videoRecorder: {
@@ -36,7 +104,7 @@ const useChatStore = defineStore('chats_chat', {
 			return this.chatData.type == 'direct';
 		},
 		hasDescription: function() {
-            if(! this.chatData.chat_info.description) {
+            if(! this.chatData.chat_info?.description) {
                 return false;
             }
             else {
@@ -44,11 +112,78 @@ const useChatStore = defineStore('chats_chat', {
             }
 		},
 		otherParticipants: function() {
-			return this.chatData.relations.participants;
+			return this.chatData.relations?.participants || [];
 		}
 	},
 	actions: {
-		hydrateChatCache: function(chatId = this.chatId) {
+		resetChatState: function(chatId = null) {
+			this.chatId = chatId;
+			this.chatData = {};
+			this.chatDataChatId = null;
+			this.chatMessages = [];
+			this.chatMessagesChatId = chatId;
+			this.chatMessagesLoaded = false;
+			this.chatMessagesFetchedAt = 0;
+			this.chatMessagesPagination = createMessagesPagination();
+			this.chatParticipants = [];
+			this.chatParticipantsChatId = null;
+		},
+		clearChatSlicesForTarget: function(chatId) {
+			if(this.chatDataChatId !== chatId) {
+				this.chatData = {};
+				this.chatDataChatId = null;
+				this.chatParticipants = [];
+				this.chatParticipantsChatId = null;
+			}
+
+			if(this.chatMessagesChatId !== chatId) {
+				this.chatMessages = [];
+				this.chatMessagesChatId = chatId;
+				this.chatMessagesLoaded = false;
+				this.chatMessagesFetchedAt = 0;
+				this.chatMessagesPagination = createMessagesPagination();
+			}
+		},
+		primeChatDataFromInbox: function(chatData = {}) {
+			if(! chatData?.chat_id) {
+				return false;
+			}
+
+			this.chatId = chatData.chat_id;
+			this.chatData = chatData;
+			this.chatDataChatId = chatData.chat_id;
+			this.persistChatCache();
+
+			return true;
+		},
+		prepareChatForRoute: function(chatId, options = {}) {
+			const { preferCache = true, primeChatData = null } = options;
+
+			if(! chatId) {
+				this.resetChatState(null);
+				this.inboxStore.setActiveChatId(null);
+
+				return false;
+			}
+
+			this.chatDataRequestToken++;
+			this.chatMessagesRequestToken++;
+			this.chatParticipantsRequestToken++;
+			this.chatId = chatId;
+			this.inboxStore.setActiveChatId(chatId);
+			this.clearChatSlicesForTarget(chatId);
+
+			const hasCachedChat = preferCache ? this.hydrateChatCache(chatId, { clearMissing: true }) : false;
+
+			if(primeChatData?.chat_id === chatId && ! this.chatData?.chat_info) {
+				this.primeChatDataFromInbox(primeChatData);
+			}
+
+			return hasCachedChat || Boolean(primeChatData?.chat_id === chatId);
+		},
+		hydrateChatCache: function(chatId = this.chatId, options = {}) {
+			const { clearMissing = false } = options;
+
 			if(! chatId) {
 				return false;
 			}
@@ -60,17 +195,40 @@ const useChatStore = defineStore('chats_chat', {
 
 			if(chatEntry?.data) {
 				this.chatData = chatEntry.data;
+				this.chatDataChatId = chatId;
 				hydrated = true;
 			}
+			else if(clearMissing && this.chatDataChatId !== chatId) {
+				this.chatData = {};
+				this.chatDataChatId = null;
+			}
 
-			if(Array.isArray(messagesEntry?.data)) {
-				this.chatMessages = messagesEntry.data;
+			if(messagesEntry?.data) {
+				const cachePayload = normalizeMessagesCachePayload(messagesEntry.data);
+
+				this.chatMessages = cachePayload.messages;
+				this.chatMessagesChatId = chatId;
+				this.chatMessagesLoaded = true;
+				this.chatMessagesFetchedAt = messagesEntry.timestamp || Date.now();
+				this.chatMessagesPagination = cachePayload.pagination;
 				hydrated = true;
+			}
+			else if(clearMissing && this.chatMessagesChatId !== chatId) {
+				this.chatMessages = [];
+				this.chatMessagesChatId = chatId;
+				this.chatMessagesLoaded = false;
+				this.chatMessagesFetchedAt = 0;
+				this.chatMessagesPagination = createMessagesPagination();
 			}
 
 			if(Array.isArray(participantsEntry?.data)) {
 				this.chatParticipants = participantsEntry.data;
+				this.chatParticipantsChatId = chatId;
 				hydrated = true;
+			}
+			else if(clearMissing && this.chatParticipantsChatId !== chatId) {
+				this.chatParticipants = [];
+				this.chatParticipantsChatId = null;
 			}
 
 			this.chatId = chatId;
@@ -82,77 +240,177 @@ const useChatStore = defineStore('chats_chat', {
 				return false;
 			}
 
-			writeMessengerCache('chat', `${this.chatId}:data`, this.chatData);
-			writeMessengerCache('chat', `${this.chatId}:messages`, this.chatMessages.slice(-100));
-			writeMessengerCache('chat', `${this.chatId}:participants`, this.chatParticipants);
+			if(this.chatData?.chat_info && this.chatDataChatId === this.chatId) {
+				writeMessengerCache('chat', `${this.chatId}:data`, this.chatData);
+			}
+
+			if(this.chatMessagesChatId === this.chatId) {
+				writeMessengerCache('chat', `${this.chatId}:messages`, {
+					messages: this.chatMessages.slice(-100),
+					pagination: this.chatMessagesPagination
+				});
+			}
+
+			if(this.chatParticipantsChatId === this.chatId) {
+				writeMessengerCache('chat', `${this.chatId}:participants`, this.chatParticipants);
+			}
 
 			return true;
 		},
 		fetchChatData: async function(chatId, options = {}) {
 			const { preferCache = true } = options;
+			const targetChatId = chatId || this.chatId;
 
-			if(preferCache) {
-				this.hydrateChatCache(chatId);
+			if(! targetChatId) {
+				return this.chatData;
 			}
 
-			let state = this;
+			if(preferCache) {
+				this.hydrateChatCache(targetChatId);
+			}
 
-			await colibriAPI().messenger().getFrom(`chat/${chatId}`).then(function(response) {
-				state.chatData = response.data.data;
+			const requestToken = ++this.chatDataRequestToken;
 
-				state.chatId = chatId;
-				state.persistChatCache();
+			await colibriAPI().messenger().getFrom(`chat/${targetChatId}`).then((response) => {
+				if(requestToken !== this.chatDataRequestToken || this.chatId !== targetChatId) {
+					return;
+				}
+
+				this.chatData = response.data.data;
+				this.chatDataChatId = targetChatId;
+
+				this.chatId = targetChatId;
+				this.persistChatCache();
 			}).catch(function(error) {
 				if(error.response) {
 					throw new Error(error.response.data.message);
 				}
 			});
+
+			return this.chatData;
 		},
 		fetchChatParticipants: async function() {
-			let state = this;
+			const targetChatId = this.chatId;
+			const requestToken = ++this.chatParticipantsRequestToken;
 
-			await colibriAPI().messenger().getFrom(`chat/${state.chatId}/participants`).then(function(response) {
-				state.chatParticipants = response.data.data;
-				state.persistChatCache();
+			if(! targetChatId) {
+				return this.chatParticipants;
+			}
+
+			await colibriAPI().messenger().getFrom(`chat/${targetChatId}/participants`).then((response) => {
+				if(requestToken !== this.chatParticipantsRequestToken || this.chatId !== targetChatId) {
+					return;
+				}
+
+				this.chatParticipants = response.data.data;
+				this.chatParticipantsChatId = targetChatId;
+				this.persistChatCache();
 			}).catch(function(error) {
 				if(error.response) {
 					throw new Error(error.response.data.message);
 				}
 			});
+
+			return this.chatParticipants;
 		},
 		markMessagesAsRead: function() {
-			let state = this;
+			const targetChatId = this.chatId;
 
-			state.inboxStore.markChatAsRead(state.chatId);
+			if(! targetChatId) {
+				return false;
+			}
 
-			colibriAPI().messenger().getFrom(`chat/${state.chatId}/read`).then(function() {
-				state.inboxStore.fetchUnreadCount();
+			this.inboxStore.markChatAsRead(targetChatId);
+
+			colibriAPI().messenger().getFrom(`chat/${targetChatId}/read`).then(() => {
+				if(this.chatId === targetChatId) {
+					this.inboxStore.fetchUnreadCount();
+				}
 			}).catch(function(error) {
 				alert(error.response.data.message);
 			});
 		},
 		fetchChatMessages: async function(options = {}) {
-			const { preferCache = true } = options;
+			const {
+				preferCache = true,
+				force = false,
+				beforeId = null,
+				limit = MESSAGE_PAGE_SIZE
+			} = options;
+			const targetChatId = this.chatId;
+			const isLoadingOlder = Boolean(beforeId);
+			let hasCache = false;
 
-			if(preferCache) {
-				this.hydrateChatCache(this.chatId);
+			if(! targetChatId) {
+				return this.chatMessages;
 			}
 
-			let state = this;
+			if(preferCache && ! force && ! isLoadingOlder) {
+				hasCache = this.hydrateChatCache(targetChatId);
+			}
 
-			await colibriAPI().messenger().getFrom(`chat/${state.chatId}/messages`).then(function(response) {
-				state.chatMessages = response.data.data;
-				state.persistChatCache();
-			}).catch(function(error) {
+			const requestToken = ++this.chatMessagesRequestToken;
+
+			if(isLoadingOlder) {
+				this.chatMessagesPagination.isLoadingOlder = true;
+			}
+
+			await colibriAPI().messenger().params({
+				limit: limit,
+				...(beforeId ? { before_id: beforeId } : {})
+			}).getFrom(`chat/${targetChatId}/messages`).then((response) => {
+				if(requestToken !== this.chatMessagesRequestToken || this.chatId !== targetChatId) {
+					return;
+				}
+
+				const responseMessages = response.data.data || [];
+				const responsePagination = response.data.meta?.pagination || {};
+
+				this.chatMessages = mergeMessageLists(isLoadingOlder ? responseMessages : this.chatMessages, isLoadingOlder ? this.chatMessages : responseMessages);
+				this.chatMessagesChatId = targetChatId;
+				this.chatMessagesLoaded = true;
+				this.chatMessagesFetchedAt = Date.now();
+				this.chatMessagesPagination = {
+					...this.chatMessagesPagination,
+					hasMore: Boolean(responsePagination.has_more),
+					nextBeforeId: responsePagination.next_before_id || this.chatMessages[0]?.id || null,
+					isLoadingOlder: false
+				};
+				this.persistChatCache();
+			}).catch((error) => {
+				if(isLoadingOlder) {
+					this.chatMessagesPagination.isLoadingOlder = false;
+				}
+
+				if(! hasCache && ! this.chatMessagesLoaded && this.chatMessagesChatId !== targetChatId) {
+					this.chatMessages = [];
+				}
+
 				if(error.response) {
 					throw new Error(error.response.data.message);
 				}
 			});
+
+			return this.chatMessages;
+		},
+		fetchOlderMessages: async function(options = {}) {
+			const beforeId = this.chatMessagesPagination.nextBeforeId || this.chatMessages[0]?.id || null;
+
+			if(! beforeId || this.chatMessagesPagination.isLoadingOlder || ! this.chatMessagesPagination.hasMore) {
+				return this.chatMessages;
+			}
+
+			return await this.fetchChatMessages({
+				...options,
+				preferCache: false,
+				beforeId: beforeId
+			});
 		},
 		sendMessage: async function(messageData = {}) {
+			const targetChatId = this.chatId;
 			const clientUid = messageData.client_uid || `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 			const optimisticMessage = createOptimisticOutgoingMessage({
-				chatId: this.chatId,
+				chatId: targetChatId,
 				userData: useAuthStore().userData || {},
 				content: messageData.content || '',
 				messageType: messageData.message_type || messageData.type || 'text',
@@ -165,17 +423,24 @@ const useChatStore = defineStore('chats_chat', {
 
 			try {
 				const response = await colibriAPI().messenger().with({
-					chat_id: this.chatId,
+					chat_id: targetChatId,
 					...messageData,
 					client_uid: clientUid,
 				}).sendTo('send');
 
 				if(response.data.data) {
-					this.upsertMessage(response.data.data);
+					if(this.chatId === targetChatId) {
+						this.upsertMessage(response.data.data);
+					}
+					else {
+						this.inboxStore.updateChatFromMessage(response.data.data, useAuthStore().userData.id, this.chatId);
+					}
 				}
 			}
 			catch(error) {
-				this.removeMessage(optimisticMessage.id);
+				if(this.chatId === targetChatId) {
+					this.removeMessage(optimisticMessage.id);
+				}
 
 				if(error.response) {
 					throw new Error(error.response.data.message);
@@ -187,8 +452,9 @@ const useChatStore = defineStore('chats_chat', {
         sendMediaMessage: async function(mediaData) {
             const formData = new FormData();
             const dateTime = new Date().toISOString();
+            const targetChatId = this.chatId;
 
-            formData.append('chat_id', this.chatId);
+            formData.append('chat_id', targetChatId);
             formData.append('media_type', mediaData.type);
 
             // In case if it's audio or video, we need to add the duration.
@@ -206,7 +472,12 @@ const useChatStore = defineStore('chats_chat', {
 				'Content-Type': 'multipart/form-data'
 			}).sendTo('send').then((response) => {
                 if(response.data.data) {
-                    this.upsertMessage(response.data.data);
+                    if(this.chatId === targetChatId) {
+                        this.upsertMessage(response.data.data);
+                    }
+                    else {
+                        this.inboxStore.updateChatFromMessage(response.data.data, useAuthStore().userData.id, this.chatId);
+                    }
                 }
             }).catch(function(error) {
                 if(error.response) {
@@ -216,6 +487,7 @@ const useChatStore = defineStore('chats_chat', {
         },
         sendAudioMessage: async function(audioData = {}) {
             const authStore = useAuthStore();
+            const targetChatId = this.chatId;
             const durationSeconds = Math.max(1, Math.ceil(Number(audioData.duration) || 1));
             const extension = audioData.extension || 'webm';
             const fileName = audioData.name || `voice-note-${Date.now()}.${extension}`;
@@ -229,7 +501,7 @@ const useChatStore = defineStore('chats_chat', {
 
             this.appendMessage(createPendingAudioMessage({
                 localId: localMessageId,
-                chatId: this.chatId,
+                chatId: targetChatId,
                 userData: authStore.userData || {},
                 durationSeconds: durationSeconds,
                 extension: extension,
@@ -243,7 +515,7 @@ const useChatStore = defineStore('chats_chat', {
 
             try {
                 const initResponse = await colibriAPI().messenger().with({
-                    chat_id: this.chatId,
+                    chat_id: targetChatId,
                     parent_id: audioData.parent_id || null,
                     duration_seconds: durationSeconds,
                     extension: extension,
@@ -282,7 +554,12 @@ const useChatStore = defineStore('chats_chat', {
                 }
 
                 if(uploadResponse.data?.data) {
-                    this.upsertMessage(uploadResponse.data.data);
+                    if(this.chatId === targetChatId) {
+                        this.upsertMessage(uploadResponse.data.data);
+                    }
+                    else {
+                        this.inboxStore.updateChatFromMessage(uploadResponse.data.data, authStore.userData.id, this.chatId);
+                    }
                 }
 
                 return uploadResponse.data?.data || null;
@@ -325,6 +602,7 @@ const useChatStore = defineStore('chats_chat', {
 
 					if(messageIndex !== -1) {
 						state.chatMessages.splice(messageIndex, 1);
+						state.persistChatCache();
 					}
 				}
 			}).catch(function(error) {
@@ -356,6 +634,10 @@ const useChatStore = defineStore('chats_chat', {
 
 			await colibriAPI().messenger().delete(`chat/${state.chatId}/clear`).then(function(response) {
 				state.chatMessages = [];
+				state.chatMessagesLoaded = true;
+				state.chatMessagesFetchedAt = Date.now();
+				state.chatMessagesPagination = createMessagesPagination();
+				state.persistChatCache();
 			}).catch(function(error) {
 				if(error.response) {
 					throw new Error(error.response.data.message);
@@ -367,6 +649,9 @@ const useChatStore = defineStore('chats_chat', {
 
 			await colibriAPI().messenger().delete(`chat/${state.chatId}/delete`).then(function(response) {
 				state.chatMessages = [];
+				state.chatMessagesLoaded = true;
+				state.chatMessagesFetchedAt = Date.now();
+				state.chatMessagesPagination = createMessagesPagination();
 
 				state.inboxStore.removeChatFromHistory(state.chatId);
 			}).catch(function(error) {
@@ -399,6 +684,7 @@ const useChatStore = defineStore('chats_chat', {
 				});
 
 				this.inboxStore.markChatMessageAsDeleted(this.chatId, messageId);
+				this.persistChatCache();
 			}
 		},
 		addReaction: function(reactionId, messageId) {
@@ -454,6 +740,8 @@ const useChatStore = defineStore('chats_chat', {
 						has_reacted: (actorUserId == currentUserId) ? reactionItem.has_reacted : (currentReaction?.has_reacted || false)
 					};
 				});
+
+				this.persistChatCache();
 			}
 		},
         removeMessage: function(messageId) {
@@ -463,9 +751,16 @@ const useChatStore = defineStore('chats_chat', {
 
             if(messageIndex !== -1) {
                 this.chatMessages.splice(messageIndex, 1);
+                this.persistChatCache();
             }
         },
         replaceTemporaryMessage: function(tempMessageId, messageData = {}) {
+			if(messageData?.chat_uuid && this.chatId && messageData.chat_uuid !== this.chatId) {
+				this.inboxStore.updateChatFromMessage(messageData, useAuthStore().userData.id, this.chatId);
+
+				return false;
+			}
+
             const tempIndex = this.chatMessages.findIndex((item) => {
                 return item.id == tempMessageId;
             });
@@ -496,6 +791,7 @@ const useChatStore = defineStore('chats_chat', {
             }
 
             this.inboxStore.updateChatFromMessage(nextMessage, useAuthStore().userData.id, this.chatId);
+            this.persistChatCache();
         },
         setLocalAudioState: function(messageId, localAudioState = null) {
             const messageIndex = this.chatMessages.findIndex((item) => {
@@ -507,10 +803,17 @@ const useChatStore = defineStore('chats_chat', {
             }
 
             this.chatMessages.splice(messageIndex, 1, withLocalAudioState(this.chatMessages[messageIndex], localAudioState));
+            this.persistChatCache();
 
             return true;
         },
 		upsertMessage: function(messageData = {}) {
+			if(messageData?.chat_uuid && this.chatId && messageData.chat_uuid !== this.chatId) {
+				this.inboxStore.updateChatFromMessage(messageData, useAuthStore().userData.id, this.chatId);
+
+				return false;
+			}
+
 			let messageIndex = findPendingOutgoingMessageIndex(this.chatMessages, messageData);
 
 			if(messageIndex !== -1) {
@@ -532,9 +835,16 @@ const useChatStore = defineStore('chats_chat', {
 			else {
 				this.chatMessages.splice(messageIndex, 1, nextMessage);
 				this.inboxStore.updateChatFromMessage(nextMessage, useAuthStore().userData.id, this.chatId);
+				this.persistChatCache();
 			}
 		},
 		appendMessage: function(messageData = {}) {
+			if(messageData?.chat_uuid && this.chatId && messageData.chat_uuid !== this.chatId) {
+				this.inboxStore.updateChatFromMessage(messageData, useAuthStore().userData.id, this.chatId);
+
+				return false;
+			}
+
 			let state = this;
 
 			if(state.chatMessages.some((item) => {
@@ -546,7 +856,10 @@ const useChatStore = defineStore('chats_chat', {
 			}
 
 			state.chatMessages.push(messageData);
+			state.chatMessagesChatId = state.chatId;
+			state.chatMessagesLoaded = true;
 			state.inboxStore.updateChatFromMessage(messageData, useAuthStore().userData.id, state.chatId);
+			state.persistChatCache();
 		}
 	}
 });

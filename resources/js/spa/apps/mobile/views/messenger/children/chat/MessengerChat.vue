@@ -12,13 +12,13 @@
             <Soundbar v-if="hasChatData"></Soundbar>
             <Border></Border>
 		</div>
-		<div class="chat-messages-container" ref="messagesHistoryContainer" v-on:load.capture="scrollHistoryDownSettled" v-on:loadedmetadata.capture="scrollHistoryDownSettled" v-on:canplay.capture="scrollHistoryDownSettled">
+		<div class="chat-messages-container" ref="messagesHistoryContainer" v-on:scroll.passive="handleHistoryScroll" v-on:load.capture="handleMediaSettled" v-on:loadedmetadata.capture="handleMediaSettled" v-on:canplay.capture="handleMediaSettled">
 			<div v-if="chatMessages.length" class="flex min-h-full flex-col justify-end py-4">
-				<div v-for="messageData in chatMessages" class="block">
+				<div v-for="messageData in chatMessages" v-bind:key="messageData.id" class="block">
 					<ChatMessage v-on:delete="handleMessageDelete"
 						v-on:copy="handleMessageCopy"
 					v-bind:messageData="messageData"
-					v-bind:key="messageData.id"></ChatMessage>
+					></ChatMessage>
 				</div>
 				<ChatMessageTyping v-bind:typingUser="state.typing"></ChatMessageTyping>
 			</div>
@@ -121,8 +121,10 @@
 
 			const chatChannel = ref(null);
 			const scrollTimers = [];
+			const shouldStickToBottom = ref(true);
 			let resizeObserver = null;
 			let activeLoadToken = 0;
+			let isPreservingScroll = false;
 
 			const userData = computed(() => {
                 return authStore.userData;
@@ -148,14 +150,12 @@
 			const initializeRouteChat = () => {
 				let chatId = route.params.chat_id;
 
-				if(chatId && chatStore.chatId !== chatId) {
-					chatStore.chatData = {};
-					chatStore.chatMessages = [];
-					chatStore.chatMessagesLoaded = false;
+				if(chatId) {
+					chatStore.prepareChatForRoute(chatId, {
+						preferCache: true,
+						primeChatData: chatStore.inboxStore.findChatById(chatId)
+					});
 				}
-
-				chatStore.chatId = chatId;
-				chatStore.hydrateChatMessagesCache(chatId);
 			}
 
 			initializeRouteChat();
@@ -188,7 +188,9 @@
 				}
 
 				resizeObserver = new ResizeObserver(() => {
-					scrollHistoryDown();
+					if(shouldStickToBottom.value) {
+						scrollHistoryDown();
+					}
 				});
 
 				resizeObserver.observe(messagesHistoryContainer.value);
@@ -228,6 +230,76 @@
 						scrollHistoryDown();
 					}, delay));
 				});
+			}
+
+			const getScrollSnapshot = () => {
+				if(! messagesHistoryContainer.value) {
+					return null;
+				}
+
+				return {
+					scrollTop: messagesHistoryContainer.value.scrollTop,
+					scrollHeight: messagesHistoryContainer.value.scrollHeight
+				};
+			}
+
+			const restoreScrollSnapshot = (snapshot) => {
+				if(! snapshot) {
+					return false;
+				}
+
+				return nextTick(() => {
+					if(messagesHistoryContainer.value) {
+						messagesHistoryContainer.value.scrollTop = snapshot.scrollTop + (messagesHistoryContainer.value.scrollHeight - snapshot.scrollHeight);
+					}
+				});
+			}
+
+			const isNearBottom = (threshold = 120) => {
+				if(! messagesHistoryContainer.value) {
+					return true;
+				}
+
+				const distanceFromBottom = messagesHistoryContainer.value.scrollHeight - messagesHistoryContainer.value.scrollTop - messagesHistoryContainer.value.clientHeight;
+
+				return distanceFromBottom <= threshold;
+			}
+
+			const syncBottomAffinity = () => {
+				shouldStickToBottom.value = isNearBottom();
+			}
+
+			const handleHistoryScroll = () => {
+				syncBottomAffinity();
+
+				if(messagesHistoryContainer.value && messagesHistoryContainer.value.scrollTop <= 96) {
+					loadOlderMessages();
+				}
+			}
+
+			const handleMediaSettled = () => {
+				if(shouldStickToBottom.value) {
+					scrollHistoryDownSettled();
+				}
+			}
+
+			const loadOlderMessages = async () => {
+				if(state.isLoading || isPreservingScroll || ! chatStore.chatMessagesPagination.hasMore || chatStore.chatMessagesPagination.isLoadingOlder) {
+					return false;
+				}
+
+				const snapshot = getScrollSnapshot();
+
+				isPreservingScroll = true;
+
+				try {
+					await chatStore.fetchOlderMessages();
+					await restoreScrollSnapshot(snapshot);
+				}
+				finally {
+					isPreservingScroll = false;
+					syncBottomAffinity();
+				}
 			}
 
 			const stopListenEventInChat = (eventName) => {
@@ -289,18 +361,23 @@
 
 				listenEventInChat(BRD.getEvent('CHAT_MESSAGE_RECEIVED'), function (event) {
 					let messageData = event.data;
+					const wasNearBottom = isNearBottom();
+					const isSender = userData.value.id == messageData.user_id;
 
 					chatStore.upsertMessage(messageData);
 
-					scrollHistoryDownSettled();
+					if(wasNearBottom || isSender) {
+						scrollHistoryDownSettled();
+					}
 
-					if(userData.value.id != messageData.user_id) {
+					if(! isSender) {
 						colibriSounds.activeChatMessageReceived();
 						chatStore.markMessagesAsRead();
 					}
 				});
 
 				listenEventInChat(BRD.getEvent('CHAT_MESSAGE_DELETED'), function (event) {
+					const wasNearBottom = isNearBottom();
                     const deletedMessage = chatStore.chatMessages.find((item) => {
                         return item.id == event.data.message_id;
                     });
@@ -315,18 +392,23 @@
                         chatStore.inboxStore.scheduleUnreadStateSync(0);
                     }
 
-					scrollHistoryDownSettled();
+					if(wasNearBottom) {
+						scrollHistoryDownSettled();
+					}
 				});
 
 				listenEventInChat(BRD.getEvent('CHAT_MESSAGE_REACTIONS_UPDATED'), function (event) {
 					chatStore.syncMessageReactions(event.data.message_id, event.data.reactions, event.data.actor_user_id);
 					chatStore.persistChatMessagesCache();
-					scrollHistoryDownSettled();
 				});
 
                 listenEventInChat(BRD.getEvent('CHAT_MEDIA_READY'), function (event) {
+                    const wasNearBottom = isNearBottom();
                     chatStore.upsertMessage(event.data);
-                    scrollHistoryDownSettled();
+
+                    if(wasNearBottom || userData.value.id == event.data.user_id) {
+                        scrollHistoryDownSettled();
+                    }
                 });
 
 				ColibriBRD.private(chatChannel.value).listenForWhisper(BRD.getEvent('CHAT_MESSAGE_TYPING'), remoteTyping.receive);
@@ -368,16 +450,13 @@
 				state.typing = BRD.createEmptyTypingState();
 				remoteTyping.stop();
 
-				if(chatStore.chatId !== chatId) {
-					chatStore.chatData = {};
-					chatStore.chatMessages = [];
-					chatStore.chatMessagesLoaded = false;
-				}
-
-				chatStore.chatId = chatId;
-				const hasCachedMessages = chatStore.hydrateChatMessagesCache(chatId);
+				const hasCachedMessages = chatStore.prepareChatForRoute(chatId, {
+					preferCache: true,
+					primeChatData: chatStore.inboxStore.findChatById(chatId)
+				});
 
 				state.isLoading = ! hasChatData.value && ! hasCachedMessages;
+				shouldStickToBottom.value = true;
 				nextTick(() => {
 					observeHistorySize();
 				});
@@ -427,6 +506,8 @@
 					return false;
 				}
 
+				const wasNearBottom = isNearBottom();
+
 				await Promise.allSettled([
 					chatStore.fetchChatData(chatId),
 					chatStore.fetchChatMessages({ force: true })
@@ -438,7 +519,10 @@
 
 				bindRealtimeChannel(chatData.value?.chat_id || chatId);
 				observeHistorySize();
-				scrollHistoryDownSettled();
+
+				if(wasNearBottom) {
+					scrollHistoryDownSettled();
+				}
 			}
 
 			useInstantRevalidation(refreshActiveChat, {
@@ -487,10 +571,17 @@
 			watch(() => {
 				return chatMessages.value.length;
 			}, (messagesCount, oldMessagesCount) => {
-				if(messagesCount && messagesCount !== oldMessagesCount) {
-					nextTick(() => {
-						observeHistorySize();
-					});
+				if(! messagesCount || messagesCount === oldMessagesCount || isPreservingScroll) {
+					return;
+				}
+
+				nextTick(() => {
+					observeHistorySize();
+				});
+
+				const latestMessage = chatMessages.value.at(-1);
+
+				if(shouldStickToBottom.value || latestMessage?.user_id == userData.value.id) {
 					scrollHistoryDownSettled();
 				}
 			});
@@ -498,7 +589,9 @@
 			watch(() => {
 				return state.typing.is_typing;
 			}, () => {
-				scrollHistoryDownSettled();
+				if(shouldStickToBottom.value) {
+					scrollHistoryDownSettled();
+				}
 			});
 
 			return {
@@ -510,6 +603,8 @@
 				canRenderEditor: canRenderEditor,
 				messagesHistoryContainer: messagesHistoryContainer,
 				scrollHistoryDownSettled: scrollHistoryDownSettled,
+				handleHistoryScroll: handleHistoryScroll,
+				handleMediaSettled: handleMediaSettled,
 				isTyping: computed(() => {
                     return state.typing.is_typing;
                 }),

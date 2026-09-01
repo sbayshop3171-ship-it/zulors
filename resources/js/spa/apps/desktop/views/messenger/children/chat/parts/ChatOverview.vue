@@ -35,7 +35,7 @@
 					</template>
 				</div>
 				<div v-if="isDirect" class="flex justify-center mt-4">
-					<RouterLink v-if="! chatData.chat_info.meta.relationship.block.blocking" v-bind:to="{ name: 'profile_index', params: { id: chatData.chat_info.username }}">
+					<RouterLink v-if="! isBlocked" v-bind:to="{ name: 'profile_index', params: { id: chatData.chat_info.username }}">
 						<PrimaryPillButton buttonType="submit" buttonSize="md" v-bind:buttonText="$t('labels.view_profile')"></PrimaryPillButton>
 					</RouterLink>
 				</div>
@@ -45,7 +45,7 @@
 </template>
 
 <script>
-	import { defineComponent, ref, computed } from 'vue';
+	import { defineComponent, computed } from 'vue';
 	import { useChatStore } from '@D/store/chats/chat.store.js';
 
 	import AvatarMedium from '@D/components/general/avatars/AvatarMedium.vue';
@@ -54,12 +54,18 @@
 	export default defineComponent({
 		setup: function () {
 			const chatStore = useChatStore();
-			const chatData = ref(chatStore.chatData);
+			const chatData = computed(() => {
+				return chatStore.chatData || {};
+			});
 
 			return {
 				chatData: chatData,
-				isDirect: chatStore.isDirect,
-				hasDescription: chatStore.hasDescription,
+				isDirect: computed(() => {
+					return chatStore.isDirect;
+				}),
+				hasDescription: computed(() => {
+					return chatStore.hasDescription;
+				}),
 				presence: computed(() => {
 					return chatData.value.chat_info?.presence || {};
 				}),
@@ -81,12 +87,15 @@
 
 					return '';
 				}),
+				isBlocked: computed(() => {
+					return Boolean(chatData.value.chat_info?.meta?.relationship?.block?.blocking);
+				}),
 				isFollowedBy: computed(() => {
 					if(chatData.value.is_group) {
 						return false;
 					}
 					else {
-						return chatData.value.chat_info.meta.relationship.follow.followed_by;
+						return Boolean(chatData.value.chat_info?.meta?.relationship?.follow?.followed_by);
 					}
 				})
 			};

@@ -1,6 +1,6 @@
 <template>
-	<RouterView v-slot="{ Component, route }">
-		<component v-bind:is="Component" v-bind:key="route.fullPath"></component>
+	<RouterView v-slot="{ Component }">
+		<component v-bind:is="Component"></component>
 	</RouterView>
 
 	<AccountSwitcherModal></AccountSwitcherModal>
@@ -49,7 +49,16 @@
 			};
 
 			const getActiveChatId = () => {
-				return route.name === 'messenger_chat' ? route.params.chat_id : null;
+				return inboxStore.activeChatId || (route.name === 'messenger_chat' ? route.params.chat_id : null);
+			};
+
+			const syncActiveChatFromRoute = () => {
+				if(route.name === 'messenger_chat' && route.params.chat_id) {
+					inboxStore.setActiveChatId(route.params.chat_id);
+				}
+				else {
+					inboxStore.setActiveChatId(null);
+				}
 			};
 
 			const getChatToastText = (messageData = {}) => {
@@ -148,6 +157,7 @@
 				}
 
 				attachRealtimeListener();
+				syncActiveChatFromRoute();
 				syncCallFromRoute();
 				window.addEventListener('colibri:ws-status', handleWSStatus);
 				window.addEventListener('focus', handleFocus);
@@ -159,13 +169,17 @@
 				window.removeEventListener('colibri:ws-status', handleWSStatus);
 				window.removeEventListener('focus', handleFocus);
 				document.removeEventListener('visibilitychange', handleVisibilityChange);
+				inboxStore.setActiveChatId(null);
 
 				if(unreadRefreshTimer) {
 					window.clearTimeout(unreadRefreshTimer);
 				}
 			});
 
-			watch(() => route.fullPath, syncCallFromRoute);
+			watch(() => route.fullPath, () => {
+				syncActiveChatFromRoute();
+				syncCallFromRoute();
+			});
 
 			return {
 				callStore: callStore

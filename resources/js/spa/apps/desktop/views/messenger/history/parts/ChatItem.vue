@@ -1,5 +1,5 @@
 <template>
-		<RouterLink v-on:click="markAsRead" v-bind:to="{ name: 'messenger_chat', params: {chat_id: chatData.chat_id } }" class="flex gap-3 items-center pl-4 h-18" v-bind:class="[isSelectedChat ? 'bg-brand-900/5' : '', hasUnread ? 'bg-green-50/40' : '']">
+		<RouterLink v-on:click="handleChatClick" v-bind:to="{ name: 'messenger_chat', params: {chat_id: chatData.chat_id } }" class="flex gap-3 items-center pl-4 h-18" v-bind:class="[isSelectedChat ? 'bg-brand-900/5' : '', hasUnread ? 'bg-green-50/40' : '']">
 			<div class="shrink-0 relative">
 				<AvatarNormal v-bind:avatarSrc="chatData.chat_info.avatar_url"></AvatarNormal>
 				<span v-if="presence?.is_online" class="absolute right-0 bottom-0 size-3 rounded-full bg-green-500 ring-2 ring-bg-pr"></span>
@@ -52,13 +52,12 @@
 </template>
 
 <script>
-	import { defineComponent, computed, onMounted, reactive, toRef, onUnmounted } from 'vue';
+	import { defineComponent, computed, reactive, toRef } from 'vue';
+	import { useRoute } from 'vue-router';
 	import { useChatStore } from '@D/store/chats/chat.store.js';
-	import { useAuthStore } from '@D/store/auth/auth.store.js';
 	import { useInboxStore } from '@D/store/chats/inbox.store.js';
 
 	import AvatarNormal from '@D/components/general/avatars/AvatarNormal.vue';
-	import BRD from '@/kernel/websockets/brd/index.js';
 	import BadgeCounter from '@D/components/general/counters/BadgeCounter.vue';
 
 	export default defineComponent({
@@ -71,74 +70,22 @@
 		setup: function(props) {
 			const chatData = toRef(props, 'chatData');
 			const chatStore = useChatStore();
-			const authStore = useAuthStore();
 			const inboxStore = useInboxStore();
-			const selectedChatData = computed(() => {
-				return chatStore.chatData;
-			});
+			const route = useRoute();
 
 			const state = reactive({
-				typing: BRD.createEmptyTypingState(),
-				realtimeReady: false
-			});
-			const remoteTyping = BRD.createIncomingTypingController((nextState) => {
-				state.typing = nextState;
-			});
-
-			onUnmounted(() => {
-				window.removeEventListener('colibri:ws-status', handleWSStatus);
-				remoteTyping.stop();
-				detachRealtimeListeners();
-			});
-
-			onMounted(() => {
-				window.addEventListener('colibri:ws-status', handleWSStatus);
-				attachRealtimeListeners();
-			});
-
-			const getChatChannel = () => {
-				return BRD.getChannel('CHAT', [chatData.value.chat_id]);
-			}
-
-			const detachRealtimeListeners = () => {
-				if(state.realtimeReady && window.ColibriBRD) {
-					ColibriBRD.private(getChatChannel()).stopListeningForWhisper(BRD.getEvent('CHAT_MESSAGE_TYPING'));
-					ColibriBRD.private(getChatChannel()).stopListening(BRD.getEvent('CHAT_MESSAGE_RECEIVED'));
-					ColibriBRD.private(getChatChannel()).stopListening(BRD.getEvent('CHAT_MESSAGE_DELETED'));
-					remoteTyping.stop();
-
-					state.realtimeReady = false;
+				typing: {
+					is_typing: false,
+					user: null
 				}
-			}
-
-			const attachRealtimeListeners = () => {
-				if(state.realtimeReady || ! window.ColibriBRD) {
-					return false;
-				}
-
-				ColibriBRD.private(getChatChannel()).listenForWhisper(BRD.getEvent('CHAT_MESSAGE_TYPING'), remoteTyping.receive);
-
-				ColibriBRD.private(getChatChannel()).listen(BRD.getEvent('CHAT_MESSAGE_RECEIVED'), function (event) {
-					inboxStore.updateChatFromMessage(event.data, authStore.userData.id, selectedChatData.value?.chat_id);
-				});
-
-				ColibriBRD.private(getChatChannel()).listen(BRD.getEvent('CHAT_MESSAGE_DELETED'), function (event) {
-					inboxStore.markChatMessageAsDeleted(chatData.value.chat_id, event.data.message_id);
-				});
-
-				state.realtimeReady = true;
-			}
-
-			const handleWSStatus = (event) => {
-				if(event.detail.connected) {
-					attachRealtimeListeners();
-				}
-			}
+			});
 
 			return {
 				state: state,
 					isSelectedChat: computed(() => {
-						return (selectedChatData.value && selectedChatData.value.chat_id === chatData.value.chat_id);
+						const activeChatId = inboxStore.activeChatId || route.params.chat_id || chatStore.chatId;
+
+						return activeChatId === chatData.value.chat_id;
 					}),
 					hasUnread: computed(() => {
 						return chatData.value.unread_messages_count.raw > 0;
@@ -149,8 +96,21 @@
 					isTyping: computed(() => {
 	                    return state.typing.is_typing;
 	                }),
-				markAsRead: () => {
+				handleChatClick: (event) => {
+					if(route.name === 'messenger_chat' && route.params.chat_id === chatData.value.chat_id) {
+						event?.preventDefault();
+						inboxStore.setActiveChatId(chatData.value.chat_id);
+						inboxStore.markChatAsRead(chatData.value.chat_id);
+
+						return;
+					}
+
+					inboxStore.setActiveChatId(chatData.value.chat_id);
 					inboxStore.markChatAsRead(chatData.value.chat_id);
+					chatStore.prepareChatForRoute(chatData.value.chat_id, {
+						preferCache: true,
+						primeChatData: chatData.value
+					});
 				}
 			}
 		},

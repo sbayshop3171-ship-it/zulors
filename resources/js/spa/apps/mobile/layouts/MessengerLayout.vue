@@ -1,6 +1,8 @@
 <template>
 	<RouterView v-slot="{ Component, route }">
-		<component v-bind:is="Component" v-bind:key="route.fullPath"></component>
+		<component
+			v-bind:is="Component"
+			v-bind:key="route.name === 'messenger_chat' ? 'mobile-messenger-chat-pane' : route.fullPath"></component>
 	</RouterView>
 
 	<ConfirmationModal></ConfirmationModal>
@@ -43,7 +45,16 @@
 			};
 
 			const getActiveChatId = () => {
-				return ['messenger_chat', 'messenger_group'].includes(route.name) ? route.params.chat_id : null;
+				return inboxStore.activeChatId || (['messenger_chat', 'messenger_group'].includes(route.name) ? route.params.chat_id : null);
+			};
+
+			const syncActiveChatFromRoute = () => {
+				if(['messenger_chat', 'messenger_group'].includes(route.name) && route.params.chat_id) {
+					inboxStore.setActiveChatId(route.params.chat_id);
+				}
+				else {
+					inboxStore.setActiveChatId(null);
+				}
 			};
 
 			const getChatToastText = (messageData = {}) => {
@@ -102,6 +113,7 @@
 					isListening = true;
 				}
 
+				syncActiveChatFromRoute();
 				syncCallFromRoute();
 				window.addEventListener('colibri:ws-status', handleWSStatus);
 				window.addEventListener('focus', reconcileVisibleCall);
@@ -118,9 +130,11 @@
 				window.removeEventListener('focus', reconcileVisibleCall);
 				window.removeEventListener('zulors:app-resume', reconcileVisibleCall);
 				document.removeEventListener('visibilitychange', handleVisibilityChange);
+				inboxStore.setActiveChatId(null);
 			});
 
 			watch(() => route.fullPath, () => {
+				syncActiveChatFromRoute();
 				syncCallFromRoute();
 				reconcileVisibleCall();
 			});
