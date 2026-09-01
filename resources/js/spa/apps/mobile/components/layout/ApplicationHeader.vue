@@ -1,6 +1,6 @@
 <template>
 	<header class="mobile-safe-header sticky top-0 z-[80] bg-bg-pr transition-all duration-300 will-change-transform"
-	v-bind:class="[state.hideHeader ? '-translate-y-full' : '']">
+	v-bind:class="[isHeaderHidden ? '-translate-y-full' : '']">
 		
 		<div class="mobile-safe-header__bar relative h-[3.5rem]">
 			<div class="pointer-events-none absolute inset-x-0 top-0 bottom-0 flex items-center justify-center px-24">
@@ -31,10 +31,11 @@
 </template>
 
 <script>
-	import { defineComponent, onMounted, onUnmounted, reactive, computed } from 'vue';
+	import { defineComponent, reactive, computed } from 'vue';
 	import { useAudioStore } from '@M/store/audio/audio.store.js';
 
 	import { useMenu } from '@/kernel/vue/composables/menu/index.js';
+	import { useAutoHideHeader } from '@M/core/services/auto-hide-header.js';
 
 import NotificationsButton from '@M/components/layout/parts/NotificationsButton.vue';
 import Soundbar from '@M/components/soundbar/Soundbar.vue';
@@ -44,36 +45,21 @@ import HeaderMenu from '@M/components/layout/parts/HeaderMenu.vue';
 		setup: function () {
 			const audioStore = useAudioStore();
 			const state = reactive({
-				hideHeader: false,
-				scrollPosition: 0,
 				mainMenu: useMenu()
 			});
 
-			const fixed = computed(() => {
+			const isPinned = computed(() => {
 				return audioStore.audioData !== null;
 			});
 
-			const handleScroll = () => {
-				if(! fixed.value) {
-					const current = window.scrollY
-					state.hideHeader = current > state.scrollPosition && current > 50;
-					state.scrollPosition = current;
-				}
-				else {
-					state.hideHeader = false;
-				}
-			}
-
-			onMounted(() => {
-				window.addEventListener('scroll', handleScroll);
-			});
-
-			onUnmounted(() => {
-				window.removeEventListener('scroll', handleScroll);
+			const { isHeaderHidden } = useAutoHideHeader({
+				isPinned: isPinned,
+				isMenuOpen: state.mainMenu.status
 			});
 
 			return {
-				state: state
+				state: state,
+				isHeaderHidden: isHeaderHidden
 			};
 		},
 		components: {
