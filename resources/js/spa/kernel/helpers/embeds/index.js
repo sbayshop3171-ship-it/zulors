@@ -50,6 +50,18 @@ window.freezeScroll = function() {
     if (document.body) {
         document.body.style.setProperty('overflow', 'hidden', 'important');
     }
+
+    try {
+        window.dispatchEvent(new CustomEvent('zulors:scroll-lock-changed', {
+            detail: {
+                active: true,
+                count: window.ACTIVE_MODALS
+            }
+        }));
+    }
+    catch (error) {
+        //
+    }
 }
 
 window.unfreezeScroll = function() {
@@ -71,5 +83,17 @@ window.unfreezeScroll = function() {
         restoreProperty('overflow-y', previousState.overflowY, previousState.overflowYPriority);
 
         window.__zulorsScrollLockState = null;
+    }
+
+    try {
+        window.dispatchEvent(new CustomEvent('zulors:scroll-lock-changed', {
+            detail: {
+                active: window.ACTIVE_MODALS > 0,
+                count: window.ACTIVE_MODALS
+            }
+        }));
+    }
+    catch (error) {
+        //
     }
 }

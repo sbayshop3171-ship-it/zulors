@@ -11,14 +11,17 @@ const readScrollY = () => {
 		return 0;
 	}
 
-	return Math.max(
-		0,
-		window.scrollY ||
-		window.pageYOffset ||
-		document.documentElement?.scrollTop ||
-		document.body?.scrollTop ||
-		0
-	);
+	const scrollCandidates = [
+		window.scrollY,
+		window.pageYOffset,
+		document.scrollingElement?.scrollTop,
+		document.documentElement?.scrollTop,
+		document.body?.scrollTop
+	].filter((scrollTop) => {
+		return Number.isFinite(scrollTop);
+	});
+
+	return Math.max(0, ...scrollCandidates, 0);
 };
 
 const readBoolean = (source) => {
@@ -33,12 +36,15 @@ export function useAutoHideHeader(options = {}) {
 	const route = useRoute();
 	const isHidden = ref(false);
 	const isFullscreen = ref(false);
+	const isScrollLocked = ref(false);
 	let lastScrollY = 0;
 	let animationFrame = null;
 	let isMounted = false;
+	let scrollTargets = [];
 
 	const isPinned = computed(() => {
 		return isFullscreen.value ||
+			isScrollLocked.value ||
 			readBoolean(options.isPinned) ||
 			readBoolean(options.isMenuOpen);
 	});
@@ -94,12 +100,56 @@ export function useAutoHideHeader(options = {}) {
 		animationFrame = window.requestAnimationFrame(evaluateScroll);
 	};
 
+	const collectScrollTargets = () => {
+		if(typeof window === 'undefined' || typeof document === 'undefined') {
+			return [];
+		}
+
+		return [
+			window,
+			document,
+			document.scrollingElement,
+			document.documentElement,
+			document.body
+		].filter((target, index, targets) => {
+			return target && targets.indexOf(target) === index && typeof target.addEventListener === 'function';
+		});
+	};
+
+	const bindScrollTargets = () => {
+		scrollTargets = collectScrollTargets();
+
+		scrollTargets.forEach((target) => {
+			target.addEventListener('scroll', requestScrollEvaluation, {
+				capture: true,
+				passive: true
+			});
+		});
+	};
+
+	const unbindScrollTargets = () => {
+		scrollTargets.forEach((target) => {
+			target.removeEventListener('scroll', requestScrollEvaluation, true);
+		});
+
+		scrollTargets = [];
+	};
+
 	const syncFullscreenState = () => {
 		if(typeof document === 'undefined') {
 			return;
 		}
 
 		isFullscreen.value = Boolean(document.fullscreenElement);
+		resetToVisible();
+	};
+
+	const syncScrollLockState = (event = null) => {
+		if(typeof window === 'undefined') {
+			return;
+		}
+
+		isScrollLocked.value = Boolean(event?.detail?.active || window.ACTIVE_MODALS > 0);
 		resetToVisible();
 	};
 
@@ -128,11 +178,10 @@ export function useAutoHideHeader(options = {}) {
 		isMounted = true;
 		resetToVisible();
 		syncFullscreenState();
+		syncScrollLockState();
 
-		window.addEventListener('scroll', requestScrollEvaluation, {
-			passive: true
-		});
-
+		bindScrollTargets();
+		window.addEventListener('zulors:scroll-lock-changed', syncScrollLockState);
 		document.addEventListener('fullscreenchange', syncFullscreenState);
 	});
 
@@ -140,7 +189,8 @@ export function useAutoHideHeader(options = {}) {
 		isMounted = false;
 
 		if(typeof window !== 'undefined') {
-			window.removeEventListener('scroll', requestScrollEvaluation);
+			unbindScrollTargets();
+			window.removeEventListener('zulors:scroll-lock-changed', syncScrollLockState);
 
 			if(animationFrame !== null) {
 				window.cancelAnimationFrame(animationFrame);
