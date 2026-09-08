@@ -1,0 +1,9 @@
+[
+  {
+    "AllowedOrigins": ["https://zulors.com", "https://www.zulors.com"],
+    "AllowedMethods": ["PUT", "GET", "HEAD"],
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]

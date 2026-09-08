@@ -1,5 +1,24 @@
 # R2 Media Pipeline
 
+## Live Rollout Status (2026-09-08)
+
+Code commit `355a667` was pushed to main and deployed to https://zulors.com using
+the staged-release deployment script. The live page checks passed and Horizon is
+running. This supersedes the earlier read-only inspection of the legacy release.
+No isolated staging environment was supplied or created.
+
+**Direct browser uploads are temporarily disabled pending Cloudflare CORS setup.**
+The deployed disk is `r2_temp`, but `R2_DIRECT_UPLOAD_ENABLED=false` is an intentional
+operational hold. Post/Story/Chat use the existing server-upload fallback, which still
+uses VPS upload bandwidth and is subject to proxy/PHP limits. The new FFmpeg processing
+code remains deployed. Do not advertise 1 GB browser direct uploads as ready yet.
+
+The real R2 test below verified storage and encoding, but both production origins
+returned HTTP 403 to CORS preflight requests. The runtime object credential also
+received `AccessDenied` when inspecting bucket CORS and lifecycle configuration.
+The lifecycle `--apply` command was attempted but **did not apply a rule**. Existing
+bucket rules could not be inspected; their presence or absence is not established.
+
 ## Implemented Flow
 
 ```text
@@ -44,6 +63,8 @@ do not load these Vue stores must adopt the direct endpoints separately.
 
 Use the existing deployment procedure in deployment.md, preserving shared runtime
 uploads. Deploy web and media workers with the same release and configuration.
+The example below describes the target configuration after CORS acceptance, not
+the current operational hold.
 
 ```dotenv
 QUEUE_CONNECTION=redis
@@ -76,13 +97,20 @@ the web/app origins in temp CORS, including PUT and exposed ETag. Use a cached c
 domain for final. The r2.dev development endpoint is not the production CDN endpoint.
 See [Cloudflare public buckets](https://developers.cloudflare.com/r2/buckets/public-buckets/).
 
-On the initial VPS, the production Horizon profile has one worker per video queue.
-For the shared 4-CPU production VPS, rollout enables MEDIA_VIDEO_SHARED_WORKER=true:
+By default, the production Horizon profile has one worker per video queue.
+For the shared 4-CPU production VPS, rollout enabled MEDIA_VIDEO_SHARED_WORKER=true:
 one worker consumes the high-priority and legacy/normal video queues, with one FFmpeg
 thread. Disable this flag on a dedicated media host when capacity permits parallel jobs.
 FFmpeg defaults to two threads; PHP worker memory settings do not limit a child
 FFmpeg process. Enforce CPU/RAM and scratch-disk limits using the process manager or
 container runtime. Reserve scratch capacity for originals, encoded outputs and retries.
+
+Live rollout keeps `MEDIA_VIDEO_QUEUE=media-video` and a 21,600-second video timeout
+for compatibility with old jobs, with Redis `retry_after=21900`. A single worker
+consumes `media-video-high,media-video`; FFmpeg uses one thread. The host has about
+8 GB RAM and was already busy before testing, so process count was not increased.
+Application cache remains file-based on this single host. Switch to shared Redis
+cache before splitting hosts so completion and job overlap locks remain shared.
 
 To separate hosts, share the same Redis, cache, database and R2 configuration:
 
@@ -105,6 +133,12 @@ media-audio, media-image and media-cleanup queues. The image queue is available 
 later asynchronous image workflow; current image routes still process synchronously.
 
 ## Cleanup
+
+Production bucket administration is still pending; the commands below are not a
+record of a successful live lifecycle update. The CLI lifecycle service currently
+requires direct upload configuration to be enabled. While the operational hold is
+active, configure rules in the Cloudflare dashboard instead of enabling uploads
+prematurely just to run this command.
 
 The temp bucket must contain disposable raw uploads only. This command preserves
 unrelated lifecycle rules and previews the managed rule before applying it:
@@ -137,9 +171,10 @@ MEDIA_LARGE_FIXTURE_TEST=1 ./vendor/bin/phpunit --filter test_real_ffmpeg_worker
 
 Local large fixture verified on 2026-09-08 using real FFmpeg and local fake R2 disks:
 
-The full backend suite passed (234 tests, 1,410 assertions), followed by an additional
-FFmpeg failure/retry regression (1 test, 15 assertions). The three browser multipart
-unit tests and the Vite production build also passed.
+The full backend suite passed (235 tests, 1,425 assertions), including the FFmpeg
+failure/retry regression. The three browser multipart unit tests and the Vite
+production build also passed. Deployment dependency installation/build and Laravel
+optimization completed successfully.
 
 | Measurement | Result |
 | --- | --- |
@@ -155,12 +190,80 @@ Story/Chat real encoding, multipart metadata, ownership, missing objects/parts, 
 mismatch, pending playback, repeated completion/job execution, cleanup, WebP metadata
 and existing server-upload behavior.
 
-Read-only production inspection found https://zulors.com using Redis/Horizon,
-R2_DIRECT_UPLOAD_DISK=r2_final, MEDIA_VIDEO_QUEUE=media-video and six-hour video
-timeouts. That installation has not been updated by this implementation session.
-No distinct staging URL was supplied; the supplied YouTube URL is not a staging app.
+### Real Cloudflare Verification
 
-Staging acceptance still required:
+On 2026-09-08 a CLI harness booted the deployed production application and invoked
+its actual post create/complete controllers and FFmpeg job in-process. A temporary
+test user's database transaction was rolled back and broadcasts were suppressed.
+This was not an authenticated browser request, a queued Horizon execution test,
+or a concurrent-load benchmark. The upload client ran on the VPS, so it also does
+not measure end-user upload speed or demonstrate VPS bandwidth savings in practice.
+
+| Measurement | Live R2 result |
+| --- | --- |
+| Synthetic raw AVI / verified temp HEAD | 580,623,842 bytes |
+| Signed multipart PUTs | 70 |
+| Upload time from VPS | 134.64 seconds |
+| Completion state | queued, no playable original URL |
+| FFmpeg job wall time | 54.23 seconds |
+| Final MP4 HEAD / optimized_size | 1,424,317 bytes, matching |
+| WebP poster | Created |
+| Original temp object | Deleted |
+| Final CDN range requests | HTTP 206, MISS then HIT, video/mp4 |
+| PHP peak memory | 85,987,328 bytes; excludes FFmpeg child memory |
+| CORS for both production origins | HTTP 403, browser upload blocked |
+| Cleanup | No errors; test rows rolled back, test objects removed |
+
+The fixture was seven seconds of synthetic uncompressed video. The compression
+ratio is not representative of already-compressed user videos or a quality guarantee.
+Follow-up inspection found no remaining verification user and an empty temp bucket.
+Final CDN cache behavior was sampled for one object at one location only.
+
+### Cloudflare Settings Required
+
+In Cloudflare R2, open `zulors-media-temp` -> Settings -> CORS Policy. Add the rule
+from [r2-temp-cors.json](r2-temp-cors.json), retaining any unrelated required origins
+or rules. Keep the temp bucket private; do not enable public access to fix CORS.
+See [Cloudflare CORS configuration](https://developers.cloudflare.com/r2/buckets/cors/).
+
+Under Object lifecycle rules, add expiration after three days for disposable raw
+objects and abort incomplete multipart uploads after one day. Review bucket contents
+before applying expiration. Use a bucket-administration credential only for setup,
+not as a permanent replacement for the application's object-only credential.
+See [Cloudflare R2 token permissions](https://developers.cloudflare.com/r2/api/tokens/).
+
+The following probe works while direct uploads are disabled. It creates disposable
+small objects/multipart sessions, checks preflight and JavaScript-visible ETags for
+single and multipart PUTs, and deletes/aborts its own test data. It prints no signed
+URLs and exits nonzero on a failed check. It does not change CORS or application flags.
+
+```bash
+php deploy/check-r2-cors.php https://zulors.com https://www.zulors.com
+```
+
+During rollout all four preflight checks returned 403; the probe exited 1 and
+successfully aborted its test multipart session without cleanup errors.
+
+Only after the probe passes and bucket lifecycle is verified, set
+`R2_DIRECT_UPLOAD_ENABLED=true` and `R2_DIRECT_UPLOAD_AUTO_CORS_ENABLED=false` through
+the deployment environment settings, refresh `php artisan config:cache`, and restart
+Horizon gracefully. The disabled auto-CORS setting prevents the runtime object token
+from repeatedly attempting bucket administration. Retest from the actual browser/app.
+
+### Mobile Compatibility
+
+This repository's Android LocalAndroidPreview shell loads the web app in a WebView,
+with JavaScript and a file chooser. It receives the deployed Vue upload changes.
+No independent iOS/Swift or Flutter client source was found, and installed store-app
+versions were not identified or device-tested. Do not label all native clients as
+verified; independent native upload implementations need endpoint adoption and an
+app release. The same CORS hold applies to the web and WebView paths.
+
+### Remaining Acceptance
+
+Resolve the Cloudflare settings above before direct browser acceptance. A separate
+staging URL, database, R2 buckets and Redis/cache namespace are still required for
+isolated testing; no new staging resources were provisioned during this rollout.
 
 1. Use dedicated staging R2 buckets, database and queue namespace. Upload a 500 MB+
    representative video from the browser/app, capturing direct R2 requests and ETags.
@@ -172,5 +275,5 @@ Staging acceptance still required:
    behavior on repeated requests; existing Cache-Control alone does not prove a hit.
 5. Repeat for Story/Chat, disconnect/retry, failed worker, cancelled upload and older
    clients using fallback. Test simultaneous uploads and processing backlog separately.
-6. Remove only the verification objects/account. Promote the verified release using
-   the normal deployment process, retaining the previous release for rollback.
+6. Remove only the verification objects/account. Use the normal deployment process
+   for subsequent releases, retaining the previous release for rollback.
