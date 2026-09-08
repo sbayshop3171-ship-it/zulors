@@ -2,22 +2,55 @@
 
 ## Live Rollout Status (2026-09-08)
 
+**Direct uploads are now enabled on https://zulors.com.** The user chose bounded
+production verification on the existing VPS instead of provisioning staging or
+additional servers. No new paid infrastructure was provisioned.
+
+Current activation flags are:
+
+```dotenv
+R2_DIRECT_UPLOAD_ENABLED=true
+R2_DIRECT_UPLOAD_AUTO_CORS_ENABLED=false
+MEDIA_VIDEO_DIRECT_ONLY=false
+```
+
+CORS now passes for both production origins. The dashboard has an enabled,
+bucket-wide three-day object expiration rule and a one-day incomplete multipart
+abort rule for `zulors-media-temp`. HEAD responses for disposable objects inside
+and outside `tmp/` confirmed a three-day expiration. This verifies rule application,
+not an observation of the scheduled deletion three days later. Temp was empty
+before broadening expiration; the final bucket is distinct and unaffected.
+
+Configuration was backed up outside the web root with restricted permissions,
+Laravel config cache was refreshed and Horizon was restarted gracefully after
+checking that video queues were empty. One shared video worker and one FFmpeg
+thread remain unchanged. The restricted application storage key was not replaced.
+
+**Direct-only enforcement is deliberately still off.** Supported clients can use
+direct uploads now, but legacy/proxy fallback remains available until installed-app
+compatibility is verified. The controlled Chromium test used no fallback routes.
+Do not describe this rollout as zero total VPS bandwidth or unlimited-load readiness.
+
+### Earlier Rollouts
+
+The following records describe the earlier CORS hold, superseded by the activation
+above. They are retained to distinguish earlier tests from the current state.
+
 Code commit `355a667` was pushed to main and deployed to https://zulors.com using
 the staged-release deployment script. The live page checks passed and Horizon is
 running. This supersedes the earlier read-only inspection of the legacy release.
 No isolated staging environment was supplied or created.
 
-**Direct browser uploads are temporarily disabled pending Cloudflare CORS setup.**
-The deployed disk is `r2_temp`, but `R2_DIRECT_UPLOAD_ENABLED=false` is an intentional
-operational hold. Post/Story/Chat use the existing server-upload fallback, which still
-uses VPS upload bandwidth and is subject to proxy/PHP limits. The new FFmpeg processing
-code remains deployed. Do not advertise 1 GB browser direct uploads as ready yet.
+Direct browser uploads were initially disabled pending Cloudflare CORS setup.
+The deployed disk was `r2_temp`, with `R2_DIRECT_UPLOAD_ENABLED=false` as an
+operational hold. Post/Story/Chat used the existing server-upload fallback, subject
+to VPS bandwidth and proxy/PHP limits. The new FFmpeg processing code was deployed.
 
 The real R2 test below verified storage and encoding, but both production origins
 returned HTTP 403 to CORS preflight requests. The runtime object credential also
 received `AccessDenied` when inspecting bucket CORS and lifecycle configuration.
 The lifecycle `--apply` command was attempted but **did not apply a rule**. Existing
-bucket rules could not be inspected; their presence or absence is not established.
+bucket rules could not then be inspected using the application's object credential.
 
 Follow-up release `1e2342c` was committed, pushed and deployed on the same date.
 Live page checks passed, Horizon was running, and the deployed policy file hash
@@ -27,11 +60,10 @@ it did not change the live environment flags. The lifecycle `--apply` command wa
 retried after deployment and again failed at GetBucketLifecycleConfiguration with
 AccessDenied, without applying rules.
 
-Follow-up verification on the same date still returned 403 for single and multipart
-preflight at both production origins. The release now includes an opt-in
-`MEDIA_VIDEO_DIRECT_ONLY` policy; it remains false while CORS is blocked so current
-uploads are not taken offline. Bucket administration and installed-app acceptance
-are still outstanding, not marked complete by the code changes.
+Follow-up verification before dashboard setup still returned 403 for single and
+multipart preflight at both origins. The release introduced an opt-in
+`MEDIA_VIDEO_DIRECT_ONLY` policy, initially left false while CORS was blocked.
+Those code changes alone did not resolve bucket administration or app acceptance.
 
 ## Implemented Flow
 
@@ -77,15 +109,17 @@ do not load these Vue stores must adopt the direct endpoints separately.
 
 Use the existing deployment procedure in deployment.md, preserving shared runtime
 uploads. Deploy web and media workers with the same release and configuration.
-The example below describes the target configuration after CORS acceptance, not
-the current operational hold.
+The example below is a future worker configuration, not a verbatim copy of the
+shared VPS environment. Its activation flags match the current compatibility rollout;
+the shared-worker settings and legacy timeouts below must be preserved on this VPS.
 
 ```dotenv
 QUEUE_CONNECTION=redis
 CACHE_STORE=redis
 MEDIA_QUEUE_CONNECTION=redis
 R2_DIRECT_UPLOAD_ENABLED=true
-MEDIA_VIDEO_DIRECT_ONLY=true
+R2_DIRECT_UPLOAD_AUTO_CORS_ENABLED=false
+MEDIA_VIDEO_DIRECT_ONLY=false
 R2_DIRECT_UPLOAD_DISK=r2_temp
 R2_TEMP_DISK=r2_temp
 R2_FINAL_DISK=r2_final
@@ -149,11 +183,16 @@ later asynchronous image workflow; current image routes still process synchronou
 
 ## Cleanup
 
-Production bucket administration is still pending; the commands below are not a
-record of a successful live lifecycle update. The lifecycle service now checks
-storage configuration independently of the direct-upload feature flag, so the CLI
-can preview/apply rules while uploads remain disabled. It still requires credentials
-with bucket-configuration permission; it never bypasses Cloudflare authorization.
+The owner configured production lifecycle rules through the Cloudflare dashboard:
+`Default Multipart Abort Rule` now aborts incomplete uploads after one day, and
+`delete-temp-files-after-3-days` expires objects after three days with no prefix
+filter. Both are enabled. The CLI commands below did not apply these rules and
+still require an administrative setup credential; the runtime object key remains
+restricted. Do not apply redundant CLI rules just to clear a historical AccessDenied.
+
+The lifecycle service checks storage configuration independently of the direct-upload
+feature flag. It can preview/apply while uploads are disabled when authorized;
+it never bypasses Cloudflare authorization.
 
 The temp bucket must contain disposable raw uploads only. This command preserves
 unrelated lifecycle rules and previews the managed rule before applying it:
@@ -164,7 +203,7 @@ php artisan media:configure-r2-temp-lifecycle --days=3 --apply
 php artisan media:cleanup-temp --hours=72
 ```
 
-The managed rule expires temp objects after three days and aborts incomplete
+The managed CLI rule expires temp objects after three days and aborts incomplete
 multipart sessions after one day. Cloudflare deletion is asynchronous, not guaranteed
 at the exact expiry second. Review existing temp objects before applying expiration.
 See [Cloudflare lifecycle behavior](https://developers.cloudflare.com/r2/buckets/object-lifecycles/).
@@ -213,7 +252,7 @@ and existing server-upload behavior.
 
 ### Real Cloudflare Verification
 
-On 2026-09-08 a CLI harness booted the deployed production application and invoked
+Before CORS setup on 2026-09-08 a CLI harness booted the deployed application and invoked
 its actual post create/complete controllers and FFmpeg job in-process. A temporary
 test user's database transaction was rolled back and broadcasts were suppressed.
 This was not an authenticated browser request, a queued Horizon execution test,
@@ -240,9 +279,51 @@ ratio is not representative of already-compressed user videos or a quality guara
 Follow-up inspection found no remaining verification user and an empty temp bucket.
 Final CDN cache behavior was sampled for one object at one location only.
 
-### Cloudflare Settings Required
+### Live Browser Verification
 
-In Cloudflare R2, open `zulors-media-temp` -> Settings -> CORS Policy. Add the rule
+After activation on 2026-09-08, local desktop Chrome in headless mode opened the real
+production login page and called the authenticated production APIs with a one-hour
+test-user token and CSRF cookies. It used the repository's shared multipart uploader,
+whose SHA-256 matched the deployed source. File selection and API calls were scripted
+on that page, not a click-through test of the complete Vue editors. Story and Chat
+ran at a 390 x 844 viewport; this was not an installed mobile app/device test.
+
+The source was a six-second 640 x 360 H.264/AAC synthetic MP4 with deliberate CBR
+padding: **11,878,524 bytes**. It tests transport and processing, not representative
+compression quality. Each Post/Story/Chat upload used two signed R2 parts, exposed
+ETags, reached 100%, completed successfully and tolerated repeated completion.
+Raw playback URLs were withheld. An injected Story PUT connection failure was
+retried successfully. No video server-upload/raw/part-proxy route was called.
+Upload client bytes travelled from the local browser to R2, not through the web VPS.
+
+| Flow | Browser create / complete | Encoding verification | Final HEAD bytes |
+| --- | --- | --- | --- |
+| Post | 200 / 200, 14.21 seconds | In-process job, 10.64 seconds | 580,291 |
+| Story | 200 / 200, 20.19 seconds including retry | In-process job, 22.11 seconds | 1,608,903 |
+| Private Chat | 201 / 200, 14.94 seconds | Actual Redis/Horizon job | 940,990 |
+
+Post and Story remained drafts during browser testing. Their actual FFmpeg jobs
+were then invoked sequentially in CLI database transactions, with broadcasts
+suppressed and publication changes rolled back. No public test Post or Story was
+published. Only Chat tested queued Horizon execution in this follow-up; do not
+describe the draft tests as queued end-to-end publication tests.
+
+All three jobs produced WebP posters, matching optimized_size/final HEAD values,
+and removed their original temp objects. Chat output independently probed as
+H.264/AAC, 720 x 720, duration 6.013991 seconds. Chrome decoded it, played it and
+successfully sought within it. Two CDN range probes returned 206, video/mp4, HIT.
+This samples one object/location, not every playback path or cache location.
+
+All six final test objects, both test users and their test data/token were removed;
+there were no cleanup errors. The additional local regression run passed 14 tests
+with 136 assertions plus the three JavaScript multipart tests. No application-code
+change or full production rebuild was needed for activation. Home/login/signup
+checks returned 200 and Horizon was running. Small HTTP timing samples are not a
+web-latency or concurrent-load benchmark.
+
+### Cloudflare Settings Reference
+
+In Cloudflare R2, open `zulors-media-temp` -> Settings -> CORS Policy. The owner added the rule
 from [r2-temp-cors.json](r2-temp-cors.json), retaining any unrelated required origins
 or rules. Keep the temp bucket private; do not enable public access to fix CORS.
 See [Cloudflare CORS configuration](https://developers.cloudflare.com/r2/buckets/cors/).
@@ -254,8 +335,8 @@ handles OPTIONS; it is not an extra AllowedMethods entry. Add a staging/WebView
 origin only after identifying its actual scheme and host; do not assume all native
 apps share the production browser origin.
 
-Under Object lifecycle rules, add expiration after three days for disposable raw
-objects and abort incomplete multipart uploads after one day. Review bucket contents
+Under Object lifecycle rules, expiration after three days for disposable raw
+objects and abort after one day are now enabled bucket-wide. Review bucket contents
 before applying expiration. Use a bucket-administration credential only for setup,
 not as a permanent replacement for the application's object-only credential.
 See [Cloudflare R2 token permissions](https://developers.cloudflare.com/r2/api/tokens/).
@@ -277,15 +358,19 @@ URLs and exits nonzero on a failed check. It does not change CORS or application
 php deploy/check-r2-cors.php https://zulors.com https://www.zulors.com
 ```
 
-During rollout all four preflight checks returned 403; the probe exited 1 and
-successfully aborted its test multipart session without cleanup errors.
+Before dashboard setup all four preflight checks returned 403. After setup, and
+again immediately before activation, all four returned 204; signed PUTs returned
+200 with exposed ETags. Probe cleanup completed without errors.
 
-Only after the probe passes and bucket lifecycle is verified, set
-`R2_DIRECT_UPLOAD_ENABLED=true`, `R2_DIRECT_UPLOAD_AUTO_CORS_ENABLED=false` and
-`MEDIA_VIDEO_DIRECT_ONLY=true` through
-the deployment environment settings, refresh `php artisan config:cache`, and restart
-Horizon gracefully. The disabled auto-CORS setting prevents the runtime object token
-from repeatedly attempting bucket administration. Retest from the actual browser/app.
+Activation set `R2_DIRECT_UPLOAD_ENABLED=true` and
+`R2_DIRECT_UPLOAD_AUTO_CORS_ENABLED=false`, refreshed `php artisan config:cache`,
+and restarted Horizon gracefully. The disabled auto-CORS setting prevents the
+runtime object token from repeatedly attempting bucket administration.
+`MEDIA_VIDEO_DIRECT_ONLY` remains false for compatibility. Enable it separately
+only after the supported installed clients are verified or version-gated.
+For rollback, disable direct uploads while leaving direct-only false, rebuild config
+cache and restart workers gracefully after accounting for in-flight uploads/jobs.
+Do not restore an old full environment backup over unrelated later settings.
 
 Direct-only mode sets both raw and multipart proxy budgets to zero. Updated Post
 editors honor zero without substituting a default budget. Post server video upload,
@@ -310,14 +395,15 @@ with JavaScript and a file chooser. It receives the deployed Vue upload changes.
 No independent iOS/Swift or Flutter client source was found, and installed store-app
 versions were not identified or device-tested. Do not label all native clients as
 verified; independent native upload implementations need endpoint adoption and an
-app release. The same CORS hold applies to the web and WebView paths.
+app release. The production-origin CORS hold is resolved; a distinct WebView origin
+must still be identified and permitted before it can be considered compatible.
 
 Follow-up tooling check: `adb devices -l` found no connected device, and
 `xcrun devicectl list devices` was unavailable because the required Xcode tooling
 was not installed/selected. No real installed Android/iOS upload was performed.
 Provide a USB-debugging-authorized Android device with the actual installed build,
 or an iOS device with its signed build and supported Xcode device tooling. Use a
-dedicated test account. After CORS passes, check Post/Story/Chat on Wi-Fi and cellular,
+dedicated test account. Check Post/Story/Chat on Wi-Fi and cellular,
 network interruption/retry, background/foreground, seeking and processing completion.
 Capture the app version and WebView origin, R2 PUT requests/ETags, and confirm that
 no legacy video upload/raw/part proxy route is called. A test of this preview shell
@@ -359,19 +445,24 @@ limits, autoscaling and backlog-based admission are not implemented by this rele
 
 ### Remaining Acceptance
 
-Resolve the Cloudflare settings above before direct browser acceptance. A separate
-staging URL, database, R2 buckets and Redis/cache namespace are still required for
-isolated testing; no new staging resources were provisioned during this rollout.
+The owner explicitly declined staging and authorized low-impact production testing
+on the existing VPS. No separate environment or paid worker was provisioned, and
+no heavy concurrent-load test was run on the shared host. CORS and lifecycle are no
+longer the activation blockers. Remaining acceptance is not waived by going live:
 
-1. Use dedicated staging R2 buckets, database and queue namespace. Upload a 500 MB+
-   representative video from the browser/app, capturing direct R2 requests and ETags.
+1. Obtain an authorized 500 MB+ representative video and verify browser/app upload,
+   direct R2 requests and ETags in a controlled window. The earlier large CLI fixture
+   and the small browser fixture do not meet this representative-file requirement.
 2. Before publishing, HEAD the temp object and compare ContentLength to original bytes;
    verify there is no raw final object and public APIs return no playable source URL.
-3. Publish, record job time/worker CPU/RAM/disk, and wait for processed state.
+3. Verify Post/Story publication through the actual editors and Horizon with an
+   agreed test-visibility scope. Record worker CPU/RAM/disk and processing latency.
 4. HEAD the final MP4, compare bytes to optimized_size, verify H.264/audio/duration,
    WebP poster, seeking, visual quality and temp deletion. Confirm custom-domain cache
    behavior on repeated requests; existing Cache-Control alone does not prove a hit.
 5. Repeat for Story/Chat, disconnect/retry, failed worker, cancelled upload and older
-   clients using fallback. Test simultaneous uploads and processing backlog separately.
+   clients using fallback. Verify installed Android/iOS builds before direct-only
+   enforcement. Test simultaneous uploads and backlog separately with explicit
+   limits and abort thresholds; production stress testing is not authorized unbounded.
 6. Remove only the verification objects/account. Use the normal deployment process
    for subsequent releases, retaining the previous release for rollback.
