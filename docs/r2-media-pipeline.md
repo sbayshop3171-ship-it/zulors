@@ -19,6 +19,14 @@ received `AccessDenied` when inspecting bucket CORS and lifecycle configuration.
 The lifecycle `--apply` command was attempted but **did not apply a rule**. Existing
 bucket rules could not be inspected; their presence or absence is not established.
 
+Follow-up release `1e2342c` was committed, pushed and deployed on the same date.
+Live page checks passed, Horizon was running, and the deployed policy file hash
+matched the local release. An in-process CLI check enabled the policy only for
+that test process and verified direct-create HTTP 503 and raw/part proxy HTTP 409;
+it did not change the live environment flags. The lifecycle `--apply` command was
+retried after deployment and again failed at GetBucketLifecycleConfiguration with
+AccessDenied, without applying rules.
+
 Follow-up verification on the same date still returned 403 for single and multipart
 preflight at both production origins. The release now includes an opt-in
 `MEDIA_VIDEO_DIRECT_ONLY` policy; it remains false while CORS is blocked so current
