@@ -92,8 +92,8 @@ class PostImageController extends Controller
                         'type' => MediaType::IMAGE,
                         'status' => MediaStatus::PROCESSED,
                         'disk' => $imageData['disk'],
-                        'extension' => $postImageFile->getClientOriginalExtension(),
-                        'mime' => $postImageFile->getClientMimeType(),
+                        'extension' => $imageData['image_extension'] ?? pathinfo($imageData['image_path'], PATHINFO_EXTENSION),
+                        'mime' => $imageData['image_mime'] ?? 'image/webp',
                         'size' => $imageData['image_size'],
                         'lqip_base64' => $LQIPBase64,
                         'metadata' => []

@@ -198,6 +198,7 @@ normalize_permissions() {
 }
 
 ensure_php_dependencies
+php deploy/configure-media-pipeline.php
 validate_runtime_config
 
 mkdir -p bootstrap/cache storage/app storage/frontend storage/framework/cache storage/framework/sessions storage/framework/views storage/logs
@@ -249,8 +250,10 @@ php artisan livewire:publish --assets || true
 php artisan optimize:clear
 php artisan settings:discover
 php artisan optimize
-echo "Restarting Horizon workers..."
-php artisan horizon:terminate || true
+if [ "${RESTART_HORIZON:-1}" = "1" ]; then
+	echo "Restarting Horizon workers..."
+	php artisan horizon:terminate || true
+fi
 
 normalize_permissions
 chmod -R ug+rwX storage bootstrap/cache public/build 2>/dev/null || true

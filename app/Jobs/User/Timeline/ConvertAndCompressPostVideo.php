@@ -21,7 +21,6 @@ use App\Services\Filesystem\Delete\FileDeleteService;
 use App\Services\Filesystem\Upload\ImageUploadService;
 use App\Services\Filesystem\Upload\VideoUploadService;
 use App\Services\Filesystem\Upload\VideoThumbnailService;
-use App\Services\Media\Cloudflare\R2DirectUploadService;
 
 class ConvertAndCompressPostVideo implements ShouldQueue
 {
@@ -34,6 +33,7 @@ class ConvertAndCompressPostVideo implements ShouldQueue
     public function __construct(Post $postData)
     {
         $this->postData = $postData;
+        $this->onConnection(config('media.queue_connection'));
         $this->timeout = max(60 * 30, (int) config('post.processing.video.timeout', $this->timeout));
     }
 
@@ -43,11 +43,17 @@ class ConvertAndCompressPostVideo implements ShouldQueue
         $videoUploadService = null;
         $fileDeleteService = null;
         $videoTempOldPath = null;
+        $videoTempNewPath = null;
+        $remoteSource = false;
 
         try {
             $postMedia = $this->postData->media()->first();
 
             if(empty($postMedia)) {
+                return;
+            }
+
+            if($postMedia->status->isProcessed() && $postMedia->disk !== 'cloudflare_stream') {
                 return;
             }
 
@@ -63,12 +69,6 @@ class ConvertAndCompressPostVideo implements ShouldQueue
                 return;
             }
 
-            if($this->shouldPublishDirectR2Original($postMedia)) {
-                $this->publishDirectR2OriginalVideo($postMedia, app(R2DirectUploadService::class));
-
-                return;
-            }
-
             $videoUploadService = app(VideoUploadService::class);
             $fileDeleteService = app(FileDeleteService::class);
 
@@ -79,7 +79,9 @@ class ConvertAndCompressPostVideo implements ShouldQueue
             $this->updateProcessingProgress($postMedia, 10, 'preparing');
 
             // Get video video local temporary path
+            $remoteSource = in_array(data_get($postMedia->metadata, 'provider'), ['r2_temp', 'r2_direct'], true);
             $videoTempOldPath = $this->prepareLocalSourceVideo($postMedia, $videoUploadService);
+            $videoUploadService->validateVideoSource($videoTempOldPath);
 
             $this->updateProcessingProgress($postMedia, 15, 'transcoding');
 
@@ -169,7 +171,7 @@ class ConvertAndCompressPostVideo implements ShouldQueue
                 $postMedia->mime = 'video/mp4';
                 $postMedia->size = $videoData['video_size'] ?? filesize($videoNewAbsLocalPath);
                 $postMedia->metadata = array_merge($metadata, $videoPresentationMetadata, [
-                    'provider' => data_get($metadata, 'provider') === 'r2_temp' ? 'r2' : data_get($metadata, 'provider'),
+                    'provider' => in_array(data_get($metadata, 'provider'), ['r2_temp', 'r2_direct'], true) ? 'r2' : data_get($metadata, 'provider'),
                     'processed_at' => now()->toIso8601String(),
                     'processing_progress' => 100,
                     'processing_state' => 'processed',
@@ -190,7 +192,7 @@ class ConvertAndCompressPostVideo implements ShouldQueue
                     Log::info("Compressed video with new path: {$videoNewAbsLocalPath} saved. Video new file exists: {$fileNewExists}");
                 }
 
-                $this->deleteOriginalSource($oldDisk, $oldPath, $videoTempOldPath, $fileDeleteService);
+                $this->deleteOriginalSource($oldDisk, $oldPath, $videoTempOldPath, $fileDeleteService, $postMedia->id);
                 $fileDeleteService->setStorageDisk('local')->deleteFile($videoTempNewPath);
 
                 // Broadcast video processed event with updated post media and user id
@@ -208,35 +210,15 @@ class ConvertAndCompressPostVideo implements ShouldQueue
         catch (\Throwable $e) {
             Log::error('Post video processing failed after 5 attempts. Error: ' . $e->getMessage());
 
-            if(
-                $postMedia
-                && $videoUploadService
-                && $fileDeleteService
-                && $videoTempOldPath
-                && data_get($postMedia->metadata, 'provider') === 'r2_temp'
-                && is_file(storage_local_path($videoTempOldPath))
-            ) {
-                try {
-                    $this->publishOriginalVideoFallback(
-                        $postMedia,
-                        $videoTempOldPath,
-                        $videoUploadService,
-                        $fileDeleteService,
-                        $e
-                    );
-
-                    return;
-                }
-                catch (\Throwable $fallbackException) {
-                    Log::error('Original R2 video fallback also failed. Error: ' . $fallbackException->getMessage());
-                }
-            }
-
             if($postMedia) {
                 $this->updateProcessingProgress($postMedia, (int) data_get($postMedia->metadata, 'processing_progress', 0), 'failed');
             }
 
             throw $e;
+        }
+        finally {
+            if($remoteSource && $videoTempOldPath) Storage::disk('local')->delete($videoTempOldPath);
+            if($videoTempNewPath) Storage::disk('local')->delete($videoTempNewPath);
         }
     }
 
@@ -245,9 +227,20 @@ class ConvertAndCompressPostVideo implements ShouldQueue
         return 5;
     }
 
+    public function middleware(): array
+    {
+        return [(new \Illuminate\Queue\Middleware\WithoutOverlapping('postData:' . $this->postData->id))
+            ->releaseAfter(60)->expireAfter($this->timeout + 60)];
+    }
+
+    public function backoff(): array
+    {
+        return [30, 120, 300, 600];
+    }
+
     private function prepareLocalSourceVideo($postMedia, VideoUploadService $videoUploadService): string
     {
-        if(data_get($postMedia->metadata, 'provider') !== 'r2_temp') {
+        if(! in_array(data_get($postMedia->metadata, 'provider'), ['r2_temp', 'r2_direct'], true)) {
             return $postMedia->source_path;
         }
 
@@ -284,141 +277,11 @@ class ConvertAndCompressPostVideo implements ShouldQueue
 
     private function targetStorageDisk($postMedia): string
     {
-        if(data_get($postMedia->metadata, 'provider') === 'r2_temp') {
+        if(in_array(data_get($postMedia->metadata, 'provider'), ['r2_temp', 'r2_direct'], true)) {
             return (string) data_get($postMedia->metadata, 'final_disk', config('media.cloudflare.r2.final_disk'));
         }
 
         return $postMedia->disk;
-    }
-
-    private function shouldPublishDirectR2Original($postMedia): bool
-    {
-        $metadata = $postMedia->metadata ?? [];
-
-        return data_get($metadata, 'provider') === 'r2_temp'
-            && data_get($metadata, 'upload_state') === 'uploaded'
-            && ! $postMedia->status->isProcessed();
-    }
-
-    private function publishDirectR2OriginalVideo($postMedia, R2DirectUploadService $r2DirectUploadService): void
-    {
-        $this->updateProcessingProgress($postMedia, 95, 'publishing');
-
-        $oldDisk = $postMedia->disk;
-        $oldPath = $postMedia->source_path;
-        $oldSize = (int) $postMedia->size;
-
-        $videoData = $r2DirectUploadService->publishUploadedVideo(
-            $postMedia->source_path,
-            $postMedia->extension ?: 'mp4',
-            $postMedia->mime ?: 'video/mp4',
-            $oldDisk
-        );
-
-        $metadata = $postMedia->metadata ?? [];
-
-        if(blank(data_get($metadata, 'processing_started_at'))) {
-            $metadata['processing_started_at'] = now()->toIso8601String();
-        }
-
-        $postMedia->source_path = $videoData['video_path'];
-        $postMedia->disk = $videoData['disk'];
-        $postMedia->status = MediaStatus::PROCESSED;
-        $postMedia->extension = $postMedia->extension ?: 'mp4';
-        $postMedia->mime = $postMedia->mime ?: 'video/mp4';
-        $postMedia->size = $videoData['video_size'] ?: $oldSize;
-        $postMedia->metadata = array_merge($metadata, [
-            'provider' => 'r2',
-            'processed_at' => now()->toIso8601String(),
-            'processing_progress' => 100,
-            'processing_state' => 'processed',
-            'processing_updated_at' => now()->toIso8601String(),
-            'processing_fallback' => 'direct_original_publish',
-            'original_size' => $oldSize,
-            'optimized_size' => (int) $postMedia->size,
-            'optimization_ratio' => $this->optimizationRatio($oldSize, (int) $postMedia->size),
-        ]);
-        $postMedia->save();
-
-        $this->postData->status = PostStatus::ACTIVE;
-        $this->postData->save();
-
-        try {
-            Storage::disk($oldDisk)->delete($oldPath);
-        }
-        catch (\Throwable $e) {
-            Log::warning('Direct R2 temp video cleanup skipped. Error: ' . $e->getMessage());
-        }
-
-        event(new MediaProcessedEvent($postMedia->refresh(), $this->postData->user_id));
-        event(new PublicTimelinePostCreatedEvent($this->postData->refresh()));
-
-        Log::info('Published direct R2 video without transcoding.', [
-            'post_id' => $this->postData->id,
-            'media_id' => $postMedia->id,
-        ]);
-    }
-
-    private function publishOriginalVideoFallback(
-        $postMedia,
-        string $videoTempOldPath,
-        VideoUploadService $videoUploadService,
-        FileDeleteService $fileDeleteService,
-        \Throwable $processingException
-    ): void {
-        $targetDisk = $this->targetStorageDisk($postMedia);
-
-        try {
-            $this->ensureThumbnail($postMedia, $videoTempOldPath, $targetDisk);
-        }
-        catch (\Throwable $thumbnailException) {
-            Log::warning('Video thumbnail fallback skipped. Error: ' . $thumbnailException->getMessage());
-        }
-
-        $videoPresentationMetadata = $this->videoPresentationMetadata($videoUploadService, storage_local_path($videoTempOldPath));
-
-        $videoData = $videoUploadService
-            ->setStorageDisk($targetDisk)
-            ->setNamespace(Filesystem::mediaNamespace('posts/videos'))
-            ->upload(storage_local_path($videoTempOldPath));
-
-        $oldDisk = $postMedia->disk;
-        $oldPath = $postMedia->source_path;
-        $oldSize = (int) $postMedia->size;
-        $metadata = $postMedia->metadata ?? [];
-
-        $postMedia->source_path = $videoData['video_path'];
-        $postMedia->disk = $videoData['disk'];
-        $postMedia->status = MediaStatus::PROCESSED;
-        $postMedia->extension = $videoUploadService->videoDefaultExtension;
-        $postMedia->mime = 'video/mp4';
-        $postMedia->size = $videoData['video_size'] ?? 0;
-        $postMedia->metadata = array_merge($metadata, $videoPresentationMetadata, [
-            'provider' => 'r2',
-            'processed_at' => now()->toIso8601String(),
-            'processing_progress' => 100,
-            'processing_state' => 'processed',
-            'processing_updated_at' => now()->toIso8601String(),
-            'processing_fallback' => 'original_upload',
-            'processing_error' => str($processingException->getMessage())->limit(500)->toString(),
-            'original_size' => $oldSize,
-            'optimized_size' => (int) $postMedia->size,
-            'optimization_ratio' => $this->optimizationRatio($oldSize, (int) $postMedia->size),
-        ]);
-        $postMedia->save();
-
-        $this->postData->status = PostStatus::ACTIVE;
-        $this->postData->save();
-
-        $this->deleteOriginalSource($oldDisk, $oldPath, $videoTempOldPath, $fileDeleteService);
-
-        event(new MediaProcessedEvent($postMedia->refresh(), $this->postData->user_id));
-        event(new PublicTimelinePostCreatedEvent($this->postData->refresh()));
-
-        Log::warning('Published original R2 video because optimized processing failed.', [
-            'post_id' => $this->postData->id,
-            'media_id' => $postMedia->id,
-        ]);
     }
 
     private function resizeVideoIfNeeded($video, VideoUploadService $videoUploadService, string $videoLocalAbsolutePath): void
@@ -534,12 +397,25 @@ class ConvertAndCompressPostVideo implements ShouldQueue
         }
     }
 
-    private function deleteOriginalSource(string $oldDisk, string $oldPath, string $localPath, FileDeleteService $fileDeleteService): void
+    private function deleteOriginalSource(string $oldDisk, string $oldPath, string $localPath, FileDeleteService $fileDeleteService, int $mediaId): void
     {
         $fileDeleteService->setStorageDisk('local')->deleteFile($localPath);
 
         if($oldDisk !== 'local') {
-            $fileDeleteService->setStorageDisk($oldDisk)->deleteFile($oldPath);
+            try {
+                if(! Storage::disk($oldDisk)->delete($oldPath)) {
+                    throw new \RuntimeException('Original media deletion failed.');
+                }
+            }
+            catch (\Throwable $e) {
+                Log::warning('Processed video original cleanup deferred.', ['media_id' => $mediaId]);
+                try {
+                    \App\Jobs\CleanupProcessedMediaSource::dispatch($mediaId, $oldDisk, $oldPath);
+                }
+                catch (\Throwable $queueError) {
+                    Log::error('Original cleanup could not be queued; temp lifecycle must remove it.', ['media_id' => $mediaId]);
+                }
+            }
         }
     }
 

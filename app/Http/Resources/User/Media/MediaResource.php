@@ -2,10 +2,8 @@
 
 namespace App\Http\Resources\User\Media;
 
-use Throwable;
 use Illuminate\Support\Arr;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class MediaResource extends JsonResource
@@ -93,19 +91,11 @@ class MediaResource extends JsonResource
 
     private function getPreviewUrl(): ?string
     {
-        if($this->type->isVideo() && ! $this->status->isProcessed() && in_array(data_get($this->metadata, 'provider'), ['r2_temp', 'r2_direct'], true)) {
-            try {
-                return Storage::disk($this->disk)->temporaryUrl(
-                    $this->source_path,
-                    now()->addMinutes(config('media.cloudflare.r2.temp_preview_expiry_minutes', 30))
-                );
-            }
-            catch(Throwable $e) {
-                return null;
-            }
-        }
-
-        if($this->type->isVideo() && ! $this->status->isProcessed() && data_get($this->metadata, 'provider') !== 'cloudflare_stream') {
+        if(
+            $this->type->isVideo()
+            && ! $this->status->isProcessed()
+            && ! in_array(data_get($this->metadata, 'provider'), ['r2_temp', 'r2_direct', 'cloudflare_stream'], true)
+        ) {
             return url("/api/post/editor/media/video/preview/{$this->id}");
         }
 

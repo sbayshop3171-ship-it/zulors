@@ -145,12 +145,8 @@
 				localMediaPreviews: [],
 			});
 
-			const canSubmitWhileVideoUploadContinues = computed(() => {
-				return Boolean(state.directVideoUploadReady && state.uploadProgress && ! postEditorStore.isEditingPost);
-			});
-
 			const submitButtonStatus = computed(() => {
-				return state.postSubmitting || (Boolean(state.uploadProgress) && ! canSubmitWhileVideoUploadContinues.value);
+				return state.postSubmitting || Boolean(state.uploadProgress);
 			});
 
 			const validatePost = (message) => {
@@ -1052,7 +1048,7 @@
 					return;
 				}
 
-				if(state.uploadProgress && ! canSubmitWhileVideoUploadContinues.value) {
+				if(state.uploadProgress) {
 					validatePost('Please wait until the video upload reaches 100%.');
 					return;
 				}

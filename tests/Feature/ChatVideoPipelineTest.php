@@ -26,6 +26,27 @@ use Tests\TestCase;
 class ChatVideoPipelineTest extends TestCase
 {
     use RefreshDatabase;
+    use \Tests\Support\CreatesVideoFixture;
+
+    public function test_chat_worker_transcodes_r2_even_when_legacy_compression_flag_is_disabled(): void
+    {
+        \Illuminate\Support\Facades\Event::fake([\App\Events\User\Chat\MessageMediaReadyEvent::class]);
+        $original = $this->createVideoFixture();
+        config(['chat.enable_video_compression' => false]);
+        [$sender, $recipient, $chat] = $this->createDirectChat();
+        $message = $chat->messages()->create([
+            'user_id' => $sender->id, 'chat_uuid' => $chat->chat_id,
+            'participant_id' => $chat->participants()->where('user_id', $sender->id)->first()->id,
+            'type' => \App\Enums\Chat\MessageType::VIDEO, 'content' => null,
+        ]);
+        $media = $message->media()->create($original);
+        (new ProcessChatVideo($message))->handle();
+        $this->assertOptimizedVideo($media, $original);
+        $path = $media->source_path;
+        (new ProcessChatVideo($message))->handle();
+        $this->assertSame($path, $media->refresh()->source_path);
+        \Illuminate\Support\Facades\Event::assertDispatched(\App\Events\User\Chat\MessageMediaReadyEvent::class);
+    }
 
     public function test_chat_video_upload_is_queued_through_r2_temp_pipeline(): void
     {
@@ -116,7 +137,40 @@ class ChatVideoPipelineTest extends TestCase
         $this->assertSame('r2_final', data_get($media->metadata, 'final_disk'));
         $this->assertSame(14, data_get($media->metadata, 'duration_seconds'));
 
-        Bus::assertDispatchedAfterResponse(ProcessChatVideo::class);
+        Bus::assertDispatched(ProcessChatVideo::class);
+    }
+
+    public function test_chat_direct_upload_queues_once_and_checks_ownership_and_size(): void
+    {
+        Bus::fake();
+        Notification::fake();
+        \Illuminate\Support\Facades\Event::fake([\App\Events\User\Chat\MessageReceivedEvent::class]);
+        \Illuminate\Support\Facades\Storage::fake('r2_temp');
+        \Illuminate\Support\Facades\Storage::fake('r2_final');
+        config(['filesystems.disks.r2_final.enabled' => true]);
+        app()->instance(\App\Services\Media\Cloudflare\R2DirectUploadService::class, new \Tests\Support\FakeR2DirectUploadService());
+        [$sender, $recipient, $chat] = $this->createDirectChat();
+        Sanctum::actingAs($sender);
+        $base = '/api/v1/chats/' . $chat->chat_id . '/media/video/direct/';
+        $created = $this->postJson($base . 'create', [
+            'name' => 'sample.mp4', 'size' => 1024, 'duration_seconds' => 10, 'extension' => 'mp4',
+        ])->assertCreated()->assertJsonPath('data.direct_upload', true);
+        $upload = $created->json('data');
+        $payload = ['media_id' => $upload['media_id'], 'uid' => $upload['uid'],
+            'upload_id' => $upload['upload_id'], 'parts' => [['part_number' => 1, 'etag' => 'test']]];
+        Sanctum::actingAs($recipient);
+        $this->postJson($base . 'complete', $payload)->assertNotFound();
+        Sanctum::actingAs($sender);
+        $this->postJson($base . 'complete', $payload)->assertUnprocessable();
+        \Illuminate\Support\Facades\Storage::disk('r2_temp')->put($upload['uid'], 'wrong size');
+        $this->postJson($base . 'complete', $payload)->assertUnprocessable();
+        \Illuminate\Support\Facades\Storage::disk('r2_temp')->put($upload['uid'], str_repeat('x', 1024));
+        $this->postJson($base . 'complete', $payload)->assertOk()
+            ->assertJsonPath('data.media.metadata.processing_state', 'queued')
+            ->assertJsonPath('data.media.source_url', null);
+        $this->postJson($base . 'complete', $payload)->assertOk();
+        Bus::assertDispatchedTimes(ProcessChatVideo::class, 1);
+        Bus::assertNotDispatchedAfterResponse(ProcessChatVideo::class);
     }
 
     private function createDirectChat(): array

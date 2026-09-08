@@ -1,9 +1,17 @@
 <?php
 
 return [
+    'queue_connection' => env('MEDIA_QUEUE_CONNECTION', 'redis'),
+    'processing' => [
+        'ffmpeg_threads' => (int) env('MEDIA_FFMPEG_THREADS', 2),
+    ],
     'queues' => [
-        'video' => env('MEDIA_VIDEO_QUEUE', 'media-video'),
+        'video' => env('MEDIA_VIDEO_QUEUE', env('MEDIA_VIDEO_NORMAL_QUEUE', 'media-video-normal')),
+        'video_high' => env('MEDIA_VIDEO_HIGH_QUEUE', 'media-video-high'),
+        'video_normal' => env('MEDIA_VIDEO_NORMAL_QUEUE', env('MEDIA_VIDEO_QUEUE', 'media-video-normal')),
         'audio' => env('MEDIA_AUDIO_QUEUE', 'media-audio'),
+        'image' => env('MEDIA_IMAGE_QUEUE', 'media-image'),
+        'cleanup' => env('MEDIA_CLEANUP_QUEUE', 'media-cleanup'),
     ],
 
     'cache' => [
@@ -13,6 +21,13 @@ return [
     'images' => [
         'max_width' => (int) env('MEDIA_IMAGE_MAX_WIDTH', 2048),
         'max_height' => (int) env('MEDIA_IMAGE_MAX_HEIGHT', 2048),
+    ],
+
+    'uploads' => [
+        'video' => [
+            'max_bytes' => (int) env('MEDIA_VIDEO_MAX_BYTES', 1024 * 1024 * 1024),
+            'max_duration_seconds' => (int) env('MEDIA_VIDEO_MAX_DURATION_SECONDS', 600),
+        ],
     ],
 
     'cloudflare' => [

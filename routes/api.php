@@ -77,6 +77,12 @@ Route::prefix('post/editor')->middleware(['auth:sanctum', $uploadApiThrottle])->
 
 Route::prefix('story/editor')->middleware(['auth:sanctum', $uploadApiThrottle])->group(base_path('routes/api/user/story_editor.php'));
 
+Route::prefix('v1/chats/{chatId}/media/video/direct')->middleware(['auth:sanctum', $uploadApiThrottle])->group(function () {
+    Route::post('/create', [App\Http\Controllers\Api\User\Chat\ChatController::class, 'createDirectVideoUpload']);
+    Route::post('/progress', [App\Http\Controllers\Api\User\Chat\ChatController::class, 'updateDirectVideoUploadProgress']);
+    Route::post('/complete', [App\Http\Controllers\Api\User\Chat\ChatController::class, 'completeDirectVideoUpload']);
+});
+
 Route::prefix('timeline')->middleware(['auth:sanctum', $readApiThrottle])->group(base_path('routes/api/user/timeline.php'));
 
 Route::prefix('stories')->middleware(['auth:sanctum', $interactiveApiThrottle])->group(base_path('routes/api/user/stories.php'));

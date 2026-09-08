@@ -16,7 +16,9 @@ use FFMpeg\Filters\Video\ResizeFilter;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use App\Services\Filesystem\Delete\FileDeleteService;
+use App\Services\Filesystem\Upload\ImageUploadService;
 use App\Services\Filesystem\Upload\VideoUploadService;
+use App\Services\Filesystem\Upload\VideoThumbnailService;
 
 class ProcessStoryVideo implements ShouldQueue
 {
@@ -30,12 +32,15 @@ class ProcessStoryVideo implements ShouldQueue
     public function __construct(StoryFrame $frameData)
     {
         $this->frameData = $frameData;
+        $this->onConnection(config('media.queue_connection'));
     }
 
     public function handle(): void
     {
         $frameMedia = null;
         $videoTempOldPath = null;
+        $videoTempNewPath = null;
+        $remoteSource = false;
 
         try {
             $videoUploadService = app(VideoUploadService::class);
@@ -52,12 +57,21 @@ class ProcessStoryVideo implements ShouldQueue
                 throw new Exception('Story video media was not found.');
             }
 
+            if($frameMedia->status->isProcessed()) {
+                return;
+            }
+
             $this->updateProcessingProgress($frameMedia, 5, 'processing');
 
+            $remoteSource = in_array(data_get($frameMedia->metadata, 'provider'), ['r2_temp', 'r2_direct'], true);
             $videoTempOldPath = $this->prepareLocalSourceVideo($frameMedia, $videoUploadService);
+            $videoUploadService->validateVideoSource($videoTempOldPath);
             $oldDisk = $frameMedia->disk;
             $oldPath = $frameMedia->source_path;
             $oldSize = (int) $frameMedia->size;
+            $targetDisk = $this->targetStorageDisk($frameMedia);
+
+            $this->ensureThumbnail($frameMedia, $videoTempOldPath, $targetDisk);
 
             $videoTempNewPath = $videoUploadService->generateVideoTemporaryFilePath("processed.{$videoUploadService->videoDefaultExtension}");
 
@@ -112,7 +126,6 @@ class ProcessStoryVideo implements ShouldQueue
             }
 
             if(file_exists($videoNewAbsLocalPath)) {
-                $targetDisk = $this->targetStorageDisk($frameMedia);
                 $videoData = $videoUploadService
                     ->setStorageDisk($targetDisk)
                     ->setNamespace(Filesystem::mediaNamespace('stories/videos'))
@@ -127,7 +140,7 @@ class ProcessStoryVideo implements ShouldQueue
 
                 $metadata = $frameMedia->metadata ?? [];
                 $metadata = array_merge($metadata, [
-                    'provider' => data_get($metadata, 'provider') === 'r2_temp' ? 'r2' : data_get($metadata, 'provider'),
+                    'provider' => in_array(data_get($metadata, 'provider'), ['r2_temp', 'r2_direct'], true) ? 'r2' : data_get($metadata, 'provider'),
                     'processing_progress' => 100,
                     'processing_state' => 'processed',
                     'processing_updated_at' => now()->toIso8601String(),
@@ -151,7 +164,7 @@ class ProcessStoryVideo implements ShouldQueue
 
                 $this->frameData->save();
 
-                $this->deleteOriginalSource($oldDisk, $oldPath, $videoTempOldPath, $fileDeleteService);
+                $this->deleteOriginalSource($oldDisk, $oldPath, $videoTempOldPath, $fileDeleteService, $frameMedia->id);
                 $fileDeleteService->setStorageDisk('local')->deleteFile($videoTempNewPath);
             }
         }
@@ -161,15 +174,30 @@ class ProcessStoryVideo implements ShouldQueue
 
             $this->updateProcessingProgress($frameMedia, $failedProgress, 'failed');
 
-            Log::error('Story video processing failed after 5 attempts. Error: ' . $e->getMessage());
+            Log::error('Story video processing attempt failed. Error: ' . $e->getMessage());
 
-            $this->fail();
+            throw $e;
+        }
+        finally {
+            if($remoteSource && $videoTempOldPath) Storage::disk('local')->delete($videoTempOldPath);
+            if($videoTempNewPath) Storage::disk('local')->delete($videoTempNewPath);
         }
     }
 
     public function tries(): int
     {
         return 5;
+    }
+
+    public function middleware(): array
+    {
+        return [(new \Illuminate\Queue\Middleware\WithoutOverlapping('frameData:' . $this->frameData->id))
+            ->releaseAfter(60)->expireAfter($this->timeout + 60)];
+    }
+
+    public function backoff(): array
+    {
+        return [30, 120, 300, 600];
     }
 
     private function clipStartSeconds(): int
@@ -227,6 +255,45 @@ class ProcessStoryVideo implements ShouldQueue
         return (string) data_get($frameMedia->metadata, 'final_disk', $frameMedia->thumbnail_disk ?: $frameMedia->disk);
     }
 
+    private function ensureThumbnail($frameMedia, string $videoLocalPath, string $targetDisk): void
+    {
+        if(filled($frameMedia->thumbnail_path)) {
+            return;
+        }
+
+        $thumbnailPath = null;
+
+        try {
+            $thumbnailPath = app(VideoThumbnailService::class)
+                ->setSecondsOffset($this->clipStartSeconds())
+                ->generateThumbnail($videoLocalPath);
+
+            $imageData = app(ImageUploadService::class)
+                ->load($thumbnailPath)
+                ->setNamespace(Filesystem::mediaNamespace('stories/video_thumbnails'))
+                ->setStorageDisk($targetDisk)
+                ->scaleTo1080x1920()
+                ->compress(config('story.processing.video_thumbnail.compress_rate'))
+                ->upload();
+
+            $frameMedia->thumbnail_path = $imageData['image_path'];
+            $frameMedia->thumbnail_size = $imageData['image_size'];
+            $frameMedia->thumbnail_disk = $imageData['disk'];
+            $frameMedia->save();
+        }
+        catch (\Throwable $e) {
+            Log::warning('Story video thumbnail generation failed. Error: ' . $e->getMessage(), [
+                'media_id' => $frameMedia->id ?? null,
+            ]);
+            throw $e;
+        }
+        finally {
+            if($thumbnailPath && is_file($thumbnailPath)) {
+                unlink($thumbnailPath);
+            }
+        }
+    }
+
     private function updateProcessingProgress($frameMedia, int $progress, string $state): void
     {
         if(empty($frameMedia) || ! $this->storyFrameStillExists($frameMedia)) {
@@ -273,12 +340,25 @@ class ProcessStoryVideo implements ShouldQueue
         return true;
     }
 
-    private function deleteOriginalSource(string $oldDisk, string $oldPath, string $localPath, FileDeleteService $fileDeleteService): void
+    private function deleteOriginalSource(string $oldDisk, string $oldPath, string $localPath, FileDeleteService $fileDeleteService, int $mediaId): void
     {
         $fileDeleteService->setStorageDisk('local')->deleteFile($localPath);
 
         if($oldDisk !== 'local') {
-            $fileDeleteService->setStorageDisk($oldDisk)->deleteFile($oldPath);
+            try {
+                if(! Storage::disk($oldDisk)->delete($oldPath)) {
+                    throw new \RuntimeException('Original media deletion failed.');
+                }
+            }
+            catch (\Throwable $e) {
+                Log::warning('Processed video original cleanup deferred.', ['media_id' => $mediaId]);
+                try {
+                    \App\Jobs\CleanupProcessedMediaSource::dispatch($mediaId, $oldDisk, $oldPath);
+                }
+                catch (\Throwable $queueError) {
+                    Log::error('Original cleanup could not be queued; temp lifecycle must remove it.', ['media_id' => $mediaId]);
+                }
+            }
         }
     }
 

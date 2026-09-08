@@ -25,6 +25,24 @@ use Tests\TestCase;
 class StoryVideoPipelineTest extends TestCase
 {
     use RefreshDatabase;
+    use \Tests\Support\CreatesVideoFixture;
+
+    public function test_story_worker_transcodes_r2_source_and_deletes_original(): void
+    {
+        $original = $this->createVideoFixture();
+        $story = $this->createStory($this->createUser('story-worker-owner'));
+        $frame = $story->frames()->create([
+            'status' => StoryStatus::PROCESSING, 'type' => StoryType::VIDEO, 'privacy' => StoryPrivacy::ALL,
+            'duration_seconds' => 2, 'meta' => ['video' => ['duration_seconds' => 2, 'clip_start_seconds' => 1]],
+        ]);
+        $media = $frame->media()->create($original);
+        (new ProcessStoryVideo($frame))->handle();
+        $this->assertOptimizedVideo($media, $original);
+        $this->assertSame(StoryStatus::ACTIVE, $frame->refresh()->status);
+        $path = $media->source_path;
+        (new ProcessStoryVideo($frame))->handle();
+        $this->assertSame($path, $media->refresh()->source_path);
+    }
 
     public function test_story_video_upload_is_stored_in_r2_temp_with_final_disk_metadata(): void
     {
@@ -176,6 +194,33 @@ class StoryVideoPipelineTest extends TestCase
         $this->assertSame('queued', data_get($media->metadata, 'processing_state'));
 
         Queue::assertPushed(ProcessStoryVideo::class);
+    }
+
+    public function test_story_direct_upload_stays_private_until_worker_finishes(): void
+    {
+        Queue::fake();
+        \Illuminate\Support\Facades\Storage::fake('r2_temp');
+        \Illuminate\Support\Facades\Storage::fake('r2_final');
+        config(['filesystems.disks.r2_final.enabled' => true]);
+        app()->instance(\App\Services\Media\Cloudflare\R2DirectUploadService::class, new \Tests\Support\FakeR2DirectUploadService());
+        $owner = $this->createUser('story-direct-owner');
+        $this->actingAs($owner)->withoutMiddleware();
+        $created = $this->postJson('/api/story/editor/media/video/direct/create', [
+            'name' => 'sample.mp4', 'size' => 1024, 'duration_seconds' => 10,
+            'mime' => 'video/mp4', 'extension' => 'mp4',
+        ])->assertOk()->assertJsonPath('data.direct_upload', true)->assertJsonPath('data.source_url', null);
+        $upload = $created->json('data');
+        $identity = ['media_id' => $upload['media_id'], 'uid' => $upload['uid'], 'upload_id' => $upload['upload_id']];
+        $this->postJson('/api/story/editor/create', [])->assertUnprocessable();
+        $this->postJson('/api/story/editor/media/video/direct/complete', $identity)->assertUnprocessable();
+        \Illuminate\Support\Facades\Storage::disk('r2_temp')->put($upload['uid'], str_repeat('x', 1024));
+        $this->postJson('/api/story/editor/media/video/direct/complete', $identity + [
+            'parts' => [['part_number' => 1, 'etag' => 'test']],
+        ])->assertOk()->assertJsonPath('data.metadata.upload_state', 'uploaded')->assertJsonPath('data.source_url', null);
+        Queue::assertNothingPushed();
+        $this->postJson('/api/story/editor/create', ['content' => 'Ready to process'])->assertOk();
+        Queue::assertPushedOn(config('media.queues.video_high'), ProcessStoryVideo::class);
+        \Illuminate\Support\Facades\Storage::disk('r2_final')->assertDirectoryEmpty('/');
     }
 
     private function createStory(User $user): Story

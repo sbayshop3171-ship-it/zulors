@@ -1,4 +1,6 @@
 import { defineStore } from 'pinia';
+import { AxiosAuth } from '@/kernel/services/axios/index.js';
+import { directVideoUpload } from '@/kernel/services/media/r2-direct-video-upload.js';
 import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 import {
     buildPendingAudioLocalState,
@@ -450,6 +452,41 @@ const useChatStore = defineStore('chats_chat', {
 			}
 		},
         sendMediaMessage: async function(mediaData) {
+            if(mediaData.type === 'video') {
+                const targetChatId = this.chatId;
+                const updateMessage = message => {
+                    if(this.chatId === targetChatId) this.upsertMessage(message);
+                    else this.inboxStore.updateChatFromMessage(message, useAuthStore().userData.id, this.chatId);
+                };
+                let pendingMessage = null;
+                try {
+                    const result = await directVideoUpload({
+                        file: mediaData.file,
+                        options: {
+                            name: mediaData.name,
+                            extension: mediaData.extension,
+                            duration: mediaData.duration,
+                            parent_id: mediaData.parent_id,
+                        },
+                        request: (action, payload) => AxiosAuth.post(`v1/chats/${targetChatId}/media/video/direct/${action}`, payload),
+                        onCreated: upload => { pendingMessage = upload.message; updateMessage(pendingMessage); },
+                        onProgress: progress => {
+                            if(pendingMessage?.relations?.media) {
+                                pendingMessage.relations.media.metadata.upload_progress = progress;
+                                updateMessage({ ...pendingMessage });
+                            }
+                        },
+                    });
+                    if(result) { updateMessage(result.message); return; }
+                }
+                catch(error) {
+                    if(pendingMessage?.relations?.media) {
+                        pendingMessage.relations.media.metadata.processing_state = 'failed';
+                        updateMessage({ ...pendingMessage });
+                    }
+                    throw error;
+                }
+            }
             const formData = new FormData();
             const dateTime = new Date().toISOString();
             const targetChatId = this.chatId;

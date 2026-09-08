@@ -286,12 +286,8 @@
                 mainMenu: useMenu()
             });
 
-            const canSubmitWhileVideoUploadContinues = computed(() => {
-                return Boolean(state.directVideoUploadReady && state.postMediaUploadProgress && ! postEditorStore.isEditingPost);
-            });
-
             const submitButtonStatus = computed(() => {
-                return state.postSubmitting || (Boolean(state.postMediaUploadProgress) && ! canSubmitWhileVideoUploadContinues.value);
+                return state.postSubmitting || Boolean(state.postMediaUploadProgress);
             });
 
             const textInputHandler = function() {
@@ -1078,7 +1074,7 @@
             }
 
             const submitForm = async () => {
-                if(state.postMediaUploadProgress && ! canSubmitWhileVideoUploadContinues.value) {
+                if(state.postMediaUploadProgress) {
                     toastError('Please wait until the video upload reaches 100%.');
                     return;
                 }

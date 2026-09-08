@@ -67,7 +67,12 @@ return [
             'driver' => 'redis',
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
             'queue' => env('REDIS_QUEUE', 'default'),
-            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 90),
+            'retry_after' => max(
+                (int) env('REDIS_QUEUE_RETRY_AFTER', 3900),
+                (int) env('POST_VIDEO_PROCESSING_TIMEOUT', 3600) + 300,
+                (int) env('MEDIA_VIDEO_TIMEOUT', 3600) + 300,
+                (int) env('MEDIA_VIDEO_HIGH_TIMEOUT', 3600) + 300
+            ),
             'block_for' => null,
             'after_commit' => false,
         ],

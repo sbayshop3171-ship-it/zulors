@@ -302,8 +302,8 @@ trait WithMediaUpload
                 'type' => MediaType::IMAGE,
                 'status' => MediaStatus::PROCESSED,
                 'disk' => $imageData['disk'],
-                'extension' => $mediaData->getClientOriginalExtension(),
-                'mime' => $mediaData->getClientMimeType(),
+                'extension' => $imageData['image_extension'] ?? pathinfo($imageData['image_path'], PATHINFO_EXTENSION),
+                'mime' => $imageData['image_mime'] ?? 'image/webp',
                 'size' => $imageData['image_size'],
                 'lqip_base64' => null,
                 'metadata' => []
@@ -382,8 +382,8 @@ trait WithMediaUpload
                     'type' => MessageType::VIDEO,
                 ]);
 
-                ProcessChatVideo::dispatchAfterResponse($this->messageData)
-                    ->onQueue(config('media.queues.video'));
+                ProcessChatVideo::dispatch($this->messageData)
+                    ->onQueue(config('media.queues.video_high'));
 
                 return;
             }

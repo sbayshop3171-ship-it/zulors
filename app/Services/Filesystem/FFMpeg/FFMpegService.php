@@ -33,8 +33,8 @@ class FFMpegService
         $this->ffmpeg = FFMpeg::create([
             'ffmpeg.binaries' => $ffmpegPath,
             'ffprobe.binaries' => $ffprobePath,
-            'timeout' => config('ffmpeg.timeout'),
-            'ffmpeg.threads' => config('ffmpeg.threads'),
+            'timeout' => config('ffmpeg.timeout') ?: 3600,
+            'ffmpeg.threads' => max(1, (int) config('media.processing.ffmpeg_threads', 2)),
             'temporary_directory' => $temporaryDirectory
         ]);
 

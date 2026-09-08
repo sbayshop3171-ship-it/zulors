@@ -38,7 +38,8 @@ Schedule::command('timeline:affinity-decay')->dailyAt('02:35');
 Schedule::command('timeline:creator-quality-daily')->dailyAt('03:15');
 Schedule::command('timeline:reel-quality-hourly')->hourlyAt(20);
 
-Schedule::command('media:cleanup-temp --hours=24')->dailyAt('03:00');
+Schedule::command('media:cleanup-temp --hours=72')->dailyAt('03:00')->withoutOverlapping();
+Schedule::command('horizon:snapshot')->everyFiveMinutes();
 
 Schedule::command('calls:cleanup-stale --limit=200')->everyMinute()->withoutOverlapping();
 

@@ -21,12 +21,15 @@ use App\Constants\Relationship;
 use App\Database\Configs\Table;
 use App\Enums\Chat\ChatType;
 use App\Enums\Chat\MessageType;
+use App\Enums\Media\MediaStatus;
+use App\Enums\Media\MediaType;
 use App\Enums\User\PrivacyPermit;
 use App\Events\User\Chat\MessageDeletedEvent;
 use App\Events\User\Chat\MessageMediaReadyEvent;
 use App\Events\User\Chat\MessageReadEvent;
 use App\Events\User\Chat\MessageReceivedEvent;
 use App\Events\User\Chat\MessageReactionsUpdatedEvent;
+use App\Jobs\User\Chat\ProcessChatVideo;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\User\Chat\ChatCollection;
 use App\Http\Resources\User\Chat\ChatResource;
@@ -48,6 +51,7 @@ use App\Models\User;
 use App\Notifications\User\Chat\MessageReceivedNotification;
 use App\Rules\X\XRule;
 use App\Services\Reaction\ReactionService;
+use App\Services\Media\Cloudflare\R2DirectUploadService;
 use App\Services\Relations\BlockService;
 use App\Services\Relations\FollowService;
 use App\Support\Num;
@@ -66,6 +70,7 @@ use Throwable;
 
 class ChatController extends Controller
 {
+    use \App\Traits\Http\Controllers\Api\SerializesMediaCompletion;
     use SupportsApiResponses,
         WithMediaUpload,
         AuthorizesRequests;
@@ -118,6 +123,85 @@ class ChatController extends Controller
                 $query->where('user_id', me()->id);
             })
             ->first();
+    }
+
+    private function findOwnedChatDirectVideoMedia(string $chatId, int $mediaId, string $uid)
+    {
+        return \App\Models\Media::query()
+            ->where('id', $mediaId)
+            ->where(function ($query) use ($uid) {
+                $query->where('source_path', $uid)->orWhere('metadata->temp_path', $uid);
+            })
+            ->where('type', MediaType::VIDEO->value)
+            ->whereHasMorph('mediaable', [Message::class], function($query) use ($chatId) {
+                $query->where('user_id', me()->id)
+                    ->where('chat_uuid', $chatId)
+                    ->whereHas('chat.participants', function($participantQuery) {
+                        $participantQuery->where('user_id', me()->id);
+                    });
+            })
+            ->with('mediaable.chat')
+            ->first();
+    }
+
+    private function maxDirectVideoBytes(): int
+    {
+        return max(1, (int) config('media.uploads.video.max_bytes', 1024 * 1024 * 1024));
+    }
+
+    private function maxDirectVideoDurationSeconds(): int
+    {
+        return max(1, (int) config('media.uploads.video.max_duration_seconds', 600));
+    }
+
+    private function chatDirectVideoPresentationMetadata(Request $request): array
+    {
+        $width = $request->integer('width', 0);
+        $height = $request->integer('height', 0);
+
+        if($width < 1 || $height < 1) {
+            return [
+                'is_portrait' => false,
+            ];
+        }
+
+        return [
+            'dimensions' => [
+                'width' => $width,
+                'height' => $height,
+            ],
+            'aspect_ratio' => round($width / $height, 6),
+            'is_portrait' => $width < $height,
+        ];
+    }
+
+    private function chatDirectVideoPublicDisk(R2DirectUploadService $r2DirectUploadService): string
+    {
+        $finalDisk = $r2DirectUploadService->finalDisk();
+
+        if((bool) data_get(config("filesystems.disks.{$finalDisk}"), 'enabled', true)) {
+            return $finalDisk;
+        }
+
+        return app(\App\Services\Filesystem\RoundRobin\RoundRobinService::class)->getNextDisk();
+    }
+
+    private function chatDirectVideoUploadPayload(array $uploadData): array
+    {
+        return [
+            'direct_upload' => true,
+            'provider' => $uploadData['provider'],
+            'uid' => $uploadData['uid'],
+            'upload_url' => $uploadData['upload_url'],
+            'upload_method' => $uploadData['upload_method'],
+            'upload_type' => $uploadData['upload_type'],
+            'upload_headers' => $uploadData['upload_headers'],
+            'upload_id' => $uploadData['upload_id'] ?? null,
+            'part_size' => $uploadData['part_size'] ?? null,
+            'parts' => $uploadData['parts'] ?? [],
+            'upload_concurrency' => $uploadData['upload_concurrency'] ?? null,
+            'expires_at' => $uploadData['expires_at'],
+        ];
     }
 
     private function isPendingAudioMessage(?Message $messageData): bool
@@ -694,6 +778,281 @@ class ChatController extends Controller
         else{
             return $this->throwValidationError($validator);
         }
+    }
+
+    public function createDirectVideoUpload(Request $request, string $chatId, R2DirectUploadService $r2DirectUploadService)
+    {
+        $request->validate([
+            'parent_id' => ['nullable', 'integer'],
+            'client_uid' => ['nullable', 'string', 'max:100'],
+            'name' => ['nullable', 'string', 'max:255'],
+            'size' => ['required', 'integer', 'min:1', 'max:' . $this->maxDirectVideoBytes()],
+            'mime' => ['nullable', 'string', 'max:120'],
+            'extension' => ['nullable', 'string', 'max:16'],
+            'width' => ['nullable', 'integer', 'min:1', 'max:20000'],
+            'height' => ['nullable', 'integer', 'min:1', 'max:20000'],
+            'duration_seconds' => ['required', 'integer', 'min:1', 'max:' . $this->maxDirectVideoDurationSeconds()],
+        ]);
+
+        if(! $r2DirectUploadService->isConfigured()) {
+            return $this->responseSuccess([
+                'data' => [
+                    'direct_upload' => false,
+                    'reason' => 'direct_upload_not_configured',
+                ]
+            ]);
+        }
+
+        $chatData = Chat::participatedChats()->where('chat_id', $chatId)->first();
+
+        if(empty($chatData)) {
+            return $this->responseResourceNotFoundError('Chat', $chatId);
+        }
+
+        $parentId = $request->integer('parent_id');
+
+        if($parentId && ! $chatData->messages()->where('id', $parentId)->exists()) {
+            return $this->responseResourceNotFoundError('Message', $parentId);
+        }
+
+        try {
+            $participantData = $chatData->participants()->where('user_id', me()->id)->first();
+            $uploadData = $r2DirectUploadService->createVideoUpload([
+                'name' => (string) $request->input('name'),
+                'size' => $request->integer('size', 0),
+                'mime' => (string) $request->input('mime', 'video/mp4'),
+                'extension' => (string) $request->input('extension', 'mp4'),
+            ]);
+
+            $messageData = $chatData->messages()->create([
+                'content' => null,
+                'user_id' => me()->id,
+                'chat_uuid' => $chatId,
+                'participant_id' => $participantData->id,
+                'parent_id' => $parentId ?: null,
+                'text_language' => '',
+                'type' => MessageType::VIDEO,
+            ]);
+
+            $participantData->update([
+                'last_read_message_id' => $messageData->id,
+                'last_read_at' => now()
+            ]);
+
+            $videoPublicDisk = $this->chatDirectVideoPublicDisk($r2DirectUploadService);
+            $messageData->media()->create([
+                'source_path' => $uploadData['path'],
+                'type' => MediaType::VIDEO,
+                'status' => MediaStatus::PROCESSING,
+                'disk' => $uploadData['disk'],
+                'extension' => $request->input('extension', 'mp4'),
+                'mime' => $request->input('mime', 'video/mp4'),
+                'size' => $request->integer('size', 0),
+                'thumbnail_disk' => $videoPublicDisk,
+                'metadata' => array_merge($this->chatDirectVideoPresentationMetadata($request), [
+                    'duration' => parse_duration($request->integer('duration_seconds')),
+                    'duration_seconds' => $request->integer('duration_seconds'),
+                    'provider' => $uploadData['provider'],
+                    'upload_state' => 'waiting_for_upload',
+                    'upload_progress' => 0,
+                    'upload_disk' => $uploadData['upload_disk'] ?? $uploadData['disk'],
+                    'temp_disk' => $uploadData['disk'],
+                    'temp_path' => $uploadData['path'],
+                    'final_disk' => $uploadData['final_disk'],
+                    'upload_url_expires_at' => $uploadData['expires_at'],
+                    'upload_method' => $uploadData['upload_method'],
+                    'upload_type' => $uploadData['upload_type'],
+                    'upload_id' => $uploadData['upload_id'] ?? null,
+                    'part_size' => $uploadData['part_size'] ?? null,
+                    'parts_count' => count($uploadData['parts'] ?? []),
+                    'processing_progress' => 0,
+                    'processing_state' => 'waiting_for_upload',
+                    'client_uid' => $request->input('client_uid'),
+                    'original_name' => (string) $request->input('name'),
+                    'original_size' => $request->integer('size', 0),
+                ])
+            ]);
+
+            $chatData->update([
+                'last_activity' => now()
+            ]);
+
+            if($chatData->type->isDirect()) {
+                HiddenChat::where('chat_id', $chatData->id)->delete();
+            }
+
+            $messageData = $this->loadMessageRealtimeRelations($messageData->fresh());
+
+            return $this->responseSuccess([
+                'data' => array_merge($this->chatDirectVideoUploadPayload($uploadData), [
+                    'media_id' => $messageData->media->id,
+                    'message' => MessageResource::make($messageData),
+                    'media' => $messageData->media ? \App\Http\Resources\User\Media\MediaResource::make($messageData->media) : null,
+                ])
+            ], Response::HTTP_CREATED);
+        }
+        catch (Exception $e) {
+            return $this->responseValidationError([
+                'message' => $e->getMessage(),
+                'errors' => [
+                    'video' => [
+                        $e->getMessage()
+                    ]
+                ]
+            ]);
+        }
+    }
+
+    public function updateDirectVideoUploadProgress(Request $request, string $chatId)
+    {
+        $request->validate([
+            'media_id' => ['required', 'integer'],
+            'uid' => ['required', 'string', 'max:255'],
+            'upload_progress' => ['required', 'integer', 'min:0', 'max:100'],
+            'upload_state' => ['nullable', 'string', 'in:waiting_for_upload,uploading,failed'],
+        ]);
+
+        $media = $this->findOwnedChatDirectVideoMedia($chatId, $request->integer('media_id'), (string) $request->input('uid'));
+
+        if(empty($media)) {
+            return $this->responseNotFoundError();
+        }
+
+        $metadata = $media->metadata ?? [];
+
+        if(data_get($metadata, 'upload_state') === 'uploaded') {
+            return $this->responseSuccess([
+                'data' => [
+                    'media' => \App\Http\Resources\User\Media\MediaResource::make($media)
+                ]
+            ]);
+        }
+
+        $progress = $request->integer('upload_progress');
+
+        if($request->input('upload_state') === 'failed') {
+            $metadata['upload_state'] = 'failed';
+            $metadata['upload_failed_at'] = now()->toIso8601String();
+            $metadata['processing_state'] = 'failed';
+            $media->status = MediaStatus::FAILED;
+        }
+        else {
+            $metadata['upload_state'] = $progress > 0 ? 'uploading' : data_get($metadata, 'upload_state', 'waiting_for_upload');
+            $media->status = MediaStatus::PROCESSING;
+        }
+
+        $metadata['upload_progress'] = $progress;
+        $metadata['upload_progress_updated_at'] = now()->toIso8601String();
+        $media->metadata = $metadata;
+        $media->save();
+
+        return $this->responseSuccess([
+            'data' => [
+                'media' => \App\Http\Resources\User\Media\MediaResource::make($media->refresh())
+            ]
+        ]);
+    }
+
+    public function completeDirectVideoUpload(Request $request, string $chatId, R2DirectUploadService $r2DirectUploadService)
+    {
+        return $this->serializeMediaCompletion($request, fn () => $this->finishVideoUpload($request, $chatId, $r2DirectUploadService));
+    }
+
+    private function finishVideoUpload(Request $request, string $chatId, R2DirectUploadService $r2DirectUploadService)
+    {
+        $request->validate([
+            'media_id' => ['required', 'integer'],
+            'uid' => ['required', 'string', 'max:255'],
+            'upload_id' => ['nullable', 'string', 'max:2048'],
+            'parts' => ['nullable', 'array'],
+            'parts.*.part_number' => ['required_with:parts', 'integer', 'min:1', 'max:10000'],
+            'parts.*.etag' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $media = $this->findOwnedChatDirectVideoMedia($chatId, $request->integer('media_id'), (string) $request->input('uid'));
+
+        if(empty($media)) {
+            return $this->responseNotFoundError();
+        }
+
+        $metadata = $media->metadata ?? [];
+
+        if(data_get($metadata, 'upload_state') === 'uploaded' || $media->status->isProcessed()) {
+            return $this->responseSuccess(['data' => [
+                'message' => MessageResource::make($this->loadMessageRealtimeRelations($media->mediaable->fresh())),
+                'media' => \App\Http\Resources\User\Media\MediaResource::make($media),
+            ]]);
+        }
+
+        try {
+            if(data_get($metadata, 'upload_type') === 'multipart' && data_get($metadata, 'upload_state') !== 'uploaded') {
+                $r2DirectUploadService->completeMultipartUpload(
+                    $media->source_path,
+                    (string) ($request->input('upload_id') ?: data_get($metadata, 'upload_id')),
+                    $request->array('parts'),
+                    $media->disk,
+                    (int) data_get($metadata, 'parts_count', 0)
+                );
+            }
+
+            if(! $r2DirectUploadService->uploaded($media->source_path, $media->disk)) {
+                throw new Exception('Direct chat video file was not found on R2.');
+            }
+
+            $r2DirectUploadService->verifyUploadedVideo($media->source_path, $media->disk, (int) $media->size);
+        }
+        catch (Exception $e) {
+            return $this->responseValidationError([
+                'message' => $e->getMessage(),
+                'errors' => [
+                    'video' => [
+                        $e->getMessage()
+                    ]
+                ]
+            ]);
+        }
+
+        $metadata = array_merge($metadata, [
+            'upload_state' => 'uploaded',
+            'upload_progress' => 100,
+            'upload_completed_at' => now()->toIso8601String(),
+            'processing_progress' => max(1, (int) data_get($metadata, 'processing_progress', 0)),
+            'processing_state' => 'queued',
+            'processing_dispatched_at' => now()->toIso8601String(),
+            'processing_updated_at' => now()->toIso8601String(),
+            'original_size' => (int) ($media->size ?: data_get($metadata, 'original_size', 0)),
+        ]);
+
+        $media->metadata = $metadata;
+        $media->status = MediaStatus::PROCESSING;
+        $media->save();
+
+        $messageData = $this->loadMessageRealtimeRelations($media->mediaable->fresh());
+        $clientUid = (string) data_get($metadata, 'client_uid', $request->input('client_uid'));
+
+        ProcessChatVideo::dispatch($messageData)->onQueue(config('media.queues.video_high'));
+
+        try {
+            event(new MessageReceivedEvent($messageData, $clientUid ?: null));
+
+            $messageData->chat->participants()
+                ->whereNot('user_id', me()->id)
+                ->with('user')
+                ->get()
+                ->each(function ($participantData) use ($messageData) {
+                    $participantData->user->notify(new MessageReceivedNotification($messageData));
+                });
+        }
+        catch (Throwable $th) {
+            // Pass
+        }
+
+        return $this->responseSuccess([
+            'data' => [
+                'message' => MessageResource::make($messageData),
+                'media' => \App\Http\Resources\User\Media\MediaResource::make($media->refresh()),
+            ]
+        ]);
     }
 
     public function initAudioMessage(Request $request)

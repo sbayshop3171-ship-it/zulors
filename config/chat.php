@@ -81,7 +81,7 @@ return [
                     'application/x-rar-compressed',
                     'application/vnd.rar',
                 ]),
-                'max' => '512000' // 512MB
+                'max' => env('CHAT_MEDIA_MAX_SIZE', 1048576) // 1GB
             ],
         ]
     ],

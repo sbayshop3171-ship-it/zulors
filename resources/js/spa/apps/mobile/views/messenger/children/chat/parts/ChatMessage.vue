@@ -21,7 +21,10 @@
                                     <template v-if="messageData.type === 'image'">
                                         <MessageImage v-bind:mediaData="{ mediaItem: messageData.relations.media, userName: messageUser.name, date: messageData.date.iso }"></MessageImage>
                                     </template>
-	                                    <template v-else-if="messageData.type === 'video_circle'">
+                            <PendingVideoMessage
+                                v-else-if="['video', 'video_circle'].includes(messageData.type) && !messageData.relations.media.source_url && !messageData.relations.media.preview_url"
+                                :media="messageData.relations.media" />
+                            <template v-else-if="messageData.type === 'video_circle'">
 	                                        <CircleVideoPlayer
 	                                            v-bind:thumbnailUrl="messageData.relations.media.thumbnail_url"
 	                                            v-bind:duration="messageData.relations.media.metadata.duration"
@@ -145,6 +148,7 @@
 	import ChatMessageReply from '@M/views/messenger/children/chat/parts/ChatMessageReply.vue';
     import CircleVideoPlayer from '@/kernel/vue/components/players/CircleVideoPlayer.vue';
     import PendingAudioMessage from '@/kernel/vue/components/players/PendingAudioMessage.vue';
+    import PendingVideoMessage from '@/kernel/vue/components/players/PendingVideoMessage.vue';
     import AudioPlayer from '@M/components/players/audio/AudioPlayer.vue';
     import VideoPlayer from '@M/components/players/video/VideoPlayer.vue';
 
@@ -274,6 +278,7 @@
             CircleVideoPlayer: CircleVideoPlayer,
             VideoPlayer: VideoPlayer,
             PendingAudioMessage: PendingAudioMessage,
+            PendingVideoMessage: PendingVideoMessage,
 			ChatMessageReply: ChatMessageReply,
 			LinkSnapshot: defineAsyncComponent(() => {
                 return import('@M/components/media/links/LinkSnapshot.vue');

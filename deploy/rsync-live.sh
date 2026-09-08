@@ -119,7 +119,7 @@ ssh "${SSH_OPTS[@]}" "${LIVE_USER}@${LIVE_HOST}" "set -e && \
 	cd '$REMOTE_RELEASE' && \
 	grep -q '^APP_ENV=production' .env && \
 	grep -q '^APP_KEY=' .env && \
-	SHARED_STORAGE_PUBLIC_PATH='$SHARED_STORAGE_PUBLIC' SHARED_STORAGE_SESSIONS_PATH='$SHARED_STORAGE_SESSIONS' bash deploy/live-deploy.sh && \
+	RUN_MIGRATIONS=0 RESTART_HORIZON=0 SHARED_STORAGE_PUBLIC_PATH='$SHARED_STORAGE_PUBLIC' SHARED_STORAGE_SESSIONS_PATH='$SHARED_STORAGE_SESSIONS' bash deploy/live-deploy.sh && \
 	php artisan config:clear >/dev/null && \
 	php artisan route:list --no-ansi >/dev/null && \
 	php artisan about --only=environment --no-ansi >/dev/null"
@@ -314,6 +314,12 @@ attach_shared_sessions_storage "$REMOTE_RELEASE"
 rm -rf "$REMOTE_BACKUP"
 
 put_live_down
+for runtime_directory in tmp bin; do
+	if [ -d "$LIVE_PATH/storage/app/$runtime_directory" ]; then
+		mkdir -p "$REMOTE_RELEASE/storage/app/$runtime_directory"
+		rsync -a "$LIVE_PATH/storage/app/$runtime_directory/" "$REMOTE_RELEASE/storage/app/$runtime_directory/"
+	fi
+done
 mv "$LIVE_PATH" "$REMOTE_BACKUP"
 mv "$REMOTE_RELEASE" "$LIVE_PATH"
 
@@ -321,7 +327,7 @@ cd "$LIVE_PATH"
 attach_shared_public_storage "$LIVE_PATH"
 attach_shared_private_storage "$LIVE_PATH"
 attach_shared_sessions_storage "$LIVE_PATH"
-SHARED_STORAGE_PUBLIC_PATH="$SHARED_STORAGE_PUBLIC" SHARED_STORAGE_SESSIONS_PATH="$SHARED_STORAGE_SESSIONS" MEDIA_GUARD_MIN_USER_FILES="$pre_media_count" INSTALL_DEPS=1 BUILD_ASSETS=1 RUN_MIGRATIONS=1 bash deploy/live-deploy.sh
+SHARED_STORAGE_PUBLIC_PATH="$SHARED_STORAGE_PUBLIC" SHARED_STORAGE_SESSIONS_PATH="$SHARED_STORAGE_SESSIONS" MEDIA_GUARD_MIN_USER_FILES="$pre_media_count" INSTALL_DEPS=0 BUILD_ASSETS=0 RUN_MIGRATIONS=1 bash deploy/live-deploy.sh
 put_live_up
 curl -fsSL --max-time 20 "$LIVE_URL/" -o /dev/null
 curl -fsSL --max-time 20 "$LIVE_URL/admin/login" -o /dev/null

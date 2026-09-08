@@ -62,7 +62,9 @@ class VideoThumbnailService extends AbstractFFMpegService
 
                 $video = $ffmpeg->open(storage_local_path($videoLocalPath, 'local'));
 
-                $video->frame(TimeCode::fromSeconds($this->secondsOffset))->save($tempThumbnailPath);
+                $duration = (float) $this->ffmpegService->getFFProbe()->format(storage_local_path($videoLocalPath))->get('duration');
+                $offset = max(0, min($this->secondsOffset, $duration - 0.1));
+                $video->frame(TimeCode::fromSeconds($offset))->save($tempThumbnailPath);
 
                 return $tempThumbnailPath;
 

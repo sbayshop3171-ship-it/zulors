@@ -32,12 +32,14 @@ use App\Services\Filesystem\Upload\ImageUploadService;
 use App\Services\Filesystem\Upload\VideoUploadService;
 use App\Services\Filesystem\RoundRobin\RoundRobinService;
 use App\Services\Filesystem\Upload\VideoThumbnailService;
+use App\Services\Media\Cloudflare\R2DirectUploadService;
 use App\Services\Filesystem\Base64Image\Base64ImageService;
 use App\Traits\Http\Controllers\Api\User\Story\ValidatesStoryMedia;
 use App\Traits\Http\Controllers\Api\User\Story\InteractsWithDraftStoryFrame;
 
 class StoryMediaController extends Controller
 {
+    use \App\Traits\Http\Controllers\Api\SerializesMediaCompletion;
     use InteractsWithDraftStoryFrame,
         ValidatesStoryMedia,
         SupportsApiResponses;
@@ -83,6 +85,264 @@ class StoryMediaController extends Controller
 
             return $this->uploadStoryVideo($request, $mediaFile);
         }
+    }
+
+    public function createDirectVideoUpload(Request $request, R2DirectUploadService $r2DirectUploadService)
+    {
+        if(! $this->canAddStoryFrame()) {
+            return $this->responseValidationError([
+                'message' => __('story.validation.frame_count.max', ['max' => config('story.max_frames_per_story')]),
+                'errors' => [
+                    'media_file' => [
+                        __('story.validation.frame_count.max', ['max' => config('story.max_frames_per_story')])
+                    ]
+                ]
+            ]);
+        }
+
+        $request->validate([
+            'name' => ['nullable', 'string', 'max:255'],
+            'size' => ['required', 'integer', 'min:1', 'max:' . $this->maxDirectVideoBytes()],
+            'mime' => ['nullable', 'string', 'max:120'],
+            'extension' => ['nullable', 'string', 'max:16'],
+            'width' => ['nullable', 'integer', 'min:1', 'max:20000'],
+            'height' => ['nullable', 'integer', 'min:1', 'max:20000'],
+            'duration_seconds' => ['nullable', 'numeric', 'min:0', 'max:' . $this->maxDirectVideoDurationSeconds()],
+            'clip_start_seconds' => ['nullable', 'numeric', 'min:0', 'max:' . $this->maxDirectVideoDurationSeconds()],
+            'clip_duration_seconds' => ['nullable', 'numeric', 'min:1', 'max:' . config('story.video_clip_size')],
+        ]);
+
+        if(! $r2DirectUploadService->isConfigured()) {
+            return $this->responseSuccess([
+                'data' => [
+                    'direct_upload' => false,
+                    'reason' => 'direct_upload_not_configured',
+                ]
+            ]);
+        }
+
+        if($this->draftStoryFrame->media()->exists()) {
+            return $this->responseValidationError([
+                'message' => 'Please remove the current story media before uploading a new video.',
+                'errors' => [
+                    'media_file' => [
+                        'Please remove the current story media before uploading a new video.'
+                    ]
+                ]
+            ]);
+        }
+
+        try {
+            $uploadData = $r2DirectUploadService->createVideoUpload([
+                'name' => (string) $request->input('name'),
+                'size' => $request->integer('size', 0),
+                'mime' => (string) $request->input('mime', 'video/mp4'),
+                'extension' => (string) $request->input('extension', 'mp4'),
+            ]);
+
+            $clipData = $this->getStoryVideoClipData($request, (int) round((float) $request->input('duration_seconds', 0)));
+            $presentationMetadata = $this->videoPresentationMetadata($request);
+
+            $this->draftStoryFrame->type = StoryType::VIDEO;
+            $this->draftStoryFrame->duration_seconds = $clipData['duration_seconds'];
+            $this->draftStoryFrame->meta = array_merge($this->draftStoryFrame->meta ?? [], [
+                'video' => [
+                    'duration_seconds' => $clipData['duration_seconds'],
+                    'original_duration_seconds' => $clipData['original_duration_seconds'],
+                    'clip_start_seconds' => $clipData['start_seconds'],
+                    'clip_end_seconds' => $clipData['end_seconds'],
+                ]
+            ]);
+            $this->draftStoryFrame->save();
+
+            $storyMedia = $this->draftStoryFrame->media()->create([
+                'source_path' => $uploadData['path'],
+                'type' => MediaType::VIDEO,
+                'status' => MediaStatus::UNPROCESSED,
+                'disk' => $uploadData['disk'],
+                'extension' => $request->input('extension', 'mp4'),
+                'mime' => $request->input('mime', 'video/mp4'),
+                'size' => $request->integer('size', 0),
+                'metadata' => array_merge($presentationMetadata, [
+                    'duration_seconds' => $clipData['duration_seconds'],
+                    'duration' => parse_duration($clipData['duration_seconds']),
+                    'original_duration_seconds' => $clipData['original_duration_seconds'],
+                    'clip_start_seconds' => $clipData['start_seconds'],
+                    'clip_end_seconds' => $clipData['end_seconds'],
+                    'provider' => $uploadData['provider'],
+                    'upload_state' => 'waiting_for_upload',
+                    'upload_progress' => 0,
+                    'upload_disk' => $uploadData['upload_disk'] ?? $uploadData['disk'],
+                    'temp_disk' => $uploadData['disk'],
+                    'temp_path' => $uploadData['path'],
+                    'final_disk' => $uploadData['final_disk'],
+                    'upload_url_expires_at' => $uploadData['expires_at'],
+                    'upload_method' => $uploadData['upload_method'],
+                    'upload_type' => $uploadData['upload_type'],
+                    'upload_id' => $uploadData['upload_id'] ?? null,
+                    'part_size' => $uploadData['part_size'] ?? null,
+                    'parts_count' => count($uploadData['parts'] ?? []),
+                    'processing_state' => 'waiting_for_upload',
+                    'processing_progress' => 0,
+                    'original_name' => (string) $request->input('name'),
+                    'original_size' => $request->integer('size', 0),
+                ])
+            ]);
+
+            $this->draftStoryFrame->story->update([
+                'updated_at' => now()
+            ]);
+
+            return $this->responseSuccess([
+                'data' => array_merge($this->buildStoryVideoPreviewPayload($storyMedia, $clipData), [
+                    'direct_upload' => true,
+                    'media_id' => $storyMedia->id,
+                    'provider' => $uploadData['provider'],
+                    'uid' => $uploadData['uid'],
+                    'upload_url' => $uploadData['upload_url'],
+                    'upload_method' => $uploadData['upload_method'],
+                    'upload_type' => $uploadData['upload_type'],
+                    'upload_headers' => $uploadData['upload_headers'],
+                    'upload_id' => $uploadData['upload_id'] ?? null,
+                    'part_size' => $uploadData['part_size'] ?? null,
+                    'parts' => $uploadData['parts'] ?? [],
+                    'upload_concurrency' => $uploadData['upload_concurrency'] ?? null,
+                    'expires_at' => $uploadData['expires_at'],
+                ])
+            ]);
+        }
+        catch (Exception $e) {
+            return $this->responseValidationError([
+                'message' => $e->getMessage(),
+                'errors' => [
+                    'media_file' => [
+                        $e->getMessage()
+                    ]
+                ]
+            ]);
+        }
+    }
+
+    public function updateDirectVideoUploadProgress(Request $request)
+    {
+        $request->validate([
+            'media_id' => ['required', 'integer'],
+            'uid' => ['required', 'string', 'max:255'],
+            'upload_progress' => ['required', 'integer', 'min:0', 'max:100'],
+            'upload_state' => ['nullable', 'string', 'in:waiting_for_upload,uploading,failed'],
+        ]);
+
+        $storyMedia = $this->findOwnedDraftStoryVideoMedia($request->integer('media_id'), (string) $request->input('uid'));
+
+        if(empty($storyMedia)) {
+            return $this->responseNotFoundError();
+        }
+
+        $metadata = $storyMedia->metadata ?? [];
+
+        if(data_get($metadata, 'upload_state') === 'uploaded') {
+            return $this->responseSuccess([
+                'data' => $this->buildStoryVideoPreviewPayload($storyMedia, $this->clipDataFromMetadata($storyMedia))
+            ]);
+        }
+
+        $progress = $request->integer('upload_progress');
+
+        if($request->input('upload_state') === 'failed') {
+            $metadata['upload_state'] = 'failed';
+            $metadata['upload_failed_at'] = now()->toIso8601String();
+            $metadata['processing_state'] = 'failed';
+            $storyMedia->status = MediaStatus::FAILED;
+        }
+        else {
+            $metadata['upload_state'] = $progress > 0 ? 'uploading' : data_get($metadata, 'upload_state', 'waiting_for_upload');
+            $storyMedia->status = MediaStatus::UNPROCESSED;
+        }
+
+        $metadata['upload_progress'] = $progress;
+        $metadata['upload_progress_updated_at'] = now()->toIso8601String();
+
+        $storyMedia->metadata = $metadata;
+        $storyMedia->save();
+
+        return $this->responseSuccess([
+            'data' => $this->buildStoryVideoPreviewPayload($storyMedia->refresh(), $this->clipDataFromMetadata($storyMedia))
+        ]);
+    }
+
+    public function completeDirectVideoUpload(Request $request, R2DirectUploadService $r2DirectUploadService)
+    {
+        return $this->serializeMediaCompletion($request, fn () => $this->finishVideoUpload($request, $r2DirectUploadService));
+    }
+
+    private function finishVideoUpload(Request $request, R2DirectUploadService $r2DirectUploadService)
+    {
+        $request->validate([
+            'media_id' => ['required', 'integer'],
+            'uid' => ['required', 'string', 'max:255'],
+            'upload_id' => ['nullable', 'string', 'max:2048'],
+            'parts' => ['nullable', 'array'],
+            'parts.*.part_number' => ['required_with:parts', 'integer', 'min:1', 'max:10000'],
+            'parts.*.etag' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $storyMedia = $this->findOwnedDraftStoryVideoMedia($request->integer('media_id'), (string) $request->input('uid'));
+
+        if(empty($storyMedia)) {
+            return $this->responseNotFoundError();
+        }
+
+        $metadata = $storyMedia->metadata ?? [];
+
+        if(data_get($metadata, 'upload_state') === 'uploaded') {
+            return $this->responseSuccess(['data' => $this->buildStoryVideoPreviewPayload($storyMedia, $this->clipDataFromMetadata($storyMedia))]);
+        }
+
+        try {
+            if(data_get($metadata, 'upload_type') === 'multipart' && data_get($metadata, 'upload_state') !== 'uploaded') {
+                $r2DirectUploadService->completeMultipartUpload(
+                    $storyMedia->source_path,
+                    (string) ($request->input('upload_id') ?: data_get($metadata, 'upload_id')),
+                    $request->array('parts'),
+                    $storyMedia->disk,
+                    (int) data_get($metadata, 'parts_count', 0)
+                );
+            }
+
+            if(! $r2DirectUploadService->uploaded($storyMedia->source_path, $storyMedia->disk)) {
+                throw new Exception('Direct story video file was not found on R2.');
+            }
+
+            $r2DirectUploadService->verifyUploadedVideo($storyMedia->source_path, $storyMedia->disk, (int) $storyMedia->size);
+        }
+        catch (Exception $e) {
+            return $this->responseValidationError([
+                'message' => $e->getMessage(),
+                'errors' => [
+                    'media_file' => [
+                        $e->getMessage()
+                    ]
+                ]
+            ]);
+        }
+
+        $metadata = array_merge($metadata, [
+            'upload_state' => 'uploaded',
+            'upload_progress' => 100,
+            'upload_completed_at' => now()->toIso8601String(),
+            'processing_state' => 'uploaded',
+            'processing_progress' => 0,
+            'processing_updated_at' => now()->toIso8601String(),
+            'original_size' => (int) ($storyMedia->size ?: data_get($metadata, 'original_size', 0)),
+        ]);
+
+        $storyMedia->metadata = $metadata;
+        $storyMedia->status = MediaStatus::UNPROCESSED;
+        $storyMedia->save();
+
+        return $this->responseSuccess([
+            'data' => $this->buildStoryVideoPreviewPayload($storyMedia->refresh(), $this->clipDataFromMetadata($storyMedia))
+        ]);
     }
 
     public function deleteMedia()
@@ -146,8 +406,8 @@ class StoryMediaController extends Controller
                 'type' => MediaType::IMAGE,
                 'status' => MediaStatus::PROCESSED,
                 'disk' => $imageData['disk'],
-                'extension' => $mediaFile->getClientOriginalExtension(),
-                'mime' => $mediaFile->getClientMimeType(),
+                'extension' => $imageData['image_extension'] ?? pathinfo($imageData['image_path'], PATHINFO_EXTENSION),
+                'mime' => $imageData['image_mime'] ?? 'image/webp',
                 'size' => $imageData['image_size'],
                 'lqip_base64' => $LQIPBase64,
                 'metadata' => []
@@ -334,19 +594,88 @@ class StoryMediaController extends Controller
         ];
     }
 
+    private function clipDataFromMetadata(Media $storyMedia): array
+    {
+        $metadata = $storyMedia->metadata ?? [];
+
+        return [
+            'original_duration_seconds' => (int) data_get($metadata, 'original_duration_seconds', data_get($metadata, 'duration_seconds', 0)),
+            'start_seconds' => (int) data_get($metadata, 'clip_start_seconds', 0),
+            'duration_seconds' => (int) data_get($metadata, 'duration_seconds', $this->draftStoryFrame->duration_seconds ?: config('story.video_clip_size')),
+            'end_seconds' => (int) data_get($metadata, 'clip_end_seconds', data_get($metadata, 'duration_seconds', config('story.video_clip_size'))),
+        ];
+    }
+
+    private function videoPresentationMetadata(Request $request): array
+    {
+        $width = $request->integer('width', 0);
+        $height = $request->integer('height', 0);
+
+        if($width < 1 || $height < 1) {
+            return [];
+        }
+
+        return [
+            'dimensions' => [
+                'width' => $width,
+                'height' => $height,
+            ],
+            'aspect_ratio' => round($width / $height, 6),
+            'is_portrait' => $width < $height,
+        ];
+    }
+
+    private function findOwnedDraftStoryVideoMedia(int $mediaId, string $uid): ?Media
+    {
+        $storyMedia = Media::with('storyFrame.story')->find($mediaId);
+
+        if(
+            empty($storyMedia)
+            || $storyMedia->source_path !== $uid
+            || ! $storyMedia->type->isVideo()
+            || empty($storyMedia->storyFrame)
+            || empty($storyMedia->storyFrame->story)
+            || $storyMedia->storyFrame->story->user_id !== me()->id
+        ) {
+            return null;
+        }
+
+        return $storyMedia;
+    }
+
+    private function maxDirectVideoBytes(): int
+    {
+        return max(1, (int) config('media.uploads.video.max_bytes', 1024 * 1024 * 1024));
+    }
+
+    private function maxDirectVideoDurationSeconds(): int
+    {
+        return max(1, (int) config('media.uploads.video.max_duration_seconds', 600));
+    }
+
     private function buildStoryVideoPreviewPayload(Media $storyMedia, array $clipData): array
     {
         return [
             'id' => $storyMedia->id,
+            'status' => $storyMedia->status->value,
             'type' => 'video',
-            'source_url' => $this->storyEditorVideoPreviewUrl($storyMedia->id),
-            'preview_url' => $this->storyEditorVideoPreviewUrl($storyMedia->id),
-            'thumbnail_url' => storage_url($storyMedia->thumbnail_path, $storyMedia->thumbnail_disk),
+            'source_url' => $this->storyMediaCanPreviewOriginal($storyMedia) ? $this->storyEditorVideoPreviewUrl($storyMedia->id) : null,
+            'preview_url' => $this->storyMediaCanPreviewOriginal($storyMedia) ? $this->storyEditorVideoPreviewUrl($storyMedia->id) : null,
+            'thumbnail_url' => filled($storyMedia->thumbnail_path) ? storage_url($storyMedia->thumbnail_path, $storyMedia->thumbnail_disk) : null,
             'duration' => parse_duration($clipData['duration_seconds']),
             'duration_seconds' => $clipData['duration_seconds'],
             'clip_start_seconds' => $clipData['start_seconds'],
             'clip_end_seconds' => $clipData['end_seconds'],
             'metadata' => [
+                'provider' => data_get($storyMedia->metadata, 'provider'),
+                'upload_state' => data_get($storyMedia->metadata, 'upload_state'),
+                'processing_state' => data_get($storyMedia->metadata, 'processing_state'),
+                'processing_progress' => data_get($storyMedia->metadata, 'processing_progress', 0),
+                'temp_disk' => data_get($storyMedia->metadata, 'temp_disk'),
+                'final_disk' => data_get($storyMedia->metadata, 'final_disk'),
+                'original_size' => data_get($storyMedia->metadata, 'original_size', $storyMedia->size),
+                'optimized_size' => data_get($storyMedia->metadata, 'optimized_size'),
+                'optimization_ratio' => data_get($storyMedia->metadata, 'optimization_ratio'),
                 'duration' => parse_duration($clipData['duration_seconds']),
                 'duration_seconds' => $clipData['duration_seconds'],
                 'original_duration_seconds' => $clipData['original_duration_seconds'],
@@ -357,6 +686,11 @@ class StoryMediaController extends Controller
                 'is_portrait' => data_get($storyMedia->metadata, 'is_portrait', false),
             ],
         ];
+    }
+
+    private function storyMediaCanPreviewOriginal(Media $storyMedia): bool
+    {
+        return ! in_array(data_get($storyMedia->metadata, 'provider'), ['r2_temp', 'r2_direct'], true);
     }
 
     private function storyEditorVideoPreviewUrl(int $mediaId): string

@@ -13,7 +13,7 @@ class HandleStoryCreation
     public function handle(StoryCreatedEvent $event): void
     {
         if($event->frameData->type->isVideo()) {
-            ProcessStoryVideo::dispatch($event->frameData);
+            ProcessStoryVideo::dispatch($event->frameData)->onQueue(config('media.queues.video_high'));
         }
 
         $this->notifyMentionedUsers($event->frameData);

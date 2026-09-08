@@ -11,7 +11,7 @@ trait InteractsWithDraftStoryFrame
 
     private function fetchOrInitializeDraftStoryFrame()
     {
-        $userStory = me()->story;
+        $userStory = me()->story()->first();
 
         if(empty($userStory)) {
             $userStory = me()->story()->create([

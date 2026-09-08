@@ -272,8 +272,7 @@ class PostController extends Controller
             return true;
         }
 
-        return in_array(data_get($videoMedia->metadata, 'provider'), ['r2_temp', 'r2_direct'], true)
-            && data_get($videoMedia->metadata, 'upload_state') === 'uploaded';
+        return false;
     }
 
     private function validateDraftVideoAttachmentExists()
@@ -305,11 +304,7 @@ class PostController extends Controller
                 ]);
             }
 
-            if(
-                in_array($uploadProvider, ['r2_temp', 'r2_direct'], true) &&
-                $uploadState !== 'uploaded' &&
-                ! in_array($uploadState, ['waiting_for_upload', 'uploading'], true)
-            ) {
+            if(in_array($uploadProvider, ['r2_temp', 'r2_direct'], true) && $uploadState !== 'uploaded') {
                 return $this->responseValidationError([
                     'message' => 'Please wait until the video upload reaches 100%.',
                     'errors' => [

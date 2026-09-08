@@ -70,6 +70,21 @@ class VideoUploadService extends AbstractUploadService
         return $this->ffmpegService->getFFMpeg();
     }
 
+    public function validateVideoSource(string $localPath): void
+    {
+        $size = filesize(storage_local_path($localPath));
+        if(! $size || $size > (int) config('media.uploads.video.max_bytes', 1073741824)) {
+            throw new Exception('Video exceeds the upload size limit or is empty.');
+        }
+
+        $duration = (float) $this->getVideoDuration($localPath);
+        $dimensions = $this->getVideoDimensions($localPath);
+        if($duration <= 0 || $duration > (int) config('media.uploads.video.max_duration_seconds', 600)
+            || empty($dimensions['width']) || empty($dimensions['height'])) {
+            throw new Exception('Invalid video or video duration exceeds the allowed limit.');
+        }
+    }
+
     public function getFFProbe()
     {
         return $this->ffmpegService->getFFProbe();

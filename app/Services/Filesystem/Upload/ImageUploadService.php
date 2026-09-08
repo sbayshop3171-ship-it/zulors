@@ -117,7 +117,9 @@ class ImageUploadService extends AbstractUploadService
             $uploadData = [
                 'disk' => $this->storageDisk,
                 'image_size' => $this->getImageSize(),
-                'image_path' => $this->determineStoragePath($this->imageDefaultExtension)
+                'image_path' => $this->determineStoragePath($this->imageDefaultExtension),
+                'image_extension' => $this->imageDefaultExtension,
+                'image_mime' => $this->contentTypeForEncoder($this->imageEncoder),
             ];
 
             if (! empty($this->imageLQIPBase64)) {

@@ -2,7 +2,7 @@
 
 use Illuminate\Support\Str;
 
-return [
+$horizon = [
 
     /*
     |--------------------------------------------------------------------------
@@ -85,8 +85,11 @@ return [
 
     'waits' => [
         'redis:default' => 60,
-        'redis:'.env('MEDIA_VIDEO_QUEUE', 'media-video') => 300,
+        'redis:'.env('MEDIA_VIDEO_HIGH_QUEUE', 'media-video-high') => 180,
+        'redis:'.env('MEDIA_VIDEO_QUEUE', env('MEDIA_VIDEO_NORMAL_QUEUE', 'media-video-normal')) => 300,
         'redis:'.env('MEDIA_AUDIO_QUEUE', 'media-audio') => 180,
+        'redis:'.env('MEDIA_IMAGE_QUEUE', 'media-image') => 120,
+        'redis:'.env('MEDIA_CLEANUP_QUEUE', 'media-cleanup') => 600,
     ],
 
     /*
@@ -220,7 +223,7 @@ return [
         ],
         'supervisor-media-video' => [
             'connection' => 'redis',
-            'queue' => [env('MEDIA_VIDEO_QUEUE', 'media-video')],
+            'queue' => [env('MEDIA_VIDEO_QUEUE', env('MEDIA_VIDEO_NORMAL_QUEUE', 'media-video-normal'))],
             'balance' => 'simple',
             'maxProcesses' => (int) env('MEDIA_VIDEO_MAX_PROCESSES', 1),
             'maxTime' => 0,
@@ -229,6 +232,18 @@ return [
             'tries' => 1,
             'timeout' => (int) env('MEDIA_VIDEO_TIMEOUT', 3600),
             'nice' => 5,
+        ],
+        'supervisor-media-video-high' => [
+            'connection' => 'redis',
+            'queue' => [env('MEDIA_VIDEO_HIGH_QUEUE', 'media-video-high')],
+            'balance' => 'simple',
+            'maxProcesses' => (int) env('MEDIA_VIDEO_HIGH_MAX_PROCESSES', 1),
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => (int) env('MEDIA_VIDEO_HIGH_MEMORY', env('MEDIA_VIDEO_MEMORY', 768)),
+            'tries' => 1,
+            'timeout' => (int) env('MEDIA_VIDEO_HIGH_TIMEOUT', env('MEDIA_VIDEO_TIMEOUT', 3600)),
+            'nice' => 3,
         ],
         'supervisor-media-audio' => [
             'connection' => 'redis',
@@ -242,9 +257,45 @@ return [
             'timeout' => (int) env('MEDIA_AUDIO_TIMEOUT', 1800),
             'nice' => 5,
         ],
+        'supervisor-media-image' => [
+            'connection' => 'redis',
+            'queue' => [env('MEDIA_IMAGE_QUEUE', 'media-image')],
+            'balance' => 'simple',
+            'maxProcesses' => (int) env('MEDIA_IMAGE_MAX_PROCESSES', 1),
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => (int) env('MEDIA_IMAGE_MEMORY', 256),
+            'tries' => 1,
+            'timeout' => (int) env('MEDIA_IMAGE_TIMEOUT', 900),
+            'nice' => 5,
+        ],
+        'supervisor-media-cleanup' => [
+            'connection' => 'redis',
+            'queue' => [env('MEDIA_CLEANUP_QUEUE', 'media-cleanup')],
+            'balance' => 'simple',
+            'maxProcesses' => (int) env('MEDIA_CLEANUP_MAX_PROCESSES', 1),
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => (int) env('MEDIA_CLEANUP_MEMORY', 128),
+            'tries' => 1,
+            'timeout' => (int) env('MEDIA_CLEANUP_TIMEOUT', 900),
+            'nice' => 10,
+        ],
     ],
 
     'environments' => [
+        'media' => [
+            'supervisor-media-video' => [],
+            'supervisor-media-video-high' => [],
+            'supervisor-media-audio' => [],
+            'supervisor-media-image' => [],
+            'supervisor-media-cleanup' => [],
+        ],
+        'web' => [
+            'supervisor-default' => [],
+            'supervisor-high' => [],
+            'supervisor-low' => [],
+        ],
         'production' => [
             'supervisor-default' => [
                 'maxProcesses' => (int) env('QUEUE_DEFAULT_MAX_PROCESSES', 6),
@@ -258,8 +309,17 @@ return [
             'supervisor-media-video' => [
                 'maxProcesses' => (int) env('MEDIA_VIDEO_MAX_PROCESSES', 1),
             ],
+            'supervisor-media-video-high' => [
+                'maxProcesses' => (int) env('MEDIA_VIDEO_HIGH_MAX_PROCESSES', 1),
+            ],
             'supervisor-media-audio' => [
                 'maxProcesses' => (int) env('MEDIA_AUDIO_MAX_PROCESSES', 1),
+            ],
+            'supervisor-media-image' => [
+                'maxProcesses' => (int) env('MEDIA_IMAGE_MAX_PROCESSES', 1),
+            ],
+            'supervisor-media-cleanup' => [
+                'maxProcesses' => (int) env('MEDIA_CLEANUP_MAX_PROCESSES', 1),
             ],
         ],
 
@@ -273,6 +333,45 @@ return [
             'supervisor-low' => [
                 'maxProcesses' => 1,
             ],
+            'supervisor-media-video' => [
+                'maxProcesses' => 1,
+            ],
+            'supervisor-media-video-high' => [
+                'maxProcesses' => 1,
+            ],
+            'supervisor-media-audio' => [
+                'maxProcesses' => 1,
+            ],
+            'supervisor-media-image' => [
+                'maxProcesses' => 1,
+            ],
+            'supervisor-media-cleanup' => [
+                'maxProcesses' => 1,
+            ],
         ],
     ],
 ];
+
+if(env('MEDIA_VIDEO_SHARED_WORKER', false)) {
+    $horizon['defaults']['supervisor-media-video']['queue'] = array_values(array_unique([
+        env('MEDIA_VIDEO_HIGH_QUEUE', 'media-video-high'),
+        env('MEDIA_VIDEO_QUEUE', env('MEDIA_VIDEO_NORMAL_QUEUE', 'media-video-normal')),
+    ]));
+    foreach($horizon['environments'] as &$environment) {
+        unset($environment['supervisor-media-video-high']);
+    }
+    unset($environment);
+}
+
+// Horizon merges every default supervisor into every profile. Resolve each profile
+// explicitly so media-only/web-only hosts do not start the other host's workers.
+foreach($horizon['environments'] as &$environment) {
+    foreach($environment as $name => &$options) {
+        $options = array_replace($horizon['defaults'][$name], $options);
+    }
+    unset($options);
+}
+unset($environment);
+$horizon['defaults'] = [];
+
+return $horizon;

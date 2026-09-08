@@ -47,7 +47,10 @@
 					</template>
 
 						<template v-if="hasMedia && isNotDeleted">
-							<template v-if="messageData.type === 'video_circle'">
+                            <PendingVideoMessage
+                                v-if="['video', 'video_circle'].includes(messageData.type) && !messageData.relations.media.source_url && !messageData.relations.media.preview_url"
+                                :media="messageData.relations.media" />
+                            <template v-else-if="messageData.type === 'video_circle'">
 								<div class="mt-1">
 									<CircleVideoPlayer
 										v-bind:thumbnailUrl="messageData.relations.media.thumbnail_url"
@@ -166,6 +169,7 @@
 	import TextTranslateButton from '@D/components/inter-ui/buttons/TextTranslateButton.vue';
     import CircleVideoPlayer from '@/kernel/vue/components/players/CircleVideoPlayer.vue';
     import PendingAudioMessage from '@/kernel/vue/components/players/PendingAudioMessage.vue';
+    import PendingVideoMessage from '@/kernel/vue/components/players/PendingVideoMessage.vue';
     import AudioPlayer from '@D/components/players/audio/AudioPlayer.vue';
     import VideoPlayer from '@D/components/players/video/VideoPlayer.vue';
 
@@ -353,6 +357,7 @@
             VideoPlayer: VideoPlayer,
             AudioPlayer: AudioPlayer,
             PendingAudioMessage: PendingAudioMessage,
+            PendingVideoMessage: PendingVideoMessage,
 			ReactionsPicker: defineAsyncComponent(() => {
                 return import('@D/components/reactions/ReactionsPicker.vue');
             }),

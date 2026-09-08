@@ -4,8 +4,11 @@ namespace App\Jobs\User\Chat;
 
 use App\Constants\Filesystem;
 use App\Enums\Media\MediaStatus;
+use App\Events\User\Chat\MessageMediaReadyEvent;
 use App\Models\Message;
 use App\Services\Filesystem\Delete\FileDeleteService;
+use App\Services\Filesystem\Upload\ImageUploadService;
+use App\Services\Filesystem\Upload\VideoThumbnailService;
 use App\Services\Filesystem\Upload\VideoUploadService;
 use Exception;
 use FFMpeg\Format\Video\X264;
@@ -26,12 +29,15 @@ class ProcessChatVideo implements ShouldQueue
     public function __construct(Message $messageData)
     {
         $this->messageData = $messageData;
+        $this->onConnection(config('media.queue_connection'));
     }
 
     public function handle(): void
     {
         $messageMedia = null;
         $videoTempOldPath = null;
+        $videoOutputPath = null;
+        $remoteSource = false;
 
         try {
             $videoUploadService = app(VideoUploadService::class);
@@ -44,20 +50,25 @@ class ProcessChatVideo implements ShouldQueue
 
             $messageMedia = $this->messageData->media;
 
-            if(empty($messageMedia) || ! $messageMedia->type->isVideo()) {
+            if(empty($messageMedia) || ! $messageMedia->type->isVideo() || $messageMedia->status->isProcessed()) {
                 return;
             }
 
             $this->updateProcessingProgress($messageMedia, 10, 'preparing');
 
+            $remoteSource = in_array(data_get($messageMedia->metadata, 'provider'), ['r2_temp', 'r2_direct'], true);
             $videoTempOldPath = $this->prepareLocalSourceVideo($messageMedia, $videoUploadService);
+            $videoUploadService->validateVideoSource($videoTempOldPath);
             $oldDisk = $messageMedia->disk;
             $oldPath = $messageMedia->source_path;
             $oldSize = (int) $messageMedia->size;
+            $targetDisk = $this->targetStorageDisk($messageMedia);
 
-            if(config('chat.enable_video_compression')) {
+            $this->ensureThumbnail($messageMedia, $videoTempOldPath, $targetDisk);
+
+            if(config('chat.enable_video_compression') || in_array(data_get($messageMedia->metadata, 'provider'), ['r2_temp', 'r2_direct'], true)) {
                 $this->updateProcessingProgress($messageMedia, 20, 'transcoding');
-                $this->compressVideo($videoUploadService, storage_local_path($videoTempOldPath), $messageMedia);
+                $videoOutputPath = $this->compressVideo($videoUploadService, storage_local_path($videoTempOldPath), $messageMedia);
             }
             else {
                 $videoUploadService->setDefaultExtension($messageMedia->extension ?: 'mp4');
@@ -65,11 +76,10 @@ class ProcessChatVideo implements ShouldQueue
 
             $this->updateProcessingProgress($messageMedia, 92, 'publishing');
 
-            $targetDisk = $this->targetStorageDisk($messageMedia);
             $videoData = $videoUploadService
                 ->setStorageDisk($targetDisk)
                 ->setNamespace(Filesystem::mediaNamespace('chats/videos'))
-                ->upload(storage_local_path($videoTempOldPath));
+                ->upload(storage_local_path($videoOutputPath ?: $videoTempOldPath));
 
             $metadata = $messageMedia->metadata ?? [];
             $processedSize = (int) ($videoData['video_size'] ?? $oldSize);
@@ -82,7 +92,7 @@ class ProcessChatVideo implements ShouldQueue
             $messageMedia->mime = 'video/mp4';
             $messageMedia->size = $processedSize;
             $messageMedia->metadata = array_merge($metadata, [
-                'provider' => data_get($metadata, 'provider') === 'r2_temp' ? 'r2' : data_get($metadata, 'provider'),
+                'provider' => in_array(data_get($metadata, 'provider'), ['r2_temp', 'r2_direct'], true) ? 'r2' : data_get($metadata, 'provider'),
                 'dimensions' => [
                     'width' => $squareSize,
                     'height' => $squareSize,
@@ -99,7 +109,23 @@ class ProcessChatVideo implements ShouldQueue
             ]);
             $messageMedia->save();
 
-            $this->deleteOriginalSource($oldDisk, $oldPath, $videoTempOldPath, $fileDeleteService);
+            $this->deleteOriginalSource($oldDisk, $oldPath, $videoTempOldPath, $fileDeleteService, $messageMedia->id);
+            try {
+                event(new MessageMediaReadyEvent($this->messageData->refresh()->load([
+                    'reactions',
+                    'media',
+                    'participant',
+                    'user:id,first_name,last_name,username,avatar,verified',
+                    'parent.user:id,first_name,last_name,username,avatar,verified',
+                    'parent.participant',
+                    'parent.media',
+                    'parent.linkSnapshot',
+                    'linkSnapshot'
+                ])));
+            }
+            catch (\Throwable $e) {
+                Log::warning('Chat video ready notification failed.', ['message_id' => $this->messageData->id, 'error' => $e->getMessage()]);
+            }
         }
         catch (\Throwable $e) {
             Log::error('Chat video processing failed. Error: ' . $e->getMessage(), [
@@ -117,11 +143,26 @@ class ProcessChatVideo implements ShouldQueue
 
             throw $e;
         }
+        finally {
+            if($remoteSource && $videoTempOldPath) Storage::disk('local')->delete($videoTempOldPath);
+            if($videoOutputPath) Storage::disk('local')->delete($videoOutputPath);
+        }
     }
 
     public function tries(): int
     {
         return 5;
+    }
+
+    public function middleware(): array
+    {
+        return [(new \Illuminate\Queue\Middleware\WithoutOverlapping('messageData:' . $this->messageData->id))
+            ->releaseAfter(60)->expireAfter($this->timeout + 60)];
+    }
+
+    public function backoff(): array
+    {
+        return [30, 120, 300, 600];
     }
 
     private function prepareLocalSourceVideo($messageMedia, VideoUploadService $videoUploadService): string
@@ -161,7 +202,7 @@ class ProcessChatVideo implements ShouldQueue
         return $localPath;
     }
 
-    private function compressVideo(VideoUploadService $videoUploadService, string $videoPath, $messageMedia): void
+    private function compressVideo(VideoUploadService $videoUploadService, string $videoPath, $messageMedia): string
     {
         $ffmpeg = $videoUploadService->getFFMpeg();
         $video = $ffmpeg->open($videoPath);
@@ -194,18 +235,58 @@ class ProcessChatVideo implements ShouldQueue
             }
         });
 
-        $videoTempNewPath = storage_local_path(
-            $videoUploadService->generateVideoTemporaryFilePath("compressed.{$videoUploadService->videoDefaultExtension}")
-        );
-
-        $video->save($format, $videoTempNewPath);
-
-        rename($videoTempNewPath, $videoPath);
+        $videoTempNewPath = $videoUploadService->generateVideoTemporaryFilePath("compressed.{$videoUploadService->videoDefaultExtension}");
+        try {
+            $video->save($format, storage_local_path($videoTempNewPath));
+            return $videoTempNewPath;
+        }
+        catch (\Throwable $e) {
+            Storage::disk('local')->delete($videoTempNewPath);
+            throw $e;
+        }
     }
 
     private function targetStorageDisk($messageMedia): string
     {
         return (string) data_get($messageMedia->metadata, 'final_disk', $messageMedia->thumbnail_disk ?: $messageMedia->disk);
+    }
+
+    private function ensureThumbnail($messageMedia, string $videoLocalPath, string $targetDisk): void
+    {
+        if(filled($messageMedia->thumbnail_path)) {
+            return;
+        }
+
+        $thumbnailPath = null;
+
+        try {
+            $thumbnailPath = app(VideoThumbnailService::class)
+                ->setSecondsOffset(1)
+                ->generateThumbnail($videoLocalPath);
+
+            $imageData = app(ImageUploadService::class)
+                ->load($thumbnailPath)
+                ->setNamespace(Filesystem::mediaNamespace('chats/video_thumbnails'))
+                ->setStorageDisk($targetDisk)
+                ->compress(config('chat.processing.video_thumbnail.compress_rate'))
+                ->upload();
+
+            $messageMedia->thumbnail_path = $imageData['image_path'];
+            $messageMedia->thumbnail_size = $imageData['image_size'];
+            $messageMedia->thumbnail_disk = $imageData['disk'];
+            $messageMedia->save();
+        }
+        catch (\Throwable $e) {
+            Log::warning('Chat video thumbnail generation failed. Error: ' . $e->getMessage(), [
+                'media_id' => $messageMedia->id ?? null,
+            ]);
+            throw $e;
+        }
+        finally {
+            if($thumbnailPath && is_file($thumbnailPath)) {
+                unlink($thumbnailPath);
+            }
+        }
     }
 
     private function updateProcessingProgress($messageMedia, int $progress, string $state): void
@@ -254,12 +335,25 @@ class ProcessChatVideo implements ShouldQueue
         return true;
     }
 
-    private function deleteOriginalSource(string $oldDisk, string $oldPath, string $localPath, FileDeleteService $fileDeleteService): void
+    private function deleteOriginalSource(string $oldDisk, string $oldPath, string $localPath, FileDeleteService $fileDeleteService, int $mediaId): void
     {
         $fileDeleteService->setStorageDisk('local')->deleteFile($localPath);
 
         if($oldDisk !== 'local') {
-            $fileDeleteService->setStorageDisk($oldDisk)->deleteFile($oldPath);
+            try {
+                if(! Storage::disk($oldDisk)->delete($oldPath)) {
+                    throw new \RuntimeException('Original media deletion failed.');
+                }
+            }
+            catch (\Throwable $e) {
+                Log::warning('Processed video original cleanup deferred.', ['media_id' => $mediaId]);
+                try {
+                    \App\Jobs\CleanupProcessedMediaSource::dispatch($mediaId, $oldDisk, $oldPath);
+                }
+                catch (\Throwable $queueError) {
+                    Log::error('Original cleanup could not be queued; temp lifecycle must remove it.', ['media_id' => $mediaId]);
+                }
+            }
         }
     }
 

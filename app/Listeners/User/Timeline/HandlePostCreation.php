@@ -24,7 +24,7 @@ class HandlePostCreation
                 ->first();
 
             if($this->canDispatchVideoProcessing($videoMedia)) {
-                ConvertAndCompressPostVideo::dispatchAfterResponse($event->postData)->onQueue(config('media.queues.video'));
+                ConvertAndCompressPostVideo::dispatch($event->postData)->onQueue(config('media.queues.video'));
             }
         }
 
@@ -69,11 +69,7 @@ class HandlePostCreation
             return false;
         }
 
-        if(data_get($metadata, 'provider') === 'r2_direct') {
-            return false;
-        }
-
-        if(data_get($metadata, 'provider') === 'r2_temp') {
+        if(in_array(data_get($metadata, 'provider'), ['r2_temp', 'r2_direct'], true)) {
             return data_get($metadata, 'upload_state') === 'uploaded';
         }
 

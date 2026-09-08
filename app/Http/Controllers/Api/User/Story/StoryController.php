@@ -79,10 +79,10 @@ class StoryController extends Controller
 
     public function create(Request $request)
     {
-        $storyMedia = $this->draftStoryFrame->media->first();
+        $storyMedia = $this->draftStoryFrame->media()->first();
 
         if(empty($storyMedia)) {
-            return $this->responseError([
+            return $this->responseValidationError([
                 'message' => 'Media file is required before creating a story.',
                 'errors' => [
                     'media' => [
@@ -100,6 +100,21 @@ class StoryController extends Controller
             $isVideo = $this->draftStoryFrame->type->isVideo();
             $publishedAt = now();
             $expiresAt = $publishedAt->copy()->addHours(max(1, (int) config('story.expire_after_hours', 24)));
+
+            if(
+                $isVideo
+                && in_array(data_get($storyMedia->metadata, 'provider'), ['r2_temp', 'r2_direct'], true)
+                && data_get($storyMedia->metadata, 'upload_state') !== 'uploaded'
+            ) {
+                return $this->responseValidationError([
+                    'message' => 'Please wait until the story video upload reaches 100%.',
+                    'errors' => [
+                        'media' => [
+                            'Please wait until the story video upload reaches 100%.'
+                        ]
+                    ]
+                ]);
+            }
 
             $updateData = [
                 'content' => e($request->string('content')),

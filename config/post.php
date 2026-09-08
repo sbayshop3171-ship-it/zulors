@@ -39,7 +39,7 @@ return [
                 'video/quicktime',
                 'video/webm'
             ]),
-            'max' => '512000' // 512MB
+            'max' => env('POST_VIDEO_MAX_SIZE', 1048576) // 1GB
         ],
         'audio' => [
             'mimes' => join(',', [
@@ -98,7 +98,7 @@ return [
             'audio_bitrate' => (int) env('POST_VIDEO_AUDIO_BITRATE', 128),
             'max_width' => (int) env('POST_VIDEO_MAX_WIDTH', 1080),
             'max_height' => (int) env('POST_VIDEO_MAX_HEIGHT', 1920),
-            'timeout' => (int) env('POST_VIDEO_PROCESSING_TIMEOUT', 21600),
+            'timeout' => (int) env('POST_VIDEO_PROCESSING_TIMEOUT', 3600),
         ]
     ],
     'link_preview' => [
