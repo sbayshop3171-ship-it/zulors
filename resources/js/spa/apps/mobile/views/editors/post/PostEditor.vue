@@ -566,7 +566,7 @@
 				catch (error) {
 					const requestMethod = uploadData.upload_method || 'POST';
 					const uploadType = uploadData.upload_type || 'form';
-					const rawFallbackMaxBytes = Number(uploadData.raw_fallback_max_bytes || defaultRawFallbackMaxBytes);
+					const rawFallbackMaxBytes = Number(uploadData.raw_fallback_max_bytes ?? defaultRawFallbackMaxBytes);
 
 					if((uploadType === 'raw' || requestMethod === 'PUT') && error?.canVerifyWithServer) {
 						return {

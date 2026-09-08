@@ -19,6 +19,12 @@ received `AccessDenied` when inspecting bucket CORS and lifecycle configuration.
 The lifecycle `--apply` command was attempted but **did not apply a rule**. Existing
 bucket rules could not be inspected; their presence or absence is not established.
 
+Follow-up verification on the same date still returned 403 for single and multipart
+preflight at both production origins. The release now includes an opt-in
+`MEDIA_VIDEO_DIRECT_ONLY` policy; it remains false while CORS is blocked so current
+uploads are not taken offline. Bucket administration and installed-app acceptance
+are still outstanding, not marked complete by the code changes.
+
 ## Implemented Flow
 
 ```text
@@ -71,6 +77,7 @@ QUEUE_CONNECTION=redis
 CACHE_STORE=redis
 MEDIA_QUEUE_CONNECTION=redis
 R2_DIRECT_UPLOAD_ENABLED=true
+MEDIA_VIDEO_DIRECT_ONLY=true
 R2_DIRECT_UPLOAD_DISK=r2_temp
 R2_TEMP_DISK=r2_temp
 R2_FINAL_DISK=r2_final
@@ -135,10 +142,10 @@ later asynchronous image workflow; current image routes still process synchronou
 ## Cleanup
 
 Production bucket administration is still pending; the commands below are not a
-record of a successful live lifecycle update. The CLI lifecycle service currently
-requires direct upload configuration to be enabled. While the operational hold is
-active, configure rules in the Cloudflare dashboard instead of enabling uploads
-prematurely just to run this command.
+record of a successful live lifecycle update. The lifecycle service now checks
+storage configuration independently of the direct-upload feature flag, so the CLI
+can preview/apply rules while uploads remain disabled. It still requires credentials
+with bucket-configuration permission; it never bypasses Cloudflare authorization.
 
 The temp bucket must contain disposable raw uploads only. This command preserves
 unrelated lifecycle rules and previews the managed rule before applying it:
@@ -175,6 +182,12 @@ The full backend suite passed (235 tests, 1,425 assertions), including the FFmpe
 failure/retry regression. The three browser multipart unit tests and the Vite
 production build also passed. Deployment dependency installation/build and Laravel
 optimization completed successfully.
+
+The follow-up direct-only/lifecycle changes passed the full backend suite again
+(243 tests, 1,466 assertions), the three browser multipart tests and the Vite build.
+Tests cover rejection of video proxy/fallback routes, unavailable direct creation,
+continued direct creation, and lifecycle operation while the upload flag is off.
+They also verify that an AccessDenied read cannot lead to overwriting unknown rules.
 
 | Measurement | Result |
 | --- | --- |
@@ -226,11 +239,26 @@ from [r2-temp-cors.json](r2-temp-cors.json), retaining any unrelated required or
 or rules. Keep the temp bucket private; do not enable public access to fix CORS.
 See [Cloudflare CORS configuration](https://developers.cloudflare.com/r2/buckets/cors/).
 
+The exact production origins are `https://zulors.com` and `https://www.zulors.com`,
+without trailing slashes. The rule allows `PUT`, `GET`, `HEAD`, request headers `*`
+and exposes response header `ETag`, with a 3,600-second preflight cache. Cloudflare
+handles OPTIONS; it is not an extra AllowedMethods entry. Add a staging/WebView
+origin only after identifying its actual scheme and host; do not assume all native
+apps share the production browser origin.
+
 Under Object lifecycle rules, add expiration after three days for disposable raw
 objects and abort incomplete multipart uploads after one day. Review bucket contents
 before applying expiration. Use a bucket-administration credential only for setup,
 not as a permanent replacement for the application's object-only credential.
 See [Cloudflare R2 token permissions](https://developers.cloudflare.com/r2/api/tokens/).
+
+Cloudflare's R2 **Object Read & Write** permission is insufficient for CORS/lifecycle
+administration. A one-time R2 **Admin Read & Write** credential can configure buckets;
+the corresponding account-level API permission is **Workers R2 Storage Write**.
+This is Cloudflare token policy, not an AWS IAM policy to attach to the VPS. Avoid
+replacing the running application's restricted key with an account-wide admin key.
+The dashboard is the simplest setup path; otherwise supply setup credentials through
+a secure deployment channel, apply/verify the rules, then revoke the setup credential.
 
 The following probe works while direct uploads are disabled. It creates disposable
 small objects/multipart sessions, checks preflight and JavaScript-visible ETags for
@@ -245,10 +273,27 @@ During rollout all four preflight checks returned 403; the probe exited 1 and
 successfully aborted its test multipart session without cleanup errors.
 
 Only after the probe passes and bucket lifecycle is verified, set
-`R2_DIRECT_UPLOAD_ENABLED=true` and `R2_DIRECT_UPLOAD_AUTO_CORS_ENABLED=false` through
+`R2_DIRECT_UPLOAD_ENABLED=true`, `R2_DIRECT_UPLOAD_AUTO_CORS_ENABLED=false` and
+`MEDIA_VIDEO_DIRECT_ONLY=true` through
 the deployment environment settings, refresh `php artisan config:cache`, and restart
 Horizon gracefully. The disabled auto-CORS setting prevents the runtime object token
 from repeatedly attempting bucket administration. Retest from the actual browser/app.
+
+Direct-only mode sets both raw and multipart proxy budgets to zero. Updated Post
+editors honor zero without substituting a default budget. Post server video upload,
+raw/part proxy, Story video fallback and Chat video fallback return HTTP 409 with
+`code=direct_upload_required`. Direct create returns HTTP 503 with
+`code=direct_upload_unavailable` when R2 is disabled/misconfigured, instead of telling
+the client to upload through PHP. Progress/completion remain available for existing
+sessions; this does not disable image/audio uploads or require Cloudflare Stream.
+
+This is a supported-client/application policy, not a network firewall. An old client
+can still send bytes to PHP before receiving rejection, particularly on the mixed
+Story/Chat routes. Strict prevention of arbitrary ingress requires edge/proxy controls
+and version-gating old clients. Do not describe this as zero total VPS bandwidth:
+co-located FFmpeg downloads originals and uploads outputs, and current image uploads
+also pass through the web host. Move media workers to a separate host to remove their
+transfers from the web VPS; direct image uploads would be a separate implementation.
 
 ### Mobile Compatibility
 
@@ -258,6 +303,51 @@ No independent iOS/Swift or Flutter client source was found, and installed store
 versions were not identified or device-tested. Do not label all native clients as
 verified; independent native upload implementations need endpoint adoption and an
 app release. The same CORS hold applies to the web and WebView paths.
+
+Follow-up tooling check: `adb devices -l` found no connected device, and
+`xcrun devicectl list devices` was unavailable because the required Xcode tooling
+was not installed/selected. No real installed Android/iOS upload was performed.
+Provide a USB-debugging-authorized Android device with the actual installed build,
+or an iOS device with its signed build and supported Xcode device tooling. Use a
+dedicated test account. After CORS passes, check Post/Story/Chat on Wi-Fi and cellular,
+network interruption/retry, background/foreground, seeking and processing completion.
+Capture the app version and WebView origin, R2 PUT requests/ETags, and confirm that
+no legacy video upload/raw/part proxy route is called. A test of this preview shell
+alone does not certify an independently distributed native app.
+
+### Peak-Hour Capacity
+
+There is no measured maximum safe upload size/duration for this shared VPS. Size
+alone does not bound decode/encode CPU or memory: duration, resolution, frame rate,
+codec and content matter. The synthetic seven-second timing is not a throughput
+model for three- or ten-minute user videos.
+
+A conservative starting proposal for post/chat is **256 MiB and 180 seconds** with
+one shared video worker and one FFmpeg thread. This is a proposed admission limit
+to benchmark, not an applied change or a guarantee of smoothness. The configured
+1 GiB / 600-second limits have not been changed, and Story's existing shorter clip
+policy should stay in place. Candidate environment limits are:
+
+```dotenv
+MEDIA_VIDEO_MAX_BYTES=268435456
+MEDIA_VIDEO_MAX_DURATION_SECONDS=180
+POST_VIDEO_MAX_SIZE=262144
+CHAT_MEDIA_MAX_SIZE=262144
+```
+
+Drain already-accepted jobs before lowering the worker's limits; otherwise an
+upload admitted under the old limits could fail when processing starts. Benchmark
+representative high-resolution/high-frame-rate sources and tune output resolution
+and frame-rate policy separately. There is no automatic peak-hours switch.
+
+At the follow-up check, RAM available was about 1.5 GB out of 7.9 GB and there was
+no swap; load averages were 2.80 / 3.97 / 4.40. Do not increase worker processes based
+on user count alone. Measure queue oldest age, p95/p99 web latency, FFmpeg child RSS,
+CPU and scratch usage. Use enforced CPU/memory limits on a dedicated media process
+group/container or separate host, leaving capacity for web/database workloads.
+One FFmpeg thread is not a hard host resource limit. Start alerts and admission
+throttling well before queue age approaches the three-day raw expiry. These host
+limits, autoscaling and backlog-based admission are not implemented by this release.
 
 ### Remaining Acceptance
 

@@ -27,6 +27,18 @@ class StoryVideoPipelineTest extends TestCase
     use RefreshDatabase;
     use \Tests\Support\CreatesVideoFixture;
 
+    public function test_direct_only_story_blocks_fallback_and_unavailable_direct_creation(): void
+    {
+        config(['media.uploads.video.direct_only' => true, 'media.cloudflare.r2.direct_upload_enabled' => false]);
+        $this->actingAs($this->createUser('strict-story-owner'))->withoutMiddleware();
+        $this->postJson('/api/story/editor/media/upload', [
+            'media_file' => UploadedFile::fake()->create('clip.mp4', 10, 'video/mp4'),
+        ])->assertStatus(409)->assertJsonPath('code', 'direct_upload_required');
+        $this->postJson('/api/story/editor/media/video/direct/create', ['size' => 1024])
+            ->assertStatus(503)->assertJsonPath('code', 'direct_upload_unavailable');
+        $this->assertDatabaseCount('media', 0);
+    }
+
     public function test_story_worker_transcodes_r2_source_and_deletes_original(): void
     {
         $original = $this->createVideoFixture();

@@ -28,6 +28,20 @@ class ChatVideoPipelineTest extends TestCase
     use RefreshDatabase;
     use \Tests\Support\CreatesVideoFixture;
 
+    public function test_direct_only_chat_blocks_video_fallback_but_not_text_validation(): void
+    {
+        config(['media.uploads.video.direct_only' => true, 'media.cloudflare.r2.direct_upload_enabled' => false]);
+        [$sender, $recipient, $chat] = $this->createDirectChat();
+        $this->actingAs($sender)->withoutMiddleware();
+        $this->postJson('/api/messenger/send', ['chat_id' => $chat->chat_id, 'media_type' => 'video'])
+            ->assertStatus(409)->assertJsonPath('code', 'direct_upload_required');
+        $this->postJson('/api/v1/chats/' . $chat->chat_id . '/media/video/direct/create', ['size' => 1024])
+            ->assertStatus(503)->assertJsonPath('code', 'direct_upload_unavailable');
+        $this->postJson('/api/messenger/send', ['content' => 'hello'])->assertUnprocessable();
+        $this->assertDatabaseCount('messages', 0);
+        $this->assertDatabaseCount('media', 0);
+    }
+
     public function test_chat_worker_transcodes_r2_even_when_legacy_compression_flag_is_disabled(): void
     {
         \Illuminate\Support\Facades\Event::fake([\App\Events\User\Chat\MessageMediaReadyEvent::class]);

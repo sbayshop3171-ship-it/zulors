@@ -39,6 +39,7 @@ use App\Traits\Http\Controllers\Api\User\Story\InteractsWithDraftStoryFrame;
 
 class StoryMediaController extends Controller
 {
+    use \App\Traits\Http\Controllers\Api\RequiresDirectVideoUploads;
     use \App\Traits\Http\Controllers\Api\SerializesMediaCompletion;
     use InteractsWithDraftStoryFrame,
         ValidatesStoryMedia,
@@ -81,6 +82,7 @@ class StoryMediaController extends Controller
             return $this->uploadStoryImage($mediaFile);
         }
         else {
+            $this->rejectServerVideoUpload();
             $this->validateStoryVideo($mediaFile);
 
             return $this->uploadStoryVideo($request, $mediaFile);
@@ -89,6 +91,7 @@ class StoryMediaController extends Controller
 
     public function createDirectVideoUpload(Request $request, R2DirectUploadService $r2DirectUploadService)
     {
+        $this->requireDirectVideoService($r2DirectUploadService);
         if(! $this->canAddStoryFrame()) {
             return $this->responseValidationError([
                 'message' => __('story.validation.frame_count.max', ['max' => config('story.max_frames_per_story')]),

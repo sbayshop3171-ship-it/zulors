@@ -22,12 +22,14 @@ use App\Traits\Http\Controllers\Api\User\Timeline\InteractsWithDraftPost;
 
 class DirectMediaUploadController extends Controller
 {
+    use \App\Traits\Http\Controllers\Api\RequiresDirectVideoUploads;
     use \App\Traits\Http\Controllers\Api\SerializesMediaCompletion;
     use InteractsWithDraftPost,
         SupportsApiResponses;
 
     public function createVideoUpload(Request $request, CloudflareStreamService $cloudflareStreamService, R2DirectUploadService $r2DirectUploadService)
     {
+        $this->requireDirectVideoService($r2DirectUploadService);
         $request->validate([
             'name' => ['nullable', 'string', 'max:255'],
             'size' => ['required', 'integer', 'min:1', 'max:' . config('media.uploads.video.max_bytes', 1073741824)],
@@ -455,6 +457,7 @@ class DirectMediaUploadController extends Controller
 
     public function uploadRawVideo(Request $request, R2DirectUploadService $r2DirectUploadService)
     {
+        $this->rejectServerVideoUpload();
         $request->validate([
             'media_id' => ['required', 'integer'],
             'uid' => ['required', 'string', 'max:255'],
@@ -560,6 +563,7 @@ class DirectMediaUploadController extends Controller
 
     public function uploadVideoPart(Request $request, R2DirectUploadService $r2DirectUploadService)
     {
+        $this->rejectServerVideoUpload();
         $request->validate([
             'media_id' => ['required', 'integer'],
             'uid' => ['required', 'string', 'max:255'],

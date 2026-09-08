@@ -32,6 +32,7 @@ use App\Traits\Http\Controllers\Api\User\Timeline\InteractsWithDraftPost;
 
 class PostVideoController extends Controller
 {
+    use \App\Traits\Http\Controllers\Api\RequiresDirectVideoUploads;
     use InteractsWithDraftPost,
         SupportsApiResponses,
         ValidatesPostVideo;
@@ -51,6 +52,7 @@ class PostVideoController extends Controller
 
     public function uploadVideo(Request $request)
     {
+        $this->rejectServerVideoUpload();
         $postVideoFile = $request->file('video');
 
         $this->validatePostVideo([

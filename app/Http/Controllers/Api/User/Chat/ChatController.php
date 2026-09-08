@@ -70,6 +70,7 @@ use Throwable;
 
 class ChatController extends Controller
 {
+    use \App\Traits\Http\Controllers\Api\RequiresDirectVideoUploads;
     use \App\Traits\Http\Controllers\Api\SerializesMediaCompletion;
     use SupportsApiResponses,
         WithMediaUpload,
@@ -663,6 +664,11 @@ class ChatController extends Controller
 
     public function sendMessage(Request $request)
     {
+        if($request->input('media_type') === 'video'
+            || ($request->hasFile('media') && str_starts_with((string) $request->file('media')->getMimeType(), 'video/'))) {
+            $this->rejectServerVideoUpload();
+        }
+
         $validator = Validator::make([
             'chat_id' => $request->get('chat_id'),
             'content' => $request->get('content'),
@@ -782,6 +788,7 @@ class ChatController extends Controller
 
     public function createDirectVideoUpload(Request $request, string $chatId, R2DirectUploadService $r2DirectUploadService)
     {
+        $this->requireDirectVideoService($r2DirectUploadService);
         $request->validate([
             'parent_id' => ['nullable', 'integer'],
             'client_uid' => ['nullable', 'string', 'max:100'],

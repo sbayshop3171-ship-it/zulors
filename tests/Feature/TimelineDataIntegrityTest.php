@@ -34,6 +34,44 @@ class TimelineDataIntegrityTest extends TestCase
     use RefreshDatabase;
     use \Tests\Support\CreatesVideoFixture;
 
+    public function test_direct_only_post_rejects_server_uploads_and_fails_closed_when_unavailable(): void
+    {
+        config(['media.uploads.video.direct_only' => true, 'media.cloudflare.r2.direct_upload_enabled' => false]);
+        $this->actingAs($this->createUser('direct-only-owner'))->withoutMiddleware();
+        foreach(['upload', 'direct/raw', 'direct/part'] as $endpoint) {
+            $this->postJson('/api/post/editor/media/video/' . $endpoint)
+                ->assertStatus(409)->assertJsonPath('code', 'direct_upload_required');
+        }
+        $this->postJson('/api/post/editor/media/video/direct/create', ['size' => 1024])
+            ->assertStatus(503)->assertJsonPath('code', 'direct_upload_unavailable');
+        $this->assertDatabaseCount('media', 0);
+        $this->assertDatabaseCount('posts', 0);
+    }
+
+    public function test_direct_only_mode_removes_raw_and_part_proxy_budgets(): void
+    {
+        config(['media.uploads.video.direct_only' => true, 'media.cloudflare.r2.raw_fallback_max_mb' => 64,
+            'media.cloudflare.r2.part_fallback_max_mb' => 16]);
+        $service = new R2DirectUploadService();
+        foreach(['rawFallbackMaxBytes', 'partFallbackMaxBytes'] as $name) {
+            $method = new \ReflectionMethod($service, $name);
+            $method->setAccessible(true);
+            $this->assertSame(0, $method->invoke($service));
+        }
+        config(['media.uploads.video.direct_only' => false]);
+        $this->assertSame(16 * 1024 * 1024, $method->invoke($service));
+    }
+
+    public function test_direct_only_mode_still_accepts_post_direct_creation(): void
+    {
+        config(['media.uploads.video.direct_only' => true, 'media.cloudflare.stream.enabled' => false]);
+        app()->instance(R2DirectUploadService::class, new \Tests\Support\FakeR2DirectUploadService());
+        $this->actingAs($this->createUser('direct-ready-owner'))->withoutMiddleware();
+        $this->postJson('/api/post/editor/media/video/direct/create', ['size' => 1024, 'duration_seconds' => 1])
+            ->assertOk()->assertJsonPath('data.direct_upload', true);
+        $this->assertDatabaseHas('media', ['disk' => 'r2_temp']);
+    }
+
     public function test_ffmpeg_failure_retains_original_and_retry_can_publish(): void
     {
         Event::fake([MediaUpdatedEvent::class, MediaProcessedEvent::class, PublicTimelinePostCreatedEvent::class]);

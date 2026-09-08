@@ -25,6 +25,7 @@ return [
 
     'uploads' => [
         'video' => [
+            'direct_only' => env('MEDIA_VIDEO_DIRECT_ONLY', false),
             'max_bytes' => (int) env('MEDIA_VIDEO_MAX_BYTES', 1024 * 1024 * 1024),
             'max_duration_seconds' => (int) env('MEDIA_VIDEO_MAX_DURATION_SECONDS', 600),
         ],

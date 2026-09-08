@@ -16,11 +16,15 @@ class R2DirectUploadService
 
     public function isConfigured(): bool
     {
+        return (bool) config('media.cloudflare.r2.direct_upload_enabled') && $this->storageIsConfigured();
+    }
+
+    private function storageIsConfigured(): bool
+    {
         $finalDisk = $this->finalDisk();
         $uploadDisk = $this->directUploadDisk();
 
-        return (bool) config('media.cloudflare.r2.direct_upload_enabled')
-            && $uploadDisk !== $finalDisk
+        return $uploadDisk !== $finalDisk
             && config("filesystems.disks.{$uploadDisk}.bucket") !== config("filesystems.disks.{$finalDisk}.bucket")
             && $this->diskIsConfigured($finalDisk)
             && $this->diskIsConfigured($uploadDisk);
@@ -312,7 +316,7 @@ class R2DirectUploadService
 
     public function configureTempLifecycle(int $days = 3, bool $apply = false): array
     {
-        if(! $this->isConfigured()) throw new Exception('Separate R2 temp and final buckets must be configured.');
+        if(! $this->storageIsConfigured()) throw new Exception('Separate R2 temp and final buckets must be configured.');
         $client = $this->s3Client($this->tempDisk());
         $bucket = $this->bucket($this->tempDisk());
         try {
@@ -699,11 +703,13 @@ class R2DirectUploadService
 
     private function rawFallbackMaxBytes(): int
     {
+        if(config('media.uploads.video.direct_only', false)) return 0;
         return max(5, (int) config('media.cloudflare.r2.raw_fallback_max_mb', 8)) * 1024 * 1024;
     }
 
     private function partFallbackMaxBytes(): int
     {
+        if(config('media.uploads.video.direct_only', false)) return 0;
         $fallbackMaxMb = (int) config('media.cloudflare.r2.part_fallback_max_mb', 0);
 
         if($fallbackMaxMb <= 0) {
@@ -713,7 +719,7 @@ class R2DirectUploadService
         return $fallbackMaxMb * 1024 * 1024;
     }
 
-    private function s3Client(string $disk): S3Client
+    protected function s3Client(string $disk): S3Client
     {
         $config = config("filesystems.disks.{$disk}");
 
