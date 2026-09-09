@@ -33,6 +33,19 @@ Do not describe this rollout as zero total VPS bandwidth or unlimited-load readi
 
 ### Post Editor Preview Regression (2026-09-09)
 
+Release `80ccefb` was committed, pushed and activated on production as a frontend-only
+hotfix. Assets were built locally with the live `VITE_*` settings because the shared
+VPS was busy. The six changed source files were checked against the prior live
+version, new hashed assets were uploaded, and the manifest was switched atomically.
+Old chunks remain for already-open clients; the previous manifest/source is backed
+up outside the web root. No database migration, environment change, worker restart,
+user upload deletion or server-side build was performed for this hotfix.
+
+At 2026-09-09 07:45 UTC, public HTTP asset hashes and the live manifest matched the
+release; home/login/signup returned HTTP 200 and Horizon was running. Direct uploads
+remain enabled, direct-only remains off, and FFmpeg still uses one thread. The user's
+installed Samsung app still needs to be reopened and retested before device acceptance.
+
 A user testing Samsung app version `0.4.0-production` reported that the upload
 progress line repeatedly moved backwards, then the video player changed from a
 playable local preview to `0:00` after completion. The web editors were revoking
