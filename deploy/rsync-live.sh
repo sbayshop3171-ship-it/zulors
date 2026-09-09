@@ -11,6 +11,15 @@ LIVE_URL="${LIVE_URL:-https://zulors.com}"
 SHARED_STORAGE_PUBLIC="${SHARED_STORAGE_PUBLIC:-${LIVE_PATH}.shared/storage/app/public}"
 SHARED_STORAGE_PRIVATE="${SHARED_STORAGE_PRIVATE:-${LIVE_PATH}.shared/storage/app/private}"
 SHARED_STORAGE_SESSIONS="${SHARED_STORAGE_SESSIONS:-${LIVE_PATH}.shared/storage/framework/sessions}"
+DEPLOY_PREBUILT_ASSETS="${DEPLOY_PREBUILT_ASSETS:-0}"
+
+case "$DEPLOY_PREBUILT_ASSETS" in
+	0|1) ;;
+	*)
+		echo "Unsupported DEPLOY_PREBUILT_ASSETS: $DEPLOY_PREBUILT_ASSETS. Use 0 or 1." >&2
+		exit 1
+		;;
+esac
 
 if [ ! -f "$LIVE_SSH_KEY" ]; then
 	echo "Missing SSH key: $LIVE_SSH_KEY"
@@ -30,6 +39,14 @@ if command -v php >/dev/null 2>&1; then
 		-type f -name '*.php' -print0 | xargs -0 -n1 php -l >/dev/null
 else
 	echo "PHP is not installed locally; remote PHP preflight remains mandatory."
+fi
+
+if [ "$DEPLOY_PREBUILT_ASSETS" = "1" ]; then
+	if [ ! -f "$ROOT_DIR/public/build/manifest.json" ]; then
+		echo "Prebuilt asset deployment requires public/build/manifest.json." >&2
+		exit 1
+	fi
+	php -r '$m = json_decode(file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR); if (!$m) exit(1); foreach ($m as $entry) foreach (array_merge([$entry["file"]], $entry["css"] ?? [], $entry["assets"] ?? []) as $file) { if (str_contains($file, "..") || !is_file(dirname($argv[1])."/".$file)) exit(1); }' "$ROOT_DIR/public/build/manifest.json"
 fi
 
 SSH_OPTS=(
@@ -114,12 +131,17 @@ rsync -az --delete \
 	"$ROOT_DIR/" "${LIVE_USER}@${LIVE_HOST}:${REMOTE_RELEASE}/"
 
 echo "Building staged release..."
+if [ "$DEPLOY_PREBUILT_ASSETS" = "1" ]; then
+	echo "Uploading locally verified production assets..."
+	rsync -az "${RSYNC_PERMISSIONS[@]}" -e "ssh ${SSH_OPTS[*]}" "$ROOT_DIR/public/build/" "${LIVE_USER}@${LIVE_HOST}:${REMOTE_RELEASE}/public/build/"
+	ssh "${SSH_OPTS[@]}" "${LIVE_USER}@${LIVE_HOST}" "if [ -d '$LIVE_PATH/public/build/assets' ]; then rsync -a --ignore-existing '$LIVE_PATH/public/build/assets/' '$REMOTE_RELEASE/public/build/assets/'; fi"
+fi
 ssh "${SSH_OPTS[@]}" "${LIVE_USER}@${LIVE_HOST}" "set -e && \
 	cp '$LIVE_PATH/.env' '$REMOTE_RELEASE/.env' && \
 	cd '$REMOTE_RELEASE' && \
 	grep -q '^APP_ENV=production' .env && \
 	grep -q '^APP_KEY=' .env && \
-	RUN_MIGRATIONS=0 RESTART_HORIZON=0 SHARED_STORAGE_PUBLIC_PATH='$SHARED_STORAGE_PUBLIC' SHARED_STORAGE_SESSIONS_PATH='$SHARED_STORAGE_SESSIONS' bash deploy/live-deploy.sh && \
+	INSTALL_DEPS='$((1 - DEPLOY_PREBUILT_ASSETS))' BUILD_ASSETS='$((1 - DEPLOY_PREBUILT_ASSETS))' RUN_MIGRATIONS=0 RESTART_HORIZON=0 SHARED_STORAGE_PUBLIC_PATH='$SHARED_STORAGE_PUBLIC' SHARED_STORAGE_SESSIONS_PATH='$SHARED_STORAGE_SESSIONS' bash deploy/live-deploy.sh && \
 	php artisan config:clear >/dev/null && \
 	php artisan route:list --no-ansi >/dev/null && \
 	php artisan about --only=environment --no-ansi >/dev/null"

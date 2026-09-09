@@ -6,7 +6,7 @@ use Exception;
 use App\Models\Post;
 use App\Constants\Filesystem;
 use FFMpeg\Coordinate\Dimension;
-use FFMpeg\Format\Video\X264;
+use App\Services\Media\Publication\MediaEncodingProfile;
 use App\Enums\Post\PostStatus;
 use FFMpeg\Filters\Video\ResizeFilter;
 use App\Enums\Media\MediaStatus;
@@ -103,19 +103,11 @@ class ConvertAndCompressPostVideo implements ShouldQueue
 
             $this->resizeVideoIfNeeded($video, $videoUploadService, $videoOldAbsLocalPath);
 
-            $format = (new X264())
-                ->setKiloBitrate(0)
-                ->setAudioKiloBitrate((int) config('post.processing.video.audio_bitrate'))
-                ->setAdditionalParameters([
-                    '-preset',
-                    config('post.processing.video.preset'),
-                    '-crf',
-                    (string) config('post.processing.video.crf'),
-                    '-pix_fmt',
-                    'yuv420p',
-                    '-movflags',
-                    '+faststart',
-                ]);
+            $format = MediaEncodingProfile::x264(
+                (string) config('post.processing.video.crf'),
+                (string) config('post.processing.video.preset'),
+                (int) config('post.processing.video.audio_bitrate')
+            );
 
             $lastSavedTranscodeProgress = 15;
 

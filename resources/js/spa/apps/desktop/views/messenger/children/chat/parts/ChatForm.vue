@@ -1,4 +1,6 @@
 <template>
+    <PublicationOutbox v-if="publicationChatId" :chat-id="publicationChatId" @published="refreshPublishedMessages" />
+    <PublicationSelection :items="selectedPublicationMedia" :disabled="state.isSubmitting" @remove="removePublicationMedia" />
 	<div class="bg-bg-pr px-6" v-bind:class="[(isReplaying || state.videoRecorder.open || state.audioRecorder.open) ? 'border-t border-t-bord-card' : '']">
         <template v-if="state.videoRecorder.open">
             <VideoRecordPreview></VideoRecordPreview>
@@ -33,7 +35,7 @@
 
                     <div class="absolute right-4 top-3">
                         <div class="flex gap-4">
-                            <IconButton v-if="hasTyped" v-on:click="submitForm" iconName="send-03" iconType="solid"></IconButton>
+                            <IconButton v-if="hasTyped" :disabled="state.isSubmitting" v-on:click="submitForm" iconName="send-03" iconType="solid"></IconButton>
                             <template v-else>
                                 <div class="relative">
                                     <IconButton v-on:click.stop="state.attachments.open = ! state.attachments.open" iconName="paperclip" iconType="line"></IconButton>
@@ -81,6 +83,9 @@
 	import { useInputHandlers } from '@/kernel/vue/composables/input/index.js';
     import { inferAudioExtension } from '@/kernel/helpers/media/audio/index.js';
 	import { useChatStore } from '@D/store/chats/chat.store.js';
+    import { useChatMediaPublication } from '@/kernel/vue/composables/media-publication/index.js';
+    import PublicationSelection from '@/kernel/vue/components/media/publications/PublicationSelection.vue';
+    import PublicationOutbox from '@/kernel/vue/components/media/publications/PublicationOutbox.vue';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { colibriSounds } from '@/kernel/services/sounds/index.js';
 
@@ -147,7 +152,15 @@
                 }
             }
 
+            const mediaPublication = useChatMediaPublication(chatStore, inputMessageText, repliedMessage, state);
+
 			const submitForm = async function(event) {
+                if (state.isSubmitting || mediaPublication.selecting.value) return;
+                if (!event?.shiftKey && mediaPublication.selections.value.length) {
+                    event?.preventDefault();
+                    await mediaPublication.submit();
+                    return;
+                }
 				if(! state.isSubmitting) {
 					if (event.shiftKey) {
 						messageInputHandler();
@@ -168,6 +181,12 @@
 
             const sendVideo = async (videoData) => {
                 state.videoRecorder.open = false;
+                try {
+                    if (await mediaPublication.select(videoData.blob)) {
+                        await mediaPublication.submit();
+                        return;
+                    }
+                } catch (error) { alert(error.message); return; }
 
                 await chatStore.sendMediaMessage({
                     type: 'video',
@@ -231,6 +250,9 @@
 
             const sendImage = async (event) => {
                 const file = event.target.files[0];
+                try {
+                    if (await mediaPublication.select(file)) { resetFileInput(event); return; }
+                } catch (error) { alert(error.message); return; }
 
                 if(! file) {
                     return false;
@@ -260,6 +282,9 @@
 
             const sendVideoFile = async (event) => {
                 const file = event.target.files[0];
+                try {
+                    if (await mediaPublication.select(file)) { resetFileInput(event); return; }
+                } catch (error) { alert(error.message); return; }
 
                 if(! file) {
                     return false;
@@ -323,6 +348,10 @@
 
             const triggerFileInput = (fileInput) => {
                 closeAttachments();
+                if (fileInput === messageImageFileInput.value || fileInput === messageVideoFileInput.value) {
+                    mediaPublication.pick(fileInput === messageImageFileInput.value ? 'image' : 'video', fileInput).catch(error => alert(error.message));
+                    return;
+                }
 
                 nextTick(() => {
                     fileInput?.click();
@@ -365,6 +394,10 @@
             }
 
 			return {
+                selectedPublicationMedia: mediaPublication.selections,
+                removePublicationMedia: mediaPublication.remove,
+                publicationChatId: computed(() => chatStore.chatId),
+                refreshPublishedMessages: () => chatStore.fetchChatMessages().catch(() => {}),
 				state: state,
 				repliedMessage: repliedMessage,
 				messageInputHandler: messageInputHandler,
@@ -378,7 +411,7 @@
                 messageDocumentFileInput: messageDocumentFileInput,
                 inputMessageText: inputMessageText,
 				hasTyped: computed(() => {
-					return inputMessageText.value.length > 0;
+					return inputMessageText.value.length > 0 || mediaPublication.selections.value.length > 0;
 				}),
 				insertMessageEmoji: (emojiSymbol) => {
                     inputMessageText.value = insertSymbolAtCaret(messageInputField.value, emojiSymbol);
@@ -399,6 +432,8 @@
 			};
 		},
 		components: {
+            PublicationSelection,
+            PublicationOutbox,
             IconButton: IconButton,
 			EmojisPicker: defineAsyncComponent(() => {
                 return import('@D/components/emojis/EmojisPicker.vue');

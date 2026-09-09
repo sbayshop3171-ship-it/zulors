@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Media Publication Browser Regression</title>
+    <style>body{margin:0}#app{max-width:1100px;margin:auto}button{cursor:pointer}</style>
+</head>
+<body>
+<main id="app"></main>
+<script>
+    window.embedder = key => key === 'config.sounds' ? { chat: {}, notification: {} } : key.includes('max') ? 10000 : {};
+    window.__t = key => key;
+    window.toastError = message => { window.lastError = message; };
+    window.toastSuccess = message => { window.lastSuccess = message; };
+    window.debounce = callback => callback();
+    window.asset = value => value;
+    window.getRoute = () => '/';
+</script>
+<script type="module" src="./media-publications-fixture.js"></script>
+</body>
+</html>

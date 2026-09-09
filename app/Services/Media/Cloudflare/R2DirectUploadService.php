@@ -83,6 +83,35 @@ class R2DirectUploadService
         throw new \LogicException('Raw video publication is disabled. Publish only FFmpeg output.');
     }
 
+    public function refreshPublicationUpload(array $upload): array
+    {
+        if(! $this->isConfigured()) throw new \RuntimeException('Direct upload is unavailable.');
+        $expiresAt = now()->addMinutes($this->expiryMinutes());
+        $disk = $upload['disk'];
+        if(($upload['upload_type'] ?? '') === 'multipart') {
+            foreach($upload['parts'] as &$part) {
+                $command = $this->s3Client($disk)->getCommand('UploadPart', [
+                    'Bucket' => $this->bucket($disk), 'Key' => $upload['path'],
+                    'UploadId' => $upload['upload_id'], 'PartNumber' => $part['part_number'],
+                ]);
+                $part['upload_url'] = (string) $this->s3Client($disk)
+                    ->createPresignedRequest($command, $expiresAt)->getUri();
+            }
+            unset($part);
+        } else {
+            $signed = Storage::disk($disk)->temporaryUploadUrl($upload['path'], $expiresAt, [
+                'ContentType' => $upload['content_type'] ?? 'application/octet-stream',
+            ]);
+            $upload['upload_url'] = $signed['url'];
+            $upload['upload_headers'] = $this->normalizeUploadHeaders($signed['headers'] ?? []);
+        }
+        $upload['expires_at'] = $expiresAt->toIso8601String();
+        $upload['upload_concurrency'] = 2;
+        $upload['raw_fallback_max_bytes'] = 0;
+        $upload['part_fallback_max_bytes'] = 0;
+        return $upload;
+    }
+
     public function completeMultipartUpload(string $path, string $uploadId, array $parts, ?string $disk = null, int $expectedParts = 0): void
     {
         if(! $this->isConfigured()) {

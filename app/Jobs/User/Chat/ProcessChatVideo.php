@@ -11,7 +11,7 @@ use App\Services\Filesystem\Upload\ImageUploadService;
 use App\Services\Filesystem\Upload\VideoThumbnailService;
 use App\Services\Filesystem\Upload\VideoUploadService;
 use Exception;
-use FFMpeg\Format\Video\X264;
+use App\Services\Media\Publication\MediaEncodingProfile;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
@@ -208,21 +208,14 @@ class ProcessChatVideo implements ShouldQueue
         $video = $ffmpeg->open($videoPath);
         $squareSize = max(1, (int) config('chat.processing.video.square_size', 720));
 
-        $format = new X264();
-        $format->setKiloBitrate(0)
-            ->setAudioKiloBitrate((int) config('chat.processing.video.audio_bitrate'))
-            ->setAdditionalParameters([
-                '-preset',
-                config('chat.processing.video.preset'),
-                '-crf',
-                (string) config('chat.processing.video.crf'),
-                '-movflags',
-                '+faststart',
-                '-pix_fmt',
-                'yuv420p',
+        $format = MediaEncodingProfile::x264(
+            (string) config('chat.processing.video.crf'),
+            (string) config('chat.processing.video.preset'),
+            (int) config('chat.processing.video.audio_bitrate'), [
                 '-vf',
                 "scale={$squareSize}:{$squareSize}:force_original_aspect_ratio=increase,crop={$squareSize}:{$squareSize}",
-            ]);
+            ]
+        );
 
         $lastSavedProgress = 20;
 

@@ -14,6 +14,7 @@
 <script>
 	import { defineComponent, ref, computed, onMounted, onUnmounted } from 'vue';
 	import { useRouter } from 'vue-router';
+	import { publicationManager } from '@/kernel/services/media/publications/index.js';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { getStoryVideoClipCandidate, storyClipUploadOptions } from '@/kernel/services/media/story-video-clip.js';
 
@@ -53,8 +54,12 @@
 				}
 			}
 
-			const selectStoryMedia = () => {
-				stroyMediaFileInput.value.click();
+			const selectStoryMedia = async () => {
+				try {
+					const files = await publicationManager.pick('story', 'media');
+					if (files === null) stroyMediaFileInput.value.click();
+					else if (files[0]) await handleMediaUpload(files[0]);
+				} catch (error) { toastError(error.message); }
 			}
 
 			onMounted(() => {

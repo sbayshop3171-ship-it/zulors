@@ -121,7 +121,8 @@
 									v-on:select="selectMention" 
 								classes="w-full border-t border-bord-pr"></MentionsPicker>
 							</div>
-							<StoryPrivacyInfo></StoryPrivacyInfo>
+							<PublicationAudience v-if="isLocalPublication" class="px-4" />
+							<StoryPrivacyInfo v-else></StoryPrivacyInfo>
 						</div>
 						<div class="border-t border-t-bord-pr flex justify-center py-4">
 							<PrimaryTextButton v-bind:disabled="! isFormValid" v-bind:loading="state.isSubmitting" v-bind:buttonText="$t('story.editor.publish_story')" type="submit"></PrimaryTextButton>
@@ -140,7 +141,9 @@
 	import { defineComponent, reactive, ref, computed, defineAsyncComponent, nextTick, onUnmounted } from 'vue';
 	
 	import { useInputHandlers } from '@/kernel/vue/composables/input/index.js';
+	import PublicationAudience from '@/kernel/vue/components/media/publications/PublicationAudience.vue';
 	import { useStoriesEditorStore } from '@D/store/stories/editor.store.js';
+	import { publicationManager } from '@/kernel/services/media/publications/index.js';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { getStoryVideoClipCandidate, storyClipUploadOptions, formatStoryClipTime } from '@/kernel/services/media/story-video-clip.js';
 
@@ -218,6 +221,7 @@
 
 			return {
 				state: state,
+				isLocalPublication: computed(() => Boolean(storiesEditorStore.publicationSelection)),
 				videoClipPreview: videoClipPreview,
 				storyMedia: computed(() => {
 					return storiesEditorStore.storyMedia;
@@ -264,12 +268,13 @@
                     storyTextInputField.value.focus();
 				},
 				submitForm: async () => {
+					if (state.isSubmitting) return;
 					try {
 						state.isSubmitting = true;
-						await storiesEditorStore.publishStory();
+						const result = await storiesEditorStore.publishStory();
 						state.isSubmitting = false;
 
-						toastSuccess(__t('toast.story.story_published'));
+						toastSuccess(result?.queued ? 'Story queued' : __t('toast.story.story_published'));
 
 						storiesEditorStore.resetEditor();
 						clearVideoClipCandidate();
@@ -286,8 +291,12 @@
 						toastError(e.message);
 					}
 				},
-				selectStoryMedia: () => {
-					stroyMediaFileInput.value.click();
+				selectStoryMedia: async () => {
+					try {
+						const files = await publicationManager.pick('story', 'media');
+						if (files === null) stroyMediaFileInput.value.click();
+						else if (files[0]) await handleMediaUpload(files[0]);
+					} catch (error) { toastError(error.message); }
 				},
 				handleMediaUpload: handleMediaUpload,
 				handleMediaSelect: async (event) => {
@@ -319,6 +328,7 @@
 			};
 		},
 		components: {
+			PublicationAudience,
 			PrimaryTextButton: PrimaryTextButton,
 			PrimaryIconButton: PrimaryIconButton,
 			EmojisPicker: defineAsyncComponent(() => {

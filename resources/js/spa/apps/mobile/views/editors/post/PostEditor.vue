@@ -58,7 +58,8 @@
 				{{ validationError }}
 			</p>
 
-				<p v-if="! isEditingPost && userData.is_author" class="text-par-s text-lab-sc">
+				<PublicationAudience v-if="isLocalPublication" />
+				<p v-else-if="! isEditingPost && userData.is_author" class="text-par-s text-lab-sc">
 					{{ $t('editor.post_privacy') }}
 				</p>
 				<p v-else-if="! isEditingPost" class="text-par-s text-lab-sc">
@@ -82,6 +83,8 @@
 <script>
 	import { defineComponent, reactive, ref, defineAsyncComponent, computed, onMounted, onBeforeUnmount } from 'vue';
 	import { useRouter } from 'vue-router';
+	import { useMediaPublication } from '@/kernel/vue/composables/media-publication/index.js';
+	import PublicationAudience from '@/kernel/vue/components/media/publications/PublicationAudience.vue';
 	import { useInputHandlers } from '@/kernel/vue/composables/input/index.js';
 	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 	import { applyVideoPresentationMetadata, readVideoFileMetadata } from '@/kernel/services/media/video-metadata.js';
@@ -119,6 +122,7 @@
 	export default defineComponent({
 		setup: function() {
 			const postEditorStore = usePostEditorStore();
+			const publication = useMediaPublication('post');
 			const imageFileInput = ref(null);
 			const videoFileInput = ref(null);
 			const audioFileInput = ref(null);
@@ -149,7 +153,7 @@
 			});
 
 			const submitButtonStatus = computed(() => {
-				return state.postSubmitting || Boolean(state.uploadProgress) || postEditorStore.videoUploadActive || state.videoUploadFailed;
+				return publication.selecting.value || state.postSubmitting || Boolean(state.uploadProgress) || postEditorStore.videoUploadActive || state.videoUploadFailed;
 			});
 
 			const validatePost = (message) => {
@@ -887,7 +891,14 @@
 				}
 			}
 
-			const uploadMedia = (mediaFile, type = 'image') => {
+			const uploadMedia = async (mediaFile, type = 'image') => {
+				if (!mediaFile) return;
+				try {
+					if (!postEditorStore.isEditingPost && !postData.value.relations?.media?.length && await publication.select(mediaFile)) {
+						resetFileInputTags();
+						return;
+					}
+				} catch (error) { validatePost(error.message); return; }
 				if(type === 'video') {
 					return uploadVideoDirectly(mediaFile);
 				}
@@ -1038,8 +1049,20 @@
 				});
 			}
 
-			const submitForm = () => {
+			const submitForm = async () => {
 				if(state.postSubmitting) {
+					return;
+				}
+				if (publication.selecting.value) return;
+				if (publication.selections.value.length) {
+					state.postSubmitting = true;
+					try {
+						await publication.enqueue({ content: postData.value.content, privacy: postData.value.privacy || 'all', selected_user_ids: postData.value.selected_user_ids || [], ...(postEditorStore.quotePostId ? { quoted_post_id: postEditorStore.quotePostId } : {}) });
+						publication.clear();
+						postEditorStore.finishEditing();
+						navigateBack();
+					} catch (error) { validatePost(error.message); }
+					finally { state.postSubmitting = false; }
 					return;
 				}
 
@@ -1097,6 +1120,7 @@
 
 			return {
 				leaveEditor: leaveEditor,
+				isLocalPublication: computed(() => publication.selections.value.length > 0),
 				state: state,
 				videoUploadActive: computed(() => postEditorStore.videoUploadActive),
 				PostTypeUtils: PostTypeUtils,
@@ -1118,6 +1142,7 @@
 							return postEditorStore.isEditingPost ? __t('editor.edit_post_text_input_placeholder') : __t('editor.post_text_input_placeholder');
 						}),
 						currentPostType: computed(() => {
+						if (publication.selections.value.length) return publication.selections.value[0].type;
 						if (state.localMediaPreviews.length) {
 							return state.localMediaPreviews[0].type;
 					}
@@ -1141,21 +1166,22 @@
 					retainBackgroundVideoUpload(uploadMedia(event.target.files[0], 'video'));
 				},
 				selectImage: function() {
-					imageFileInput.value.click();
+					publication.pick('image', imageFileInput.value).catch(error => validatePost(error.message));
 				},
 				selectAudio: function() {
 					audioFileInput.value.click();
 				},
 				selectVideo: function() {
-					videoFileInput.value.click();
+					publication.pick('video', videoFileInput.value).catch(error => validatePost(error.message));
 				},
 				postHasMedia: computed(() => {
-                    return state.localMediaPreviews.length || postData.value.relations?.media?.length;
+                    return publication.selections.value.length || state.localMediaPreviews.length || postData.value.relations?.media?.length;
                 }),
 				postHasPoll: computed(() => {
                     return postData.value.relations?.poll;
                 }),
 				postMedia: computed(() => {
+					if (publication.selections.value.length) return publication.selections.value;
 					const serverMedia = postData.value.relations?.media || [];
 
                     return mergePostMediaPreviews(serverMedia, state.localMediaPreviews);
@@ -1188,6 +1214,7 @@
 				},
 					submitButtonStatus: submitButtonStatus,
 					postMediaButtonStatus: (postType = null) => {
+						if (publication.selecting.value || publication.selections.value.length) return publication.selecting.value || state.postSubmitting || postType !== 'image' || publication.selections.value[0].type !== 'image';
 	                    // Disable media button if post is being submitted
 	                    if (state.postSubmitting || state.uploadProgress || postEditorStore.isEditingPost) {
 	                        return true;
@@ -1213,6 +1240,8 @@
                     }
                 },
 					deletePostMedia: (mediaItem) => {
+						if (state.postSubmitting) return;
+						if (mediaItem.client_uid) { publication.remove(mediaItem); return; }
 						if(postEditorStore.isEditingPost || postEditorStore.videoUploadActive) {
 							return false;
 						}
@@ -1247,6 +1276,7 @@
 			};
 		},
 		components: {
+			PublicationAudience,
 			Toolbar: Toolbar,
 			PrimaryIconButton: PrimaryIconButton,
 			PostImagePreview: defineAsyncComponent(() => {

@@ -39,6 +39,11 @@ class HandlePostCreation
 
     private function censorPost(Post $postData)
     {
+        // Publication posts are censored inside their creation transaction.
+        if ($postData->media->contains(fn ($media) => filled(data_get($media->metadata, 'publication_id')))) {
+            return;
+        }
+
         $censorService = app(CensorService::class);
 
         $censorService->setUser($postData->user)->censor($postData->content);
@@ -46,6 +51,10 @@ class HandlePostCreation
 
     private function notifyMentionedUsers(Post $postData)
     {
+        if ($postData->media->contains(fn ($media) => filled(data_get($media->metadata, 'publication_id')))) {
+            return;
+        }
+
         $mentions = $postData->getMentions();
 
         if ($mentions) {
@@ -59,7 +68,7 @@ class HandlePostCreation
 
     private function canDispatchVideoProcessing(?Media $media): bool
     {
-        if(empty($media)) {
+        if(empty($media) || $media->status->isProcessed()) {
             return false;
         }
 

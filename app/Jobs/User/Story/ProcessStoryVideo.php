@@ -5,7 +5,7 @@ namespace App\Jobs\User\Story;
 use Exception;
 use App\Models\StoryFrame;
 use App\Constants\Filesystem;
-use FFMpeg\Format\Video\X264;
+use App\Services\Media\Publication\MediaEncodingProfile;
 use FFMpeg\Coordinate\TimeCode;
 use App\Enums\Media\MediaStatus;
 use App\Enums\Story\StoryStatus;
@@ -81,19 +81,11 @@ class ProcessStoryVideo implements ShouldQueue
             $clipDurationSeconds = $this->clipDurationSeconds();
 
             $ffmpeg = $videoUploadService->getFFMpeg();
-            $format = (new X264())
-                ->setKiloBitrate(0)
-                ->setAudioKiloBitrate((int) config('story.processing.video.audio_bitrate'))
-                ->setAdditionalParameters([
-                    '-preset',
-                    config('story.processing.video.preset'),
-                    '-crf',
-                    (string) config('story.processing.video.crf'),
-                    '-pix_fmt',
-                    'yuv420p',
-                    '-movflags',
-                    '+faststart',
-                ]);
+            $format = MediaEncodingProfile::x264(
+                (string) config('story.processing.video.crf'),
+                (string) config('story.processing.video.preset'),
+                (int) config('story.processing.video.audio_bitrate')
+            );
 
             $lastProgress = 5;
 

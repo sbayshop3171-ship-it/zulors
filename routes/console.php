@@ -40,6 +40,7 @@ Schedule::command('timeline:reel-quality-hourly')->hourlyAt(20);
 
 Schedule::command('media:cleanup-temp --hours=72')->dailyAt('03:00')->withoutOverlapping();
 Schedule::command('horizon:snapshot')->everyFiveMinutes();
+Schedule::command('media:reconcile-publications')->everyFiveMinutes()->withoutOverlapping();
 
 Schedule::command('calls:cleanup-stale --limit=200')->everyMinute()->withoutOverlapping();
 

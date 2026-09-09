@@ -12,7 +12,7 @@ class HandleStoryCreation
 {
     public function handle(StoryCreatedEvent $event): void
     {
-        if($event->frameData->type->isVideo()) {
+        if($event->frameData->type->isVideo() && ! $event->frameData->media->first()?->status->isProcessed()) {
             ProcessStoryVideo::dispatch($event->frameData)->onQueue(config('media.queues.video_high'));
         }
 
@@ -21,6 +21,10 @@ class HandleStoryCreation
 
     private function notifyMentionedUsers(StoryFrame $frameData)
     {
+        if ($frameData->media->contains(fn ($media) => filled(data_get($media->metadata, 'publication_id')))) {
+            return;
+        }
+
         $mentions = $frameData->getMentions();
 
         if ($mentions) {

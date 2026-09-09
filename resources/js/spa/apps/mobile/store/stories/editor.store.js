@@ -1,4 +1,6 @@
 import { defineStore } from 'pinia';
+import { publicationManager } from '@/kernel/services/media/publications/index.js';
+import { isPublicationMedia, selectPublicationMedia, releasePublicationSelection } from '@/kernel/services/media/publications/selection.js';
 import { directVideoUpload } from '@/kernel/services/media/r2-direct-video-upload.js';
 import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 import { useStoriesStore } from '@M/store/stories/stories.store.js';
@@ -11,6 +13,8 @@ const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 			uploadProgress: 0,
 			videoClipCandidate: null,
 			storyMedia: null,
+			publicationSelection: null,
+			publicationOptions: {},
 			storyMediaObjectUrl: null,
 			storyData: {
 				content: ''
@@ -28,6 +32,8 @@ const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 			this.storyMediaObjectUrl = null;
 		},
 		resetEditor: function() {
+			this.publicationSelection = null;
+			this.publicationOptions = {};
 			this.releaseMediaPreview();
 			this.clearVideoClipCandidate();
 			this.discardUploadedMedia = false;
@@ -58,6 +64,10 @@ const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 			this.resetEditor();
 		},
 		publishStory: async function() {
+			if (this.publicationSelection) {
+				await publicationManager.enqueue({ kind: 'story', content: this.storyData.content, privacy: this.storyData.privacy || 'all', selected_user_ids: this.storyData.selected_user_ids || [], ...this.publicationOptions }, [this.publicationSelection]);
+				return { queued: true };
+			}
 			const storiesStore = useStoriesStore();
 			if (this.storyMedia) {
 				await colibriAPI().storyEditor().with({
@@ -74,6 +84,25 @@ const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 			}
 		},
 		uploadMedia: async function(mediaFile, options = {}) {
+			if (isPublicationMedia(mediaFile)) {
+				this.isUploading = true;
+				try {
+					if (await publicationManager.enabled('story')) {
+						const selection = await selectPublicationMedia(mediaFile, publicationManager.account);
+						if (this.discardUploadedMedia) {
+							releasePublicationSelection(selection);
+							this.discardUploadedMedia = false;
+							return;
+						}
+						this.releaseMediaPreview();
+						this.publicationSelection = selection;
+						this.publicationOptions = options;
+						this.storyMediaObjectUrl = selection.preview_url;
+						this.storyMedia = selection;
+						return;
+					}
+				} finally { this.isUploading = false; }
+			}
 			if(mediaFile.type.startsWith('video/')) {
 				this.isUploading = true;
 				let uploadCreated = false;
@@ -164,6 +193,13 @@ const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 			});
 		},
 		deleteMedia: async function() {
+			if (this.publicationSelection) {
+				this.releaseMediaPreview();
+				this.publicationSelection = null;
+				this.publicationOptions = {};
+				this.storyMedia = null;
+				return;
+			}
 			this.releaseMediaPreview();
 			this.storyMedia = null;
 

@@ -10,7 +10,7 @@ BUILD_TYPE="${BUILD_TYPE:-}"
 MIN_SDK="${MIN_SDK:-23}"
 TARGET_SDK="${TARGET_SDK:-$PLATFORM_API}"
 VERSION_CODE="${VERSION_CODE:-$(date +%s)}"
-VERSION_NAME="${VERSION_NAME:-0.4.0-${APP_MODE}}"
+VERSION_NAME="${VERSION_NAME:-0.5.0-${APP_MODE}}"
 JDK_HOME="${JDK_HOME:-/Applications/Android Studio.app/Contents/jbr/Contents/Home}"
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD="$APP_DIR/build/$(date +%Y%m%d%H%M%S)"
@@ -32,6 +32,11 @@ PLAY_APP_UPDATE_VERSION="${PLAY_APP_UPDATE_VERSION:-2.1.0}"
 ANDROIDX_ACTIVITY_VERSION="${ANDROIDX_ACTIVITY_VERSION:-1.13.0}"
 ANDROIDX_FRAGMENT_VERSION="${ANDROIDX_FRAGMENT_VERSION:-1.9.0}"
 ANDROIDX_SPLASHSCREEN_VERSION="${ANDROIDX_SPLASHSCREEN_VERSION:-1.0.1}"
+ANDROIDX_WEBKIT_VERSION="1.12.1"
+ANDROIDX_WORK_VERSION="2.10.3"
+OKHTTP_VERSION="4.12.0"
+RUN_UPLOAD_TESTS="${RUN_UPLOAD_TESTS:-false}"
+LOCAL_MAVEN_CACHE="${LOCAL_MAVEN_CACHE:-}"
 GOOGLE_WEB_CLIENT_ID="${GOOGLE_WEB_CLIENT_ID:-505126705219-c4alnqlmvgio1oh1p1qedjj2unj6s6m3.apps.googleusercontent.com}"
 
 export JAVA_HOME="$JDK_HOME"
@@ -231,9 +236,15 @@ if [ "$ENABLE_FIREBASE_MESSAGING" = "true" ]; then
 	cp "$GOOGLE_SERVICES_JSON" "$GRADLE_APP/google-services.json"
 fi
 
-cat > "$GRADLE_PROJECT/settings.gradle" <<'EOF'
+LOCAL_MAVEN_REPOSITORY=""
+if [ -n "$LOCAL_MAVEN_CACHE" ]; then
+    LOCAL_MAVEN_REPOSITORY="maven { url uri('$(gradle_plain_string "$LOCAL_MAVEN_CACHE")'); allowInsecureProtocol = true }"
+fi
+
+cat > "$GRADLE_PROJECT/settings.gradle" <<EOF
 pluginManagement {
     repositories {
+        $LOCAL_MAVEN_REPOSITORY
         google()
         mavenCentral()
         gradlePluginPortal()
@@ -243,6 +254,7 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        $LOCAL_MAVEN_REPOSITORY
         google()
         mavenCentral()
     }
@@ -291,19 +303,17 @@ BUILD_TYPES="        debug {
 
 if [ "$BUILD_TYPE" = "release" ]; then
 	RELEASE_KEYSTORE_FIELD="$(gradle_plain_string "$RELEASE_KEYSTORE")"
-	RELEASE_STORE_PASSWORD_FIELD="$(gradle_plain_string "$RELEASE_STORE_PASSWORD")"
 	RELEASE_KEYSTORE_TYPE_FIELD="$(gradle_plain_string "$RELEASE_KEYSTORE_TYPE")"
 	RELEASE_KEY_ALIAS_FIELD="$(gradle_plain_string "$RELEASE_KEY_ALIAS")"
-	RELEASE_KEY_PASSWORD_FIELD="$(gradle_plain_string "$RELEASE_KEY_PASSWORD")"
 
 	SIGNING_CONFIGS="$SIGNING_CONFIGS
 
         release {
             storeFile file('$RELEASE_KEYSTORE_FIELD')
             storeType '$RELEASE_KEYSTORE_TYPE_FIELD'
-            storePassword '$RELEASE_STORE_PASSWORD_FIELD'
+            storePassword System.getenv('RELEASE_STORE_PASSWORD')
             keyAlias '$RELEASE_KEY_ALIAS_FIELD'
-            keyPassword '$RELEASE_KEY_PASSWORD_FIELD'
+            keyPassword System.getenv('RELEASE_KEY_PASSWORD')
         }"
 
 	BUILD_TYPES="$BUILD_TYPES
@@ -327,6 +337,16 @@ if (file('google-services.json').exists()) {
 android {
     namespace 'com.zulors.app'
     compileSdk $PLATFORM_API
+
+    sourceSets {
+        test.java.srcDirs = ['$APP_DIR/../../tests/android']
+    }
+    testOptions {
+        unitTests.includeAndroidResources = true
+        unitTests.all {
+            systemProperty 'robolectric.dependency.repo.url', System.getenv('ROBOLECTRIC_REPO_URL') ?: 'https://repo.maven.apache.org/maven2'
+        }
+    }
 
     defaultConfig {
         applicationId '$APP_ID'
@@ -370,6 +390,11 @@ $BUILD_TYPES
 }
 
 dependencies {
+    implementation 'androidx.webkit:webkit:$ANDROIDX_WEBKIT_VERSION'
+    implementation 'androidx.work:work-runtime:$ANDROIDX_WORK_VERSION'
+    implementation 'com.squareup.okhttp3:okhttp:$OKHTTP_VERSION'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
     implementation 'io.agora.rtc:voice-sdk:$AGORA_VOICE_SDK_VERSION'
     implementation 'com.google.android.play:app-update:$PLAY_APP_UPDATE_VERSION'
     implementation 'androidx.activity:activity:$ANDROIDX_ACTIVITY_VERSION'
@@ -381,6 +406,13 @@ dependencies {
     implementation 'com.google.android.libraries.identity.googleid:googleid:$GOOGLE_ID_VERSION'
 }
 EOF
+
+export RELEASE_STORE_PASSWORD="${RELEASE_STORE_PASSWORD:-}"
+export RELEASE_KEY_PASSWORD="${RELEASE_KEY_PASSWORD:-}"
+
+if [ "$RUN_UPLOAD_TESTS" = "true" ]; then
+    "$GRADLE_BIN" --no-daemon --project-dir "$GRADLE_PROJECT" ":app:test${BUILD_TYPE_CAP}UnitTest"
+fi
 
 "$GRADLE_BIN" \
 	--no-daemon \

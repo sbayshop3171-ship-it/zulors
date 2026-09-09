@@ -3,7 +3,7 @@ import { readVideoFileMetadata } from '@/kernel/services/media/video-metadata.js
 export const STORY_VIDEO_CLIP_SECONDS = 60;
 
 export const isStoryVideoFile = (file) => {
-    return Boolean(file?.type && file.type.startsWith('video/'));
+    return Boolean((file?.mime || file?.type || '').startsWith('video/'));
 };
 
 export const getStoryVideoClipCandidate = async (file) => {
@@ -11,7 +11,7 @@ export const getStoryVideoClipCandidate = async (file) => {
         return null;
     }
 
-    const metadata = await readVideoFileMetadata(file);
+    const metadata = file.native_file_id ? { duration_seconds: file.duration_seconds } : await readVideoFileMetadata(file);
     const durationSeconds = Math.max(0, Number(metadata.duration_seconds || 0));
 
     if(durationSeconds <= STORY_VIDEO_CLIP_SECONDS) {
@@ -27,7 +27,7 @@ export const getStoryVideoClipCandidate = async (file) => {
     return {
         requiresTrim: true,
         file: file,
-        objectUrl: URL.createObjectURL(file),
+        objectUrl: file.native_file_id ? file.preview_url : URL.createObjectURL(file),
         durationSeconds: durationSeconds,
         maxStartSeconds: Math.max(0, Math.floor(durationSeconds - STORY_VIDEO_CLIP_SECONDS)),
         clipStartSeconds: 0,

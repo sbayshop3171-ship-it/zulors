@@ -75,6 +75,8 @@ Route::prefix('auth')->middleware(['auth:sanctum', $lightApiThrottle])->group(ba
 
 Route::prefix('post/editor')->middleware(['auth:sanctum', $uploadApiThrottle])->group(base_path('routes/api/user/post_editor.php'));
 
+Route::prefix('media-publications')->middleware(['auth:sanctum', $uploadApiThrottle])->group(base_path('routes/api/user/media_publications.php'));
+
 Route::prefix('story/editor')->middleware(['auth:sanctum', $uploadApiThrottle])->group(base_path('routes/api/user/story_editor.php'));
 
 Route::prefix('v1/chats/{chatId}/media/video/direct')->middleware(['auth:sanctum', $uploadApiThrottle])->group(function () {

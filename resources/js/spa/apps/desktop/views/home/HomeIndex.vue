@@ -9,6 +9,7 @@
         <template v-slot:content>
             <TimelineContainer>
                 <HomeHeader></HomeHeader>
+                <PublicationOutbox @published="refreshPublishedMedia" />
 
                 <div class="block">
                     <div class="pb-4 px-4">
@@ -81,6 +82,8 @@
     import BRD from '@/kernel/websockets/brd/index.js';
 
     import StoriesFeed from '@D/components/stories/feed/StoriesFeed.vue';
+    import { useStoriesStore } from '@D/store/stories/stories.store.js';
+    import PublicationOutbox from '@/kernel/vue/components/media/publications/PublicationOutbox.vue';
     import TimelinePublication from '@D/components/timeline/feed/TimelinePublication.vue';
     import TimelinePublicationSkeleton from '@D/components/timeline/feed/TimelinePublicationSkeleton.vue';
     import PublicationEditorTrigger from '@D/features/home/parts/PublicationEditorTrigger.vue';
@@ -306,6 +309,10 @@
             });
 
             return {
+                refreshPublishedMedia: () => {
+                    refreshLatestFeed();
+                    useStoriesStore().fetchStoriesFeed().catch(() => {});
+                },
                 timelinePosts: timelinePosts,
                 timelineFeedSessionId: timelineFeedSessionId,
                 timelineFeedType: timelineFeedType,
@@ -322,6 +329,7 @@
             };
         },
         components: {
+            PublicationOutbox,
             StoriesFeed: StoriesFeed,
             TimelinePublication: TimelinePublication,
             TimelinePublicationSkeleton: TimelinePublicationSkeleton,

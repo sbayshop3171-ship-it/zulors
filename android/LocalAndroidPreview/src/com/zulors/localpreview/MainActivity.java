@@ -122,6 +122,7 @@ public class MainActivity extends Activity {
         Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION;
 
     private WebView webView;
+    private ZulorsUploadBridge uploadBridge;
     private ValueCallback<Uri[]> filePathCallback;
     private PermissionRequest pendingPermissionRequest;
     private String[] pendingPermissionResources;
@@ -550,6 +551,7 @@ public class MainActivity extends Activity {
         webView.addJavascriptInterface(new CallAudioBridge(), "ZulorsCallAudio");
         webView.addJavascriptInterface(new StartupBridge(), "ZulorsStartup");
         webView.addJavascriptInterface(new NativeAuthBridge(), "ZulorsNativeAuth");
+        uploadBridge = new ZulorsUploadBridge(this, webView);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             settings.setOffscreenPreRaster(true);
@@ -565,6 +567,12 @@ public class MainActivity extends Activity {
         webView.setScrollBarStyle(View.SCROLLBARS_INSIDE_OVERLAY);
 
         webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public android.webkit.WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                android.webkit.WebResourceResponse response = uploadBridge == null ? null : uploadBridge.intercept(request);
+                return response == null ? super.shouldInterceptRequest(view, request) : response;
+            }
+
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
@@ -605,6 +613,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
+                if (uploadBridge != null) uploadBridge.pageStarted(url);
                 recordStartupEvent("page_started", url);
             }
 
@@ -2511,6 +2520,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (uploadBridge != null && uploadBridge.activityResult(requestCode, resultCode, data)) return;
 
         if (requestCode == FLEXIBLE_UPDATE_REQUEST) {
             flexibleUpdateFlowStarted = false;
@@ -2638,6 +2648,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (uploadBridge != null) uploadBridge.resumed();
         appInForeground = true;
         recordStartupEvent("activity_resumed", startupSplashReleaseReason);
         completeFlexibleUpdateWhenSafe();
@@ -2674,7 +2685,9 @@ public class MainActivity extends Activity {
         NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 
         if (manager != null) {
-            manager.cancelAll();
+            for (android.service.notification.StatusBarNotification notification : manager.getActiveNotifications()) {
+                if (!UploadNotifications.isUpload(notification)) manager.cancel(notification.getTag(), notification.getId());
+            }
         }
     }
 
@@ -2869,6 +2882,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        if (uploadBridge != null) uploadBridge.paused();
         appInForeground = false;
 
         if (callSessionManager != null) {
@@ -2968,6 +2982,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (uploadBridge != null) { uploadBridge.destroy(); uploadBridge = null; }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && backInvokedCallback != null) {
             getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backInvokedCallback);
             backInvokedCallback = null;

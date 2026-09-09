@@ -1,4 +1,6 @@
 import { defineStore } from 'pinia';
+import { publicationManager } from '@/kernel/services/media/publications/index.js';
+import { isPublicationMedia, selectPublicationMedia } from '@/kernel/services/media/publications/selection.js';
 import { directVideoUpload } from '@/kernel/services/media/r2-direct-video-upload.js';
 import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 import { useStoriesStore } from '@D/store/stories/stories.store.js';
@@ -10,6 +12,8 @@ const useStoriesEditorStore = defineStore('stories_editor_store', {
 			isUploading: false,
 			uploadProgress: 0,
 			storyMedia: null,
+			publicationSelection: null,
+			publicationOptions: {},
 			storyMediaObjectUrl: null,
 			storyData: {
 				content: ''
@@ -36,6 +40,8 @@ const useStoriesEditorStore = defineStore('stories_editor_store', {
 			this.opened = false;
 		},
 		resetEditor: function() {
+			this.publicationSelection = null;
+			this.publicationOptions = {};
 			this.releaseMediaPreview();
 			this.uploadProgress = 0;
 			this.storyMedia = null;
@@ -44,6 +50,10 @@ const useStoriesEditorStore = defineStore('stories_editor_store', {
 			}
 		},
 		publishStory: async function() {
+			if (this.publicationSelection) {
+				await publicationManager.enqueue({ kind: 'story', content: this.storyData.content, privacy: this.storyData.privacy || 'all', selected_user_ids: this.storyData.selected_user_ids || [], ...this.publicationOptions }, [this.publicationSelection]);
+				return { queued: true };
+			}
 			const state = this;
 			const storiesStore = useStoriesStore();
 			if (state.storyMedia) {
@@ -61,6 +71,20 @@ const useStoriesEditorStore = defineStore('stories_editor_store', {
 			}
 		},
 		uploadMedia: async function(mediaFile, options = {}) {
+			if (isPublicationMedia(mediaFile)) {
+				this.isUploading = true;
+				try {
+					if (await publicationManager.enabled('story')) {
+						const selection = await selectPublicationMedia(mediaFile, publicationManager.account);
+						this.releaseMediaPreview();
+						this.publicationSelection = selection;
+						this.publicationOptions = options;
+						this.storyMediaObjectUrl = selection.preview_url;
+						this.storyMedia = selection;
+						return;
+					}
+				} finally { this.isUploading = false; }
+			}
 			if(mediaFile.type.startsWith('video/')) {
 				this.isUploading = true;
 				let uploadCreated = false;
@@ -126,6 +150,13 @@ const useStoriesEditorStore = defineStore('stories_editor_store', {
 			});
 		},
 		deleteMedia: async function() {
+			if (this.publicationSelection) {
+				this.releaseMediaPreview();
+				this.publicationSelection = null;
+				this.publicationOptions = {};
+				this.storyMedia = null;
+				return;
+			}
 			this.releaseMediaPreview();
 			this.storyMedia = null;
 

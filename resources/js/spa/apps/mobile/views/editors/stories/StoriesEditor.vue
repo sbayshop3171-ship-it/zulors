@@ -92,7 +92,8 @@
 				</div>
 			</div>
 			<Border></Border>
-			<StoryPrivacyInfo></StoryPrivacyInfo>
+			<PublicationAudience v-if="isLocalPublication" class="px-4" />
+			<StoryPrivacyInfo v-else></StoryPrivacyInfo>
 			<div class="p-4">
 				<PrimaryTextButton v-bind:buttonFluid="true" v-bind:disabled="! isFormValid" v-bind:loading="state.isSubmitting" v-bind:buttonText="$t('story.editor.publish_story')" type="submit"></PrimaryTextButton>
 			</div>
@@ -105,6 +106,7 @@
 	import { useRouter } from 'vue-router';
 
 	import { useInputHandlers } from '@/kernel/vue/composables/input/index.js';
+	import PublicationAudience from '@/kernel/vue/components/media/publications/PublicationAudience.vue';
 	import { useStoriesEditorStore } from '@M/store/stories/editor.store.js';
 	import { storyClipUploadOptions, formatStoryClipTime } from '@/kernel/services/media/story-video-clip.js';
 
@@ -175,6 +177,7 @@
 
 			return {
 				state: state,
+				isLocalPublication: computed(() => Boolean(storiesEditorStore.publicationSelection)),
 				videoClipPreview: videoClipPreview,
 				storyMedia: computed(() => {
 					return storiesEditorStore.storyMedia;
@@ -234,12 +237,13 @@
 					}
 				},
 				submitForm: async () => {
+					if (state.isSubmitting) return;
 					try {
 						state.isSubmitting = true;
-						await storiesEditorStore.publishStory();
+						const result = await storiesEditorStore.publishStory();
 						state.isSubmitting = false;
 
-						toastSuccess(__t('toast.story.story_published'));
+						toastSuccess(result?.queued ? 'Story queued' : __t('toast.story.story_published'));
 
 						storiesEditorStore.resetEditor();
 
@@ -265,6 +269,7 @@
 			};
 		},
 		components: {
+			PublicationAudience,
 			PrimaryTextButton: PrimaryTextButton,
 			StoryPrivacyInfo: StoryPrivacyInfo,
 			VideoDurationTime: defineAsyncComponent(() => {

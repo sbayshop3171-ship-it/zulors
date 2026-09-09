@@ -7,6 +7,7 @@
 		<TimelineContainer>
 	        <div class="px-4 pb-3 pt-1">
 	            <StoriesFeed></StoriesFeed>
+                <PublicationOutbox @published="refreshPublishedMedia" />
 	        </div>
 	        <Border height="h-2" opacity="opacity-30"></Border>
 			<div class="pb-6">
@@ -70,6 +71,8 @@
     import TimelinePublicationSkeleton from '@M/components/timeline/feed/TimelinePublicationSkeleton.vue';
     import TimelineContainer from '@M/components/timeline/feed/TimelineContainer.vue';
     import StoriesFeed from '@M/components/stories/feed/StoriesFeed.vue';
+    import { useStoriesStore } from '@M/store/stories/stories.store.js';
+    import PublicationOutbox from '@/kernel/vue/components/media/publications/PublicationOutbox.vue';
     import AdCard from '@M/components/ads/AdCard.vue';
     import FollowRecommendation from '@M/components/recommend/follow/FollowRecommendation.vue';
     import FeedUpdate from '@M/components/timeline/update/FeedUpdate.vue';
@@ -285,6 +288,10 @@
             });
 
             return {
+                refreshPublishedMedia: () => {
+                    refreshLatestFeed();
+                    useStoriesStore().fetchStoriesFeed().catch(() => {});
+                },
                 swipeSurfaceRef: swipeSurfaceRef,
                 timelinePosts: timelinePosts,
                 timelineFeedSessionId: timelineFeedSessionId,
@@ -303,6 +310,7 @@
             };
         },
         components: {
+            PublicationOutbox,
             TimelinePublication: TimelinePublication,
             TimelinePublicationSkeleton: TimelinePublicationSkeleton,
             TimelineContainer: TimelineContainer,

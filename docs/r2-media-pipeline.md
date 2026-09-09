@@ -157,6 +157,10 @@ device. Chat shows a processing placeholder and receives the ready broadcast.
 Existing server upload endpoints remain available. Android/iOS native clients that
 do not load these Vue stores must adopt the direct endpoints separately.
 
+The opt-in background publication queue for Post, Story and Chat is documented in
+[background-publications.md](background-publications.md). It is additive and must be
+enabled through its own canary flag after deployment.
+
 ## Deployment Configuration
 
 Use the existing deployment procedure in deployment.md, preserving shared runtime

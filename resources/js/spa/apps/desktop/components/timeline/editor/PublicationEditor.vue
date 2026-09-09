@@ -200,7 +200,8 @@
                 </div>
                 <div v-if="! isEditingPost" class="block leading-normal">
                     <div class="w-10/12">
-                        <p  v-if="userData.is_author" class="text-par-s text-lab-sc">
+                        <PublicationAudience v-if="isLocalPublication" />
+                        <p v-else-if="userData.is_author" class="text-par-s text-lab-sc">
                             {{ $t('editor.post_privacy') }}
                         </p>
                         <p v-else class="text-par-s text-lab-sc">
@@ -222,6 +223,8 @@
 
 <script>
     import { defineComponent, defineAsyncComponent, onMounted, onBeforeUnmount, ref, reactive, computed, nextTick } from 'vue';
+    import { useMediaPublication } from '@/kernel/vue/composables/media-publication/index.js';
+    import PublicationAudience from '@/kernel/vue/components/media/publications/PublicationAudience.vue';
     import { PostTypeUtils, PostType } from '@/kernel/enums/post/post.type.js';
 
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
@@ -272,6 +275,7 @@
             const postData = computed(() => {
                 return postEditorStore.draftPost;
             });
+            const publication = useMediaPublication('post');
 
             const state = reactive({
                 postSubmitting: false,
@@ -290,7 +294,7 @@
             });
 
             const submitButtonStatus = computed(() => {
-                return state.postSubmitting || Boolean(state.postMediaUploadProgress) || postEditorStore.videoUploadActive || state.videoUploadFailed;
+                return publication.selecting.value || state.postSubmitting || Boolean(state.postMediaUploadProgress) || postEditorStore.videoUploadActive || state.videoUploadFailed;
             });
 
             const textInputHandler = function() {
@@ -1040,7 +1044,14 @@
                 }
             }
 
-            const uploadPostMedia = (mediaFile, type = 'image') => {
+            const uploadPostMedia = async (mediaFile, type = 'image') => {
+                if (!mediaFile) return;
+                try {
+                    if (!postEditorStore.isEditingPost && !postData.value.relations?.media?.length && await publication.select(mediaFile)) {
+                        resetFileInputTags();
+                        return;
+                    }
+                } catch (error) { toastError(error.message); return; }
                 if(type === 'video') {
                     return uploadPostVideoDirectly(mediaFile);
                 }
@@ -1070,6 +1081,18 @@
 
             const submitForm = async () => {
                 if(state.postSubmitting) return;
+                if (publication.selecting.value) return;
+                if (publication.selections.value.length) {
+                    state.postSubmitting = true;
+                    try {
+                        await publication.enqueue({ ...getFormSubmitData(), privacy: postData.value.privacy || 'all', selected_user_ids: postData.value.selected_user_ids || [] });
+                        publication.clear();
+                        postEditorStore.finishEditing();
+                        colibriEventBus.emit('post-editor:close');
+                    } catch (error) { toastError(error.message); }
+                    finally { state.postSubmitting = false; }
+                    return;
+                }
 
                 if(state.postMediaUploadProgress || postEditorStore.videoUploadActive) {
                     toastError('Please wait until the video upload reaches 100%.');
@@ -1122,7 +1145,7 @@
             }
 
             const selectImage = () => {
-                postImageFileInput.value.click();
+                publication.pick('image', postImageFileInput.value).catch(error => toastError(error.message));
             }
 
             const selectAudio = () => {
@@ -1130,7 +1153,7 @@
             }
 
             const selectVideo = () => {
-                postVideoFileInput.value.click();
+                publication.pick('video', postVideoFileInput.value).catch(error => toastError(error.message));
             }
 
             const createPoll = () => {
@@ -1158,6 +1181,7 @@
             return {
                 state: state,
                 videoUploadActive: computed(() => postEditorStore.videoUploadActive),
+                isLocalPublication: computed(() => publication.selections.value.length > 0),
                 userData: userData,
                 postData: postData,
                 textInputHandler: textInputHandler,
@@ -1198,6 +1222,8 @@
                 },
                 submitForm: submitForm,
                 deletePostMedia: (mediaItem) => {
+                    if (state.postSubmitting) return;
+                    if (mediaItem.client_uid) { publication.remove(mediaItem); return; }
                     if(postEditorStore.isEditingPost || postEditorStore.videoUploadActive) {
                         return false;
                     }
@@ -1252,7 +1278,7 @@
                     postEditorStore.resetDraftPost();
                 },
                 postHasMedia: computed(() => {
-                    return state.localMediaPreviews.length || postData.value.relations?.media?.length;
+                    return publication.selections.value.length || state.localMediaPreviews.length || postData.value.relations?.media?.length;
                 }),
                 postHasPoll: computed(() => {
                     return postData.value.relations?.poll;
@@ -1268,11 +1294,13 @@
                     return postEditorStore.quotedPost !== null;
                 }),
                 postMedia: computed(() => {
+                    if (publication.selections.value.length) return publication.selections.value;
                     const serverMedia = postData.value.relations?.media || [];
 
                     return mergePostMediaPreviews(serverMedia, state.localMediaPreviews);
                 }),
                 currentPostType: computed(() => {
+                    if (publication.selections.value.length) return publication.selections.value[0].type;
                     if(state.localMediaPreviews.length) {
                         return state.localMediaPreviews[0].type;
                     }
@@ -1308,6 +1336,7 @@
                     }
                 }),
                 postMediaButtonStatus: (postType = null) => {
+                    if (publication.selecting.value || publication.selections.value.length) return publication.selecting.value || state.postSubmitting || postType !== 'image' || publication.selections.value[0].type !== 'image';
                     if (state.postSubmitting || postEditorStore.isEditingPost) {
                         return true;
                     }
@@ -1384,6 +1413,7 @@
             };
         },
         components: {
+            PublicationAudience,
             PrimaryTextButton: PrimaryTextButton,
             MediaCreateButton: MediaCreateButton,
             DropdownButton: DropdownButton,

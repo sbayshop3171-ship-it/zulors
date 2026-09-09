@@ -59,6 +59,7 @@ public class ZulorsFirebaseMessagingService extends FirebaseMessagingService {
     @Override
     public void onMessageReceived(RemoteMessage message) {
         Map<String, String> data = message.getData();
+        if (UploadCoordinator.get(this).push(data)) return;
         RemoteMessage.Notification remoteNotification = message.getNotification();
 
         if (isCallCancelNotification(data)) {
