@@ -15,7 +15,7 @@ final class MediaEncodingProfile
         'image_max_pixels' => 40000000,
         'image_memory_bytes' => 536870912,
         'video_crf' => 24,
-        'video_preset' => 'veryfast',
+        'video_preset' => 'ultrafast',
         'video_max_fps' => 30,
         'audio_bitrate' => 128,
         'max_video_bytes' => 1073741824,

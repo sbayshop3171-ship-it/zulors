@@ -15,7 +15,7 @@ return [
         ],
         'video' => [
             'crf' => (int) env('STORY_VIDEO_CRF', 18),
-            'preset' => env('STORY_VIDEO_PRESET', 'medium'),
+            'preset' => env('STORY_VIDEO_PRESET', 'ultrafast'),
             'audio_bitrate' => (int) env('STORY_VIDEO_AUDIO_BITRATE', 192),
         ],
     ],

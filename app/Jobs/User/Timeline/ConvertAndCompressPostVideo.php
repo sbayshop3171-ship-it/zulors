@@ -53,7 +53,10 @@ class ConvertAndCompressPostVideo implements ShouldQueue
                 return;
             }
 
-            if($postMedia->status->isProcessed() && $postMedia->disk !== 'cloudflare_stream') {
+            $postWasAlreadyActive = $this->postData->status === PostStatus::ACTIVE;
+            $instantR2Optimization = $this->isInstantR2MediaAwaitingOptimization($postMedia);
+
+            if($postMedia->status->isProcessed() && $postMedia->disk !== 'cloudflare_stream' && ! $instantR2Optimization) {
                 return;
             }
 
@@ -63,7 +66,10 @@ class ConvertAndCompressPostVideo implements ShouldQueue
                     $this->postData->save();
 
                     event(new MediaProcessedEvent($postMedia->refresh(), $this->postData->user_id));
-                    event(new PublicTimelinePostCreatedEvent($this->postData->refresh()));
+
+                    if(! $postWasAlreadyActive) {
+                        event(new PublicTimelinePostCreatedEvent($this->postData->refresh()));
+                    }
                 }
 
                 return;
@@ -168,6 +174,9 @@ class ConvertAndCompressPostVideo implements ShouldQueue
                     'processing_progress' => 100,
                     'processing_state' => 'processed',
                     'processing_updated_at' => now()->toIso8601String(),
+                    'processing_error' => null,
+                    'background_processing_state' => 'processed',
+                    'background_processing_progress' => 100,
                     'original_size' => $oldSize,
                     'optimized_size' => (int) $postMedia->size,
                     'optimization_ratio' => $this->optimizationRatio($oldSize, (int) $postMedia->size),
@@ -192,7 +201,10 @@ class ConvertAndCompressPostVideo implements ShouldQueue
 
                 try {
                     event(new MediaProcessedEvent($postMedia->refresh(), $this->postData->user_id));
-                    event(new PublicTimelinePostCreatedEvent($this->postData->refresh()));
+
+                    if(! $postWasAlreadyActive) {
+                        event(new PublicTimelinePostCreatedEvent($this->postData->refresh()));
+                    }
                 } catch (Exception $e) {
                     Log::error('Failed to broadcast video processed event: ' . $e->getMessage());
                 }
@@ -327,16 +339,44 @@ class ConvertAndCompressPostVideo implements ShouldQueue
         }
 
         if($state === 'failed') {
-            $postMedia->status = MediaStatus::FAILED;
+            if($this->isInstantR2MediaAwaitingOptimization($postMedia)) {
+                $metadata['processing_error'] = 'Background video optimization failed. Raw playback remains available.';
+            }
+            else {
+                $postMedia->status = MediaStatus::FAILED;
+            }
         }
         elseif(! $postMedia->status->isProcessed()) {
             $postMedia->status = MediaStatus::PROCESSING;
+        }
+
+        if($state !== 'failed') {
+            $metadata['background_processing_state'] = $state;
+            $metadata['background_processing_progress'] = $progress;
+        }
+
+        if($state === 'failed') {
+            $metadata['background_processing_state'] = 'failed';
         }
 
         $postMedia->metadata = $metadata;
         $postMedia->save();
 
         $this->broadcastMediaUpdated($postMedia);
+    }
+
+    private function isInstantR2MediaAwaitingOptimization($postMedia): bool
+    {
+        if(empty($postMedia)) {
+            return false;
+        }
+
+        $metadata = $postMedia->metadata ?? [];
+
+        return $postMedia->status->isProcessed()
+            && in_array(data_get($metadata, 'provider'), ['r2_temp', 'r2_direct'], true)
+            && data_get($metadata, 'upload_state') === 'uploaded'
+            && blank(data_get($metadata, 'processed_at'));
     }
 
     private function broadcastMediaUpdated($postMedia): void

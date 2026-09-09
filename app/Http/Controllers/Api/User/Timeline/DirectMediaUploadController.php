@@ -14,6 +14,7 @@ use App\Enums\Media\MediaStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\User\Media\MediaResource;
 use App\Events\User\Timeline\MediaUpdatedEvent;
+use App\Events\User\Timeline\PublicTimelinePostCreatedEvent;
 use App\Jobs\User\Timeline\ConvertAndCompressPostVideo;
 use App\Traits\Http\Api\SupportsApiResponses;
 use App\Services\Media\Cloudflare\R2DirectUploadService;
@@ -336,6 +337,11 @@ class DirectMediaUploadController extends Controller
         $provider = (string) data_get($metadata, 'provider');
 
         if($publishedR2Retry || (in_array($provider, ['r2_temp', 'r2_direct'], true) && data_get($metadata, 'upload_state') === 'uploaded')) {
+            if(! $media->status->isProcessed()) {
+                $media = $this->publishCompletedR2Video($media, $metadata, $r2DirectUploadService, (int) data_get($metadata, 'original_size', $media->size));
+                $this->broadcastMediaUpdated($media);
+            }
+
             return $this->responseSuccess([
                 'data' => [
                     'media' => MediaResource::make($media->refresh()),
@@ -398,7 +404,6 @@ class DirectMediaUploadController extends Controller
             catch (\Throwable $e) {
                 return $this->responseValidationError(['message' => $e->getMessage(), 'errors' => ['video' => [$e->getMessage()]]]);
             }
-            $post = $media->mediaable;
             $now = now()->toIso8601String();
             $nextMetadata = array_merge($metadata, [
                 'upload_state' => 'uploaded',
@@ -416,15 +421,9 @@ class DirectMediaUploadController extends Controller
             ]);
             unset($nextMetadata['processed_at'], $nextMetadata['processing_fallback']);
 
-            $media->metadata = $nextMetadata;
-            $media->status = MediaStatus::PROCESSING;
-            $media->save();
+            $media = $this->publishCompletedR2Video($media, $nextMetadata, $r2DirectUploadService, $originalSize ?: (int) $media->size);
 
             $this->broadcastMediaUpdated($media);
-
-            if($post instanceof Post && $post->status === PostStatus::PROCESSING_VIDEO) {
-                ConvertAndCompressPostVideo::dispatch($post)->onQueue(config('media.queues.video'));
-            }
 
             return $this->responseSuccess([
                 'data' => [
@@ -453,6 +452,77 @@ class DirectMediaUploadController extends Controller
                 'media' => MediaResource::make($media->refresh()),
             ]
         ]);
+    }
+
+    private function publishCompletedR2Video(Media $media, array $metadata, R2DirectUploadService $r2DirectUploadService, int $originalSize): Media
+    {
+        $now = now()->toIso8601String();
+        $nextMetadata = array_merge($metadata, [
+            'provider' => data_get($metadata, 'provider') ?: 'r2_direct',
+            'upload_state' => 'uploaded',
+            'upload_progress' => 100,
+            'upload_completed_at' => data_get($metadata, 'upload_completed_at', $now),
+            'processing_state' => data_get($metadata, 'processing_state') === 'processed' ? 'processed' : 'queued',
+            'processing_progress' => 100,
+            'processing_updated_at' => $now,
+            'background_processing_state' => 'queued',
+            'background_processing_progress' => 0,
+            'temp_path' => data_get($metadata, 'temp_path', $media->source_path),
+            'temp_disk' => data_get($metadata, 'temp_disk', $media->disk),
+            'final_disk' => data_get($metadata, 'final_disk', $r2DirectUploadService->finalDisk()),
+            'original_size' => $originalSize ?: (int) $media->size,
+            'optimized_size' => data_get($metadata, 'optimized_size'),
+            'optimization_ratio' => data_get($metadata, 'optimization_ratio'),
+            'instant_publish' => true,
+        ]);
+
+        unset($nextMetadata['processed_at'], $nextMetadata['processing_fallback']);
+
+        $media->metadata = $nextMetadata;
+        $media->status = MediaStatus::PROCESSED;
+        $media->save();
+        $media->load('mediaable');
+
+        $post = $media->mediaable;
+        $postWasProcessing = $post instanceof Post && $post->status === PostStatus::PROCESSING_VIDEO;
+
+        if($postWasProcessing) {
+            $post->status = PostStatus::ACTIVE;
+            $post->save();
+        }
+
+        if($post instanceof Post && $post->status === PostStatus::ACTIVE) {
+            $this->dispatchR2VideoOptimization($post, $media);
+        }
+
+        if($postWasProcessing) {
+            try {
+                broadcast(new PublicTimelinePostCreatedEvent($post->refresh()))->toOthers();
+            }
+            catch (Throwable $exception) {
+                report($exception);
+            }
+        }
+
+        return $media->refresh();
+    }
+
+    private function dispatchR2VideoOptimization(Post $post, Media $media): void
+    {
+        $metadata = $media->metadata ?? [];
+
+        if(! in_array(data_get($metadata, 'provider'), ['r2_temp', 'r2_direct'], true)
+            || data_get($metadata, 'upload_state') !== 'uploaded'
+            || filled(data_get($metadata, 'processed_at'))
+            || filled(data_get($metadata, 'processing_dispatched_at'))) {
+            return;
+        }
+
+        $metadata['processing_dispatched_at'] = now()->toIso8601String();
+        $media->metadata = $metadata;
+        $media->save();
+
+        ConvertAndCompressPostVideo::dispatch($post)->onQueue(config('media.queues.video'));
     }
 
     public function uploadRawVideo(Request $request, R2DirectUploadService $r2DirectUploadService)

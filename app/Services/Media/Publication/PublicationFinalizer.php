@@ -8,10 +8,14 @@ use App\Enums\Story\StoryPrivacy;
 use App\Enums\Story\StoryStatus;
 use App\Enums\User\PrivacyPermit;
 use App\Enums\User\UserStatus;
+use App\Events\User\Chat\MessageMediaReadyEvent;
+use App\Events\User\Timeline\MediaProcessedEvent;
 use App\Jobs\Media\DeliverPublicationEvent;
 use App\Models\Chat;
 use App\Models\HiddenChat;
+use App\Models\Media;
 use App\Models\MediaPublication;
+use App\Models\MediaPublicationItem;
 use App\Models\Message;
 use App\Models\Post;
 use App\Models\StoryFrame;
@@ -26,6 +30,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 class PublicationFinalizer
 {
@@ -41,7 +46,9 @@ class PublicationFinalizer
             $items = $publication->items()->lockForUpdate()->get();
             $publication->setRelation('items', $items);
 
-            if ($items->isEmpty() || $items->contains(fn ($item) => $item->status !== 'processed' || empty($item->output))) {
+            $outputs = $this->readyOutputs($publication, $items);
+
+            if ($items->isEmpty() || empty($outputs)) {
                 return $publication;
             }
 
@@ -50,7 +57,7 @@ class PublicationFinalizer
                 return $this->fail($publication, 'actor_inactive');
             }
 
-            return self::asActor($actor, function () use ($publication, $actor, $items) {
+            return self::asActor($actor, function () use ($publication, $actor, $items, $outputs) {
                 $payload = $publication->payload;
                 if (! in_array($publication->kind, ['post', 'story', 'chat'], true)) {
                     return $this->fail($publication, 'invalid_kind');
@@ -65,10 +72,9 @@ class PublicationFinalizer
                     return $this->fail($publication, 'invalid_attachments');
                 }
                 foreach ($items as $item) {
-                    $output = $item->output;
-                    if (blank($output['source_path'] ?? null) || blank($output['disk'] ?? null)
-                        || blank($output['extension'] ?? null) || (int) ($output['size'] ?? 0) < 1
-                        || ! str_starts_with((string) ($output['mime'] ?? ''), $item->type.'/')) {
+                    $output = $outputs[$item->id] ?? [];
+
+                    if (! $this->validOutput($item, $output)) {
                         return $this->fail($publication, 'invalid_processed_output');
                     }
                 }
@@ -88,7 +94,7 @@ class PublicationFinalizer
                 }
 
                 foreach ($items as $item) {
-                    $output = $item->output;
+                    $output = $outputs[$item->id];
                     $entity->media()->create(array_merge(Arr::only($output, [
                         'source_path', 'disk', 'mime', 'extension', 'size',
                         'thumbnail_path', 'thumbnail_disk', 'thumbnail_size', 'lqip_base64',
@@ -96,12 +102,7 @@ class PublicationFinalizer
                         'type' => $item->type,
                         'status' => MediaStatus::PROCESSED,
                         'order' => $item->position,
-                        'metadata' => array_merge($item->metadata ?? [], $output['metadata'] ?? [], [
-                            'publication_id' => $publication->id,
-                            'publication_item_id' => $item->id,
-                            'processing_state' => 'processed',
-                            'processing_progress' => 100,
-                        ]),
+                        'metadata' => $this->mediaMetadata($publication, $item, $output),
                     ]));
                 }
 
@@ -138,6 +139,168 @@ class PublicationFinalizer
                 return $publication;
             });
         });
+    }
+
+    public function replacePublishedMedia(MediaPublication $publication, MediaPublicationItem $item, array $output): Media
+    {
+        if ($publication->status !== 'published' || ! $this->validOutput($item, $output)) {
+            throw new RuntimeException('Published media replacement is invalid.');
+        }
+
+        $media = Media::query()
+            ->where('metadata->publication_id', $publication->id)
+            ->where('metadata->publication_item_id', $item->id)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $media) {
+            throw new RuntimeException('Published media row was not found for replacement.');
+        }
+
+        $media->forceFill(array_merge(Arr::only($output, [
+            'source_path', 'disk', 'mime', 'extension', 'size',
+            'thumbnail_path', 'thumbnail_disk', 'thumbnail_size', 'lqip_base64',
+        ]), [
+            'type' => $item->type,
+            'status' => MediaStatus::PROCESSED,
+            'order' => $item->position,
+            'metadata' => $this->mediaMetadata($publication, $item, $output, $media->metadata ?? []),
+        ]))->save();
+
+        DB::afterCommit(fn () => $this->broadcastMediaReplacement((int) $media->id, $publication->kind, $publication->user_id));
+
+        return $media;
+    }
+
+    private function readyOutputs(MediaPublication $publication, $items): ?array
+    {
+        $outputs = [];
+
+        foreach ($items as $item) {
+            if ($item->status === 'processed' && ! empty($item->output)) {
+                $outputs[$item->id] = $item->output;
+                continue;
+            }
+
+            $rawOutput = $this->rawUploadedVideoOutput($publication, $item);
+
+            if ($rawOutput) {
+                $outputs[$item->id] = $rawOutput;
+                continue;
+            }
+
+            return null;
+        }
+
+        return $outputs;
+    }
+
+    private function rawUploadedVideoOutput(MediaPublication $publication, MediaPublicationItem $item): ?array
+    {
+        if ($item->type !== 'video' || ! in_array($item->status, ['uploaded', 'processing'], true)
+            || $publication->items->count() !== 1) {
+            return null;
+        }
+
+        $upload = $item->upload ?? [];
+        $sourceDisk = (string) ($upload['disk'] ?? '');
+        $sourcePath = (string) ($upload['path'] ?? '');
+
+        if ($sourceDisk === '' || $sourcePath === '') {
+            return null;
+        }
+
+        $extension = strtolower(pathinfo($item->name, PATHINFO_EXTENSION) ?: 'mp4');
+        if (! preg_match('/\A[a-z0-9]{2,8}\z/', $extension)) {
+            $extension = 'mp4';
+        }
+
+        $duration = (float) data_get($item->metadata, 'duration_seconds', data_get($item->metadata, 'seconds', 0));
+        $width = (int) data_get($item->metadata, 'width', data_get($item->metadata, 'dimensions.width', 0));
+        $height = (int) data_get($item->metadata, 'height', data_get($item->metadata, 'dimensions.height', 0));
+        $metadata = [
+            'provider' => (string) ($upload['provider'] ?? 'r2_direct'),
+            'temp_disk' => (string) ($upload['disk'] ?? $sourceDisk),
+            'upload_disk' => (string) ($upload['upload_disk'] ?? $sourceDisk),
+            'final_disk' => (string) ($upload['final_disk'] ?? config('media.cloudflare.r2.final_disk')),
+            'temp_path' => $sourcePath,
+            'upload_state' => 'uploaded',
+            'upload_progress' => 100,
+            'upload_completed_at' => now()->toIso8601String(),
+            'processing_state' => 'queued',
+            'processing_progress' => 100,
+            'processing_updated_at' => now()->toIso8601String(),
+            'background_processing_state' => 'queued',
+            'background_processing_progress' => 0,
+            'original_size' => (int) $item->size,
+            'optimized_size' => null,
+            'optimization_ratio' => null,
+            'instant_publish' => true,
+        ];
+
+        if ($duration > 0) {
+            $metadata['duration'] = parse_duration((int) floor($duration));
+            $metadata['seconds'] = $duration;
+            $metadata['duration_seconds'] = $duration;
+        }
+
+        if ($width > 0 && $height > 0) {
+            $metadata['dimensions'] = ['width' => $width, 'height' => $height];
+            $metadata['aspect_ratio'] = round($width / $height, 6);
+            $metadata['is_portrait'] = $width < $height;
+        }
+
+        return [
+            'source_path' => $sourcePath,
+            'disk' => $sourceDisk,
+            'extension' => $extension,
+            'mime' => str_starts_with($item->mime, 'video/') ? $item->mime : 'video/mp4',
+            'size' => (int) $item->size,
+            'metadata' => $metadata,
+        ];
+    }
+
+    private function validOutput(MediaPublicationItem $item, array $output): bool
+    {
+        return filled($output['source_path'] ?? null)
+            && filled($output['disk'] ?? null)
+            && filled($output['extension'] ?? null)
+            && (int) ($output['size'] ?? 0) > 0
+            && str_starts_with((string) ($output['mime'] ?? ''), $item->type.'/');
+    }
+
+    private function mediaMetadata(MediaPublication $publication, MediaPublicationItem $item, array $output, array $base = []): array
+    {
+        $metadata = array_merge($base, $item->metadata ?? [], $output['metadata'] ?? [], [
+            'publication_id' => $publication->id,
+            'publication_item_id' => $item->id,
+        ]);
+
+        $metadata['processing_state'] = (string) data_get($output, 'metadata.processing_state', 'processed');
+        $metadata['processing_progress'] = (int) data_get($output, 'metadata.processing_progress', 100);
+
+        return $metadata;
+    }
+
+    private function broadcastMediaReplacement(int $mediaId, string $kind, int $userId): void
+    {
+        $media = Media::with('mediaable')->find($mediaId);
+
+        if (! $media) {
+            return;
+        }
+
+        if ($kind === 'post' && $media->mediaable instanceof Post) {
+            event(new MediaProcessedEvent($media, $userId));
+            return;
+        }
+
+        if ($kind === 'chat' && $media->mediaable instanceof Message) {
+            event(new MessageMediaReadyEvent($media->mediaable->loadMissing([
+                'user', 'media', 'chat', 'participant', 'parent.user', 'parent.participant',
+                'parent.media', 'reactions', 'linkSnapshot',
+            ])));
+        }
     }
 
     public static function asActor(User $actor, callable $callback): mixed
@@ -228,7 +391,7 @@ class PublicationFinalizer
         $story ??= $actor->story()->create(['story_uuid' => (string) Str::uuid()]);
         $item = $publication->items->first();
         $duration = $item->type === 'video'
-            ? max(1, (int) ceil((float) data_get($item->output, 'metadata.duration_seconds', 1)))
+            ? max(1, (int) ceil((float) data_get($item->output, 'metadata.duration_seconds', data_get($item->metadata, 'duration_seconds', 1))))
             : max(1, (int) config('story.image_clip_size', 5));
         $publishedAt = now();
         $story->update(['updated_at' => $publishedAt]);

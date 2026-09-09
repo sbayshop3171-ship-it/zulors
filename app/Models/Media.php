@@ -8,6 +8,7 @@ use App\Enums\Media\MediaVisibility;
 use App\Events\Media\MediaCreatedEvent;
 use App\Events\Media\MediaDeletedEvent;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Storage;
 
 class Media extends Model
 {
@@ -77,6 +78,10 @@ class Media extends Model
             if(! $this->status->isProcessed()) {
                 return null;
             }
+
+            if($this->type->isVideo() && $this->usesTemporaryR2Source()) {
+                return $this->temporarySourceUrl() ?: storage_url($this->source_path, $this->disk);
+            }
         }
 
         return storage_url($this->source_path, $this->disk);
@@ -102,5 +107,26 @@ class Media extends Model
         }
 
         return "https://videodelivery.net/{$this->source_path}/{$path}";
+    }
+
+    private function usesTemporaryR2Source(): bool
+    {
+        $metadata = $this->metadata ?? [];
+
+        return in_array(data_get($metadata, 'provider'), ['r2_temp', 'r2_direct'], true)
+            && $this->disk === (string) data_get($metadata, 'temp_disk', config('media.cloudflare.r2.temp_disk', 'r2_temp'))
+            && blank(data_get($metadata, 'processed_at'));
+    }
+
+    private function temporarySourceUrl(): ?string
+    {
+        try {
+            return Storage::disk($this->disk)->temporaryUrl(
+                $this->source_path,
+                now()->addMinutes(config('media.cloudflare.r2.temp_preview_expiry_minutes', 30))
+            );
+        } catch (\Throwable) {
+            return null;
+        }
     }
 }

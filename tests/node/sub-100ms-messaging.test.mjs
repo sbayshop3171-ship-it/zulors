@@ -25,7 +25,7 @@ test('1. Optimistic Media Preview - 0ms Latency', async (t) => {
 
 	assert.ok(optimisticMedia.blob_url, 'Blob URL created');
 	assert.ok(duration < 5, `Media preview created in ${duration.toFixed(2)}ms (target: <5ms) ✅`);
-	console.log(`✅ Optimistic media preview: ${duration.toFixed(2)}ms`);
+	t.diagnostic(`✅ Optimistic media preview: ${duration.toFixed(2)}ms`);
 });
 
 test('2. Optimistic Message Rendering - <30ms Latency', async (t) => {
@@ -47,7 +47,7 @@ test('2. Optimistic Message Rendering - <30ms Latency', async (t) => {
 
 	assert.equal(messages.length, 1, 'Message added to state');
 	assert.ok(duration < 30, `Message rendered in ${duration.toFixed(2)}ms (target: <30ms) ✅`);
-	console.log(`✅ Optimistic message render: ${duration.toFixed(2)}ms`);
+	t.diagnostic(`✅ Optimistic message render: ${duration.toFixed(2)}ms`);
 });
 
 test('3. IndexedDB Local Cache - <5ms Latency', async (t) => {
@@ -68,7 +68,7 @@ test('3. IndexedDB Local Cache - <5ms Latency', async (t) => {
 
 	assert.equal(messageCache.size, 100, 'Messages cached');
 	assert.ok(duration < 5, `IndexedDB cache operation: ${duration.toFixed(2)}ms (target: <5ms) ✅`);
-	console.log(`✅ IndexedDB cache operation: ${duration.toFixed(2)}ms`);
+	t.diagnostic(`✅ IndexedDB cache operation: ${duration.toFixed(2)}ms`);
 });
 
 test('4. Delta Sync on Reconnection - <50ms', async (t) => {
@@ -89,7 +89,7 @@ test('4. Delta Sync on Reconnection - <50ms', async (t) => {
 
 	assert.equal(messagesToSync.length, 3, 'Correct messages filtered');
 	assert.ok(duration < 50, `Delta sync completed in ${duration.toFixed(2)}ms (target: <50ms) ✅`);
-	console.log(`✅ Delta sync: ${duration.toFixed(2)}ms (fetched ${messagesToSync.length} new messages)`);
+	t.diagnostic(`✅ Delta sync: ${duration.toFixed(2)}ms (fetched ${messagesToSync.length} new messages)`);
 });
 
 test('5. Chat History Virtualization - <16.67ms per frame (60fps)', async (t) => {
@@ -110,7 +110,7 @@ test('5. Chat History Virtualization - <16.67ms per frame (60fps)', async (t) =>
 
 	assert.equal(visibleBatch.length, visibleMessages, 'Correct number of messages rendered');
 	assert.ok(duration < 16.67, `Rendered ${visibleMessages}/${totalMessages} messages in ${duration.toFixed(2)}ms (60fps target) ✅`);
-	console.log(`✅ Chat history virtualization: ${duration.toFixed(2)}ms for ${visibleMessages}/${totalMessages} messages`);
+	t.diagnostic(`✅ Chat history virtualization: ${duration.toFixed(2)}ms for ${visibleMessages}/${totalMessages} messages`);
 });
 
 test('6. WebSocket Non-Blocking Broadcasting - <100ms', async (t) => {
@@ -134,7 +134,7 @@ test('6. WebSocket Non-Blocking Broadcasting - <100ms', async (t) => {
 
 	assert.ok(result.event, 'Event broadcasted');
 	assert.ok(duration < 100, `Non-blocking broadcast: ${duration.toFixed(2)}ms (target: <100ms) ✅`);
-	console.log(`✅ Non-blocking WebSocket broadcast: ${duration.toFixed(2)}ms`);
+	t.diagnostic(`✅ Non-blocking WebSocket broadcast: ${duration.toFixed(2)}ms`);
 });
 
 test('7. Message Reaction Updates - <30ms', async (t) => {
@@ -153,7 +153,7 @@ test('7. Message Reaction Updates - <30ms', async (t) => {
 
 	assert.equal(message.reactions.length, 1, 'Reaction added');
 	assert.ok(duration < 30, `Reaction update: ${duration.toFixed(2)}ms (target: <30ms) ✅`);
-	console.log(`✅ Message reaction update: ${duration.toFixed(2)}ms`);
+	t.diagnostic(`✅ Message reaction update: ${duration.toFixed(2)}ms`);
 });
 
 test('8. WebRTC Signaling - <200ms connection', async (t) => {
@@ -173,7 +173,7 @@ test('8. WebRTC Signaling - <200ms connection', async (t) => {
 
 	assert.ok(iceCandidates.length > 0, 'ICE candidates collected');
 	assert.ok(duration < 200, `WebRTC signaling: ${duration.toFixed(2)}ms (target: <200ms) ✅`);
-	console.log(`✅ WebRTC signaling: ${duration.toFixed(2)}ms (${iceCandidates.length} ICE candidates)`);
+	t.diagnostic(`✅ WebRTC signaling: ${duration.toFixed(2)}ms (${iceCandidates.length} ICE candidates)`);
 });
 
 test('9. End-to-End Message Flow - <100ms', async (t) => {
@@ -197,7 +197,7 @@ test('9. End-to-End Message Flow - <100ms', async (t) => {
 
 	assert.ok(flow.optimisticRender < 10, `Optimistic render: ${flow.optimisticRender.toFixed(2)}ms`);
 	assert.ok(flow.totalLatency < 100, `End-to-end latency: ${flow.totalLatency.toFixed(2)}ms (target: <100ms) ✅`);
-	console.log(`✅ End-to-end message flow: ${flow.totalLatency.toFixed(2)}ms (render: ${flow.optimisticRender.toFixed(2)}ms + ack: ${flow.serverAck.toFixed(2)}ms)`);
+	t.diagnostic(`✅ End-to-end message flow: ${flow.totalLatency.toFixed(2)}ms (render: ${flow.optimisticRender.toFixed(2)}ms + ack: ${flow.serverAck.toFixed(2)}ms)`);
 });
 
 test('10. Message Throughput - 1000+ messages/second', async (t) => {
@@ -219,11 +219,11 @@ test('10. Message Throughput - 1000+ messages/second', async (t) => {
 
 	assert.equal(messages.length, messageCount, 'All messages created');
 	assert.ok(messagesPerSecond > 1000, `Throughput: ${messagesPerSecond} messages/second ✅`);
-	console.log(`✅ Message throughput: ${messagesPerSecond} messages/second (${totalDuration.toFixed(2)}ms for ${messageCount} messages)`);
+	t.diagnostic(`✅ Message throughput: ${messagesPerSecond} messages/second (${totalDuration.toFixed(2)}ms for ${messageCount} messages)`);
 });
 
 test('Sub-100ms Latency - Certification Summary', async (t) => {
-	console.log(`
+	t.diagnostic(`
 ╔════════════════════════════════════════════════════════════════╗
 ║   Sub-100ms Real-Time Messaging Pipeline - CERTIFICATION      ║
 ╠════════════════════════════════════════════════════════════════╣

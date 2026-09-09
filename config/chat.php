@@ -115,7 +115,7 @@ return [
         ],
         'video' => [
             'crf' => (int) env('CHAT_VIDEO_CRF', 20),
-            'preset' => env('CHAT_VIDEO_PRESET', 'medium'),
+            'preset' => env('CHAT_VIDEO_PRESET', 'ultrafast'),
             'audio_bitrate' => (int) env('CHAT_VIDEO_AUDIO_BITRATE', 128),
             'square_size' => (int) env('CHAT_VIDEO_SQUARE_SIZE', 720),
         ],

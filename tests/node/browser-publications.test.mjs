@@ -93,12 +93,12 @@ test('uploaded object with lost completion acknowledgement is completed without 
     const manager = makeManager(async (method, path, data) => {
         calls.push([method, path, data]);
         if (path.endsWith('/resume')) return { status: 'uploaded', generation: 3, upload: null, completed_parts: [] };
-        return publication(row, path.endsWith('/complete') ? 'processing' : 'uploading', 'uploaded');
+        return publication(row, path.endsWith('/complete') ? 'published' : 'uploading', 'uploaded');
     }, { transfer: async () => { throw new Error('Must not upload'); } });
     const row = await queued(manager);
     await manager.process(row, manager.epoch);
     assert.deepEqual(calls.find(call => call[1].endsWith('/complete'))[2], { generation: 3, parts: [] });
-    assert.equal((await manager.db.get(row.key)).status, 'processing');
+    assert.equal((await manager.db.get(row.key)).status, 'published');
 });
 
 test('processed items are never resumed and terminal publications stop polling', async () => {

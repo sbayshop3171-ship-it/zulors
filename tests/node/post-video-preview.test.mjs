@@ -86,6 +86,17 @@ async function editorHarness(platform, { fallback = false, fail = false } = {}) 
         ['@/kernel/enums/post/post.type.js', postTypes],
         ['@/kernel/services/media/post-media-preview.js', previews],
         ['@/kernel/services/media/multipart-upload-progress.js', progress],
+        ['@/kernel/vue/composables/media-publication/index.js', {
+            useMediaPublication: () => ({
+                selections: vue.ref([]),
+                selecting: vue.ref(false),
+                select: async () => false,
+                pick: async () => null,
+                remove() {},
+                clear() {},
+                enqueue: async () => {},
+            }),
+        }],
         ['@/kernel/services/media/video-metadata.js', {
             readVideoFileMetadata: async () => ({ duration_seconds: 100, duration: 100, dimensions: { width: 640, height: 360 } }),
             applyVideoPresentationMetadata: (item, metadata) => { Object.assign(item.metadata, metadata); },
@@ -143,6 +154,9 @@ for(const platform of Object.keys(paths)) {
                 h.requests[1].progress(10);
                 h.requests[1].complete();
             }
+            else {
+                await waitFor(() => h.calls.some(call => call.endpoint === 'media/video/upload'));
+            }
             await waitFor(() => ! h.store.videoUploadActive);
             assert.equal(h.editor.state.videoUploadFailed, false);
             assert.equal(h.editor.submitButtonStatus.value, false, 'uploaded media can publish before processing');
@@ -170,6 +184,9 @@ for(const platform of Object.keys(paths)) {
             if(! fallback) {
                 await waitFor(() => h.requests.length === 2);
                 for(const request of h.requests) { request.progress(10); request.complete(); }
+            }
+            else {
+                await waitFor(() => h.calls.some(call => call.endpoint === 'media/video/upload'));
             }
             await waitFor(() => ! h.store.videoUploadActive);
             assert.equal(h.editor.state.videoUploadFailed, true);
@@ -210,6 +227,7 @@ test('multipart progress is cumulative across acknowledgements and retries', () 
 test('desktop publishing clears the retained preview even if the editor stays mounted', async () => {
     const h = await editorHarness('desktop', { fallback: true });
     h.editor.onVideoSelect({ target: { files: [new File(['video'], 'video.mp4', { type: 'video/mp4' })] } });
+    await waitFor(() => h.calls.some(call => call.endpoint === 'media/video/upload'));
     await waitFor(() => ! h.store.videoUploadActive);
     await h.editor.submitForm();
     assert.equal(h.calls.some(call => call.endpoint === 'create'), true);

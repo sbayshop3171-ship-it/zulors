@@ -164,9 +164,22 @@ class PublicationService
             abort_unless($disk->exists($upload['path']) && (int) $disk->size($upload['path']) === $item->size, 422, 'Uploaded bytes do not match the selected file.');
             $item->update(['status' => 'uploaded', 'progress' => 100, 'dispatched_at' => now(), 'queued_at' => now()]);
             $publication->update(['status' => 'processing', 'error' => null]);
-            ProcessPublicationItem::dispatch($item->id, $generation)->afterCommit();
+            if($this->shouldPublishUploadedVideoImmediately($publication, $item)) {
+                $publication = app(PublicationFinalizer::class)->finalize($publication->id) ?? $publication;
+            }
+            if(! in_array($publication->status, ['cancelled', 'failed'], true)) {
+                ProcessPublicationItem::dispatch($item->id, $generation)->afterCommit();
+            }
             return $publication->load('items');
         });
+    }
+
+    private function shouldPublishUploadedVideoImmediately(MediaPublication $publication, MediaPublicationItem $item): bool
+    {
+        return $publication->has_video
+            && $item->type === 'video'
+            && $publication->items()->count() === 1
+            && in_array($publication->kind, ['post', 'story', 'chat'], true);
     }
 
     public function retry(MediaPublication $publication): MediaPublication

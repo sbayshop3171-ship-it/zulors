@@ -68,20 +68,38 @@ class HandlePostCreation
 
     private function canDispatchVideoProcessing(?Media $media): bool
     {
-        if(empty($media) || $media->status->isProcessed()) {
+        if(empty($media)) {
             return false;
         }
 
         $metadata = $media->metadata ?? [];
+
+        if(filled(data_get($metadata, 'publication_id'))) {
+            return false;
+        }
+
+        if($media->status->isProcessed() && ! $this->isInstantR2VideoAwaitingOptimization($media)) {
+            return false;
+        }
 
         if($media->disk === 'cloudflare_stream' || data_get($metadata, 'provider') === 'cloudflare_stream') {
             return false;
         }
 
         if(in_array(data_get($metadata, 'provider'), ['r2_temp', 'r2_direct'], true)) {
-            return data_get($metadata, 'upload_state') === 'uploaded';
+            return data_get($metadata, 'upload_state') === 'uploaded'
+                && blank(data_get($metadata, 'processed_at'));
         }
 
         return true;
+    }
+
+    private function isInstantR2VideoAwaitingOptimization(Media $media): bool
+    {
+        $metadata = $media->metadata ?? [];
+
+        return in_array(data_get($metadata, 'provider'), ['r2_temp', 'r2_direct'], true)
+            && data_get($metadata, 'upload_state') === 'uploaded'
+            && blank(data_get($metadata, 'processed_at'));
     }
 }

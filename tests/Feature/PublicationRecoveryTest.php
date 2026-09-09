@@ -2,12 +2,19 @@
 
 namespace Tests\Feature;
 
+use App\Enums\Media\MediaStatus;
+use App\Enums\Media\MediaType;
+use App\Enums\Post\PostStatus;
+use App\Enums\Post\PostType;
 use App\Enums\User\UserStatus;
+use App\Events\User\Timeline\MediaProcessedEvent;
 use App\Jobs\Media\CleanupPublication;
 use App\Jobs\Media\FinalizePublication;
 use App\Jobs\Media\ProcessPublicationItem;
+use App\Models\Media;
 use App\Models\MediaPublication;
 use App\Models\MediaPublicationItem;
+use App\Models\Post;
 use App\Models\User;
 use App\Services\Media\Cloudflare\R2DirectUploadService;
 use App\Services\Media\Publication\PublicationFinalizer;
@@ -18,6 +25,7 @@ use Aws\S3\Exception\S3Exception;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -85,6 +93,42 @@ class PublicationRecoveryTest extends TestCase
         Bus::assertDispatched(CleanupPublication::class, fn ($job) => $job->publicationId === $publication->id && $job->afterCommit === true);
         Storage::disk('r2_temp')->assertExists($item->upload['path']);
         $this->assertNoPublicEntities();
+    }
+
+    public function test_published_video_worker_replaces_raw_media_without_republishing(): void
+    {
+        Event::fake([MediaProcessedEvent::class]);
+        $publication = $this->publishedVideoPublication();
+        $item = $publication->items[0];
+        $media = Media::firstOrFail();
+        $output = $this->writeOutput($item);
+        $this->processor->shouldReceive('process')->once()->with(Mockery::on(function ($candidate) use ($item) {
+            $this->assertSame($item->id, $candidate->id);
+            $this->assertSame('processing', $candidate->status);
+            $this->assertSame('published', $candidate->publication->status);
+
+            return true;
+        }))->andReturn($output);
+
+        $this->process($item);
+
+        $media->refresh();
+        $this->assertSame('published', $publication->refresh()->status);
+        $this->assertSame('processed', $item->refresh()->status);
+        $this->assertSame($output, $item->output);
+        $this->assertSame('r2_final', $media->disk);
+        $this->assertSame($output['source_path'], $media->source_path);
+        $this->assertSame('r2', data_get($media->metadata, 'provider'));
+        $this->assertSame($publication->id, data_get($media->metadata, 'publication_id'));
+        $this->assertSame($item->id, data_get($media->metadata, 'publication_item_id'));
+        $this->assertDatabaseCount('posts', 1);
+        $this->assertDatabaseCount('media', 1);
+        $this->assertDatabaseCount('media_publication_events', 0);
+        Bus::assertNotDispatched(FinalizePublication::class);
+        Bus::assertDispatched(CleanupPublication::class, fn ($job) => $job->publicationId === $publication->id && $job->afterCommit === true);
+        Event::assertDispatched(MediaProcessedEvent::class);
+        Storage::disk('r2_temp')->assertExists($item->upload['path']);
+        Storage::disk('r2_final')->assertExists($output['source_path']);
     }
 
     public function test_cancellation_during_processing_discards_late_outputs_and_cannot_finalize(): void
@@ -757,13 +801,65 @@ class PublicationRecoveryTest extends TestCase
 
     private function writeOutput(MediaPublicationItem $item, ?int $generation = null): array
     {
-        $path = $this->prefix($item, $generation).'/image.webp';
-        Storage::disk('r2_final')->put($path, 'encoded-image');
+        $video = $item->type === 'video';
+        $body = $video ? 'encoded-video' : 'encoded-image';
+        $path = $this->prefix($item, $generation).($video ? '/optimized.mp4' : '/image.webp');
+        Storage::disk('r2_final')->put($path, $body);
 
         return [
-            'disk' => 'r2_final', 'source_path' => $path, 'mime' => 'image/webp', 'extension' => 'webp',
-            'size' => strlen('encoded-image'), 'metadata' => ['dimensions' => ['width' => 16, 'height' => 16]],
+            'disk' => 'r2_final', 'source_path' => $path, 'mime' => $video ? 'video/mp4' : 'image/webp',
+            'extension' => $video ? 'mp4' : 'webp', 'size' => strlen($body),
+            'metadata' => array_filter([
+                'provider' => $video ? 'r2' : null,
+                'duration_seconds' => $video ? 10 : null,
+                'dimensions' => ['width' => 16, 'height' => 16],
+                'processing_state' => $video ? 'processed' : null,
+                'processing_progress' => $video ? 100 : null,
+            ], fn ($value) => $value !== null),
         ];
+    }
+
+    private function publishedVideoPublication(): MediaPublication
+    {
+        $this->owner ??= $this->createUser();
+        $publication = MediaPublication::create([
+            'id' => (string) Str::uuid(), 'client_uid' => (string) Str::uuid(), 'user_id' => $this->owner->id,
+            'request_hash' => str_repeat('v', 64), 'kind' => 'post', 'status' => 'published', 'has_video' => true,
+            'payload' => ['kind' => 'post', 'content' => 'raw video', 'privacy' => 'all', 'selected_user_ids' => []],
+            'profile' => [], 'expires_at' => now()->addDays(3), 'published_at' => now(),
+        ]);
+        $id = (string) Str::uuid();
+        $path = 'tmp/publications/'.$publication->id.'/'.$id.'/raw.mp4';
+        Storage::disk('r2_temp')->put($path, str_repeat('v', 24));
+        $item = $publication->items()->create([
+            'id' => $id, 'client_uid' => (string) Str::uuid(), 'position' => 0,
+            'name' => 'raw.mp4', 'mime' => 'video/mp4', 'size' => 24, 'type' => 'video',
+            'status' => 'uploaded', 'generation' => 1, 'progress' => 100,
+            'metadata' => ['duration_seconds' => 10], 'dispatched_at' => now(), 'queued_at' => now(),
+            'upload' => ['disk' => 'r2_temp', 'path' => $path, 'upload_type' => 'raw', 'final_disk' => 'r2_final'],
+        ]);
+        $post = Post::create([
+            'user_id' => $this->owner->id, 'content' => 'raw video', 'type' => PostType::VIDEO,
+            'status' => PostStatus::ACTIVE,
+        ]);
+        $post->media()->create([
+            'source_path' => $path, 'disk' => 'r2_temp', 'type' => MediaType::VIDEO,
+            'status' => MediaStatus::PROCESSED, 'extension' => 'mp4', 'mime' => 'video/mp4',
+            'size' => 24, 'metadata' => [
+                'publication_id' => $publication->id,
+                'publication_item_id' => $item->id,
+                'provider' => 'r2_direct',
+                'temp_disk' => 'r2_temp',
+                'temp_path' => $path,
+                'upload_state' => 'uploaded',
+                'processing_state' => 'queued',
+                'processing_progress' => 100,
+                'instant_publish' => true,
+            ],
+        ]);
+        $publication->update(['result' => ['id' => $post->id, 'type' => 'post', 'url' => $post->url]]);
+
+        return $publication->refresh()->load('items');
     }
 
     private function publication(string $status = 'processing', array $itemStatuses = ['uploaded']): MediaPublication

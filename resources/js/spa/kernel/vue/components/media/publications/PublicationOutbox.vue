@@ -26,14 +26,21 @@ import { computed, ref, watch } from 'vue';
 import { publicationManager, publicationRows } from '@/kernel/services/media/publications/index.js';
 const props = defineProps({ chatId: { type: [String, Number], default: null } });
 const emit = defineEmits(['published']);
+const kindOf = row => row.descriptor.kind;
+const successMessage = row => ({
+    story: __t('toast.story.story_published'),
+    chat: __t('toast.chat.message_published'),
+})[kindOf(row)] || __t('toast.post_published');
 watch(publicationRows, (rows, previous) => {
     for (const row of rows) {
-        if (row.status === 'published' && previous.some(old => old.key === row.key && old.status !== 'published')) emit('published', row);
+        if (row.status === 'published' && previous.some(old => old.key === row.key && old.status !== 'published')) {
+            toastSuccess(successMessage(row));
+            emit('published', row);
+        }
     }
 });
 const busy = ref(new Set());
 const actionError = ref('');
-const kindOf = row => row.descriptor.kind;
 const visibleRows = computed(() => publicationRows.value.filter(row => row.status !== 'published' && !(row.status === 'cancelled' && (row.discard_requested || row.remote_only || row.native)) &&
     (props.chatId ? kindOf(row) === 'chat' && String(row.descriptor.chat_id) === String(props.chatId) : kindOf(row) !== 'chat')));
 const title = row => ({ post: 'Post', story: 'Story', chat: 'Message' })[kindOf(row)] || 'Media';

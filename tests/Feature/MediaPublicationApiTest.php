@@ -542,10 +542,13 @@ class MediaPublicationApiTest extends TestCase
             });
         $request = ['generation' => $session['generation'], 'parts' => $parts,
             'path' => 'other-users/source.mp4', 'disk' => 'local', 'upload_id' => 'forged-session'];
-        $this->postJson($this->itemUrl($publication, 'complete'), $request)->assertOk()->assertJsonPath('data.status', 'processing');
+        $this->postJson($this->itemUrl($publication, 'complete'), $request)->assertOk()
+            ->assertJsonPath('data.status', 'published')
+            ->assertJsonPath('data.items.0.status', 'uploaded');
         $this->postJson($this->itemUrl($publication, 'complete'), $request)->assertOk();
         Bus::assertDispatchedTimes(ProcessPublicationItem::class, 1);
-        $this->assertNoPublishedEntities();
+        $this->assertDatabaseCount('posts', 1);
+        $this->assertDatabaseCount('media', 1);
     }
 
     public static function invalidCompletions(): array
@@ -784,20 +787,24 @@ class MediaPublicationApiTest extends TestCase
         Bus::assertNothingDispatched();
     }
 
-    public function test_retry_of_queued_work_preserves_the_original_queue_age(): void
+    public function test_instant_published_video_releases_admission_capacity_while_optimization_runs(): void
     {
+        config(['media.publications.per_user_limit' => 1, 'media.publications.video_limit' => 1]);
         $this->actingAs($this->createUser());
         $publication = $this->createPublication($this->payload('post', 'video'));
         $session = $this->startUpload($publication);
         Storage::disk('r2_temp')->put($session['upload']['path'], str_repeat('v', 24));
-        $this->postJson($this->itemUrl($publication, 'complete'), ['generation' => $session['generation'], 'parts' => []])->assertOk();
+        $this->postJson($this->itemUrl($publication, 'complete'), ['generation' => $session['generation'], 'parts' => []])
+            ->assertOk()
+            ->assertJsonPath('data.status', 'published')
+            ->assertJsonPath('data.items.0.status', 'uploaded');
         $queuedAt = $publication->items[0]->refresh()->queued_at;
-        $this->travel(16)->minutes();
-        $this->postJson(self::API.'/'.$publication->id.'/retry')->assertOk();
-        $this->assertTrue($queuedAt->equalTo($publication->items[0]->refresh()->queued_at), 'Retry must not hide old queued work from admission backpressure.');
+        $this->assertNotNull($queuedAt);
+        $this->assertDatabaseCount('posts', 1);
+        $this->assertDatabaseCount('media', 1);
 
         $this->actingAs($this->createUser());
-        $this->postJson(self::API, $this->payload('post', 'video'))->assertStatus(429)->assertHeader('Retry-After', '60');
+        $this->postJson(self::API, $this->payload('post', 'video'))->assertCreated();
     }
 
     public function test_retry_reuses_uploaded_bytes_and_leaves_processed_items_intact(): void

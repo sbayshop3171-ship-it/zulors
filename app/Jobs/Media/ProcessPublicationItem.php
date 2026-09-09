@@ -4,6 +4,7 @@ namespace App\Jobs\Media;
 
 use App\Models\MediaPublicationItem;
 use App\Services\Media\Publication\PublicationMediaProcessor;
+use App\Services\Media\Publication\PublicationFinalizer;
 use App\Services\Media\Publication\PublicationService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -38,28 +39,41 @@ class ProcessPublicationItem implements ShouldQueue, ShouldBeUnique
         return [(new WithoutOverlapping('publication-item:'.$this->itemId))->shared()->releaseAfter(30)->expireAfter($this->timeout + 60)];
     }
 
-    public function handle(PublicationService $service, PublicationMediaProcessor $processor): void
+    public function handle(PublicationService $service, PublicationMediaProcessor $processor, ?PublicationFinalizer $finalizer = null): void
     {
+        $finalizer ??= app(PublicationFinalizer::class);
         $item = MediaPublicationItem::with('publication')->find($this->itemId);
-        if(! $item || $item->generation !== $this->generation || $item->publication->terminal()) return;
+        if(! $item || $item->generation !== $this->generation || $item->publication->status === 'cancelled') return;
+        if($item->publication->status === 'published' && ! $this->canOptimizePublishedItem($item)) return;
         if($item->status === 'processed') {
-            FinalizePublication::dispatch($item->publication_id);
+            if($item->publication->status !== 'published') {
+                FinalizePublication::dispatch($item->publication_id);
+            }
             return;
         }
         if(! in_array($item->status, ['uploaded', 'processing'], true)) return;
         $start = $service->locked($item->publication_id, function ($publication) use ($item) {
-            if($publication->terminal()) return false;
+            if($publication->status === 'cancelled') return false;
+            if($publication->status === 'published' && ! $this->canOptimizePublishedItem($item)) return false;
             $item->update(['status' => 'processing']);
-            $publication->update(['status' => 'processing']);
+            if($publication->status !== 'published') {
+                $publication->update(['status' => 'processing']);
+            }
             return true;
         });
         if(! $start) return;
         $output = $processor->process($item->fresh('publication'));
-        $accepted = $service->locked($item->publication_id, function ($publication) use ($item, $output) {
+        $accepted = $service->locked($item->publication_id, function ($publication) use ($item, $output, $finalizer) {
             $current = $publication->items()->whereKey($item->id)->first();
-            if(! $current || $current->generation !== $this->generation || $publication->terminal()) return false;
+            if(! $current || $current->generation !== $this->generation || $publication->status === 'cancelled') return false;
+            if($publication->status === 'published' && ! $this->canOptimizePublishedItem($current)) return false;
+            if($publication->status === 'published') {
+                $finalizer->replacePublishedMedia($publication, $current, $output);
+            }
             $current->update(['output' => $output, 'status' => 'processed', 'progress' => 100]);
-            FinalizePublication::dispatch($publication->id)->afterCommit();
+            if($publication->status !== 'published') {
+                FinalizePublication::dispatch($publication->id)->afterCommit();
+            }
             CleanupPublication::dispatch($publication->id)->afterCommit();
             return true;
         });
@@ -78,11 +92,21 @@ class ProcessPublicationItem implements ShouldQueue, ShouldBeUnique
         $item = MediaPublicationItem::find($this->itemId);
         if(! $item) return;
         app(PublicationService::class)->locked($item->publication_id, function ($publication) use ($item) {
-            if($publication->terminal()) return;
+            if($publication->status === 'cancelled') return;
             $current = $item->fresh();
             if($current->generation !== $this->generation || $current->status === 'processed') return;
+            if($publication->status === 'published' && ! $this->canOptimizePublishedItem($current)) return;
             $current->update(['status' => 'failed']);
-            $publication->update(['status' => 'failed', 'error' => 'Media processing failed. Retry or remove this publication.']);
+            if($publication->status !== 'published') {
+                $publication->update(['status' => 'failed', 'error' => 'Media processing failed. Retry or remove this publication.']);
+            }
         });
+    }
+
+    private function canOptimizePublishedItem(MediaPublicationItem $item): bool
+    {
+        return $item->type === 'video'
+            && $item->publication?->has_video
+            && in_array($item->status, ['uploaded', 'processing'], true);
     }
 }

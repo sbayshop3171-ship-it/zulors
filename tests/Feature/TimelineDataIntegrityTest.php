@@ -936,7 +936,7 @@ class TimelineDataIntegrityTest extends TestCase
                 ],
             ])
             ->assertOk()
-            ->assertJsonPath('data.media.status', MediaStatus::PROCESSING->value)
+            ->assertJsonPath('data.media.status', MediaStatus::PROCESSED->value)
             ->assertJsonPath('data.media.metadata.upload_state', 'uploaded');
 
         $this->assertSame(2, $service->expectedParts);
@@ -1021,23 +1021,23 @@ class TimelineDataIntegrityTest extends TestCase
                 'uid' => $media->source_path,
             ])
             ->assertOk()
-            ->assertJsonPath('data.media.status', MediaStatus::PROCESSING->value)
+            ->assertJsonPath('data.media.status', MediaStatus::PROCESSED->value)
             ->assertJsonPath('data.media.metadata.provider', 'r2_direct')
             ->assertJsonPath('data.media.metadata.processing_state', 'queued')
-            ->assertJsonPath('data.media.source_url', null);
+            ->assertJsonPath('data.media.source_url', '/storage/direct-final-media/uploads/posts/videos/direct-final.mp4');
 
         $post->refresh();
         $media->refresh();
 
-        $this->assertSame(PostStatus::PROCESSING_VIDEO, $post->status);
-        $this->assertSame(MediaStatus::PROCESSING, $media->status);
+        $this->assertSame(PostStatus::ACTIVE, $post->status);
+        $this->assertSame(MediaStatus::PROCESSED, $media->status);
         $this->assertSame('r2_final', $media->disk);
         $this->assertSame('uploads/posts/videos/direct-final.mp4', $media->source_path);
-        $this->assertLessThan(100, data_get($media->metadata, 'processing_progress'));
+        $this->assertSame(100, data_get($media->metadata, 'processing_progress'));
 
         Event::assertDispatched(MediaUpdatedEvent::class);
         Event::assertNotDispatched(MediaProcessedEvent::class);
-        Event::assertNotDispatched(PublicTimelinePostCreatedEvent::class);
+        Event::assertDispatched(PublicTimelinePostCreatedEvent::class);
         \Illuminate\Support\Facades\Bus::assertDispatched(ConvertAndCompressPostVideo::class);
     }
 

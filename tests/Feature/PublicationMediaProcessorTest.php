@@ -477,7 +477,7 @@ class PublicationMediaProcessorTest extends TestCase
         $this->assertSame(100, MediaEncodingProfile::defaults()['image_max_pixels']);
         $this->assertSame(84, $profile['image_quality']);
         $this->assertSame(24, $profile['video_crf']);
-        $this->assertSame('veryfast', $profile['video_preset']);
+        $this->assertSame('ultrafast', $profile['video_preset']);
     }
 
     public function test_shared_x264_factory_honors_explicit_legacy_settings(): void

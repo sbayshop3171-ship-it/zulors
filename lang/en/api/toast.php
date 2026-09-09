@@ -40,6 +40,7 @@ return [
 		'job_unbookmarked' => 'Job was unbookmarked.',
 	],
 	'chat' => [
+		'message_published' => 'Message sent!',
 		'message_text_copied' => 'Message text copied!',
 		'message_deleted' => 'Message was deleted.',
 		'chat_cleared' => 'Chat conversation has been cleared.',
