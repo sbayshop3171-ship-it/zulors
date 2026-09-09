@@ -12,7 +12,7 @@ SHARED_STORAGE_PUBLIC="${SHARED_STORAGE_PUBLIC:-${LIVE_PATH}.shared/storage/app/
 SHARED_STORAGE_PRIVATE="${SHARED_STORAGE_PRIVATE:-${LIVE_PATH}.shared/storage/app/private}"
 SHARED_STORAGE_SESSIONS="${SHARED_STORAGE_SESSIONS:-${LIVE_PATH}.shared/storage/framework/sessions}"
 DEPLOY_PREBUILT_ASSETS="${DEPLOY_PREBUILT_ASSETS:-0}"
-SSH_CONTROL_DIR="${SSH_CONTROL_DIR:-${TMPDIR:-/tmp}/zulors-deploy-ssh}"
+SSH_CONTROL_DIR="${SSH_CONTROL_DIR:-/tmp/zulors-deploy-ssh}"
 
 case "$DEPLOY_PREBUILT_ASSETS" in
 	0|1) ;;
@@ -64,7 +64,7 @@ SSH_OPTS=(
 	-o ServerAliveCountMax=3
 	-o ControlMaster=auto
 	-o ControlPersist=120
-	-o ControlPath="${SSH_CONTROL_DIR}/%r@%h:%p"
+	-o ControlPath="${SSH_CONTROL_DIR}/%C"
 )
 
 DEPLOY_ID="${GITHUB_SHA:-$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || date +%s)}-$(date +%Y%m%d%H%M%S)"
