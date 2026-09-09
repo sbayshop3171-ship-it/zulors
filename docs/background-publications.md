@@ -12,6 +12,10 @@ Redis/Horizon queues, and FFmpeg workers. It does not add iOS native background 
 new paid infrastructure, Cloudflare Stream, audio/document upload changes, or a
 separate GIF workflow.
 
+As of the 2026-09-09 live deployment, the code, migration, routes and scheduler entry
+are deployed to https://zulors.com, but `MEDIA_PUBLICATIONS_ENABLED=false` keeps new
+admission off until production canary and Samsung ADB acceptance are complete.
+
 ## Feature Flags
 
 ```dotenv

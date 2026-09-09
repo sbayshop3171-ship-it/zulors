@@ -7,7 +7,10 @@ return [
         'kinds' => array_filter(explode(',', (string) env('MEDIA_PUBLICATIONS_KINDS', 'post,story,chat'))),
         'per_user_limit' => (int) env('MEDIA_PUBLICATIONS_PER_USER_LIMIT', 2),
         'video_limit' => (int) env('MEDIA_PUBLICATIONS_VIDEO_LIMIT', 20),
-        'max_queue_age_seconds' => (int) env('MEDIA_PUBLICATIONS_MAX_QUEUE_AGE', 900),
+        'max_queue_age_seconds' => (int) env(
+            'MEDIA_PUBLICATIONS_MAX_QUEUE_AGE_SECONDS',
+            env('MEDIA_PUBLICATIONS_MAX_QUEUE_AGE', 900)
+        ),
         'image_max_pixels' => (int) env('MEDIA_PUBLICATIONS_IMAGE_MAX_PIXELS', 40000000),
         'image_max_bytes' => (int) env('MEDIA_PUBLICATIONS_IMAGE_MAX_BYTES', 20971520),
         'timeout' => (int) env('MEDIA_PUBLICATIONS_TIMEOUT', 21600),

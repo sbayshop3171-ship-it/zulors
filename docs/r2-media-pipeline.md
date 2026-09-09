@@ -1,6 +1,6 @@
 # R2 Media Pipeline
 
-## Live Rollout Status (2026-09-08)
+## Live Rollout Status (2026-09-09)
 
 **Direct uploads are now enabled on https://zulors.com.** The user chose bounded
 production verification on the existing VPS instead of provisioning staging or
@@ -30,6 +30,40 @@ thread remain unchanged. The restricted application storage key was not replaced
 direct uploads now, but legacy/proxy fallback remains available until installed-app
 compatibility is verified. The controlled Chromium test used no fallback routes.
 Do not describe this rollout as zero total VPS bandwidth or unlimited-load readiness.
+
+### Background Publications Rollout (2026-09-09)
+
+Release `b2808d5` added persistent background publications for Post, Story and Chat,
+and deploy hardening follow-ups `d38d7f0` and `e0163c3` were pushed to main. The
+`e0163c3` release was deployed to https://zulors.com with prebuilt production assets.
+The deployment ran the additive `media_publications` migration, kept existing media
+workers at the current concurrency, restarted Horizon gracefully and passed live smoke
+checks. A database backup was created before deployment:
+`storage/app/backups/2026-09-09-10-19-45.zip`.
+
+The new background-publication API routes, scheduler reconciliation command and
+database tables are live, but admission remains gated:
+
+```dotenv
+MEDIA_PUBLICATIONS_ENABLED=false
+MEDIA_PUBLICATIONS_PER_USER_LIMIT=2
+MEDIA_PUBLICATIONS_VIDEO_LIMIT=20
+MEDIA_PUBLICATIONS_MAX_QUEUE_AGE_SECONDS=900
+```
+
+Do not enable this globally until a dedicated production canary account and the
+installed Android build have passed acceptance. The current installed Samsung app
+shown during testing was `0.4.0-production`; the native-background uploader build
+artifact is `zulors-production-debug.apk` with `versionName=0.5.0-production`, but no
+wireless ADB device was connected and no real installed-app acceptance was performed.
+A production update APK still requires the existing release signing credentials and
+Firebase `google-services.json`.
+
+After Cloudflare dashboard changes, the live CORS probe passed for single and
+multipart PUT from `https://zulors.com` and `https://www.zulors.com` with visible
+`ETag`. At deployment verification time, local DNS resolved `zulors.com` but returned
+no record for `www.zulors.com`; keep the CORS origin for future compatibility, but
+fix DNS separately if the `www` host should be reachable.
 
 ### Post Editor Preview Regression (2026-09-09)
 
