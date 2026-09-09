@@ -16,7 +16,7 @@
 		props: {
 			lqipBase64: {
 				type: String,
-				required: true
+				default: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=='
 			}
 		},
         components: {

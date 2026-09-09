@@ -65,11 +65,14 @@ class MediaResource extends JsonResource
                     'processing_dispatched_at',
                     'processing_error',
                     'processing_fallback',
+                    'background_processing_state',
+                    'background_processing_progress',
                     'processed_at',
                     'original_size',
                     'optimized_size',
                     'optimization_ratio',
                     'playback',
+                    'instant_publish',
                     'original_name'
                 ]);
             }

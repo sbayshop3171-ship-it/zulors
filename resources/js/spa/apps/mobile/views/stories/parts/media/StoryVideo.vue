@@ -2,7 +2,7 @@
     <div class="h-full w-full overflow-hidden">
         <StoryMediaLoader v-if="isLoading" v-bind:lqipBase64="frameData.media.lqip_base64"></StoryMediaLoader>
         <video v-bind:class="[isLoading ? 'opacity-0' : 'opacity-100']" ref="storyVideo" webkit-playsinline muted playsinline v-on:loadedmetadata="onLoaded" v-on:loadeddata="onLoaded" class="w-full h-full object-cover">
-            <source v-bind:src="frameData.media.source_url" type="video/mp4">
+            <source v-bind:src="frameData.media.source_url || frameData.media.preview_url" v-bind:type="frameData.media.mime || 'video/mp4'">
         </video>
     </div>
 </template>

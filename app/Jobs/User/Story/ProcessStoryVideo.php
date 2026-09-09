@@ -57,7 +57,9 @@ class ProcessStoryVideo implements ShouldQueue
                 throw new Exception('Story video media was not found.');
             }
 
-            if($frameMedia->status->isProcessed()) {
+            $instantR2Optimization = $this->isInstantR2MediaAwaitingOptimization($frameMedia);
+
+            if($frameMedia->status->isProcessed() && ! $instantR2Optimization) {
                 return;
             }
 
@@ -136,7 +138,10 @@ class ProcessStoryVideo implements ShouldQueue
                     'processing_progress' => 100,
                     'processing_state' => 'processed',
                     'processing_updated_at' => now()->toIso8601String(),
+                    'processing_error' => null,
                     'processed_at' => now()->toIso8601String(),
+                    'background_processing_state' => 'processed',
+                    'background_processing_progress' => 100,
                     'original_size' => $oldSize,
                     'optimized_size' => (int) ($videoData['video_size'] ?? $oldSize),
                     'optimization_ratio' => $this->optimizationRatio($oldSize, (int) ($videoData['video_size'] ?? $oldSize)),
@@ -294,6 +299,7 @@ class ProcessStoryVideo implements ShouldQueue
 
         $metadata = $frameMedia->metadata ?? [];
         $progress = max(0, min(100, $progress));
+        $backgroundProgress = $progress;
 
         if($state !== 'failed') {
             $progress = max((int) data_get($metadata, 'processing_progress', 0), $progress);
@@ -308,15 +314,43 @@ class ProcessStoryVideo implements ShouldQueue
         }
 
         if($state === 'failed') {
-            $metadata['processing_error'] = 'Story video processing failed.';
-            $frameMedia->status = MediaStatus::FAILED;
+            if($this->isInstantR2MediaAwaitingOptimization($frameMedia)) {
+                $metadata['processing_error'] = 'Background story video optimization failed. Raw playback remains available.';
+            }
+            else {
+                $metadata['processing_error'] = 'Story video processing failed.';
+                $frameMedia->status = MediaStatus::FAILED;
+            }
         }
         elseif(! $frameMedia->status->isProcessed()) {
             $frameMedia->status = MediaStatus::PROCESSING;
         }
 
+        if($state !== 'failed') {
+            $metadata['background_processing_state'] = $state;
+            $metadata['background_processing_progress'] = $backgroundProgress;
+        }
+
+        if($state === 'failed') {
+            $metadata['background_processing_state'] = 'failed';
+        }
+
         $frameMedia->metadata = $metadata;
         $frameMedia->save();
+    }
+
+    private function isInstantR2MediaAwaitingOptimization($frameMedia): bool
+    {
+        if(empty($frameMedia)) {
+            return false;
+        }
+
+        $metadata = $frameMedia->metadata ?? [];
+
+        return $frameMedia->status->isProcessed()
+            && in_array(data_get($metadata, 'provider'), ['r2_temp', 'r2_direct'], true)
+            && data_get($metadata, 'upload_state') === 'uploaded'
+            && blank(data_get($metadata, 'processed_at'));
     }
 
     private function storyFrameStillExists($frameMedia = null): bool

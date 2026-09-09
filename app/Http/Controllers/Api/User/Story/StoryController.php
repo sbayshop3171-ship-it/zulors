@@ -98,6 +98,9 @@ class StoryController extends Controller
             ]);
 
             $isVideo = $this->draftStoryFrame->type->isVideo();
+            $isUploadedR2Video = $isVideo
+                && in_array(data_get($storyMedia->metadata, 'provider'), ['r2_temp', 'r2_direct'], true)
+                && data_get($storyMedia->metadata, 'upload_state') === 'uploaded';
             $publishedAt = now();
             $expiresAt = $publishedAt->copy()->addHours(max(1, (int) config('story.expire_after_hours', 24)));
 
@@ -118,7 +121,7 @@ class StoryController extends Controller
 
             $updateData = [
                 'content' => e($request->string('content')),
-                'status' => $isVideo ? StoryStatus::PROCESSING : StoryStatus::ACTIVE,
+                'status' => ($isVideo && ! $isUploadedR2Video) ? StoryStatus::PROCESSING : StoryStatus::ACTIVE,
                 'created_at' => $publishedAt,
                 'expires_at' => $expiresAt
             ];
@@ -130,16 +133,26 @@ class StoryController extends Controller
             $this->draftStoryFrame->update($updateData);
 
             if($isVideo) {
-                $storyMedia->status = MediaStatus::PROCESSING;
-                $storyMedia->metadata = array_merge($storyMedia->metadata ?? [], [
+                $metadata = array_merge($storyMedia->metadata ?? [], [
                     'upload_progress' => 100,
                     'upload_state' => 'uploaded',
                     'upload_completed_at' => now()->toIso8601String(),
-                    'processing_progress' => 1,
+                    'processing_progress' => $isUploadedR2Video ? 100 : 1,
                     'processing_state' => 'queued',
                     'processing_dispatched_at' => now()->toIso8601String(),
                     'processing_updated_at' => now()->toIso8601String()
                 ]);
+
+                if($isUploadedR2Video) {
+                    $metadata = array_merge($metadata, [
+                        'background_processing_state' => 'queued',
+                        'background_processing_progress' => 0,
+                        'instant_publish' => true,
+                    ]);
+                }
+
+                $storyMedia->status = $isUploadedR2Video ? MediaStatus::PROCESSED : MediaStatus::PROCESSING;
+                $storyMedia->metadata = $metadata;
                 $storyMedia->save();
             }
 
