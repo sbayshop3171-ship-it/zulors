@@ -388,12 +388,22 @@ class StoryMediaController extends Controller
             $imageUploadService = app(ImageUploadService::class);
             $base64ImageService = app(Base64ImageService::class);
 
-            $imageData = $imageUploadService
+            $imageUploadService
                 ->setStorageDisk($this->roundRobinService->getNextDisk())
                 ->load($mediaFile->getRealPath())
-                ->setNamespace(Filesystem::mediaNamespace('stories/images'))
-                ->scaleTo1080x1920()
-                ->watermark()
+                ->setNamespace(Filesystem::mediaNamespace('stories/images'));
+
+            $originalDimensions = $imageUploadService->dimensions();
+
+            $imageUploadService
+                ->scaleToStoryFrame()
+                ->watermark();
+
+            $metadata = array_merge($imageUploadService->presentationMetadata(), [
+                'original_dimensions' => $originalDimensions,
+            ]);
+
+            $imageData = $imageUploadService
                 ->compress(config('story.processing.image.compress_rate'))
                 ->upload();
 
@@ -404,7 +414,7 @@ class StoryMediaController extends Controller
 
             $this->draftStoryFrame->type = StoryType::IMAGE;
 
-            $this->draftStoryFrame->media()->create([
+            $storyMedia = $this->draftStoryFrame->media()->create([
                 'source_path' => $imageData['image_path'],
                 'type' => MediaType::IMAGE,
                 'status' => MediaStatus::PROCESSED,
@@ -413,7 +423,7 @@ class StoryMediaController extends Controller
                 'mime' => $imageData['image_mime'] ?? 'image/webp',
                 'size' => $imageData['image_size'],
                 'lqip_base64' => $LQIPBase64,
-                'metadata' => []
+                'metadata' => $metadata
             ]);
 
             $this->draftStoryFrame->save();
@@ -424,8 +434,11 @@ class StoryMediaController extends Controller
 
             return $this->responseSuccess([
                 'data' => [
+                    'id' => $storyMedia->id,
+                    'status' => $storyMedia->status->value,
                     'type' => 'image',
-                    'source_url' => storage_url($imageData['image_path'], $imageData['disk'])
+                    'source_url' => storage_url($imageData['image_path'], $imageData['disk']),
+                    'metadata' => $metadata
                 ]
             ]);
         } catch (Exception $e) {
@@ -461,7 +474,7 @@ class StoryMediaController extends Controller
                 ->load($videoThumbnailPath)
                 ->setNamespace(Filesystem::mediaNamespace('stories/video_thumbnails'))
                 ->setStorageDisk($videoPublicDisk)
-                ->scaleTo1080x1920()
+                ->scaleToStoryFrame()
                 ->compress(config('story.processing.video_thumbnail.compress_rate'))
                 ->upload();
 

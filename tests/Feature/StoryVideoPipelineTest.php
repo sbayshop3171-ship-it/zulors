@@ -50,6 +50,9 @@ class StoryVideoPipelineTest extends TestCase
         $media = $frame->media()->create($original);
         (new ProcessStoryVideo($frame))->handle();
         $this->assertOptimizedVideo($media, $original);
+        $this->assertSame(['width' => 320, 'height' => 180], data_get($media->refresh()->metadata, 'dimensions'));
+        $thumbnailInfo = getimagesize(\Illuminate\Support\Facades\Storage::disk('r2_final')->path($media->thumbnail_path));
+        $this->assertSame([320, 180], [$thumbnailInfo[0], $thumbnailInfo[1]]);
         $this->assertSame(StoryStatus::ACTIVE, $frame->refresh()->status);
         $path = $media->source_path;
         (new ProcessStoryVideo($frame))->handle();
@@ -106,7 +109,7 @@ class StoryVideoPipelineTest extends TestCase
             $mock->shouldReceive('load')->once()->with($thumbnailPath)->andReturnSelf();
             $mock->shouldReceive('setNamespace')->once()->with(Filesystem::mediaNamespace('stories/video_thumbnails'))->andReturnSelf();
             $mock->shouldReceive('setStorageDisk')->once()->with('r2_final')->andReturnSelf();
-            $mock->shouldReceive('scaleTo1080x1920')->once()->andReturnSelf();
+            $mock->shouldReceive('scaleToStoryFrame')->once()->andReturnSelf();
             $mock->shouldReceive('compress')->once()->andReturnSelf();
             $mock->shouldReceive('upload')->once()->andReturn([
                 'disk' => 'r2_final',

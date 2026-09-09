@@ -84,6 +84,13 @@ class ImageUploadService extends AbstractUploadService
         return $this;
     }
 
+    public function scaleToStoryFrame(): self
+    {
+        $this->image->scaleDown(1080, 1920);
+
+        return $this;
+    }
+
     public function scaleTo1080x1920(): self
     {
         $canvas = $this->manager->create(1080, 1920)->fill('#000000');
@@ -95,6 +102,31 @@ class ImageUploadService extends AbstractUploadService
         $this->image = $canvas->place($this->image, 'top', 0, (int) $verticalPosition);
 
         return $this;
+    }
+
+    public function dimensions(): array
+    {
+        return [
+            'width' => max(0, (int) $this->image->width()),
+            'height' => max(0, (int) $this->image->height()),
+        ];
+    }
+
+    public function presentationMetadata(): array
+    {
+        $dimensions = $this->dimensions();
+        $width = $dimensions['width'];
+        $height = $dimensions['height'];
+
+        if($width < 1 || $height < 1) {
+            return [];
+        }
+
+        return [
+            'dimensions' => $dimensions,
+            'aspect_ratio' => round($width / $height, 6),
+            'is_portrait' => $width < $height,
+        ];
     }
 
     public function crop(int $width, int $height): self

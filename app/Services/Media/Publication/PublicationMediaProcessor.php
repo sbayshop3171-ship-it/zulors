@@ -139,10 +139,7 @@ class PublicationMediaProcessor
         $originalDimensions = ['width' => $image->width(), 'height' => $image->height()];
         $edge = $profile['image_max_edge'];
         if ($kind === 'story') {
-            $height = min(1920, $edge);
-            $width = (int) floor($height * 9 / 16);
-            $image->scaleDown($width, $height);
-            $image = $manager->create($width, $height)->fill('#000000')->place($image, 'center');
+            $image->scaleDown(min(1080, $edge), min(1920, $edge));
         } else {
             $image->scaleDown($edge, $edge);
         }
@@ -350,9 +347,6 @@ class PublicationMediaProcessor
             $filter = "scale={$square}:{$square}:force_original_aspect_ratio=increase,crop={$square}:{$square}";
         } else {
             $filter = "scale=w='min(iw,1080)':h='min(ih,1920)':force_original_aspect_ratio=decrease:force_divisible_by=2";
-            if ($kind === 'story') {
-                $filter .= ',pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black';
-            }
         }
         if ($sampleAspectRatio > 0 && abs($sampleAspectRatio - 1) > 0.000001) {
             // Convert anamorphic pixels to square pixels by shrinking, preserving display aspect ratio.

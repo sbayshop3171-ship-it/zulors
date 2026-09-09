@@ -34,7 +34,7 @@ class PublicationMediaProcessorTest extends TestCase
     {
         return [
             'post' => ['post', 2048, 1024],
-            'story' => ['story', 1080, 1920],
+            'story' => ['story', 1080, 540],
             'chat' => ['chat', 2048, 1024],
         ];
     }
@@ -172,15 +172,16 @@ class PublicationMediaProcessorTest extends TestCase
         $this->assertRejected($item, $format === 'gif' ? 'Unsupported or invalid publication image' : 'Animated images');
     }
 
-    public function test_small_story_image_is_centered_on_canvas_without_upscaling(): void
+    public function test_small_story_image_keeps_its_aspect_ratio_without_upscaling(): void
     {
         $item = $this->imageItem('story', 80, 40);
         $output = app(PublicationMediaProcessor::class)->process($item);
         $image = imagecreatefromwebp(Storage::disk('r2_final')->path($output['source_path']));
-        $outside = imagecolorsforindex($image, imagecolorat($image, 480, 960));
-        $inside = imagecolorsforindex($image, imagecolorat($image, 515, 960));
-        $this->assertLessThan(10, $outside['red']);
-        $this->assertGreaterThan(180, $inside['red']);
+        $red = imagecolorsforindex($image, imagecolorat($image, 20, 20));
+        $blue = imagecolorsforindex($image, imagecolorat($image, 60, 20));
+        $this->assertSame([80, 40], [imagesx($image), imagesy($image)]);
+        $this->assertGreaterThan(180, $red['red']);
+        $this->assertGreaterThan(180, $blue['blue']);
         imagedestroy($image);
     }
 
@@ -248,7 +249,7 @@ class PublicationMediaProcessorTest extends TestCase
     {
         return [
             'post' => ['post', 320, 180],
-            'story' => ['story', 1080, 1920],
+            'story' => ['story', 320, 180],
             'chat' => ['chat', 720, 720],
         ];
     }
@@ -398,11 +399,10 @@ class PublicationMediaProcessorTest extends TestCase
         $this->assertEqualsWithDelta(1, $output['metadata']['duration_seconds'], 0.1);
         $this->assertSame(1.0, $output['metadata']['clip_start_seconds']);
         $poster = imagecreatefromwebp(Storage::disk('r2_final')->path($output['thumbnail_path']));
-        $center = imagecolorsforindex($poster, imagecolorat($poster, 540, 960));
-        $outside = imagecolorsforindex($poster, imagecolorat($poster, 300, 960));
+        $center = imagecolorsforindex($poster, imagecolorat($poster, 160, 90));
+        $this->assertSame([320, 180], [imagesx($poster), imagesy($poster)]);
         $this->assertGreaterThan(180, $center['blue']);
         $this->assertLessThan(20, $center['red']);
-        $this->assertLessThan(10, $outside['blue']);
         imagedestroy($poster);
         $this->assertRawRetained($item);
     }

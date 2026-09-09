@@ -9,10 +9,8 @@ use App\Services\Media\Publication\MediaEncodingProfile;
 use FFMpeg\Coordinate\TimeCode;
 use App\Enums\Media\MediaStatus;
 use App\Enums\Story\StoryStatus;
-use FFMpeg\Coordinate\Dimension;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use FFMpeg\Filters\Video\ResizeFilter;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use App\Services\Filesystem\Delete\FileDeleteService;
@@ -104,11 +102,7 @@ class ProcessStoryVideo implements ShouldQueue
 
             $video->filters()->clip(TimeCode::fromSeconds($clipStartSeconds), TimeCode::fromSeconds($clipDurationSeconds));
 
-            $video->filters()->resize(new Dimension(1080, 1920), ResizeFilter::RESIZEMODE_INSET)->synchronize();
-
-            $video->filters()->pad(new Dimension(1080, 1920), function ($width, $height) {
-                return [0, ($height - 1920) / 2];
-            })->synchronize();
+            $video->filters()->custom($this->storyVideoScaleFilter());
 
             $video->save($format, $videoNewAbsLocalPath);
             $this->updateProcessingProgress($frameMedia, 92, 'uploading');
@@ -120,6 +114,8 @@ class ProcessStoryVideo implements ShouldQueue
             }
 
             if(file_exists($videoNewAbsLocalPath)) {
+                $processedDimensions = $videoUploadService->getVideoDimensions($videoNewAbsLocalPath);
+
                 $videoData = $videoUploadService
                     ->setStorageDisk($targetDisk)
                     ->setNamespace(Filesystem::mediaNamespace('stories/videos'))
@@ -133,7 +129,7 @@ class ProcessStoryVideo implements ShouldQueue
                 }
 
                 $metadata = $frameMedia->metadata ?? [];
-                $metadata = array_merge($metadata, [
+                $metadata = array_merge($metadata, $this->presentationMetadata($processedDimensions), [
                     'provider' => in_array(data_get($metadata, 'provider'), ['r2_temp', 'r2_direct'], true) ? 'r2' : data_get($metadata, 'provider'),
                     'processing_progress' => 100,
                     'processing_state' => 'processed',
@@ -269,7 +265,7 @@ class ProcessStoryVideo implements ShouldQueue
                 ->load($thumbnailPath)
                 ->setNamespace(Filesystem::mediaNamespace('stories/video_thumbnails'))
                 ->setStorageDisk($targetDisk)
-                ->scaleTo1080x1920()
+                ->scaleToStoryFrame()
                 ->compress(config('story.processing.video_thumbnail.compress_rate'))
                 ->upload();
 
@@ -386,6 +382,30 @@ class ProcessStoryVideo implements ShouldQueue
                 }
             }
         }
+    }
+
+    private function storyVideoScaleFilter(): string
+    {
+        return "scale=w='min(iw,1080)':h='min(ih,1920)':force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1";
+    }
+
+    private function presentationMetadata(array $dimensions): array
+    {
+        $width = max(0, (int) ($dimensions['width'] ?? 0));
+        $height = max(0, (int) ($dimensions['height'] ?? 0));
+
+        if($width < 1 || $height < 1) {
+            return [];
+        }
+
+        return [
+            'dimensions' => [
+                'width' => $width,
+                'height' => $height,
+            ],
+            'aspect_ratio' => round($width / $height, 6),
+            'is_portrait' => $width < $height,
+        ];
     }
 
     private function optimizationRatio(int $oldSize, int $newSize): int
