@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Post Video Preview Regression</title>
+    <style>body{margin:0}main{max-width:800px;margin:0 auto}input{margin:12px;max-width:90%}</style>
+</head>
+<body>
+<main id="app"></main>
+<script type="module">
+    import { createApp, reactive, computed, h } from 'vue';
+    import MobilePreview from '/resources/js/spa/apps/mobile/views/editors/post/parts/preview/PostVideoPreview.vue';
+    import DesktopPreview from '/resources/js/spa/apps/desktop/components/timeline/editor/preview/video/PostVideoPreview.vue';
+    import { mergePostMediaPreviews } from '/resources/js/spa/kernel/services/media/post-media-preview.js';
+    import '/resources/css/spa/apps/mobile/main.css';
+
+    const desktop = new URLSearchParams(location.search).has('desktop');
+    const state = reactive({ local: [], server: [] });
+    const media = computed(() => mergePostMediaPreviews(state.server, state.local));
+    const remove = () => {
+        for(const local of state.local) URL.revokeObjectURL(local.preview_url);
+        state.local = [];
+        state.server = [];
+    };
+    const app = createApp({
+        setup() {
+            return () => [
+                h('input', { type: 'file', accept: 'video/*', onChange(event) {
+                    remove();
+                    state.local = [{ id: 'local-test', type: 'video', is_local_preview: true,
+                        preview_url: URL.createObjectURL(event.target.files[0]), metadata: {} }];
+                } }),
+                desktop ? media.value.map(item => h(DesktopPreview, { key: item.preview_key || item.id, mediaItem: item, onDelete: remove }))
+                    : h(MobilePreview, { postMedia: media.value, onDelete: remove }),
+            ];
+        },
+    });
+    app.component('SvgIcon', { render: () => h('span', { 'aria-hidden': 'true' }, 'x') });
+    app.config.globalProperties.$filters = { mediaDuration: value => `${value.minutes}:${value.seconds}` };
+    app.mount('#app');
+    window.previewTest = {
+        complete() {
+            const local = state.local[0];
+            local.media_id = 101;
+            state.server = [{ id: 101, type: 'video', source_url: null, status: 'processing',
+                metadata: { ...local.metadata, upload_state: 'uploaded', processing_state: 'queued' } }];
+        },
+        reopen() {
+            for(const local of state.local) URL.revokeObjectURL(local.preview_url);
+            state.local = [];
+        },
+    };
+</script>
+</body>
+</html>

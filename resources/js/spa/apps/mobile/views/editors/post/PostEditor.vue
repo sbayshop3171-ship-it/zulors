@@ -19,7 +19,7 @@
 								<PostImagePreview v-bind:canDelete="! isEditingPost" v-bind:postMedia="postMedia" v-on:delete="deletePostMedia"></PostImagePreview>
 							</template>
 							<template v-if="PostTypeUtils.isVideo(currentPostType)">
-								<PostVideoPreview v-bind:canDelete="! isEditingPost" v-bind:postMedia="postMedia" v-on:delete="deletePostMedia"></PostVideoPreview>
+								<PostVideoPreview v-bind:canDelete="! isEditingPost && ! videoUploadActive" v-bind:postMedia="postMedia" v-on:delete="deletePostMedia"></PostVideoPreview>
 							</template>
 							<template v-else-if="PostTypeUtils.isDocument(currentPostType) || PostTypeUtils.isAudio(currentPostType)">
 	                            <PostDocumentPreview v-bind:canDelete="! isEditingPost" v-bind:postMedia="postMedia" v-on:delete="deletePostMedia"></PostDocumentPreview>
@@ -85,6 +85,8 @@
 	import { useInputHandlers } from '@/kernel/vue/composables/input/index.js';
 	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 	import { applyVideoPresentationMetadata, readVideoFileMetadata } from '@/kernel/services/media/video-metadata.js';
+	import { mergePostMediaPreviews } from '@/kernel/services/media/post-media-preview.js';
+	import { createMultipartUploadProgress } from '@/kernel/services/media/multipart-upload-progress.js';
 	import { usePostEditorStore } from '@M/store/timeline/editor.store.js';
 	import { useAuthStore } from '@M/store/auth/auth.store.js';
 		import { PostTypeUtils, PostType } from '@/kernel/enums/post/post.type.js';
@@ -140,13 +142,14 @@
 				postSubmitting: false,
 				uploadProgress: 0,
 				directVideoUploadReady: false,
+				videoUploadFailed: false,
 				directVideoUploadMedia: null,
 				isGifPickerOpen: false,
 				localMediaPreviews: [],
 			});
 
 			const submitButtonStatus = computed(() => {
-				return state.postSubmitting || Boolean(state.uploadProgress);
+				return state.postSubmitting || Boolean(state.uploadProgress) || postEditorStore.videoUploadActive || state.videoUploadFailed;
 			});
 
 			const validatePost = (message) => {
@@ -605,23 +608,12 @@
 			const uploadMultipartFileToDirectUrl = async (uploadData, mediaFile, onProgress) => {
 				const parts = Array.isArray(uploadData.parts) ? uploadData.parts : [];
 				const completedParts = [];
-				const loadedParts = new Map();
 				const uploadConcurrency = Math.min(8, Math.max(1, Number(uploadData.upload_concurrency || 4)));
 				const partFallbackMaxBytes = Math.max(0, Number(uploadData.part_fallback_max_bytes || 0));
-				let uploadedBytes = 0;
 				let nextPartIndex = 0;
 				let shouldBypassDirectUpload = false;
 
-				const updateMultipartProgress = (partNumber, loaded, total) => {
-					loadedParts.set(partNumber, Math.min(Number(total || 0), Number(loaded || 0)));
-
-					const activeUploadedBytes = Array.from(loadedParts.values()).reduce((totalBytes, partBytes) => {
-						return totalBytes + partBytes;
-					}, 0);
-
-					const totalUploaded = Math.min(mediaFile.size, uploadedBytes + activeUploadedBytes);
-					onProgress(Math.round((totalUploaded / mediaFile.size) * 100));
-				}
+				const updateMultipartProgress = createMultipartUploadProgress(mediaFile.size, onProgress);
 
 				const uploadPart = async (part) => {
 					const partStart = Number(part.start || 0);
@@ -655,8 +647,6 @@
 					}
 
 					if(! result && partFallbackMaxBytes > 0 && partBlob.size <= partFallbackMaxBytes) {
-						loadedParts.set(part.part_number, 0);
-
 						result = await retryDirectUpload(() => {
 							return uploadMultipartPartViaApp(uploadData, part, partBlob, (loaded) => {
 								updateMultipartProgress(part.part_number, loaded, partBlob.size);
@@ -679,15 +669,11 @@
 						updateMultipartProgress(part.part_number, partBlob.size, partBlob.size);
 					}
 
-					uploadedBytes += partBlob.size;
-					loadedParts.delete(part.part_number);
-
 					completedParts.push({
 						part_number: part.part_number,
 						etag: result?.etag || ''
 					});
 
-					onProgress(Math.round((uploadedBytes / mediaFile.size) * 100));
 				}
 
 				const workers = Array.from({
@@ -737,14 +723,21 @@
 						preserveContent: true
 					});
 
-					clearLocalMediaPreviews();
+					if(type === 'video') {
+						const preview = state.localMediaPreviews.find(item => item.type === 'video');
+						if(preview) preview.media_id = postData.value.relations?.media?.find(item => item.type === 'video')?.id;
+					}
+					else {
+						clearLocalMediaPreviews();
+					}
 
                     state.uploadProgress = 0;
 
                     resetFileInputTags();
 
                 }).catch((error) => {
-					clearLocalMediaPreviews();
+					state.videoUploadFailed = type === 'video';
+					if(type !== 'video') clearLocalMediaPreviews();
 
                     validatePost(error.response?.data?.message || error.message || 'Upload failed');
 
@@ -763,7 +756,6 @@
 					preserveContent: true
 				});
 
-				clearLocalMediaPreviews();
 			}
 
 			const uploadVideoDirectly = async (mediaFile) => {
@@ -772,6 +764,7 @@
 				}
 
 				state.directVideoUploadReady = false;
+				state.videoUploadFailed = false;
 				postEditorStore.setVideoUploadActive(true);
 
 				const localPreview = createLocalMediaPreview(mediaFile, 'video');
@@ -812,6 +805,7 @@
 					}
 
 						syncUploadMedia(uploadData, uploadData.media);
+						if(localPreview) localPreview.media_id = uploadData.media?.id;
 						state.directVideoUploadReady = true;
 
 						const reportUploadProgress = createDirectUploadProgressReporter(uploadData);
@@ -823,14 +817,14 @@
 
 					if(isMultipartUpload) {
 						completedParts = await uploadMultipartFileToDirectUrl(uploadData, mediaFile, (progress) => {
-							state.uploadProgress = normalizeUploadProgress(progress);
+							state.uploadProgress = Math.max(state.uploadProgress, normalizeUploadProgress(progress));
 							reportUploadProgress(progress);
 						});
 					}
 
 					else {
 						await uploadFileToDirectUrl(uploadData, mediaFile, (progress) => {
-							state.uploadProgress = normalizeUploadProgress(progress);
+							state.uploadProgress = Math.max(state.uploadProgress, normalizeUploadProgress(progress));
 							reportUploadProgress(progress);
 						});
 					}
@@ -878,6 +872,7 @@
 
 					catch (error) {
 						state.directVideoUploadReady = false;
+						state.videoUploadFailed = true;
 
 						await reportDirectUploadFailure(uploadData, state.uploadProgress);
 
@@ -1048,8 +1043,13 @@
 					return;
 				}
 
-				if(state.uploadProgress) {
+				if(state.uploadProgress || postEditorStore.videoUploadActive) {
 					validatePost('Please wait until the video upload reaches 100%.');
+					return;
+				}
+
+				if(state.videoUploadFailed) {
+					validatePost('Video upload failed. Remove the video and retry.');
 					return;
 				}
 
@@ -1098,6 +1098,7 @@
 			return {
 				leaveEditor: leaveEditor,
 				state: state,
+				videoUploadActive: computed(() => postEditorStore.videoUploadActive),
 				PostTypeUtils: PostTypeUtils,
 				PostType: PostType,
 				userData: userData,
@@ -1157,7 +1158,7 @@
 				postMedia: computed(() => {
 					const serverMedia = postData.value.relations?.media || [];
 
-                    return serverMedia.concat(state.localMediaPreviews);
+                    return mergePostMediaPreviews(serverMedia, state.localMediaPreviews);
                 }),
 				selectGif: (gifItem) => {
 					colibriAPI().postEditor().with({
@@ -1212,23 +1213,32 @@
                     }
                 },
 					deletePostMedia: (mediaItem) => {
-						if(postEditorStore.isEditingPost) {
+						if(postEditorStore.isEditingPost || postEditorStore.videoUploadActive) {
 							return false;
 						}
 
-						if (mediaItem.is_local_preview) {
+						if (mediaItem.is_local_preview && ! mediaItem.media_id) {
 							clearLocalMediaPreviews();
+							state.videoUploadFailed = false;
 						return;
 					}
 
                     mediaItem.deleted = true;
 
                     colibriAPI().postEditor().with({
-                        id: mediaItem.id
+                        id: mediaItem.media_id || mediaItem.id
                     }).delete('media/delete').then((response) => {
+                        if(mediaItem.type === 'video') {
+                            clearLocalMediaPreviews();
+                            state.videoUploadFailed = false;
+                            state.directVideoUploadMedia = null;
+                        }
                         postEditorStore.fetchDraftPost({
 							preserveContent: true
 						});
+                    }).catch((error) => {
+                        mediaItem.deleted = false;
+                        validatePost(error.response?.data?.message || error.message);
                     });
                 },
 				toggleGifPicker: () => {

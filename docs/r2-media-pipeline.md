@@ -31,6 +31,45 @@ direct uploads now, but legacy/proxy fallback remains available until installed-
 compatibility is verified. The controlled Chromium test used no fallback routes.
 Do not describe this rollout as zero total VPS bandwidth or unlimited-load readiness.
 
+### Post Editor Preview Regression (2026-09-09)
+
+A user testing Samsung app version `0.4.0-production` reported that the upload
+progress line repeatedly moved backwards, then the video player changed from a
+playable local preview to `0:00` after completion. The web editors were revoking
+their local object URLs when refreshing the uploaded draft, whose raw source is
+intentionally hidden until FFmpeg finishes after publication. Multipart progress
+also dropped active workers' bytes whenever another part was acknowledged.
+
+Mobile and desktop Post editors now retain the device preview for the current
+editor session, merge it with the server media ID without duplicate players, and
+keep that URL out of public timeline/draft stores. Removal still deletes the real
+server media and releases the object URL; editor unmount and successful desktop
+publication release it too. Reopened pending drafts without a device URL show a
+poster/placeholder, not a broken empty player. Re-selecting the local file is needed
+to recover that device-only preview after the editor has been closed.
+
+Multipart progress includes all parts and does not reset on acknowledgements or
+retries. Publication remains blocked during upload/verification and after a failed
+upload; successful upload can still publish before transcoding, as required by the
+publish-triggered FFmpeg flow. This change does not publish originals or enable the
+direct-only policy.
+
+Eleven focused Node regressions execute the real mobile/desktop editor setup with
+mock API/XHR dependencies, covering direct/fallback completion, progress, failure,
+deletion and URL cleanup. A local Chromium test mounts the actual Vue preview
+components at 390x844 and 1365x900: the same video element survives completion,
+duration remains four seconds, playback and seeking work, and sampled decoded
+pixels are nonblank. These tests do not replace a repeat test on the Samsung app.
+The full Node suite passed (57 tests), the focused backend suite passed (15 tests,
+90 assertions), and the Vite production build passed using the live frontend settings.
+
+```bash
+node --test tests/node/post-video-preview.test.mjs
+# Requires Playwright/Chrome and FFmpeg. PLAYWRIGHT_MODULE can point to an existing
+# Playwright installation; the runner closes its own browser and temporary server.
+node tests/browser/post-video-preview.mjs
+```
+
 ### Earlier Rollouts
 
 The following records describe the earlier CORS hold, superseded by the activation
