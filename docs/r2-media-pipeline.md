@@ -42,22 +42,31 @@ checks. A database backup was created before deployment:
 `storage/app/backups/2026-09-09-10-19-45.zip`.
 
 The new background-publication API routes, scheduler reconciliation command and
-database tables are live, but admission remains gated:
+database tables are live. After the initial guarded deployment, the production
+environment was activated for the existing live site:
 
 ```dotenv
-MEDIA_PUBLICATIONS_ENABLED=false
+MEDIA_PUBLICATIONS_ENABLED=true
+MEDIA_PUBLICATIONS_ALLOWED_USER_IDS=
 MEDIA_PUBLICATIONS_PER_USER_LIMIT=2
 MEDIA_PUBLICATIONS_VIDEO_LIMIT=20
 MEDIA_PUBLICATIONS_MAX_QUEUE_AGE_SECONDS=900
 ```
 
-Do not enable this globally until a dedicated production canary account and the
-installed Android build have passed acceptance. The current installed Samsung app
-shown during testing was `0.4.0-production`; the native-background uploader build
-artifact is `zulors-production-debug.apk` with `versionName=0.5.0-production`, but no
-wireless ADB device was connected and no real installed-app acceptance was performed.
-A production update APK still requires the existing release signing credentials and
-Firebase `google-services.json`.
+An empty `MEDIA_PUBLICATIONS_ALLOWED_USER_IDS` means the browser/WebView-compatible
+background publication path is globally admitted on `zulors.com`. Old open browser
+tabs or WebView editor sessions can still show the legacy inline upload UI until the
+app/tab is closed or refreshed and media is selected again. Direct-only enforcement
+remains off, so older clients can still fall back to the legacy endpoints.
+
+The current installed Samsung app shown during testing was `0.4.0-production`; it can
+receive the web-compatible path through its WebView after reload, but the native
+Android background notification/uploader needs the `0.5.0-production` APK and real
+device acceptance. The native-background uploader build artifact is
+`zulors-production-debug.apk` with `versionName=0.5.0-production`, but no wireless ADB
+device was connected and no real installed-app acceptance was performed. A production
+update APK still requires the existing release signing credentials and Firebase
+`google-services.json`.
 
 After Cloudflare dashboard changes, the live CORS probe passed for single and
 multipart PUT from `https://zulors.com` and `https://www.zulors.com` with visible
@@ -191,9 +200,9 @@ device. Chat shows a processing placeholder and receives the ready broadcast.
 Existing server upload endpoints remain available. Android/iOS native clients that
 do not load these Vue stores must adopt the direct endpoints separately.
 
-The opt-in background publication queue for Post, Story and Chat is documented in
-[background-publications.md](background-publications.md). It is additive and must be
-enabled through its own canary flag after deployment.
+The background publication queue for Post, Story and Chat is documented in
+[background-publications.md](background-publications.md). It is additive and can be
+rolled back through its own feature flag without disabling direct uploads.
 
 ## Deployment Configuration
 

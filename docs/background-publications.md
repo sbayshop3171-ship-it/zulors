@@ -12,14 +12,17 @@ Redis/Horizon queues, and FFmpeg workers. It does not add iOS native background 
 new paid infrastructure, Cloudflare Stream, audio/document upload changes, or a
 separate GIF workflow.
 
-As of the 2026-09-09 live deployment, the code, migration, routes and scheduler entry
-are deployed to https://zulors.com, but `MEDIA_PUBLICATIONS_ENABLED=false` keeps new
-admission off until production canary and Samsung ADB acceptance are complete.
+As of the 2026-09-09 live deployment and follow-up activation, the code, migration,
+routes and scheduler entry are deployed to https://zulors.com, and
+`MEDIA_PUBLICATIONS_ENABLED=true` admits the browser/WebView-compatible background
+publication path on the live site. Direct-only enforcement remains off for older
+clients. Native Android notification/background transfer is not accepted until the
+0.5.0 APK is installed and tested on a real Samsung device.
 
 ## Feature Flags
 
 ```dotenv
-MEDIA_PUBLICATIONS_ENABLED=false
+MEDIA_PUBLICATIONS_ENABLED=true
 MEDIA_PUBLICATIONS_ALLOWED_USER_IDS=
 MEDIA_PUBLICATIONS_PER_USER_LIMIT=2
 MEDIA_PUBLICATIONS_VIDEO_LIMIT=20
@@ -28,10 +31,11 @@ MEDIA_PUBLICATIONS_IMAGE_MAX_BYTES=20971520
 MEDIA_PUBLICATIONS_TIMEOUT=21600
 ```
 
-`MEDIA_PUBLICATIONS_ENABLED=false` keeps new background-publication admission off while
-the code is deployed. Already admitted publications can still resume, complete, cancel
-and reconcile during a rollback. Use `MEDIA_PUBLICATIONS_ALLOWED_USER_IDS` for the
-first production canary accounts.
+`MEDIA_PUBLICATIONS_ENABLED=true` accepts new background-publication admissions.
+Setting it back to `false` is the first rollback step; already admitted publications
+can still resume, complete, cancel and reconcile during rollback. Use
+`MEDIA_PUBLICATIONS_ALLOWED_USER_IDS` to narrow admission to canary accounts instead
+of leaving it global.
 
 The current canary API only accepts `privacy=all`. Existing restricted post/story
 flows remain on the legacy routes until a larger privacy enforcement change is made.
@@ -109,11 +113,13 @@ specific final MB size is guaranteed for every file.
 2. Confirm migrations, Horizon, scheduler, CORS, lifecycle, and existing legacy uploads.
 3. Enable `MEDIA_PUBLICATIONS_ENABLED=true` for one test account via
    `MEDIA_PUBLICATIONS_ALLOWED_USER_IDS`.
-4. Test Post image/video first, then Story and Chat, using Wi-Fi and cellular.
-5. Test minimize, screen lock, app reopen, retry, cancel, auth expiry, and network
+4. The live site was later opened globally by leaving
+   `MEDIA_PUBLICATIONS_ALLOWED_USER_IDS` empty.
+5. Test Post image/video first, then Story and Chat, using Wi-Fi and cellular.
+6. Test minimize, screen lock, app reopen, retry, cancel, auth expiry, and network
    interruption on a real Android device.
-6. Run one representative 500 MB+ browser/app video and at most two simultaneous uploads.
-7. Watch oldest queued video age, failure rate, web latency, FFmpeg child RSS, CPU, and
+7. Run one representative 500 MB+ browser/app video and at most two simultaneous uploads.
+8. Watch oldest queued video age, failure rate, web latency, FFmpeg child RSS, CPU, and
    scratch disk. Stop rollout if queue age approaches 15 minutes or web p95 latency is
    double baseline.
 
