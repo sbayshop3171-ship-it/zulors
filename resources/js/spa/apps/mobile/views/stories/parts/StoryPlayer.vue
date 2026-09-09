@@ -1,6 +1,6 @@
 <template>
-    <div class="w-full h-full items-center overflow-hidden relative">
-        <div class="absolute top-0 left-0 right-0 z-10 text-white pt-4 px-4 pb-6 from-black/60 to-transparent bg-gradient-to-b">
+    <div class="w-full h-full items-center overflow-hidden relative bg-black">
+        <div class="absolute top-0 left-0 right-0 z-10 text-white px-4 pb-6 from-black/60 to-transparent bg-gradient-to-b" style="padding-top: calc(var(--mobile-safe-top, 0px) + 1rem);">
             <template v-if="playerState.isInitialized">
                 <StoryPlayback v-bind:storyData="storyData" v-bind:key="storyData.story_uuid"></StoryPlayback>
                 <StoryHeader v-on:pause="pauseStory" v-on:play="playStory"></StoryHeader>
@@ -19,7 +19,7 @@
             </div>
         </template>
 
-        <div v-if="playerState.isInitialized && ! isFrameProcessing" class="absolute bottom-0 left-0 right-0 z-10 text-white pt-8 pb-4 from-black/60 to-transparent bg-gradient-to-t">
+        <div v-if="playerState.isInitialized && ! isFrameProcessing" class="absolute bottom-0 left-0 right-0 z-10 text-white pt-8 from-black/60 to-transparent bg-gradient-to-t" style="padding-bottom: calc(var(--mobile-safe-bottom, 0px) + 1rem);">
             <StoryContent></StoryContent>
             <StoryViews v-if="playerState.isOwner"></StoryViews>
             <StoryReply v-else></StoryReply>

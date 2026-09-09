@@ -58,11 +58,11 @@ final class UploadNotifications {
 
     static void publication(Context context, String owner, JSONObject publication) {
         if (owner.isEmpty() || !owner.equals(UploadCoordinator.get(context).account())) return;
-        String status = publication.optString("status"), uid = publication.optString("client_uid");
+        String status = publication.optString("status"), uid = publication.optString("client_uid"), kind = publication.optString("kind");
         if (status.equals("cancelled")) { manager(context).cancel(TAG_PREFIX + uid, PUBLICATION_ID); return; }
         String title;
-        if (status.equals("published")) title = "Published";
-        else if (status.equals("processing") || status.equals("publishing")) title = "Processing media";
+        if (status.equals("published")) title = kind.equals("story") ? "Story published" : "Published";
+        else if (status.equals("processing") || status.equals("publishing")) title = kind.equals("story") ? "Publishing story" : "Publishing media";
         else if (status.equals("failed")) title = "Upload needs attention";
         else if (status.equals("auth_required")) title = "Sign in to continue uploading";
         else if (status.equals("waiting")) title = "Waiting to upload";

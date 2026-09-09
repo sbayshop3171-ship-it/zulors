@@ -44,10 +44,22 @@ const actionError = ref('');
 const visibleRows = computed(() => publicationRows.value.filter(row => row.status !== 'published' && !(row.status === 'cancelled' && (row.discard_requested || row.remote_only || row.native)) &&
     (props.chatId ? kindOf(row) === 'chat' && String(row.descriptor.chat_id) === String(props.chatId) : kindOf(row) !== 'chat')));
 const title = row => ({ post: 'Post', story: 'Story', chat: 'Message' })[kindOf(row)] || 'Media';
-const statusLabel = row => ({
-    queued: 'Queued', uploading: `Uploading ${row.progress || 0}%`, processing: 'Processing', publishing: 'Publishing',
-    waiting: 'Waiting to resume', feature_disabled: 'Waiting for media publishing to reopen', failed: 'Upload failed', auth_required: 'Sign in to resume', cancelling: 'Cancelling', cancelled: 'Cancelled on server', expired: row.remote_only ? 'Upload expired. Select media again.' : 'Upload expired. Original media saved.',
-})[row.status] || row.status;
+const statusLabel = row => {
+    const kind = kindOf(row);
+    return ({
+        queued: kind === 'story' ? 'Starting story upload' : 'Queued',
+        uploading: `Uploading ${row.progress || 0}%`,
+        processing: kind === 'story' ? 'Publishing story' : 'Publishing media',
+        publishing: kind === 'story' ? 'Publishing story' : 'Publishing',
+        waiting: 'Waiting to resume',
+        feature_disabled: 'Waiting for media publishing to reopen',
+        failed: 'Upload failed',
+        auth_required: 'Sign in to resume',
+        cancelling: 'Cancelling',
+        cancelled: 'Cancelled on server',
+        expired: row.remote_only ? 'Upload expired. Select media again.' : 'Upload expired. Original media saved.',
+    })[row.status] || row.status;
+};
 async function act(action, row) {
     busy.value.add(row.key); actionError.value = '';
     try { await publicationManager[action](row); } catch (error) { actionError.value = error.message; }

@@ -1,6 +1,6 @@
 <template>
-    <div class="inset-0 bg-black z-50 fixed" v-bind:class="{ 'pb-5': $isStandalone() }">
-        <swiper-container v-on:swiperslidechange="handleSlideChange" class="h-full" init="false">
+    <div class="story-viewport inset-0 bg-black z-50 fixed">
+        <swiper-container v-on:swiperslidechange="handleSlideChange" class="h-full w-full" init="false">
             <swiper-slide v-on:click="slideToStory(idx)" v-for="(storyItem, idx) in stories" class="w-full h-full" v-bind:key="storyItem.story_uuid">
                 <StoryPlayer v-if="activeSlideIndex == idx"
 					v-bind:storyItem="storyItem"

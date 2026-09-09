@@ -1,5 +1,5 @@
 <template>
-    <div class="w-full h-full items-center overflow-hidden relative">
+    <div class="w-full h-full items-center overflow-hidden relative bg-black">
         <div class="absolute top-0 left-0 right-0 z-10 text-white pt-2 px-3 pb-6 from-black/60 to-transparent bg-gradient-to-b">
             <template v-if="playerState.isInitialized">
                 <StoryPlayback v-bind:storyData="storyData"></StoryPlayback>

@@ -5,25 +5,59 @@
 				<div class="min-w-content w-content h-[762px] border-r border-r-bord-pr overflow-hidden relative">
 					<div class="p-2 h-full bg-fill-fv">
 						<template v-if="storyMedia">
-							<div class="bg-black h-full rounded-md overflow-hidden">
-								<div class="h-full flex items-center relative">
+							<div class="story-media-stage rounded-md">
+								<div class="h-full relative">
 									<video
 										v-if="isVideo"
 										v-bind:src="storyVideoPreviewUrl"
 										v-bind:poster="storyVideoPosterUrl"
-										class="block w-full h-full object-contain bg-black"
+										v-bind:class="storyPreviewFitClass"
+										v-on:loadedmetadata="handleStoryVideoLoadedMetadata"
+										v-on:loadeddata="syncStoryPreviewBackdrop"
+										v-on:play="syncStoryPreviewBackdrop"
+										v-on:pause="syncStoryPreviewBackdrop"
+										v-on:timeupdate="syncStoryPreviewBackdrop"
+										ref="storyMediaVideoPreview"
+										class="story-media-foreground"
 										webkit-playsinline
 										playsinline
 										preload="metadata"
 										controls
 									></video>
-									<img v-else class="w-full object-cover" v-bind:src="storyMedia.source_url" alt="Image">
+									<video
+										v-if="isVideo && showStoryBlurBackdrop && storyVideoPreviewUrl"
+										ref="storyMediaBackdropVideo"
+										v-bind:src="storyVideoPreviewUrl"
+										class="story-media-backdrop"
+										webkit-playsinline
+										playsinline
+										muted
+										preload="metadata"
+										aria-hidden="true"
+										tabindex="-1"
+									></video>
+									<img
+										v-if="! isVideo && showStoryBlurBackdrop"
+										v-bind:src="storyMedia.source_url"
+										class="story-media-backdrop"
+										alt=""
+										aria-hidden="true"
+									>
+									<div v-if="showStoryBlurBackdrop" class="story-media-backdrop-shade"></div>
+									<img
+										v-if="! isVideo"
+										v-bind:class="storyPreviewFitClass"
+										v-on:load="handleStoryImageLoaded"
+										class="story-media-foreground"
+										v-bind:src="storyMedia.source_url"
+										alt="Image"
+									>
 
-									<div class="absolute top-4 left-4 size-8 bg-white rounded-full leading-none">
+									<div class="absolute top-4 left-4 z-20 size-8 bg-white rounded-full leading-none">
 										<PrimaryIconButton v-on:click="deleteStoryMedia" iconName="x"></PrimaryIconButton>
 									</div>
 									<template v-if="isVideo && storyVideoDuration">
-										<div class="absolute bottom-4 right-4">
+										<div class="absolute bottom-4 right-4 z-20">
 											<VideoDurationTime v-bind:videoDuration="storyVideoDuration"></VideoDurationTime>
 										</div>
 									</template>
@@ -31,17 +65,36 @@
 							</div>
 						</template>
 						<template v-else-if="state.videoClipCandidate">
-							<div class="bg-black h-full rounded-md overflow-hidden flex flex-col">
+							<div class="story-media-stage rounded-md">
+								<video
+									v-if="showVideoClipBlurBackdrop"
+									ref="videoClipBackdropPreview"
+									v-bind:src="state.videoClipCandidate.objectUrl"
+									class="story-media-backdrop"
+									muted
+									webkit-playsinline
+									playsinline
+									preload="metadata"
+									aria-hidden="true"
+									tabindex="-1"
+								></video>
+								<div v-if="showVideoClipBlurBackdrop" class="story-media-backdrop-shade"></div>
 								<video
 									ref="videoClipPreview"
 									v-bind:src="state.videoClipCandidate.objectUrl"
-									v-on:loadedmetadata="syncClipPreview"
-									class="flex-1 min-h-0 w-full object-contain"
+									v-bind:class="videoClipFitClass"
+									v-on:loadedmetadata="handleClipLoadedMetadata"
+									v-on:loadeddata="syncClipBackdrop"
+									v-on:play="syncClipBackdrop"
+									v-on:pause="syncClipBackdrop"
+									v-on:timeupdate="syncClipBackdrop"
+									class="story-media-foreground"
 									muted
+									webkit-playsinline
 									playsinline
 									controls
 								></video>
-								<div class="shrink-0 bg-black px-4 py-4">
+								<div class="absolute bottom-0 left-0 right-0 z-20 px-4 py-4 from-black/80 via-black/55 to-transparent bg-gradient-to-t">
 									<div class="flex items-center text-white text-par-s">
 										<span>{{ formatClipTime(state.videoClipCandidate.clipStartSeconds) }} - {{ formatClipTime(state.videoClipCandidate.clipStartSeconds + state.videoClipCandidate.clipDurationSeconds) }}</span>
 										<span class="ml-auto">{{ formatClipTime(state.videoClipCandidate.durationSeconds) }}</span>
@@ -146,6 +199,7 @@
 	import { publicationManager } from '@/kernel/services/media/publications/index.js';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { getStoryVideoClipCandidate, storyClipUploadOptions, formatStoryClipTime } from '@/kernel/services/media/story-video-clip.js';
+	import { elementImageDimensions, elementVideoDimensions, shouldUseStoryBlurBackdrop, storyMediaObjectFitClass } from '@/kernel/services/media/story-media-presentation.js';
 
 	import PrimaryTextButton from '@D/components/inter-ui/buttons/PrimaryTextButton.vue';
 	import PrimaryIconButton from '@D/components/inter-ui/buttons/PrimaryIconButton.vue';
@@ -160,15 +214,28 @@
 			const stroyMediaFileInput = ref(null);
 			const storyTextInputField = ref(null);
 			const videoClipPreview = ref(null);
+			const videoClipBackdropPreview = ref(null);
+			const storyMediaVideoPreview = ref(null);
+			const storyMediaBackdropVideo = ref(null);
 			const state = reactive({
 				isEmojisPickerOpen: false,
 				isSubmitting: false,
 				isUploading: false,
 				videoClipCandidate: null
 			});
+			const clipLoadedDimensions = ref({});
+			const previewLoadedDimensions = ref({});
 
 			const { autoResize, insertSymbolAtCaret, matchMention, completeText } = useInputHandlers();
 			const storyData = ref(storiesEditorStore.storyData);
+			const storyMedia = computed(() => {
+				return storiesEditorStore.storyMedia;
+			});
+			const videoClipMedia = computed(() => {
+				return {
+					metadata: state.videoClipCandidate?.metadata || {}
+				};
+			});
 
 			const clearVideoClipCandidate = () => {
 				if(state.videoClipCandidate?.objectUrl) {
@@ -182,6 +249,46 @@
 				if(videoClipPreview.value && state.videoClipCandidate) {
 					videoClipPreview.value.currentTime = Number(state.videoClipCandidate.clipStartSeconds || 0);
 				}
+
+				syncClipBackdrop();
+			};
+
+			const playVideo = (videoElement) => {
+				const playPromise = videoElement?.play?.();
+
+				if(playPromise?.catch) {
+					playPromise.catch(() => {});
+				}
+			};
+
+			const syncVideoBackdrop = (foregroundRef, backdropRef) => {
+				const foregroundVideo = foregroundRef.value;
+				const backdropVideo = backdropRef.value;
+
+				if(! foregroundVideo || ! backdropVideo) {
+					return;
+				}
+
+				try {
+					if(backdropVideo.readyState > 0 && Number.isFinite(foregroundVideo.currentTime) && Math.abs(backdropVideo.currentTime - foregroundVideo.currentTime) > 0.2) {
+						backdropVideo.currentTime = foregroundVideo.currentTime;
+					}
+
+					if(foregroundVideo.paused || foregroundVideo.ended) {
+						backdropVideo.pause();
+					}
+					else {
+						playVideo(backdropVideo);
+					}
+				} catch (error) {}
+			};
+
+			const syncClipBackdrop = () => {
+				syncVideoBackdrop(videoClipPreview, videoClipBackdropPreview);
+			};
+
+			const syncStoryPreviewBackdrop = () => {
+				syncVideoBackdrop(storyMediaVideoPreview, storyMediaBackdropVideo);
 			};
 
 			const uploadSelectedMedia = async (file, options = {}) => {
@@ -223,9 +330,10 @@
 				state: state,
 				isLocalPublication: computed(() => Boolean(storiesEditorStore.publicationSelection)),
 				videoClipPreview: videoClipPreview,
-				storyMedia: computed(() => {
-					return storiesEditorStore.storyMedia;
-				}),
+				videoClipBackdropPreview: videoClipBackdropPreview,
+				storyMediaVideoPreview: storyMediaVideoPreview,
+				storyMediaBackdropVideo: storyMediaBackdropVideo,
+				storyMedia: storyMedia,
 				isVideo: computed(() => {
 					return storiesEditorStore.storyMedia?.type === 'video';
 				}),
@@ -241,6 +349,18 @@
 				uploadProgress: computed(() => {
 					return storiesEditorStore.uploadProgress;
 				}),
+				videoClipFitClass: computed(() => {
+					return storyMediaObjectFitClass(videoClipMedia.value, clipLoadedDimensions.value);
+				}),
+				showVideoClipBlurBackdrop: computed(() => {
+					return shouldUseStoryBlurBackdrop(videoClipMedia.value, clipLoadedDimensions.value);
+				}),
+				storyPreviewFitClass: computed(() => {
+					return storyMediaObjectFitClass(storyMedia.value || {}, previewLoadedDimensions.value);
+				}),
+				showStoryBlurBackdrop: computed(() => {
+					return shouldUseStoryBlurBackdrop(storyMedia.value || {}, previewLoadedDimensions.value);
+				}),
 				isFormValid: computed(() => {
 					return storiesEditorStore.isFormValid;
 				}),
@@ -249,6 +369,19 @@
 				storyTextInputField: storyTextInputField,
 				formatClipTime: formatStoryClipTime,
 				syncClipPreview: syncClipPreview,
+				syncClipBackdrop: syncClipBackdrop,
+				syncStoryPreviewBackdrop: syncStoryPreviewBackdrop,
+				handleClipLoadedMetadata: (event) => {
+					clipLoadedDimensions.value = elementVideoDimensions(event.target);
+					syncClipPreview();
+				},
+				handleStoryVideoLoadedMetadata: (event) => {
+					previewLoadedDimensions.value = elementVideoDimensions(event.target);
+					syncStoryPreviewBackdrop();
+				},
+				handleStoryImageLoaded: (event) => {
+					previewLoadedDimensions.value = elementImageDimensions(event.target);
+				},
 				cancelVideoClip: () => {
 					clearVideoClipCandidate();
 				},
@@ -274,7 +407,7 @@
 						const result = await storiesEditorStore.publishStory();
 						state.isSubmitting = false;
 
-						toastSuccess(result?.queued ? 'Story queued' : __t('toast.story.story_published'));
+						toastSuccess(result?.queued ? 'Story upload started' : __t('toast.story.story_published'));
 
 						storiesEditorStore.resetEditor();
 						clearVideoClipCandidate();

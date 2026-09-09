@@ -551,6 +551,33 @@ class MediaPublicationApiTest extends TestCase
         $this->assertDatabaseCount('media', 1);
     }
 
+    public function test_story_video_completion_publishes_immediately_for_android_native_path(): void
+    {
+        $this->actingAs($this->createUser());
+        $publication = $this->createPublication($this->payload('story', 'video'));
+        $session = $this->startUpload($publication);
+        Storage::disk('r2_temp')->put($session['upload']['path'], str_repeat('v', 24));
+
+        $this->postJson($this->itemUrl($publication, 'complete'), ['generation' => $session['generation'], 'parts' => []])
+            ->assertOk()
+            ->assertJsonPath('data.status', 'published')
+            ->assertJsonPath('data.result.type', 'story')
+            ->assertJsonPath('data.items.0.status', 'uploaded')
+            ->assertJsonPath('data.items.0.progress', 100);
+
+        $frame = \App\Models\StoryFrame::with('media')->firstOrFail();
+        $media = $frame->media->first();
+
+        $this->assertSame('active', $frame->status->value);
+        $this->assertSame('processed', $media->status->value);
+        $this->assertSame('queued', data_get($media->metadata, 'background_processing_state'));
+        $this->assertTrue(data_get($media->metadata, 'instant_publish'));
+        $this->assertDatabaseCount('stories', 1);
+        $this->assertDatabaseCount('story_frames', 1);
+        $this->assertDatabaseCount('media', 1);
+        Bus::assertDispatchedTimes(ProcessPublicationItem::class, 1);
+    }
+
     public static function invalidCompletions(): array
     {
         return [

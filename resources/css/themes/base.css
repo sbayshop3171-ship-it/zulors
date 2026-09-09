@@ -56,3 +56,62 @@ input[type="number"] {
 .callout-error{
     @apply text-[#FF6367] border-red-900 bg-red-900/5;
 }
+
+.story-viewport {
+    width: 100vw;
+    height: 100vh;
+    min-height: 100vh;
+    overflow: hidden;
+}
+
+@supports (width: 100dvw) {
+    .story-viewport {
+        width: 100dvw;
+    }
+}
+
+@supports (height: 100dvh) {
+    .story-viewport {
+        height: var(--app-viewport-height, 100dvh);
+        min-height: var(--app-viewport-height, 100dvh);
+    }
+}
+
+.story-media-stage {
+    position: relative;
+    isolation: isolate;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #000000;
+}
+
+.story-media-backdrop {
+    position: absolute;
+    inset: -8%;
+    z-index: 0;
+    width: 116%;
+    height: 116%;
+    object-fit: cover;
+    pointer-events: none;
+    filter: blur(28px);
+    opacity: 0.74;
+    transform: scale(1.06);
+}
+
+.story-media-backdrop-shade {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background: rgba(0, 0, 0, 0.16);
+}
+
+.story-media-foreground {
+    position: relative;
+    z-index: 10;
+    display: block;
+    width: 100%;
+    height: 100%;
+    background: transparent;
+}
