@@ -12,6 +12,7 @@ SHARED_STORAGE_PUBLIC="${SHARED_STORAGE_PUBLIC:-${LIVE_PATH}.shared/storage/app/
 SHARED_STORAGE_PRIVATE="${SHARED_STORAGE_PRIVATE:-${LIVE_PATH}.shared/storage/app/private}"
 SHARED_STORAGE_SESSIONS="${SHARED_STORAGE_SESSIONS:-${LIVE_PATH}.shared/storage/framework/sessions}"
 DEPLOY_PREBUILT_ASSETS="${DEPLOY_PREBUILT_ASSETS:-0}"
+SSH_CONTROL_DIR="${SSH_CONTROL_DIR:-${TMPDIR:-/tmp}/zulors-deploy-ssh}"
 
 case "$DEPLOY_PREBUILT_ASSETS" in
 	0|1) ;;
@@ -26,6 +27,9 @@ if [ ! -f "$LIVE_SSH_KEY" ]; then
 	echo "Set LIVE_SSH_KEY or create the deploy key first."
 	exit 1
 fi
+
+mkdir -p "$SSH_CONTROL_DIR"
+chmod 700 "$SSH_CONTROL_DIR"
 
 echo "Running local deployment preflight..."
 git -C "$ROOT_DIR" diff --check
@@ -55,6 +59,12 @@ SSH_OPTS=(
 	-o BatchMode=yes
 	-o StrictHostKeyChecking=no
 	-o UserKnownHostsFile=/dev/null
+	-o ConnectionAttempts=5
+	-o ServerAliveInterval=15
+	-o ServerAliveCountMax=3
+	-o ControlMaster=auto
+	-o ControlPersist=120
+	-o ControlPath="${SSH_CONTROL_DIR}/%r@%h:%p"
 )
 
 DEPLOY_ID="${GITHUB_SHA:-$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || date +%s)}-$(date +%Y%m%d%H%M%S)"
