@@ -85,6 +85,14 @@
                             return;
                         }
 
+                        event.preventDefault();
+
+                        if (target.dataset.nativeGoogleBusy === 'true') {
+                            return;
+                        }
+
+                        setGoogleBusyState(true);
+
                         let available = false;
 
                         try {
@@ -95,27 +103,19 @@
                         }
 
                         if (!available) {
+                            try {
+                                window.ZulorsNativeAuth.startGoogleSignIn();
+                            }
+                            catch (error) {}
+
+                            setGoogleBusyState(false);
                             return;
                         }
 
-                        event.preventDefault();
-
-                        if (target.dataset.nativeGoogleBusy === 'true') {
-                            return;
-                        }
-
-                        setGoogleBusyState(true);
-
-                        const googleClientId = target.dataset.nativeGoogleClientId || '';
                         let started = false;
 
                         try {
-                            if (googleClientId && typeof window.ZulorsNativeAuth.startGoogleSignInWithClientId === 'function') {
-                                started = Boolean(window.ZulorsNativeAuth.startGoogleSignInWithClientId(googleClientId));
-                            }
-                            else {
-                                started = Boolean(window.ZulorsNativeAuth.startGoogleSignIn());
-                            }
+                            started = Boolean(window.ZulorsNativeAuth.startGoogleSignIn());
                         }
                         catch (error) {
                             started = false;

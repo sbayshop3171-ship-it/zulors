@@ -24,7 +24,7 @@ else
 fi
 
 DEFAULT_VERSION_CODE="${VERSION_CODE:-$(date +%s)}"
-DEFAULT_VERSION_NAME="${VERSION_NAME:-1.0.4}"
+DEFAULT_VERSION_NAME="${VERSION_NAME:-1.0.6}"
 
 if [ -t 0 ]; then
   printf "Play versionCode [%s]: " "$DEFAULT_VERSION_CODE"

@@ -37,7 +37,8 @@ ANDROIDX_WORK_VERSION="2.10.3"
 OKHTTP_VERSION="4.12.0"
 RUN_UPLOAD_TESTS="${RUN_UPLOAD_TESTS:-false}"
 LOCAL_MAVEN_CACHE="${LOCAL_MAVEN_CACHE:-}"
-GOOGLE_WEB_CLIENT_ID="${GOOGLE_WEB_CLIENT_ID:-505126705219-c4alnqlmvgio1oh1p1qedjj2unj6s6m3.apps.googleusercontent.com}"
+DEFAULT_GOOGLE_WEB_CLIENT_ID="505126705219-c4alnqlmvgio1oh1p1qedjj2unj6s6m3.apps.googleusercontent.com"
+GOOGLE_WEB_CLIENT_ID="${GOOGLE_WEB_CLIENT_ID:-}"
 
 export JAVA_HOME="$JDK_HOME"
 export ANDROID_HOME="$SDK"
@@ -158,6 +159,52 @@ gradle_string_literal() {
 gradle_plain_string() {
 	printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e "s/'/\\\\'/g"
 }
+
+resolve_google_services_web_client_id() {
+	if [ ! -f "$GOOGLE_SERVICES_JSON" ]; then
+		return 0
+	fi
+
+	if command -v node >/dev/null 2>&1; then
+		node - "$GOOGLE_SERVICES_JSON" <<'NODE' 2>/dev/null || true
+const fs = require('fs');
+const file = process.argv[2];
+const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+
+for (const client of data.client || []) {
+	for (const oauthClient of client.oauth_client || []) {
+		if (oauthClient.client_type === 3 && oauthClient.client_id) {
+			process.stdout.write(oauthClient.client_id);
+			process.exit(0);
+		}
+	}
+}
+NODE
+		return 0
+	fi
+
+	if command -v php >/dev/null 2>&1; then
+		php -r '
+			$data = json_decode(file_get_contents($argv[1]), true);
+			foreach (($data["client"] ?? []) as $client) {
+				foreach (($client["oauth_client"] ?? []) as $oauthClient) {
+					if (($oauthClient["client_type"] ?? null) === 3 && ! empty($oauthClient["client_id"])) {
+						echo $oauthClient["client_id"];
+						exit;
+					}
+				}
+			}
+		' "$GOOGLE_SERVICES_JSON" 2>/dev/null || true
+	fi
+}
+
+if [ -z "$GOOGLE_WEB_CLIENT_ID" ]; then
+	GOOGLE_WEB_CLIENT_ID="$(resolve_google_services_web_client_id)"
+fi
+
+if [ -z "$GOOGLE_WEB_CLIENT_ID" ]; then
+	GOOGLE_WEB_CLIENT_ID="$DEFAULT_GOOGLE_WEB_CLIENT_ID"
+fi
 
 sed \
 	-e "s/__USES_CLEARTEXT__/$(escape_sed "$USES_CLEARTEXT")/g" \

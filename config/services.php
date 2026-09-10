@@ -52,10 +52,12 @@ return [
         'token' => env('IPINFO_TOKEN'),
     ],
     'google' => [
-        'native_client_ids' => array_values(array_filter(array_map('trim', explode(',', env(
-            'GOOGLE_NATIVE_CLIENT_IDS',
-            '505126705219-c4alnqlmvgio1oh1p1qedjj2unj6s6m3.apps.googleusercontent.com'
-        ))))),
+        'native_client_ids' => array_values(array_unique(array_filter(array_map('trim', explode(',', implode(',', [
+            (string) env('GOOGLE_NATIVE_CLIENT_IDS', ''),
+            (string) env('GOOGLE_ANDROID_WEB_CLIENT_ID', ''),
+            (string) env('GOOGLE_WEB_CLIENT_ID', ''),
+            '505126705219-c4alnqlmvgio1oh1p1qedjj2unj6s6m3.apps.googleusercontent.com',
+        ])))))),
     ],
     'translation' => [
         'api_url' => env('TRANSLATION_SERVICE_API_URL'),
