@@ -65,13 +65,19 @@ The build pins AndroidX WebKit `1.12.1`, WorkManager `2.10.3`, and OkHttp `4.12.
 - [WorkManager long-running workers and foreground service types](https://developer.android.com/develop/background-work/background-tasks/persistent/how-to/long-running)
 - [WorkManager 2.10.3 release](https://developer.android.com/jetpack/androidx/releases/work#2.10.3)
 
-Use the existing signing environment and keystore. The build reads release passwords from environment variables; generated Gradle files do not contain them. Set `CREATE_RELEASE_KEYSTORE=false`. Never generate a replacement upload key.
+Use the existing signing environment and keystore. The build reads release passwords from environment variables; generated Gradle files do not contain them. Set `CREATE_RELEASE_KEYSTORE=false`. Never generate a replacement upload key. Play Store upload builds should be signed AABs; the matching signed APK is only for same-signature device sanity testing.
 
 ```sh
-APP_MODE=production BUILD_TYPE=release ARTIFACT_TYPE=apk RUN_UPLOAD_TESTS=true \
+APP_MODE=production BUILD_TYPE=release ARTIFACT_TYPE=bundle RUN_UPLOAD_TESTS=true \
 CREATE_RELEASE_KEYSTORE=false bash android/LocalAndroidPreview/build-local.sh
 ```
 
-`VERSION_CODE` defaults to the build's Unix timestamp; check the resulting APK is higher than the previous release. `RUN_UPLOAD_TESTS=true` runs the Android tests under `tests/android` before packaging. `LOCAL_MAVEN_CACHE` optionally supplies a local Maven repository when the environment cannot reach Maven through the JVM. The final APK is `build/latest/zulors-production-release.apk`.
+`VERSION_CODE` defaults to the build's Unix timestamp; check the resulting AAB is higher than the previous release. `RUN_UPLOAD_TESTS=true` runs the Android tests under `tests/android` before packaging. `LOCAL_MAVEN_CACHE` optionally supplies a local Maven repository when the environment cannot reach Maven through the JVM. The final Play upload file is `build/latest/zulors-production-release.aab`.
+
+For the full Play helper that builds both the AAB and a matching install-test APK, run:
+
+```sh
+android/LocalAndroidPreview/build-play-production.command
+```
 
 Device acceptance still requires Android 14+ and an earlier Android device: upload while backgrounded, seek a local video preview, terminate/reopen during multipart and after create, toggle airplane mode, expire a signed URL, deny notifications, switch accounts, cancel, and receive completion FCM. No device installation is part of the build script.
