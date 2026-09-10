@@ -103,7 +103,12 @@ public class ZulorsFirebaseMessagingService extends FirebaseMessagingService {
 
         if (callNotification && isIncomingCallNotification(data)) {
             incomingCallBundle = ZulorsTelecomCallManager.createCallBundle(this, data, title, body, notificationId);
-            ZulorsTelecomCallManager.reportIncomingCall(this, data, title, body, notificationId);
+            try {
+                ZulorsTelecomCallManager.reportIncomingCall(this, data, title, body, notificationId);
+            }
+            catch (Throwable exception) {
+                android.util.Log.w("ZulorsPush", "Incoming call Telecom report failed; showing notification fallback.", exception);
+            }
         }
 
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
@@ -197,7 +202,12 @@ public class ZulorsFirebaseMessagingService extends FirebaseMessagingService {
         NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 
         if (manager != null) {
-            manager.notify(notificationId, builder.build());
+            try {
+                manager.notify(notificationId, builder.build());
+            }
+            catch (Throwable exception) {
+                android.util.Log.w("ZulorsPush", "Unable to display push notification.", exception);
+            }
         }
     }
 

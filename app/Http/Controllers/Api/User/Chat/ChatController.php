@@ -223,7 +223,12 @@ class ChatController extends Controller
                 $participantData->user->notify(new MessageReceivedNotification($messageData));
             });
         } catch (Throwable $th) {
-            // Pass
+            logger()->warning('Chat message notification dispatch failed.', [
+                'message_id' => $messageData->id,
+                'chat_id' => $messageData->chat_id,
+                'exception' => $th::class,
+                'message' => $th->getMessage(),
+            ]);
         }
     }
 
@@ -763,7 +768,12 @@ class ChatController extends Controller
                         $participantData->user->notify(new MessageReceivedNotification($messageData));
                     });
                 } catch (Throwable $th) {
-                    // Pass
+                    logger()->warning('Chat message notification dispatch failed.', [
+                        'message_id' => $messageData->id,
+                        'chat_id' => $messageData->chat_id,
+                        'exception' => $th::class,
+                        'message' => $th->getMessage(),
+                    ]);
                 }
 
                 $chatData->update([
@@ -1051,7 +1061,12 @@ class ChatController extends Controller
                 });
         }
         catch (Throwable $th) {
-            // Pass
+            logger()->warning('Chat media notification dispatch failed.', [
+                'message_id' => $messageData->id,
+                'chat_id' => $messageData->chat_id,
+                'exception' => $th::class,
+                'message' => $th->getMessage(),
+            ]);
         }
 
         return $this->responseSuccess([

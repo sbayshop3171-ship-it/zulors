@@ -113,7 +113,6 @@ public final class PushTokenBridge {
         final String script = "(function(){try{" +
             "var token=" + jsString(token) + ";" +
             "var signature=" + jsString(syncSignature) + ";" +
-            "if(window.localStorage&&window.localStorage.getItem('zulors_push_sync_signature')===signature){return;}" +
             "var csrfMatch=document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/);" +
             "var csrf=csrfMatch?decodeURIComponent(csrfMatch[1]):'';" +
             "if(!csrf){return;}" +

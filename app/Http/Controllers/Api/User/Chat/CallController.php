@@ -210,6 +210,12 @@ class CallController extends Controller
         }
         catch(Throwable $exception) {
             // Call setup should still return the session if realtime or push is temporarily unavailable.
+            logger()->warning('Incoming call notification dispatch failed.', [
+                'call_uuid' => $callSession->call_uuid,
+                'receiver_id' => $receiver->id,
+                'exception' => $exception::class,
+                'message' => $exception->getMessage(),
+            ]);
         }
 
         return $this->responseSuccess([
