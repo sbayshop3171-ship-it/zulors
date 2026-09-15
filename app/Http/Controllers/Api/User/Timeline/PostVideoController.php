@@ -27,6 +27,7 @@ use App\Services\Filesystem\Upload\ImageUploadService;
 use App\Services\Filesystem\Upload\VideoUploadService;
 use App\Services\Filesystem\RoundRobin\RoundRobinService;
 use App\Services\Filesystem\Upload\VideoThumbnailService;
+use App\Support\StoryMusic\OriginalAudioEligibility;
 use App\Traits\Http\Controllers\Api\User\Timeline\ValidatesPostVideo;
 use App\Traits\Http\Controllers\Api\User\Timeline\InteractsWithDraftPost;
 
@@ -53,6 +54,13 @@ class PostVideoController extends Controller
     public function uploadVideo(Request $request)
     {
         $this->rejectServerVideoUpload();
+        $request->validate([
+            'story_music_category' => [OriginalAudioEligibility::categoryValidationRule()],
+            'original_audio_category' => [OriginalAudioEligibility::categoryValidationRule()],
+            'upload_category' => [OriginalAudioEligibility::categoryValidationRule()],
+            'content_category' => [OriginalAudioEligibility::categoryValidationRule()],
+        ]);
+
         $postVideoFile = $request->file('video');
 
         $this->validatePostVideo([
@@ -106,13 +114,13 @@ class PostVideoController extends Controller
                     'thumbnail_path' => $imageData['image_path'],
                     'thumbnail_size' => $imageData['image_size'],
                     'thumbnail_disk' => $imageData['disk'],
-                    'metadata' => [
+                    'metadata' => array_merge([
                         'duration' => $videoData['duration'],
                         'duration_seconds' => $videoData['seconds'],
                         'dimensions' => $videoData['dimensions'],
                         'aspect_ratio' => $videoData['aspect_ratio'],
                         'is_portrait' => $videoData['is_portrait']
-                    ]
+                    ], OriginalAudioEligibility::storyMusicMetadataFromRequest($request))
                 ]);
 
                 unlink($videoThumbnailPath);

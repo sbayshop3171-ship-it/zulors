@@ -50,8 +50,11 @@ STORY_MUSIC_DISK=r2_music
 STORY_MUSIC_PREFIX=music/story-library
 STORY_MUSIC_SIGNED_URL_MINUTES=30
 STORY_MUSIC_ORIGINAL_AUDIO_ENABLED=true
-STORY_MUSIC_ORIGINAL_AUDIO_REQUIRE_CONSENT=true
+STORY_MUSIC_ORIGINAL_AUDIO_REQUIRE_CONSENT=false
+STORY_MUSIC_ORIGINAL_AUDIO_REQUIRE_ALLOWED_CATEGORY=true
 STORY_MUSIC_ORIGINAL_AUDIO_AUTO_PUBLISH=true
+STORY_MUSIC_ORIGINAL_AUDIO_MAX_SECONDS=60
+STORY_MUSIC_ORIGINAL_AUDIO_EXPIRE_AFTER_HOURS=24
 ```
 
 ## 5. Run
@@ -95,7 +98,17 @@ GET /api/story/music/tracks/{id}/play-url
 
 ## 7. User video থেকে Original Audio
 
-User নিজের video audio story music library-তে দিতে চাইলে app থেকে:
+Frontend upload request-এ এই category দিলে backend automatically original audio বানাবে:
+
+```text
+story_music_category=music_video
+story_music_category=reel
+story_music_category=story_music_source
+```
+
+Video processed হওয়ার পর MP3 max 60 seconds হয়ে R2-তে যাবে এবং `Original audio` tab-এ public হবে। 24 ঘণ্টা পর scheduled command track deactivate করে file remove করবে।
+
+Manual endpoint দরকার হলে app থেকে:
 
 ```text
 POST /api/story/music/original-audio/media/{media_id}
@@ -105,7 +118,7 @@ Body:
 
 ```json
 {
-  "allow_reuse": true,
+  "story_music_category": "reel",
   "title": "Original audio",
   "mood": "happy",
   "genre": "lofi"
@@ -119,11 +132,17 @@ GET /api/story/music/tracks?tab=original_audio&sort=newest
 GET /api/story/music/tracks?tab=original_audio&sort=trending
 ```
 
-Admin approved old videos batch করতে:
+Admin old reel/music videos batch করতে:
 
 ```bash
 php artisan story-music:extract-original-audio --source=posts --limit=100 --dry-run
-php artisan story-music:extract-original-audio --source=posts --limit=100 --ignore-consent --publish
+php artisan story-music:extract-original-audio --source=posts --limit=100 --include-uncategorized --mark-category=reel --publish
 ```
 
-`--ignore-consent` শুধু আপনার approved/legal videos-এর জন্য ব্যবহার করবেন।
+Hourly cleanup:
+
+```bash
+php artisan story-music:expire-original-audio --delete-files
+```
+
+`--include-uncategorized --mark-category=reel` শুধু আপনার approved reel/music videos-এর জন্য ব্যবহার করবেন।

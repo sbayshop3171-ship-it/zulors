@@ -8,12 +8,19 @@ return [
 
     'original_audio' => [
         'enabled' => env('STORY_MUSIC_ORIGINAL_AUDIO_ENABLED', true),
-        'require_consent' => env('STORY_MUSIC_ORIGINAL_AUDIO_REQUIRE_CONSENT', true),
+        'require_consent' => env('STORY_MUSIC_ORIGINAL_AUDIO_REQUIRE_CONSENT', false),
+        'require_allowed_category' => env('STORY_MUSIC_ORIGINAL_AUDIO_REQUIRE_ALLOWED_CATEGORY', true),
         'auto_publish' => env('STORY_MUSIC_ORIGINAL_AUDIO_AUTO_PUBLISH', true),
         'min_duration_seconds' => (int) env('STORY_MUSIC_ORIGINAL_AUDIO_MIN_SECONDS', 3),
-        'max_duration_seconds' => (int) env('STORY_MUSIC_ORIGINAL_AUDIO_MAX_SECONDS', 180),
+        'max_duration_seconds' => (int) env('STORY_MUSIC_ORIGINAL_AUDIO_MAX_SECONDS', 60),
         'bitrate' => (int) env('STORY_MUSIC_ORIGINAL_AUDIO_BITRATE', 96),
+        'expire_after_hours' => (int) env('STORY_MUSIC_ORIGINAL_AUDIO_EXPIRE_AFTER_HOURS', 24),
         'license_url' => env('STORY_MUSIC_ORIGINAL_AUDIO_LICENSE_URL', env('APP_URL') . '/terms'),
+        'allowed_categories' => [
+            'music_video',
+            'reel',
+            'story_music_source',
+        ],
     ],
 
     'collections' => [

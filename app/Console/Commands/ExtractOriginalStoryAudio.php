@@ -8,6 +8,7 @@ use App\Jobs\User\Story\ExtractOriginalAudioFromMedia;
 use App\Models\Media;
 use App\Models\Post;
 use App\Models\StoryFrame;
+use App\Support\StoryMusic\OriginalAudioEligibility;
 use Illuminate\Console\Command;
 
 class ExtractOriginalStoryAudio extends Command
@@ -17,6 +18,9 @@ class ExtractOriginalStoryAudio extends Command
         {--limit=50 : Maximum videos to queue}
         {--media-id=* : Queue specific media IDs}
         {--ignore-consent : Admin-only approved batch mode for existing videos}
+        {--include-uncategorized : Include processed videos without an allowed story music category}
+        {--category=* : Limit to one or more story music categories}
+        {--mark-category= : Mark queued media with this story music category before extracting}
         {--publish : Publish extracted tracks immediately}
         {--force : Replace existing original-audio tracks}
         {--dry-run : Show candidate videos without queueing jobs}';
@@ -30,7 +34,15 @@ class ExtractOriginalStoryAudio extends Command
             return self::FAILURE;
         }
 
+        $markCategory = OriginalAudioEligibility::normalizeCategory((string) $this->option('mark-category'));
+
+        if($markCategory && ! OriginalAudioEligibility::isAllowedCategory($markCategory)) {
+            $this->error('Invalid --mark-category. Allowed: ' . implode(', ', OriginalAudioEligibility::allowedCategories()));
+            return self::FAILURE;
+        }
+
         $query = Media::query()
+            ->with('mediaable')
             ->where('type', MediaType::VIDEO->value)
             ->where('status', MediaStatus::PROCESSED->value)
             ->where('disk', '!=', 'cloudflare_stream')
@@ -56,24 +68,42 @@ class ExtractOriginalStoryAudio extends Command
         }
 
         $mediaItems = $query->get(['id', 'mediaable_type', 'mediaable_id', 'source_path', 'disk', 'metadata']);
+        $mediaItems = $this->filterByCategory($mediaItems);
 
         if($mediaItems->isEmpty()) {
             $this->warn('No processed videos matched the original-audio extraction filters.');
             return self::SUCCESS;
         }
 
+        $ignoreCategory = (bool) $this->option('include-uncategorized');
+
         foreach($mediaItems as $media) {
-            $this->line("media={$media->id} type={$media->mediaable_type} disk={$media->disk}");
+            if($markCategory) {
+                OriginalAudioEligibility::applyCategory($media, $markCategory);
+            }
+
+            if(! OriginalAudioEligibility::shouldAutoExtract($media, $ignoreCategory)) {
+                $this->line("skip media={$media->id} reason=category_missing_or_not_allowed");
+                continue;
+            }
+
+            $category = OriginalAudioEligibility::categoryFor($media) ?: 'uncategorized';
+            $this->line("media={$media->id} type={$media->mediaable_type} disk={$media->disk} category={$category}");
 
             if($this->option('dry-run')) {
                 continue;
+            }
+
+            if($markCategory) {
+                $media->save();
             }
 
             ExtractOriginalAudioFromMedia::dispatch(
                 $media->id,
                 (bool) $this->option('force'),
                 (bool) $this->option('ignore-consent'),
-                $this->option('publish') ? true : null
+                $this->option('publish') ? true : null,
+                $ignoreCategory
             )->onQueue(config('media.queues.audio'));
         }
 
@@ -102,5 +132,21 @@ class ExtractOriginalStoryAudio extends Command
         if($source !== 'all') {
             $this->warn('Unknown source option. Using all video media.');
         }
+    }
+
+    private function filterByCategory($mediaItems)
+    {
+        $requestedCategories = collect((array) $this->option('category'))
+            ->map(fn ($category) => OriginalAudioEligibility::normalizeCategory((string) $category))
+            ->filter()
+            ->values();
+
+        if($requestedCategories->isEmpty()) {
+            return $mediaItems;
+        }
+
+        return $mediaItems
+            ->filter(fn (Media $media) => $requestedCategories->contains(OriginalAudioEligibility::categoryFor($media)))
+            ->values();
     }
 }

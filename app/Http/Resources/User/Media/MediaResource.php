@@ -73,7 +73,8 @@ class MediaResource extends JsonResource
                     'optimization_ratio',
                     'playback',
                     'instant_publish',
-                    'original_name'
+                    'original_name',
+                    'story_music',
                 ]);
             }
 

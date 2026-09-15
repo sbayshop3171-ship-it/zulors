@@ -22,6 +22,7 @@ use App\Services\Filesystem\Delete\FileDeleteService;
 use App\Services\Filesystem\Upload\ImageUploadService;
 use App\Services\Filesystem\Upload\VideoUploadService;
 use App\Services\Filesystem\Upload\VideoThumbnailService;
+use App\Support\StoryMusic\OriginalAudioEligibility;
 
 class ConvertAndCompressPostVideo implements ShouldQueue
 {
@@ -523,8 +524,7 @@ class ConvertAndCompressPostVideo implements ShouldQueue
             return;
         }
 
-        if((bool) config('story_music.original_audio.require_consent', true)
-            && ! (bool) data_get($postMedia->metadata, 'story_music.allow_reuse', false)) {
+        if(! OriginalAudioEligibility::shouldAutoExtract($postMedia)) {
             return;
         }
 

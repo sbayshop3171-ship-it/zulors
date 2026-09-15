@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Storage;
 use App\Jobs\User\Story\ExtractOriginalAudioFromMedia;
+use App\Support\StoryMusic\OriginalAudioEligibility;
 use App\Traits\Http\Api\SupportsApiResponses;
 
 class StoryMusicController extends Controller
@@ -61,7 +62,7 @@ class StoryMusicController extends Controller
 
     public function show(StoryMusicTrack $track)
     {
-        if(! $track->is_active) {
+        if(! $track->isAvailable()) {
             return $this->responseResourceNotFoundError('StoryMusicTrack', $track->id);
         }
 
@@ -72,7 +73,7 @@ class StoryMusicController extends Controller
 
     public function playUrl(StoryMusicTrack $track)
     {
-        if(! $track->is_active) {
+        if(! $track->isAvailable()) {
             return $this->responseResourceNotFoundError('StoryMusicTrack', $track->id);
         }
 
@@ -93,7 +94,11 @@ class StoryMusicController extends Controller
             'title' => ['nullable', 'string', 'max:120'],
             'mood' => ['nullable', 'string', 'max:60'],
             'genre' => ['nullable', 'string', 'max:60'],
-            'allow_reuse' => ['required', 'boolean', 'accepted'],
+            'allow_reuse' => ['nullable', 'boolean'],
+            'story_music_category' => [OriginalAudioEligibility::categoryValidationRule()],
+            'original_audio_category' => [OriginalAudioEligibility::categoryValidationRule()],
+            'upload_category' => [OriginalAudioEligibility::categoryValidationRule()],
+            'content_category' => [OriginalAudioEligibility::categoryValidationRule()],
         ]);
 
         if(! (bool) config('story_music.original_audio.enabled', true)) {
@@ -114,9 +119,12 @@ class StoryMusicController extends Controller
             ]);
         }
 
-        $metadata = $media->metadata ?? [];
+        $metadata = array_merge($media->metadata ?? [], OriginalAudioEligibility::storyMusicMetadataFromRequest($request));
+        $category = OriginalAudioEligibility::categoryFor($media) ?: OriginalAudioEligibility::normalizeCategory((string) data_get($metadata, 'story_music.category')) ?: 'story_music_source';
         $metadata['story_music'] = array_merge((array) data_get($metadata, 'story_music', []), [
-            'allow_reuse' => true,
+            'allow_reuse' => (bool) $request->boolean('allow_reuse', true),
+            'category' => $category,
+            'auto_extract' => true,
             'title' => (string) ($request->input('title') ?: data_get($metadata, 'story_music.title') ?: 'Original audio'),
             'mood' => $request->input('mood'),
             'genre' => $request->input('genre'),
@@ -129,7 +137,7 @@ class StoryMusicController extends Controller
         $media->save();
 
         if($media->status?->isProcessed()) {
-            ExtractOriginalAudioFromMedia::dispatch($media->id)
+            ExtractOriginalAudioFromMedia::dispatch($media->id, false, true)
                 ->onQueue(config('media.queues.audio'));
         }
 
@@ -153,6 +161,7 @@ class StoryMusicController extends Controller
             'license_url' => $track->license_url,
             'license_type' => $track->license_type,
             'duration_seconds' => $track->duration_seconds,
+            'expires_at' => $track->expires_at?->toIso8601String(),
             'mood' => $track->mood,
             'genre' => $track->genre,
             'collection' => $track->collection,

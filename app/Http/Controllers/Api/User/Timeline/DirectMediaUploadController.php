@@ -19,6 +19,7 @@ use App\Jobs\User\Timeline\ConvertAndCompressPostVideo;
 use App\Traits\Http\Api\SupportsApiResponses;
 use App\Services\Media\Cloudflare\R2DirectUploadService;
 use App\Services\Media\Cloudflare\CloudflareStreamService;
+use App\Support\StoryMusic\OriginalAudioEligibility;
 use App\Traits\Http\Controllers\Api\User\Timeline\InteractsWithDraftPost;
 
 class DirectMediaUploadController extends Controller
@@ -39,6 +40,10 @@ class DirectMediaUploadController extends Controller
             'width' => ['nullable', 'integer', 'min:1', 'max:20000'],
             'height' => ['nullable', 'integer', 'min:1', 'max:20000'],
             'duration_seconds' => ['nullable', 'numeric', 'min:0', 'max:' . config('media.uploads.video.max_duration_seconds', 600)],
+            'story_music_category' => [OriginalAudioEligibility::categoryValidationRule()],
+            'original_audio_category' => [OriginalAudioEligibility::categoryValidationRule()],
+            'upload_category' => [OriginalAudioEligibility::categoryValidationRule()],
+            'content_category' => [OriginalAudioEligibility::categoryValidationRule()],
         ]);
         $presentationMetadata = $this->videoPresentationMetadata($request);
 
@@ -116,6 +121,10 @@ class DirectMediaUploadController extends Controller
             return false;
         }
 
+        if(! empty(OriginalAudioEligibility::storyMusicMetadataFromRequest($request))) {
+            return false;
+        }
+
         $size = max(0, $request->integer('size', 0));
         $basicUploadMaxBytes = max(0, (int) config('media.cloudflare.stream.basic_upload_max_bytes', 200 * 1024 * 1024));
 
@@ -159,7 +168,7 @@ class DirectMediaUploadController extends Controller
                 'original_size' => $request->integer('size'),
                 'optimized_size' => null,
                 'optimization_ratio' => null,
-            ])
+            ], OriginalAudioEligibility::storyMusicMetadataFromRequest($request))
         ]);
 
         return [
@@ -213,7 +222,7 @@ class DirectMediaUploadController extends Controller
                 'processing_state' => 'waiting_for_upload',
                 'playback' => $uploadData['playback'],
                 'original_name' => (string) $request->input('name'),
-            ])
+            ], OriginalAudioEligibility::storyMusicMetadataFromRequest($request))
         ]);
 
         return [

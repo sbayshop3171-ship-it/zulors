@@ -34,6 +34,7 @@ use App\Services\Filesystem\RoundRobin\RoundRobinService;
 use App\Services\Filesystem\Upload\VideoThumbnailService;
 use App\Services\Media\Cloudflare\R2DirectUploadService;
 use App\Services\Filesystem\Base64Image\Base64ImageService;
+use App\Support\StoryMusic\OriginalAudioEligibility;
 use App\Traits\Http\Controllers\Api\User\Story\ValidatesStoryMedia;
 use App\Traits\Http\Controllers\Api\User\Story\InteractsWithDraftStoryFrame;
 
@@ -70,6 +71,10 @@ class StoryMediaController extends Controller
             'media_file' => ['required', 'file'],
             'clip_start_seconds' => ['nullable', 'numeric', 'min:0', 'max:86400'],
             'clip_duration_seconds' => ['nullable', 'numeric', 'min:1', 'max:' . config('story.video_clip_size')],
+            'story_music_category' => [OriginalAudioEligibility::categoryValidationRule()],
+            'original_audio_category' => [OriginalAudioEligibility::categoryValidationRule()],
+            'upload_category' => [OriginalAudioEligibility::categoryValidationRule()],
+            'content_category' => [OriginalAudioEligibility::categoryValidationRule()],
         ]);
 
         $mediaFile = $request->file('media_file');
@@ -113,6 +118,10 @@ class StoryMediaController extends Controller
             'duration_seconds' => ['nullable', 'numeric', 'min:0', 'max:' . $this->maxDirectVideoDurationSeconds()],
             'clip_start_seconds' => ['nullable', 'numeric', 'min:0', 'max:' . $this->maxDirectVideoDurationSeconds()],
             'clip_duration_seconds' => ['nullable', 'numeric', 'min:1', 'max:' . config('story.video_clip_size')],
+            'story_music_category' => [OriginalAudioEligibility::categoryValidationRule()],
+            'original_audio_category' => [OriginalAudioEligibility::categoryValidationRule()],
+            'upload_category' => [OriginalAudioEligibility::categoryValidationRule()],
+            'content_category' => [OriginalAudioEligibility::categoryValidationRule()],
         ]);
 
         if(! $r2DirectUploadService->isConfigured()) {
@@ -189,7 +198,7 @@ class StoryMediaController extends Controller
                     'processing_progress' => 0,
                     'original_name' => (string) $request->input('name'),
                     'original_size' => $request->integer('size', 0),
-                ])
+                ], OriginalAudioEligibility::storyMusicMetadataFromRequest($request))
             ]);
 
             $this->draftStoryFrame->story->update([
@@ -495,7 +504,7 @@ class StoryMediaController extends Controller
                 'thumbnail_size' => $imageData['image_size'],
                 'thumbnail_disk' => $imageData['disk'],
                 'lqip_base64' => $thumbnailLQIPBase64,
-                'metadata' => [
+                'metadata' => array_merge([
                     'duration_seconds' => $clipData['duration_seconds'],
                     'original_duration_seconds' => $clipData['original_duration_seconds'],
                     'clip_start_seconds' => $clipData['start_seconds'],
@@ -509,7 +518,7 @@ class StoryMediaController extends Controller
                     'temp_disk' => $storyVideoStorage['temp_disk'],
                     'final_disk' => $storyVideoStorage['final_disk'],
                     'original_size' => $storyVideoStorage['video_size'] ?: $mediaFile->getSize(),
-                ]
+                ], OriginalAudioEligibility::storyMusicMetadataFromRequest($request))
             ]);
 
             $this->draftStoryFrame->duration_seconds = $clipData['duration_seconds'];
@@ -700,6 +709,7 @@ class StoryMediaController extends Controller
                 'dimensions' => data_get($storyMedia->metadata, 'dimensions', []),
                 'aspect_ratio' => data_get($storyMedia->metadata, 'aspect_ratio'),
                 'is_portrait' => data_get($storyMedia->metadata, 'is_portrait', false),
+                'story_music' => data_get($storyMedia->metadata, 'story_music'),
             ],
         ];
     }

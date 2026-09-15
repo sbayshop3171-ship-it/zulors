@@ -8,6 +8,8 @@ use App\Models\StoryFrame;
 use App\Models\StoryMusicTrack;
 use App\Models\User;
 use App\Services\Filesystem\Upload\VideoUploadService;
+use App\Support\StoryMusic\OriginalAudioEligibility;
+use FFMpeg\Coordinate\TimeCode;
 use FFMpeg\Format\Audio\Mp3;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -25,7 +27,8 @@ class ExtractOriginalAudioFromMedia implements ShouldQueue
         private readonly int $mediaId,
         private readonly bool $force = false,
         private readonly bool $ignoreConsent = false,
-        private readonly ?bool $publish = null
+        private readonly ?bool $publish = null,
+        private readonly bool $ignoreCategory = false
     ) {
         $this->onConnection(config('media.queue_connection'));
     }
@@ -66,7 +69,7 @@ class ExtractOriginalAudioFromMedia implements ShouldQueue
                 return;
             }
 
-            $localAudioPath = $this->extractMp3($videoUploadService, $localVideoPath);
+            $localAudioPath = $this->extractMp3($videoUploadService, $localVideoPath, $media);
             $durationSeconds = app(\App\Services\Filesystem\Upload\AudioUploadService::class)
                 ->getAudioDurationSeconds($localAudioPath);
 
@@ -132,7 +135,13 @@ class ExtractOriginalAudioFromMedia implements ShouldQueue
         }
 
         if((bool) config('story_music.original_audio.require_consent', true) && ! $this->ignoreConsent) {
-            return (bool) data_get($media->metadata, 'story_music.allow_reuse', false);
+            if(! (bool) data_get($media->metadata, 'story_music.allow_reuse', false)) {
+                return false;
+            }
+        }
+
+        if(! $this->ignoreCategory && ! OriginalAudioEligibility::shouldAutoExtract($media)) {
+            return false;
         }
 
         return true;
@@ -191,7 +200,7 @@ class ExtractOriginalAudioFromMedia implements ShouldQueue
         return filled($videoUploadService->getFFProbe()->streams($absolutePath)->audios()->first());
     }
 
-    private function extractMp3(VideoUploadService $videoUploadService, string $localVideoPath): string
+    private function extractMp3(VideoUploadService $videoUploadService, string $localVideoPath, Media $media): string
     {
         $audioPath = 'tmp/audios/' . Str::uuid() . '.mp3';
         $absoluteAudioPath = storage_local_path($audioPath);
@@ -201,19 +210,30 @@ class ExtractOriginalAudioFromMedia implements ShouldQueue
         $format = new Mp3();
         $format->setAudioKiloBitrate(max(32, (int) config('story_music.original_audio.bitrate', 96)));
 
-        $videoUploadService->getFFMpeg()
-            ->open(storage_local_path($localVideoPath))
-            ->save($format, $absoluteAudioPath);
+        $video = $videoUploadService->getFFMpeg()->open(storage_local_path($localVideoPath));
+        $video->filters()->clip(TimeCode::fromSeconds(0), TimeCode::fromSeconds($this->audioClipSeconds($media)));
+        $video->save($format, $absoluteAudioPath);
 
         return $audioPath;
+    }
+
+    private function audioClipSeconds(Media $media): int
+    {
+        $max = max(1, (int) config('story_music.original_audio.max_duration_seconds', 60));
+        $duration = (int) ceil((float) data_get($media->metadata, 'duration_seconds', data_get($media->metadata, 'original_duration_seconds', 0)));
+
+        if($duration < 1) {
+            return $max;
+        }
+
+        return max(1, min($duration, $max));
     }
 
     private function durationAllowed(int $durationSeconds): bool
     {
         $min = max(1, (int) config('story_music.original_audio.min_duration_seconds', 3));
-        $max = max($min, (int) config('story_music.original_audio.max_duration_seconds', 180));
 
-        return $durationSeconds >= $min && $durationSeconds <= $max;
+        return $durationSeconds >= $min;
     }
 
     private function storeTrack(Media $media, User $owner, string $localAudioPath, int $durationSeconds): StoryMusicTrack
@@ -226,6 +246,8 @@ class ExtractOriginalAudioFromMedia implements ShouldQueue
         $title = trim((string) data_get($metadata, 'story_music.title'));
         $artist = trim((string) ($owner->username ?: $owner->name));
         $isActive = $this->shouldPublish();
+        $category = OriginalAudioEligibility::categoryFor($media) ?: 'original_audio';
+        $expiresAt = $this->expiresAt();
 
         if(blank($title)) {
             $title = 'Original audio';
@@ -271,6 +293,7 @@ class ExtractOriginalAudioFromMedia implements ShouldQueue
                 'tags' => array_values(array_filter([
                     'original',
                     'user-audio',
+                    $category,
                     data_get($metadata, 'story_music.mood'),
                     data_get($metadata, 'story_music.genre'),
                 ])),
@@ -279,10 +302,13 @@ class ExtractOriginalAudioFromMedia implements ShouldQueue
                     'source_media_type' => $media->mediaable_type,
                     'source_disk' => $media->disk,
                     'creator_user_id' => $owner->id,
+                    'category' => $category,
                     'consent_recorded_at' => data_get($metadata, 'story_music.consent_recorded_at'),
+                    'auto_extracted' => true,
                 ],
                 'review_status' => $isActive ? 'approved' : 'pending',
                 'published_at' => $isActive ? now() : null,
+                'expires_at' => $expiresAt,
                 'is_active' => $isActive,
             ]
         );
@@ -295,6 +321,13 @@ class ExtractOriginalAudioFromMedia implements ShouldQueue
         }
 
         return (bool) config('story_music.original_audio.auto_publish', true);
+    }
+
+    private function expiresAt(): ?\Illuminate\Support\Carbon
+    {
+        $hours = (int) config('story_music.original_audio.expire_after_hours', 24);
+
+        return $hours > 0 ? now()->addHours($hours) : null;
     }
 
     private function sourceUrl(Media $media): string
@@ -318,6 +351,7 @@ class ExtractOriginalAudioFromMedia implements ShouldQueue
         $metadata['story_music'] = array_merge((array) data_get($metadata, 'story_music', []), [
             'original_audio_status' => $status,
             'original_audio_updated_at' => now()->toIso8601String(),
+            'category' => OriginalAudioEligibility::categoryFor($media),
         ], $extra);
 
         $media->metadata = $metadata;

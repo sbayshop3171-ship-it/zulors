@@ -39,6 +39,7 @@ Schedule::command('timeline:creator-quality-daily')->dailyAt('03:15');
 Schedule::command('timeline:reel-quality-hourly')->hourlyAt(20);
 
 Schedule::command('media:cleanup-temp --hours=72')->dailyAt('03:00')->withoutOverlapping();
+Schedule::command('story-music:expire-original-audio --delete-files')->hourly()->withoutOverlapping();
 Schedule::command('horizon:snapshot')->everyFiveMinutes();
 Schedule::command('media:reconcile-publications')->everyFiveMinutes()->withoutOverlapping();
 

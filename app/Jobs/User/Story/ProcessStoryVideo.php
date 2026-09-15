@@ -18,6 +18,7 @@ use App\Services\Filesystem\Delete\FileDeleteService;
 use App\Services\Filesystem\Upload\ImageUploadService;
 use App\Services\Filesystem\Upload\VideoUploadService;
 use App\Services\Filesystem\Upload\VideoThumbnailService;
+use App\Support\StoryMusic\OriginalAudioEligibility;
 
 class ProcessStoryVideo implements ShouldQueue
 {
@@ -393,8 +394,7 @@ class ProcessStoryVideo implements ShouldQueue
             return;
         }
 
-        if((bool) config('story_music.original_audio.require_consent', true)
-            && ! (bool) data_get($frameMedia->metadata, 'story_music.allow_reuse', false)) {
+        if(! OriginalAudioEligibility::shouldAutoExtract($frameMedia)) {
             return;
         }
 
