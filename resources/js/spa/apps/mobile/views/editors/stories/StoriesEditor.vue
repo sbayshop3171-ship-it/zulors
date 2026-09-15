@@ -18,7 +18,7 @@
 				</h4>
 				<div class="shrink-0">
 					<PrimaryIconButton
-						v-if="storyMedia || isUploading || videoClipCandidate"
+						v-if="storyMedia || isUploading"
 						v-on:click="deleteStoryMedia"
 						iconName="x"
 						iconSize="6"
@@ -31,66 +31,7 @@
 				</div>
 			</div>
 
-			<template v-if="videoClipCandidate">
-				<div class="absolute inset-0">
-					<div class="story-media-stage">
-						<video
-							v-if="showVideoClipBlurBackdrop"
-							ref="videoClipBackdropPreview"
-							v-bind:src="videoClipCandidate.objectUrl"
-							class="story-media-backdrop"
-							muted
-							webkit-playsinline
-							playsinline
-							preload="metadata"
-							aria-hidden="true"
-							tabindex="-1"
-						></video>
-						<div v-if="showVideoClipBlurBackdrop" class="story-media-backdrop-shade"></div>
-						<video
-							ref="videoClipPreview"
-							v-bind:src="videoClipCandidate.objectUrl"
-							v-bind:class="videoClipFitClass"
-							v-on:loadedmetadata="handleClipLoadedMetadata"
-							v-on:loadeddata="syncClipBackdrop"
-							v-on:play="syncClipBackdrop"
-							v-on:pause="syncClipBackdrop"
-							v-on:timeupdate="syncClipBackdrop"
-							class="story-media-foreground"
-							muted
-							webkit-playsinline
-							playsinline
-							controls
-						></video>
-					</div>
-				</div>
-
-				<div class="absolute bottom-0 left-0 right-0 z-30 px-4 pt-16 from-black/80 via-black/60 to-transparent bg-gradient-to-t" style="padding-bottom: calc(var(--mobile-safe-bottom, 0px) + 1rem);">
-					<div class="flex items-center text-white text-cap-l">
-						<span>{{ formatClipTime(videoClipCandidate.clipStartSeconds) }} - {{ formatClipTime(videoClipCandidate.clipStartSeconds + videoClipCandidate.clipDurationSeconds) }}</span>
-						<span class="ml-auto">{{ formatClipTime(videoClipCandidate.durationSeconds) }}</span>
-					</div>
-					<input
-						v-model.number="videoClipCandidate.clipStartSeconds"
-						v-on:input="syncClipPreview"
-						type="range"
-						min="0"
-						v-bind:max="videoClipCandidate.maxStartSeconds"
-						step="1"
-						class="block w-full mt-3 accent-white"
-					>
-					<div class="flex items-center justify-end gap-4 mt-4">
-						<button v-on:click="cancelVideoClip" type="button" class="text-par-s text-white/80">
-							{{ $t('labels.cancel') }}
-						</button>
-						<button v-on:click="confirmVideoClip" type="button" class="h-10 px-5 rounded-full bg-white text-black text-par-s font-semibold">
-							Next
-						</button>
-					</div>
-				</div>
-			</template>
-
-			<template v-else-if="isUploading">
+			<template v-if="isUploading">
 				<div class="absolute inset-0 flex items-center justify-center px-8">
 					<div class="w-full max-w-xs rounded-2xl border border-white/15 bg-black/35 p-5 backdrop-blur-md">
 						<div class="bg-white/20 h-1.5 rounded-full overflow-hidden">
@@ -227,13 +168,12 @@
 </template>
 
 <script>
-	import { defineComponent, reactive, ref, computed, onMounted, onUnmounted, defineAsyncComponent, nextTick, watch } from 'vue';
+	import { defineComponent, reactive, ref, computed, defineAsyncComponent, watch } from 'vue';
 	import { useRouter } from 'vue-router';
 
 	import { useInputHandlers } from '@/kernel/vue/composables/input/index.js';
 	import PublicationAudience from '@/kernel/vue/components/media/publications/PublicationAudience.vue';
 	import { useStoriesEditorStore } from '@M/store/stories/editor.store.js';
-	import { storyClipUploadOptions, formatStoryClipTime } from '@/kernel/services/media/story-video-clip.js';
 	import { elementImageDimensions, elementVideoDimensions, shouldUseStoryBlurBackdrop, storyMediaObjectFitClass } from '@/kernel/services/media/story-media-presentation.js';
 
 	import PrimaryTextButton from '@M/components/inter-ui/buttons/PrimaryPillButton.vue';
@@ -245,8 +185,6 @@
 		setup: function() {
 			const storiesEditorStore = useStoriesEditorStore();
 			const storyTextInputField = ref(null);
-			const videoClipPreview = ref(null);
-			const videoClipBackdropPreview = ref(null);
 			const storyMediaVideoPreview = ref(null);
 			const storyMediaBackdropVideo = ref(null);
 			const router = useRouter();
@@ -254,7 +192,6 @@
 				isSubmitting: false,
 				isMusicPickerOpen: false
 			});
-			const clipLoadedDimensions = ref({});
 			const previewLoadedDimensions = ref({});
 
 			const { autoResize } = useInputHandlers();
@@ -262,15 +199,6 @@
 			const storyMedia = computed(() => {
 				return storiesEditorStore.storyMedia;
 			});
-			const videoClipCandidate = computed(() => {
-				return storiesEditorStore.videoClipCandidate;
-			});
-			const videoClipMedia = computed(() => {
-				return {
-					metadata: videoClipCandidate.value?.metadata || {}
-				};
-			});
-
 			const deleteStoryMedia = () => {
 				try {
 					if(storiesEditorStore.storyMedia) {
@@ -280,19 +208,10 @@
 						storiesEditorStore.cancelPendingUpload();
 					}
 
-					storiesEditorStore.clearVideoClipCandidate();
 				} catch (e) {
 					toastError(e.message);
 				}
 			}
-
-			const syncClipPreview = () => {
-				if(videoClipPreview.value && storiesEditorStore.videoClipCandidate) {
-					videoClipPreview.value.currentTime = Number(storiesEditorStore.videoClipCandidate.clipStartSeconds || 0);
-				}
-
-				syncClipBackdrop();
-			};
 
 			const playVideo = (videoElement) => {
 				const playPromise = videoElement?.play?.();
@@ -324,26 +243,17 @@
 				} catch (error) {}
 			};
 
-			const syncClipBackdrop = () => {
-				syncVideoBackdrop(videoClipPreview, videoClipBackdropPreview);
-			};
-
 			const syncStoryPreviewBackdrop = () => {
 				syncVideoBackdrop(storyMediaVideoPreview, storyMediaBackdropVideo);
 			};
 
-			onMounted(() => {
-				nextTick(syncClipPreview);
-			});
-
 			watch(() => {
 				return [
 					storiesEditorStore.storyMedia,
-					storiesEditorStore.videoClipCandidate,
 					storiesEditorStore.isUploading
 				];
-			}, ([storyMedia, videoClipCandidate, isUploading]) => {
-				if(! storyMedia && ! videoClipCandidate && ! isUploading) {
+			}, ([storyMedia, isUploading]) => {
+				if(! storyMedia && ! isUploading) {
 					router.replace({
 						name: 'home_index'
 					});
@@ -352,24 +262,15 @@
 				immediate: true
 			});
 
-			onUnmounted(() => {
-				if(! storiesEditorStore.storyMedia && ! storiesEditorStore.isUploading) {
-					storiesEditorStore.clearVideoClipCandidate();
-				}
-			});
-
 			return {
 				state: state,
 				isLocalPublication: computed(() => Boolean(storiesEditorStore.publicationSelection)),
-				videoClipPreview: videoClipPreview,
-				videoClipBackdropPreview: videoClipBackdropPreview,
 				storyMediaVideoPreview: storyMediaVideoPreview,
 				storyMediaBackdropVideo: storyMediaBackdropVideo,
 				storyMedia: storyMedia,
 				selectedStoryMusicTrack: computed(() => {
 					return storiesEditorStore.selectedMusicTrack;
 				}),
-				videoClipCandidate: videoClipCandidate,
 				isVideo: computed(() => {
 					return storiesEditorStore.storyMedia?.type === 'video';
 				}),
@@ -388,12 +289,6 @@
 				uploadProgress: computed(() => {
 					return storiesEditorStore.uploadProgress;
 				}),
-				videoClipFitClass: computed(() => {
-					return storyMediaObjectFitClass(videoClipMedia.value, clipLoadedDimensions.value);
-				}),
-				showVideoClipBlurBackdrop: computed(() => {
-					return shouldUseStoryBlurBackdrop(videoClipMedia.value, clipLoadedDimensions.value);
-				}),
 				storyPreviewFitClass: computed(() => {
 					return storyMediaObjectFitClass(storyMedia.value || {}, previewLoadedDimensions.value);
 				}),
@@ -406,45 +301,13 @@
 				}),
 				storyData: storyData,
 				storyTextInputField: storyTextInputField,
-				formatClipTime: formatStoryClipTime,
-				syncClipPreview: syncClipPreview,
-				syncClipBackdrop: syncClipBackdrop,
 				syncStoryPreviewBackdrop: syncStoryPreviewBackdrop,
-				handleClipLoadedMetadata: (event) => {
-					clipLoadedDimensions.value = elementVideoDimensions(event.target);
-					syncClipPreview();
-				},
 				handleStoryVideoLoadedMetadata: (event) => {
 					previewLoadedDimensions.value = elementVideoDimensions(event.target);
 					syncStoryPreviewBackdrop();
 				},
 				handleStoryImageLoaded: (event) => {
 					previewLoadedDimensions.value = elementImageDimensions(event.target);
-				},
-				cancelVideoClip: () => {
-					storiesEditorStore.clearVideoClipCandidate();
-
-					router.push({
-						name: 'home_index'
-					});
-				},
-				confirmVideoClip: async () => {
-					const clipCandidate = storiesEditorStore.videoClipCandidate;
-
-					if(! clipCandidate) {
-						return;
-					}
-
-					try {
-						const mediaFile = clipCandidate.file;
-						const uploadOptions = storyClipUploadOptions(clipCandidate);
-
-						storiesEditorStore.clearVideoClipCandidate();
-						await storiesEditorStore.uploadMedia(mediaFile, uploadOptions);
-					}
-					catch (e) {
-						toastError(e.message);
-					}
 				},
 				submitForm: async () => {
 					if (state.isSubmitting) return;

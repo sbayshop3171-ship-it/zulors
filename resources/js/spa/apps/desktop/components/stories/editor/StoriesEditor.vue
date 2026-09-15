@@ -92,61 +92,6 @@
 								</div>
 							</div>
 						</template>
-						<template v-else-if="state.videoClipCandidate">
-							<div class="story-media-stage rounded-md">
-								<video
-									v-if="showVideoClipBlurBackdrop"
-									ref="videoClipBackdropPreview"
-									v-bind:src="state.videoClipCandidate.objectUrl"
-									class="story-media-backdrop"
-									muted
-									webkit-playsinline
-									playsinline
-									preload="metadata"
-									aria-hidden="true"
-									tabindex="-1"
-								></video>
-								<div v-if="showVideoClipBlurBackdrop" class="story-media-backdrop-shade"></div>
-								<video
-									ref="videoClipPreview"
-									v-bind:src="state.videoClipCandidate.objectUrl"
-									v-bind:class="videoClipFitClass"
-									v-on:loadedmetadata="handleClipLoadedMetadata"
-									v-on:loadeddata="syncClipBackdrop"
-									v-on:play="syncClipBackdrop"
-									v-on:pause="syncClipBackdrop"
-									v-on:timeupdate="syncClipBackdrop"
-									class="story-media-foreground"
-									muted
-									webkit-playsinline
-									playsinline
-									controls
-								></video>
-								<div class="absolute bottom-0 left-0 right-0 z-20 px-4 py-4 from-black/80 via-black/55 to-transparent bg-gradient-to-t">
-									<div class="flex items-center text-white text-par-s">
-										<span>{{ formatClipTime(state.videoClipCandidate.clipStartSeconds) }} - {{ formatClipTime(state.videoClipCandidate.clipStartSeconds + state.videoClipCandidate.clipDurationSeconds) }}</span>
-										<span class="ml-auto">{{ formatClipTime(state.videoClipCandidate.durationSeconds) }}</span>
-									</div>
-									<input
-										v-model.number="state.videoClipCandidate.clipStartSeconds"
-										v-on:input="syncClipPreview"
-										type="range"
-										min="0"
-										v-bind:max="state.videoClipCandidate.maxStartSeconds"
-										step="1"
-										class="block w-full mt-3 accent-brand-900"
-									>
-									<div class="flex items-center justify-end gap-3 mt-4">
-										<button v-on:click="cancelVideoClip" type="button" class="text-par-s text-white/80 hover:text-white">
-											{{ $t('labels.cancel') }}
-										</button>
-										<button v-on:click="confirmVideoClip" type="button" class="h-9 px-4 rounded-sm bg-brand-900 text-white text-par-s font-medium">
-											Next
-										</button>
-									</div>
-								</div>
-							</div>
-						</template>
 						<template v-else-if="state.isUploading">
 							<div class="shadow-xs popup-background-tr rounded-md p-2 h-full">
 								<div class="flex flex-col justify-center h-full border border-dashed border-edge-pr rounded-md smoothing">
@@ -225,14 +170,14 @@
 </template>
 
 <script>
-	import { defineComponent, reactive, ref, computed, defineAsyncComponent, nextTick, onUnmounted } from 'vue';
+	import { defineComponent, reactive, ref, computed, defineAsyncComponent } from 'vue';
 	
 	import { useInputHandlers } from '@/kernel/vue/composables/input/index.js';
 	import PublicationAudience from '@/kernel/vue/components/media/publications/PublicationAudience.vue';
 	import { useStoriesEditorStore } from '@D/store/stories/editor.store.js';
 	import { publicationManager } from '@/kernel/services/media/publications/index.js';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
-	import { getStoryVideoClipCandidate, storyClipUploadOptions, formatStoryClipTime } from '@/kernel/services/media/story-video-clip.js';
+	import { getStoryVideoClipCandidate, storyClipUploadOptions } from '@/kernel/services/media/story-video-clip.js';
 	import { elementImageDimensions, elementVideoDimensions, shouldUseStoryBlurBackdrop, storyMediaObjectFitClass } from '@/kernel/services/media/story-media-presentation.js';
 
 	import PrimaryTextButton from '@D/components/inter-ui/buttons/PrimaryTextButton.vue';
@@ -248,18 +193,14 @@
 			const storiesEditorStore = useStoriesEditorStore();
 			const stroyMediaFileInput = ref(null);
 			const storyTextInputField = ref(null);
-			const videoClipPreview = ref(null);
-			const videoClipBackdropPreview = ref(null);
 			const storyMediaVideoPreview = ref(null);
 			const storyMediaBackdropVideo = ref(null);
 			const state = reactive({
 				isEmojisPickerOpen: false,
 				isMusicPickerOpen: false,
 				isSubmitting: false,
-				isUploading: false,
-				videoClipCandidate: null
+				isUploading: false
 			});
-			const clipLoadedDimensions = ref({});
 			const previewLoadedDimensions = ref({});
 
 			const { autoResize, insertSymbolAtCaret, matchMention, completeText } = useInputHandlers();
@@ -267,27 +208,6 @@
 			const storyMedia = computed(() => {
 				return storiesEditorStore.storyMedia;
 			});
-			const videoClipMedia = computed(() => {
-				return {
-					metadata: state.videoClipCandidate?.metadata || {}
-				};
-			});
-
-			const clearVideoClipCandidate = () => {
-				if(state.videoClipCandidate?.objectUrl) {
-					URL.revokeObjectURL(state.videoClipCandidate.objectUrl);
-				}
-
-				state.videoClipCandidate = null;
-			};
-
-			const syncClipPreview = () => {
-				if(videoClipPreview.value && state.videoClipCandidate) {
-					videoClipPreview.value.currentTime = Number(state.videoClipCandidate.clipStartSeconds || 0);
-				}
-
-				syncClipBackdrop();
-			};
 
 			const playVideo = (videoElement) => {
 				const playPromise = videoElement?.play?.();
@@ -319,10 +239,6 @@
 				} catch (error) {}
 			};
 
-			const syncClipBackdrop = () => {
-				syncVideoBackdrop(videoClipPreview, videoClipBackdropPreview);
-			};
-
 			const syncStoryPreviewBackdrop = () => {
 				syncVideoBackdrop(storyMediaVideoPreview, storyMediaBackdropVideo);
 			};
@@ -346,27 +262,12 @@
 
 				const clipCandidate = await getStoryVideoClipCandidate(file);
 
-				if(clipCandidate?.requiresTrim) {
-					clearVideoClipCandidate();
-					state.videoClipCandidate = clipCandidate;
-
-					nextTick(syncClipPreview);
-
-					return;
-				}
-
 				await uploadSelectedMedia(file, storyClipUploadOptions(clipCandidate));
 			};
-
-			onUnmounted(() => {
-				clearVideoClipCandidate();
-			});
 
 			return {
 				state: state,
 				isLocalPublication: computed(() => Boolean(storiesEditorStore.publicationSelection)),
-				videoClipPreview: videoClipPreview,
-				videoClipBackdropPreview: videoClipBackdropPreview,
 				storyMediaVideoPreview: storyMediaVideoPreview,
 				storyMediaBackdropVideo: storyMediaBackdropVideo,
 				storyMedia: storyMedia,
@@ -388,12 +289,6 @@
 				uploadProgress: computed(() => {
 					return storiesEditorStore.uploadProgress;
 				}),
-				videoClipFitClass: computed(() => {
-					return storyMediaObjectFitClass(videoClipMedia.value, clipLoadedDimensions.value);
-				}),
-				showVideoClipBlurBackdrop: computed(() => {
-					return shouldUseStoryBlurBackdrop(videoClipMedia.value, clipLoadedDimensions.value);
-				}),
 				storyPreviewFitClass: computed(() => {
 					return storyMediaObjectFitClass(storyMedia.value || {}, previewLoadedDimensions.value);
 				}),
@@ -406,34 +301,13 @@
 				storyData: storyData,
 				stroyMediaFileInput: stroyMediaFileInput,
 				storyTextInputField: storyTextInputField,
-				formatClipTime: formatStoryClipTime,
-				syncClipPreview: syncClipPreview,
-				syncClipBackdrop: syncClipBackdrop,
 				syncStoryPreviewBackdrop: syncStoryPreviewBackdrop,
-				handleClipLoadedMetadata: (event) => {
-					clipLoadedDimensions.value = elementVideoDimensions(event.target);
-					syncClipPreview();
-				},
 				handleStoryVideoLoadedMetadata: (event) => {
 					previewLoadedDimensions.value = elementVideoDimensions(event.target);
 					syncStoryPreviewBackdrop();
 				},
 				handleStoryImageLoaded: (event) => {
 					previewLoadedDimensions.value = elementImageDimensions(event.target);
-				},
-				cancelVideoClip: () => {
-					clearVideoClipCandidate();
-				},
-				confirmVideoClip: async () => {
-					const clipCandidate = state.videoClipCandidate;
-
-					if(clipCandidate) {
-						const mediaFile = clipCandidate.file;
-						const uploadOptions = storyClipUploadOptions(clipCandidate);
-
-						clearVideoClipCandidate();
-						await uploadSelectedMedia(mediaFile, uploadOptions);
-					}
 				},
 				insertStoryEmoji: (emojiSymbol) => {
 					storyData.value.content = insertSymbolAtCaret(storyTextInputField.value, emojiSymbol);
@@ -449,7 +323,6 @@
 						toastSuccess(result?.queued ? 'Story upload started' : __t('toast.story.story_published'));
 
 						storiesEditorStore.resetEditor();
-						clearVideoClipCandidate();
 						storiesEditorStore.closeEditor();
 					} catch (e) {
 						state.isSubmitting = false;

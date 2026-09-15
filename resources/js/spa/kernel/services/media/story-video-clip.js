@@ -25,11 +25,8 @@ export const getStoryVideoClipCandidate = async (file) => {
     }
 
     return {
-        requiresTrim: true,
-        file: file,
-        objectUrl: file.native_file_id ? file.preview_url : URL.createObjectURL(file),
+        requiresTrim: false,
         durationSeconds: durationSeconds,
-        maxStartSeconds: Math.max(0, Math.floor(durationSeconds - STORY_VIDEO_CLIP_SECONDS)),
         clipStartSeconds: 0,
         clipDurationSeconds: STORY_VIDEO_CLIP_SECONDS,
         metadata: metadata

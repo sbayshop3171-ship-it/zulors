@@ -34,19 +34,12 @@
 				try {
 					const clipCandidate = await getStoryVideoClipCandidate(file);
 
-					if(clipCandidate?.requiresTrim) {
-						storiesEditorStore.setVideoClipCandidate(clipCandidate);
-						router.push({ name: 'story_editor' });
-
-						return;
-					}
-
 					router.push({ name: 'story_editor' });
 					await storiesEditorStore.uploadMedia(file, storyClipUploadOptions(clipCandidate));
 				} catch (e) {
 					toastError(e.message);
 
-					if(router.currentRoute.value.name === 'story_editor' && ! storiesEditorStore.storyMedia && ! storiesEditorStore.videoClipCandidate) {
+					if(router.currentRoute.value.name === 'story_editor' && ! storiesEditorStore.storyMedia && ! storiesEditorStore.isUploading) {
 						router.replace({
 							name: 'home_index'
 						});
