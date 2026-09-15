@@ -124,6 +124,11 @@ export default {
 
         return this;
     },
+    storyMusic: function() {
+        this.namespace = 'story/music';
+
+        return this;
+    },
     pins: function() {
         this.namespace = 'pins';
 

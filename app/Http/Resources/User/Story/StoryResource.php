@@ -46,6 +46,7 @@ class StoryResource extends JsonResource
                         'status' => $frameItem->status->value,
                         'content' => $frameItem->content,
                         'media' => $this->getStoryMedia($frameItem),
+                        'story_music' => $this->getStoryMusic($frameItem),
                         'meta' => $frameItem->meta,
                         'progress' => StoryFrameProgress::make($frameItem),
                         'duration_seconds' => $frameItem->duration_seconds,
@@ -155,6 +156,20 @@ class StoryResource extends JsonResource
     private function getStoryMedia($frameItem)
     {
         return MediaResource::make($frameItem->media->first());
+    }
+
+    private function getStoryMusic($frameItem): ?array
+    {
+        $selectedTrack = data_get($frameItem->meta ?? [], 'story_music.selected_track');
+
+        if(! is_array($selectedTrack) || empty($selectedTrack['track_id'])) {
+            return null;
+        }
+
+        return array_merge($selectedTrack, [
+            'play_url_endpoint' => route('api.story.music.play-url', ['track' => $selectedTrack['track_id']], false),
+            'mute_original_media' => (bool) data_get($frameItem->meta ?? [], 'story_music.mute_original_media', false),
+        ]);
     }
 
     private function getPublishedAt($frameItem): Carbon

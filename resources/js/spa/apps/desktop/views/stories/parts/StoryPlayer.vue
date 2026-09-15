@@ -32,8 +32,9 @@
 </template>
 
 <script>
-    import { defineComponent, onMounted, ref, provide, reactive, onUnmounted, onBeforeUnmount, computed } from 'vue';
+    import { defineComponent, onMounted, ref, provide, reactive, onUnmounted, onBeforeUnmount, computed, watch } from 'vue';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
+    import { createStoryMusicPlayback } from '@/kernel/services/media/story-music-playback.js';
     
     import StoryProcessing from '@D/views/stories/parts/media/StoryProcessing.vue';
     import StoryVideo from '@D/views/stories/parts/media/StoryVideo.vue';
@@ -68,6 +69,7 @@
                 isOwner: storyData.value.meta.is_owner,
                 animationFrameId: null
             });
+            const storyMusicPlayback = createStoryMusicPlayback(playerState);
 
             provide('playerState', playerState);
             provide('storyUrl', storyData.value.url);
@@ -97,10 +99,20 @@
                 colibriEventBus.on('story:pause', pauseStory);
 
                 viewStory();
+                storyMusicPlayback.syncFrame();
+
+                watch(() => playerState.frameData?.id, () => {
+                    storyMusicPlayback.syncFrame();
+                });
+
+                watch(() => playerState.isPaused, () => {
+                    storyMusicPlayback.syncPauseState();
+                });
             });
 
             onBeforeUnmount(() => {
                 clearProgressInterval();
+                storyMusicPlayback.destroy();
             });
 
             onUnmounted(() => {

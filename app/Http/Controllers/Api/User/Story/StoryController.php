@@ -27,6 +27,7 @@ use App\Http\Resources\User\Story\StoryCollection;
 use App\Http\Resources\User\Story\ViewCollection;
 use App\Models\Story;
 use App\Models\StoryFrame;
+use App\Models\StoryMusicTrack;
 use App\Notifications\User\Story\StoryLikedNotification;
 use App\Rules\X\XRule;
 use App\Services\Reaction\ReactionService;
@@ -94,8 +95,22 @@ class StoryController extends Controller
 
         else{
             $request->validate([
-                'content' => ['nullable', 'string', XRule::join('max', config('story.validation.content.max'))]
+                'content' => ['nullable', 'string', XRule::join('max', config('story.validation.content.max'))],
+                'story_music_track_id' => ['nullable', 'integer'],
             ]);
+
+            $selectedMusicTrack = $this->findSelectedStoryMusicTrack($request);
+
+            if($request->filled('story_music_track_id') && empty($selectedMusicTrack)) {
+                return $this->responseValidationError([
+                    'message' => 'Selected story music is no longer available.',
+                    'errors' => [
+                        'story_music_track_id' => [
+                            'Selected story music is no longer available.'
+                        ]
+                    ]
+                ]);
+            }
 
             $isVideo = $this->draftStoryFrame->type->isVideo();
             $isUploadedR2Video = $isVideo
@@ -119,11 +134,23 @@ class StoryController extends Controller
                 ]);
             }
 
+            $frameMeta = $this->draftStoryFrame->meta ?? [];
+
+            if($selectedMusicTrack) {
+                data_set($frameMeta, 'story_music.selected_track', $this->storyMusicSelectionPayload($selectedMusicTrack));
+                data_set($frameMeta, 'story_music.mute_original_media', true);
+            }
+            else {
+                data_forget($frameMeta, 'story_music.selected_track');
+                data_forget($frameMeta, 'story_music.mute_original_media');
+            }
+
             $updateData = [
                 'content' => e($request->string('content')),
                 'status' => ($isVideo && ! $isUploadedR2Video) ? StoryStatus::PROCESSING : StoryStatus::ACTIVE,
                 'created_at' => $publishedAt,
-                'expires_at' => $expiresAt
+                'expires_at' => $expiresAt,
+                'meta' => $frameMeta,
             ];
 
             if(! $isVideo) {
@@ -131,6 +158,10 @@ class StoryController extends Controller
             }
 
             $this->draftStoryFrame->update($updateData);
+
+            if($selectedMusicTrack) {
+                $selectedMusicTrack->increment('usage_count');
+            }
 
             if($isVideo) {
                 $metadata = array_merge($storyMedia->metadata ?? [], [
@@ -183,6 +214,37 @@ class StoryController extends Controller
         }
 
         return $this->responseResourceNotFoundError('StoryFrame', $storyFrameId);
+    }
+
+    private function findSelectedStoryMusicTrack(Request $request): ?StoryMusicTrack
+    {
+        $trackId = $request->integer('story_music_track_id');
+
+        if(! is_positive($trackId)) {
+            return null;
+        }
+
+        $track = StoryMusicTrack::query()->active()->find($trackId);
+
+        if($track && $track->isAvailable()) {
+            return $track;
+        }
+
+        return null;
+    }
+
+    private function storyMusicSelectionPayload(StoryMusicTrack $track): array
+    {
+        return [
+            'track_id' => $track->id,
+            'title' => $track->title,
+            'artist' => $track->artist,
+            'duration_seconds' => $track->duration_seconds,
+            'collection' => $track->collection,
+            'source' => $track->source,
+            'license_type' => $track->license_type,
+            'selected_at' => now()->toIso8601String(),
+        ];
     }
 
     public function toggleLike(Request $request, ReactionService $reactionService)

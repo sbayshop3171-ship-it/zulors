@@ -61,6 +61,34 @@
 											<VideoDurationTime v-bind:videoDuration="storyVideoDuration"></VideoDurationTime>
 										</div>
 									</template>
+
+									<div class="absolute right-4 top-16 z-20 flex flex-col items-center gap-3">
+										<button type="button" class="inline-flex size-10 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-md">
+											<span class="text-par-s font-semibold leading-none">Aa</span>
+										</button>
+										<button type="button" class="inline-flex size-10 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-md">
+											<SvgIcon name="face-smile" type="line" classes="size-5"></SvgIcon>
+										</button>
+										<button v-on:click="openMusicPicker" type="button" class="inline-flex size-10 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-md">
+											<SvgIcon name="music-note-01" type="line" classes="size-5"></SvgIcon>
+										</button>
+										<button type="button" class="inline-flex size-10 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-md">
+											<SvgIcon name="stars-01" type="line" classes="size-5"></SvgIcon>
+										</button>
+									</div>
+
+									<div v-if="selectedStoryMusicTrack" class="absolute left-1/2 top-16 z-20 flex max-w-[70%] -translate-x-1/2 items-center gap-2 rounded-xl bg-black/55 px-2 py-1.5 text-white shadow-lg backdrop-blur-md">
+										<div class="size-8 shrink-0 overflow-hidden rounded-md bg-white/10">
+											<img v-if="selectedStoryMusicTrack.cover_url" v-bind:src="selectedStoryMusicTrack.cover_url" class="size-full object-cover" alt="">
+											<div v-else class="flex size-full items-center justify-center">
+												<SvgIcon name="music-note-01" type="line" classes="size-4"></SvgIcon>
+											</div>
+										</div>
+										<span class="min-w-0 truncate text-cap-l font-semibold">{{ selectedStoryMusicTrack.title }}</span>
+										<button v-on:click="clearStoryMusicTrack" type="button" class="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-white/15 text-white">
+											<SvgIcon name="x" type="solid" classes="size-3.5"></SvgIcon>
+										</button>
+									</div>
 								</div>
 							</div>
 						</template>
@@ -186,6 +214,12 @@
 			<div class="hidden">
 				<input v-on:change="handleMediaSelect" capture="environment" type="file" accept="image/*, video/*" ref="stroyMediaFileInput">
 			</div>
+			<StoryMusicPicker
+				v-bind:open="state.isMusicPickerOpen"
+				v-bind:selectedTrack="selectedStoryMusicTrack"
+				v-on:close="state.isMusicPickerOpen = false"
+				v-on:select="selectStoryMusicTrack"
+			></StoryMusicPicker>
 		</form>
 	</div>
 </template>
@@ -207,6 +241,7 @@
 	import StoryEditorHeader from '@D/components/stories/editor/parts/StoryEditorHeader.vue';
 	import StoryDropper from '@D/components/stories/editor/parts/StoryDropper.vue';
 	import MentionsPicker from '@D/components/mentions/MentionsPicker.vue';
+	import StoryMusicPicker from '@/kernel/vue/components/story/StoryMusicPicker.vue';
 
 	export default defineComponent({
 		setup: function() {
@@ -219,6 +254,7 @@
 			const storyMediaBackdropVideo = ref(null);
 			const state = reactive({
 				isEmojisPickerOpen: false,
+				isMusicPickerOpen: false,
 				isSubmitting: false,
 				isUploading: false,
 				videoClipCandidate: null
@@ -334,6 +370,9 @@
 				storyMediaVideoPreview: storyMediaVideoPreview,
 				storyMediaBackdropVideo: storyMediaBackdropVideo,
 				storyMedia: storyMedia,
+				selectedStoryMusicTrack: computed(() => {
+					return storiesEditorStore.selectedMusicTrack;
+				}),
 				isVideo: computed(() => {
 					return storiesEditorStore.storyMedia?.type === 'video';
 				}),
@@ -424,6 +463,16 @@
 						toastError(e.message);
 					}
 				},
+				openMusicPicker: () => {
+					state.isMusicPickerOpen = true;
+				},
+				selectStoryMusicTrack: (trackData) => {
+					storiesEditorStore.setSelectedMusicTrack(trackData);
+					state.isMusicPickerOpen = false;
+				},
+				clearStoryMusicTrack: () => {
+					storiesEditorStore.clearSelectedMusicTrack();
+				},
 				selectStoryMedia: async () => {
 					try {
 						const files = await publicationManager.pick('story', 'media');
@@ -470,6 +519,7 @@
 			StoryPrivacyInfo: StoryPrivacyInfo,
 			StoryEditorHeader: StoryEditorHeader,
 			StoryDropper: StoryDropper,
+			StoryMusicPicker: StoryMusicPicker,
 			VideoDurationTime: defineAsyncComponent(() => {
                 return import('@/kernel/vue/components/media/video/VideoDurationTime.vue');
             }),

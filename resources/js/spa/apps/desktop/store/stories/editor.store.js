@@ -4,6 +4,7 @@ import { isPublicationMedia, selectPublicationMedia } from '@/kernel/services/me
 import { directVideoUpload } from '@/kernel/services/media/r2-direct-video-upload.js';
 import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 import { useStoriesStore } from '@D/store/stories/stories.store.js';
+import { appendStoryMusicUploadMetadata, storyMusicPublishPayload, storyMusicUploadOptions } from '@/kernel/services/media/story-music-upload.js';
 
 const useStoriesEditorStore = defineStore('stories_editor_store', {
 	state: function() {
@@ -15,6 +16,7 @@ const useStoriesEditorStore = defineStore('stories_editor_store', {
 			publicationSelection: null,
 			publicationOptions: {},
 			storyMediaObjectUrl: null,
+			selectedMusicTrack: null,
 			storyData: {
 				content: ''
 			}
@@ -45,20 +47,28 @@ const useStoriesEditorStore = defineStore('stories_editor_store', {
 			this.releaseMediaPreview();
 			this.uploadProgress = 0;
 			this.storyMedia = null;
+			this.selectedMusicTrack = null;
 			this.storyData = {
 				content: ''
 			}
 		},
+		setSelectedMusicTrack: function(trackData) {
+			this.selectedMusicTrack = trackData;
+		},
+		clearSelectedMusicTrack: function() {
+			this.selectedMusicTrack = null;
+		},
 		publishStory: async function() {
 			if (this.publicationSelection) {
-				await publicationManager.enqueue({ kind: 'story', content: this.storyData.content, privacy: this.storyData.privacy || 'all', selected_user_ids: this.storyData.selected_user_ids || [], ...this.publicationOptions }, [this.publicationSelection]);
+				await publicationManager.enqueue({ kind: 'story', content: this.storyData.content, privacy: this.storyData.privacy || 'all', selected_user_ids: this.storyData.selected_user_ids || [], ...this.publicationOptions, ...storyMusicPublishPayload(this.selectedMusicTrack) }, [this.publicationSelection]);
 				return { queued: true };
 			}
 			const state = this;
 			const storiesStore = useStoriesStore();
 			if (state.storyMedia) {
 				await colibriAPI().storyEditor().with({
-					content: state.storyData.content
+					content: state.storyData.content,
+					...storyMusicPublishPayload(state.selectedMusicTrack)
 				}).sendTo('create').then((response) => {
 					if(response.data.data) {
 						storiesStore.prependFeedItem(response.data.data);
@@ -71,6 +81,8 @@ const useStoriesEditorStore = defineStore('stories_editor_store', {
 			}
 		},
 		uploadMedia: async function(mediaFile, options = {}) {
+			const uploadOptions = storyMusicUploadOptions(mediaFile, options);
+
 			if (isPublicationMedia(mediaFile)) {
 				this.isUploading = true;
 				try {
@@ -78,7 +90,7 @@ const useStoriesEditorStore = defineStore('stories_editor_store', {
 						const selection = await selectPublicationMedia(mediaFile, publicationManager.account);
 						this.releaseMediaPreview();
 						this.publicationSelection = selection;
-						this.publicationOptions = options;
+						this.publicationOptions = uploadOptions;
 						this.storyMediaObjectUrl = selection.preview_url;
 						this.storyMedia = selection;
 						return;
@@ -91,7 +103,7 @@ const useStoriesEditorStore = defineStore('stories_editor_store', {
 				try {
 					const media = await directVideoUpload({
 						file: mediaFile,
-						options,
+						options: uploadOptions,
 						request: (action, payload) => colibriAPI().storyEditor().with(payload).sendTo('media/video/direct/' + action),
 						onProgress: progress => { this.uploadProgress = progress; },
 						onCreated: upload => {
@@ -126,13 +138,15 @@ const useStoriesEditorStore = defineStore('stories_editor_store', {
 
 			formData.append('media_file', mediaFile);
 
-			if(options.clip_start_seconds !== undefined) {
-				formData.append('clip_start_seconds', options.clip_start_seconds);
+			if(uploadOptions.clip_start_seconds !== undefined) {
+				formData.append('clip_start_seconds', uploadOptions.clip_start_seconds);
 			}
 
-			if(options.clip_duration_seconds !== undefined) {
-				formData.append('clip_duration_seconds', options.clip_duration_seconds);
+			if(uploadOptions.clip_duration_seconds !== undefined) {
+				formData.append('clip_duration_seconds', uploadOptions.clip_duration_seconds);
 			}
+
+			appendStoryMusicUploadMetadata(formData, uploadOptions);
 			
 			await colibriAPI().storyEditor().with(formData).withHeaders({
 				'Content-Type': 'multipart/form-data'
@@ -155,10 +169,12 @@ const useStoriesEditorStore = defineStore('stories_editor_store', {
 				this.publicationSelection = null;
 				this.publicationOptions = {};
 				this.storyMedia = null;
+				this.clearSelectedMusicTrack();
 				return;
 			}
 			this.releaseMediaPreview();
 			this.storyMedia = null;
+			this.clearSelectedMusicTrack();
 
 			await colibriAPI().storyEditor().delete('media/delete').catch((error) => {;
 				if(error.response) {

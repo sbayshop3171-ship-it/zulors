@@ -37,6 +37,7 @@
     import { computed, defineComponent, ref, inject, onMounted, watch, onBeforeUnmount } from 'vue';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
     import { elementVideoDimensions, shouldUseStoryBlurBackdrop, storyMediaObjectFitClass } from '@/kernel/services/media/story-media-presentation.js';
+    import { frameHasStoryMusic } from '@/kernel/services/media/story-music-playback.js';
     import StoryMediaLoader from '@D/views/stories/parts/media/StoryMediaLoader.vue';
 
     export default defineComponent({
@@ -61,7 +62,7 @@
             });
             
             onMounted(() => {
-                if (localStorage.getItem('stories_videos_muted')) {
+                if (hasAttachedMusic() || localStorage.getItem('stories_videos_muted')) {
                     storyVideo.value.muted = true;
                 }
                 else{
@@ -87,7 +88,16 @@
             }
 
             const unmuteVideo = () => {
+                if(hasAttachedMusic()) {
+                    storyVideo.value.muted = true;
+                    return;
+                }
+
                 storyVideo.value.muted = false;
+            }
+
+            const hasAttachedMusic = () => {
+                return frameHasStoryMusic(frameData.value);
             }
 
             const pauseToggle = () => {
