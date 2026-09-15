@@ -62,6 +62,7 @@ class Table
     public const STORIES = 'stories';
     public const STORY_VIEWS = 'story_views';
     public const STORY_FRAMES = 'story_frames';
+    public const STORY_MUSIC_TRACKS = 'story_music_tracks';
     public const REPORTS = 'reports';
     public const LINK_SNAPSHOTS = 'link_snapshots';
     public const JOB_LISTINGS = 'job_listings';

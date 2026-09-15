@@ -16,6 +16,7 @@
 use App\Models\User;
 use App\Http\Controllers\Api\Auth\GoogleNativeAuthController;
 use App\Http\Controllers\Api\Push\PushActionController;
+use App\Http\Controllers\Api\User\Story\StoryMusicController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
@@ -88,6 +89,12 @@ Route::prefix('v1/chats/{chatId}/media/video/direct')->middleware(['auth:sanctum
 Route::prefix('timeline')->middleware(['auth:sanctum', $readApiThrottle])->group(base_path('routes/api/user/timeline.php'));
 
 Route::prefix('stories')->middleware(['auth:sanctum', $interactiveApiThrottle])->group(base_path('routes/api/user/stories.php'));
+
+Route::prefix('story/music')->middleware(['auth:sanctum', $readApiThrottle])->group(function () {
+    Route::get('/tracks', [StoryMusicController::class, 'index'])->name('api.story.music.tracks');
+    Route::get('/tracks/{track}', [StoryMusicController::class, 'show'])->name('api.story.music.track');
+    Route::get('/tracks/{track}/play-url', [StoryMusicController::class, 'playUrl'])->name('api.story.music.play-url');
+});
 
 Route::prefix('profile')->middleware(['auth:sanctum', $readApiThrottle])->group(base_path('routes/api/user/profile.php'));
 

@@ -1,0 +1,3 @@
+slug,title,artist,source,source_url,license_url,license_type,audio_file,cover_file,duration_seconds,mood,genre,collection,tags,sort_order,is_active
+pixabay-happy-day,Happy Day,Example Artist,Pixabay,https://pixabay.com/music/example-track/,https://pixabay.com/service/license-summary/,pixabay,pixabay/happy-day.mp3,pixabay/happy-day.jpg,92,happy,pop,trending,happy|upbeat|story,10,1
+mixkit-soft-memories,Soft Memories,Example Artist,Mixkit,https://mixkit.co/free-stock-music/example-track/,https://mixkit.co/license/,mixkit,mixkit/soft-memories.mp3,mixkit/soft-memories.jpg,124,soft,cinematic,old,soft|memory|story,20,1

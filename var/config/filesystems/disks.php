@@ -70,6 +70,25 @@ return [
 		'use_path_style_endpoint' => env('R2_USE_PATH_STYLE_ENDPOINT', true),
 		'throw' => false,
 	],
+
+	// Cloudflare R2 story music library disk.
+	// ▸ Use this for curated royalty-free music tracks only.
+	// ▸ Keep the bucket private; the app serves short-lived signed preview URLs.
+	'r2_music' => [
+		'name' => 'Cloudflare R2 story music library',
+		'description' => 'Private bucket for curated story music tracks and cover art.',
+		'enabled' => env('R2_MUSIC_ENABLED', false),
+		'round_robin' => false,
+		'driver' => 's3',
+		'key' => env('R2_MUSIC_ACCESS_KEY_ID', env('R2_ACCESS_KEY_ID')),
+		'secret' => env('R2_MUSIC_SECRET_ACCESS_KEY', env('R2_SECRET_ACCESS_KEY')),
+		'region' => env('R2_MUSIC_REGION', env('R2_REGION', 'auto')),
+		'bucket' => env('R2_MUSIC_BUCKET'),
+		'url' => env('R2_MUSIC_PUBLIC_URL'),
+		'endpoint' => env('R2_MUSIC_ENDPOINT', env('R2_ENDPOINT')),
+		'use_path_style_endpoint' => env('R2_MUSIC_USE_PATH_STYLE_ENDPOINT', env('R2_USE_PATH_STYLE_ENDPOINT', true)),
+		'throw' => false,
+	],
 	
 	// You can add here file system disks as much as you want.
 	// But make sure that disk name is unique. E.g 's3_one', 's3_two', etc. 
