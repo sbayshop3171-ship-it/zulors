@@ -49,6 +49,9 @@ R2_MUSIC_PUBLIC_URL=
 STORY_MUSIC_DISK=r2_music
 STORY_MUSIC_PREFIX=music/story-library
 STORY_MUSIC_SIGNED_URL_MINUTES=30
+STORY_MUSIC_ORIGINAL_AUDIO_ENABLED=true
+STORY_MUSIC_ORIGINAL_AUDIO_REQUIRE_CONSENT=true
+STORY_MUSIC_ORIGINAL_AUDIO_AUTO_PUBLISH=true
 ```
 
 ## 5. Run
@@ -89,3 +92,38 @@ GET /api/story/music/tracks/{id}/play-url
 ```
 
 এই URL short-lived signed URL, permanent public MP3 না।
+
+## 7. User video থেকে Original Audio
+
+User নিজের video audio story music library-তে দিতে চাইলে app থেকে:
+
+```text
+POST /api/story/music/original-audio/media/{media_id}
+```
+
+Body:
+
+```json
+{
+  "allow_reuse": true,
+  "title": "Original audio",
+  "mood": "happy",
+  "genre": "lofi"
+}
+```
+
+Video already processed হলে audio extract job সঙ্গে সঙ্গে queue হবে। Video processing চললে processing শেষ হওয়ার পর queue হবে। Result দেখতে:
+
+```text
+GET /api/story/music/tracks?tab=original_audio&sort=newest
+GET /api/story/music/tracks?tab=original_audio&sort=trending
+```
+
+Admin approved old videos batch করতে:
+
+```bash
+php artisan story-music:extract-original-audio --source=posts --limit=100 --dry-run
+php artisan story-music:extract-original-audio --source=posts --limit=100 --ignore-consent --publish
+```
+
+`--ignore-consent` শুধু আপনার approved/legal videos-এর জন্য ব্যবহার করবেন।

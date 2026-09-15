@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use App\Jobs\User\Story\ExtractOriginalAudioFromMedia;
 use App\Services\Filesystem\Delete\FileDeleteService;
 use App\Services\Filesystem\Upload\ImageUploadService;
 use App\Services\Filesystem\Upload\VideoUploadService;
@@ -159,6 +160,8 @@ class ProcessStoryVideo implements ShouldQueue
 
                 $this->deleteOriginalSource($oldDisk, $oldPath, $videoTempOldPath, $fileDeleteService, $frameMedia->id);
                 $fileDeleteService->setStorageDisk('local')->deleteFile($videoTempNewPath);
+
+                $this->queueOriginalAudioExtraction($frameMedia);
             }
         }
 
@@ -381,6 +384,29 @@ class ProcessStoryVideo implements ShouldQueue
                     Log::error('Original cleanup could not be queued; temp lifecycle must remove it.', ['media_id' => $mediaId]);
                 }
             }
+        }
+    }
+
+    private function queueOriginalAudioExtraction($frameMedia): void
+    {
+        if(! (bool) config('story_music.original_audio.enabled', true)) {
+            return;
+        }
+
+        if((bool) config('story_music.original_audio.require_consent', true)
+            && ! (bool) data_get($frameMedia->metadata, 'story_music.allow_reuse', false)) {
+            return;
+        }
+
+        try {
+            ExtractOriginalAudioFromMedia::dispatch($frameMedia->id)
+                ->onQueue(config('media.queues.audio'));
+        }
+        catch (\Throwable $e) {
+            Log::warning('Story original audio extraction could not be queued.', [
+                'media_id' => $frameMedia->id,
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 

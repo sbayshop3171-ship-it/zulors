@@ -15,6 +15,7 @@ class StoryMusicTrack extends Model
         'sort_order' => 'integer',
         'usage_count' => 'integer',
         'is_active' => 'boolean',
+        'published_at' => 'datetime',
     ];
 
     public function scopeActive($query)

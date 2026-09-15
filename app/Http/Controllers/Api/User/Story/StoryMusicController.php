@@ -3,10 +3,14 @@
 namespace App\Http\Controllers\Api\User\Story;
 
 use Exception;
+use App\Models\Media;
+use App\Models\Post;
+use App\Models\StoryFrame;
 use App\Models\StoryMusicTrack;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Storage;
+use App\Jobs\User\Story\ExtractOriginalAudioFromMedia;
 use App\Traits\Http\Api\SupportsApiResponses;
 
 class StoryMusicController extends Controller
@@ -20,10 +24,11 @@ class StoryMusicController extends Controller
             'tab' => ['nullable', 'string', 'max:40'],
             'mood' => ['nullable', 'string', 'max:60'],
             'genre' => ['nullable', 'string', 'max:60'],
+            'sort' => ['nullable', 'string', 'in:default,trending,newest,oldest,title'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:' . config('story_music.max_per_page')],
         ]);
 
-        $tracks = StoryMusicTrack::query()
+        $tracksQuery = StoryMusicTrack::query()
             ->active()
             ->when($request->filled('tab'), function ($query) use ($request) {
                 $query->where('collection', $this->normalizeCollection((string) $request->input('tab')));
@@ -35,7 +40,7 @@ class StoryMusicController extends Controller
                 $query->where('genre', (string) $request->input('genre'));
             })
             ->when($request->filled('search'), function ($query) use ($request) {
-                $search = '%' . str_replace('%', '\\%', (string) $request->input('search')) . '%';
+                $search = '%' . addcslashes((string) $request->input('search'), '\\%_') . '%';
 
                 $query->where(function ($searchQuery) use ($search) {
                     $searchQuery->where('title', 'like', $search)
@@ -43,11 +48,11 @@ class StoryMusicController extends Controller
                         ->orWhere('mood', 'like', $search)
                         ->orWhere('genre', 'like', $search);
                 });
-            })
-            ->orderBy('sort_order')
-            ->orderByDesc('usage_count')
-            ->orderBy('title')
-            ->paginate($request->integer('per_page', 20));
+            });
+
+        $this->applySort($tracksQuery, (string) $request->input('sort', 'default'));
+
+        $tracks = $tracksQuery->paginate($request->integer('per_page', 20));
 
         return $this->responseSuccess([
             'data' => $tracks->through(fn (StoryMusicTrack $track) => $this->trackPayload($track)),
@@ -82,6 +87,60 @@ class StoryMusicController extends Controller
         ]);
     }
 
+    public function publishOriginalAudio(Request $request, Media $media)
+    {
+        $request->validate([
+            'title' => ['nullable', 'string', 'max:120'],
+            'mood' => ['nullable', 'string', 'max:60'],
+            'genre' => ['nullable', 'string', 'max:60'],
+            'allow_reuse' => ['required', 'boolean', 'accepted'],
+        ]);
+
+        if(! (bool) config('story_music.original_audio.enabled', true)) {
+            return $this->responseValidationError([
+                'message' => 'Original audio extraction is disabled.',
+            ]);
+        }
+
+        if(! $this->userOwnsMedia($request, $media)) {
+            return $this->responseError([
+                'message' => 'You can only publish original audio from your own videos.',
+            ], 403);
+        }
+
+        if(! $media->type?->isVideo()) {
+            return $this->responseValidationError([
+                'message' => 'Only video media can be converted to original audio.',
+            ]);
+        }
+
+        $metadata = $media->metadata ?? [];
+        $metadata['story_music'] = array_merge((array) data_get($metadata, 'story_music', []), [
+            'allow_reuse' => true,
+            'title' => (string) ($request->input('title') ?: data_get($metadata, 'story_music.title') ?: 'Original audio'),
+            'mood' => $request->input('mood'),
+            'genre' => $request->input('genre'),
+            'consent_recorded_at' => now()->toIso8601String(),
+            'consent_user_id' => $request->user()->id,
+            'original_audio_status' => 'queued',
+        ]);
+
+        $media->metadata = $metadata;
+        $media->save();
+
+        if($media->status?->isProcessed()) {
+            ExtractOriginalAudioFromMedia::dispatch($media->id)
+                ->onQueue(config('media.queues.audio'));
+        }
+
+        return $this->responseSuccess([
+            'data' => [
+                'media_id' => $media->id,
+                'status' => $media->status?->isProcessed() ? 'queued' : 'waiting_for_video_processing',
+            ],
+        ]);
+    }
+
     private function trackPayload(StoryMusicTrack $track, bool $includePlayUrl = false): array
     {
         $payload = [
@@ -100,6 +159,11 @@ class StoryMusicController extends Controller
             'tags' => $track->tags ?? [],
             'cover_url' => $track->cover_path ? $this->temporaryFileUrl($track->disk, $track->cover_path) : null,
             'play_url_endpoint' => route('api.story.music.play-url', ['track' => $track->id], false),
+            'origin' => [
+                'user_id' => $track->user_id,
+                'media_id' => $track->source_media_id,
+                'media_type' => $track->source_media_type,
+            ],
         ];
 
         if($includePlayUrl) {
@@ -137,5 +201,31 @@ class StoryMusicController extends Controller
         }
 
         return 'for_you';
+    }
+
+    private function applySort($query, string $sort): void
+    {
+        match ($sort) {
+            'trending' => $query->orderByDesc('usage_count')->orderByDesc('created_at'),
+            'newest' => $query->orderByDesc('created_at'),
+            'oldest' => $query->orderBy('created_at'),
+            'title' => $query->orderBy('title'),
+            default => $query->orderBy('sort_order')->orderByDesc('usage_count')->orderBy('title'),
+        };
+    }
+
+    private function userOwnsMedia(Request $request, Media $media): bool
+    {
+        $media->loadMissing('mediaable');
+
+        if($media->mediaable instanceof Post) {
+            return $media->mediaable->user_id === $request->user()->id;
+        }
+
+        if($media->mediaable instanceof StoryFrame) {
+            return $media->mediaable->story?->user_id === $request->user()->id;
+        }
+
+        return false;
     }
 }

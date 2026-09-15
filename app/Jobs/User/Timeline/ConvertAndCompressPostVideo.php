@@ -17,6 +17,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use App\Events\User\Timeline\MediaProcessedEvent;
 use App\Events\User\Timeline\MediaUpdatedEvent;
 use App\Events\User\Timeline\PublicTimelinePostCreatedEvent;
+use App\Jobs\User\Story\ExtractOriginalAudioFromMedia;
 use App\Services\Filesystem\Delete\FileDeleteService;
 use App\Services\Filesystem\Upload\ImageUploadService;
 use App\Services\Filesystem\Upload\VideoUploadService;
@@ -205,6 +206,8 @@ class ConvertAndCompressPostVideo implements ShouldQueue
                     if(! $postWasAlreadyActive) {
                         event(new PublicTimelinePostCreatedEvent($this->postData->refresh()));
                     }
+
+                    $this->queueOriginalAudioExtraction($postMedia);
                 } catch (Exception $e) {
                     Log::error('Failed to broadcast video processed event: ' . $e->getMessage());
                 }
@@ -512,5 +515,28 @@ class ConvertAndCompressPostVideo implements ShouldQueue
         $value = max(2, $value);
 
         return $value % 2 === 0 ? $value : $value - 1;
+    }
+
+    private function queueOriginalAudioExtraction($postMedia): void
+    {
+        if(! (bool) config('story_music.original_audio.enabled', true)) {
+            return;
+        }
+
+        if((bool) config('story_music.original_audio.require_consent', true)
+            && ! (bool) data_get($postMedia->metadata, 'story_music.allow_reuse', false)) {
+            return;
+        }
+
+        try {
+            ExtractOriginalAudioFromMedia::dispatch($postMedia->id)
+                ->onQueue(config('media.queues.audio'));
+        }
+        catch (\Throwable $e) {
+            Log::warning('Original audio extraction could not be queued.', [
+                'media_id' => $postMedia->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 }

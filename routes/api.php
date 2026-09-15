@@ -96,6 +96,10 @@ Route::prefix('story/music')->middleware(['auth:sanctum', $readApiThrottle])->gr
     Route::get('/tracks/{track}/play-url', [StoryMusicController::class, 'playUrl'])->name('api.story.music.play-url');
 });
 
+Route::prefix('story/music')->middleware(['auth:sanctum', $interactiveApiThrottle])->group(function () {
+    Route::post('/original-audio/media/{media}', [StoryMusicController::class, 'publishOriginalAudio'])->name('api.story.music.original-audio.publish');
+});
+
 Route::prefix('profile')->middleware(['auth:sanctum', $readApiThrottle])->group(base_path('routes/api/user/profile.php'));
 
 Route::prefix('relations')->middleware(['auth:sanctum', $interactiveApiThrottle])->group(base_path('routes/api/user/relations.php'));
