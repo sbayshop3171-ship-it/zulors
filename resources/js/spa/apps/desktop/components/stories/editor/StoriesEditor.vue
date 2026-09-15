@@ -13,22 +13,30 @@
 										v-bind:poster="storyVideoPosterUrl"
 										v-bind:class="storyPreviewFitClass"
 										v-on:loadedmetadata="handleStoryVideoLoadedMetadata"
-										v-on:loadeddata="syncStoryPreviewBackdrop"
-										v-on:play="syncStoryPreviewBackdrop"
-										v-on:pause="syncStoryPreviewBackdrop"
-										v-on:timeupdate="syncStoryPreviewBackdrop"
+										v-on:loadeddata="playStoryPreview"
+										v-on:canplay="playStoryPreview"
+										v-on:playing="handleStoryPreviewPlaying"
+										v-on:pause="handleStoryPreviewPaused"
+										v-on:timeupdate="handleStoryPreviewTimeUpdate"
+										v-on:click="toggleStoryPreviewPlayback"
 										ref="storyMediaVideoPreview"
-										class="story-media-foreground"
+										class="story-media-foreground cursor-pointer"
+										autoplay
+										loop
+										muted
 										webkit-playsinline
 										playsinline
 										preload="metadata"
-										controls
+										controlslist="nodownload noplaybackrate noremoteplayback"
+										disablepictureinpicture
 									></video>
 									<video
 										v-if="isVideo && showStoryBlurBackdrop && storyVideoPreviewUrl"
 										ref="storyMediaBackdropVideo"
 										v-bind:src="storyVideoPreviewUrl"
 										class="story-media-backdrop"
+										autoplay
+										loop
 										webkit-playsinline
 										playsinline
 										muted
@@ -36,6 +44,15 @@
 										aria-hidden="true"
 										tabindex="-1"
 									></video>
+									<button
+										v-if="isVideo && ! state.isStoryPreviewPlaying"
+										v-on:click.stop="playStoryPreview"
+										type="button"
+										class="absolute left-1/2 top-1/2 z-30 inline-flex size-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white shadow-lg backdrop-blur-md"
+										aria-label="Play video"
+									>
+										<SvgIcon name="play" type="solid" classes="ml-1 size-6"></SvgIcon>
+									</button>
 									<img
 										v-if="! isVideo && showStoryBlurBackdrop"
 										v-bind:src="storyMedia.source_url"
@@ -173,11 +190,12 @@
 	import { defineComponent, reactive, ref, computed, defineAsyncComponent } from 'vue';
 	
 	import { useInputHandlers } from '@/kernel/vue/composables/input/index.js';
+	import { durationObjectToSeconds, durationSecondsToObject } from '@/kernel/helpers/media/audio/index.js';
 	import PublicationAudience from '@/kernel/vue/components/media/publications/PublicationAudience.vue';
 	import { useStoriesEditorStore } from '@D/store/stories/editor.store.js';
 	import { publicationManager } from '@/kernel/services/media/publications/index.js';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
-	import { getStoryVideoClipCandidate, storyClipUploadOptions } from '@/kernel/services/media/story-video-clip.js';
+	import { getStoryVideoClipCandidate, storyClipUploadOptions, STORY_VIDEO_CLIP_SECONDS } from '@/kernel/services/media/story-video-clip.js';
 	import { elementImageDimensions, elementVideoDimensions, shouldUseStoryBlurBackdrop, storyMediaObjectFitClass } from '@/kernel/services/media/story-media-presentation.js';
 
 	import PrimaryTextButton from '@D/components/inter-ui/buttons/PrimaryTextButton.vue';
@@ -198,6 +216,7 @@
 			const state = reactive({
 				isEmojisPickerOpen: false,
 				isMusicPickerOpen: false,
+				isStoryPreviewPlaying: false,
 				isSubmitting: false,
 				isUploading: false
 			});
@@ -243,6 +262,81 @@
 				syncVideoBackdrop(storyMediaVideoPreview, storyMediaBackdropVideo);
 			};
 
+			const playStoryPreview = () => {
+				const videoElement = storyMediaVideoPreview.value;
+
+				if(! videoElement) {
+					return;
+				}
+
+				videoElement.muted = true;
+				videoElement.loop = true;
+
+				const playPromise = videoElement.play?.();
+
+				if(playPromise?.then) {
+					playPromise.then(() => {
+						state.isStoryPreviewPlaying = true;
+						syncStoryPreviewBackdrop();
+					}).catch(() => {
+						state.isStoryPreviewPlaying = false;
+					});
+				}
+				else {
+					state.isStoryPreviewPlaying = ! videoElement.paused;
+					syncStoryPreviewBackdrop();
+				}
+			};
+
+			const handleStoryPreviewPlaying = () => {
+				state.isStoryPreviewPlaying = true;
+				syncStoryPreviewBackdrop();
+			};
+
+			const handleStoryPreviewPaused = () => {
+				state.isStoryPreviewPlaying = false;
+				syncStoryPreviewBackdrop();
+			};
+
+			const handleStoryPreviewTimeUpdate = () => {
+				const videoElement = storyMediaVideoPreview.value;
+
+				if(videoElement && videoElement.currentTime >= STORY_VIDEO_CLIP_SECONDS) {
+					videoElement.currentTime = 0;
+				}
+
+				syncStoryPreviewBackdrop();
+			};
+
+			const toggleStoryPreviewPlayback = () => {
+				const videoElement = storyMediaVideoPreview.value;
+
+				if(! videoElement) {
+					return;
+				}
+
+				if(videoElement.paused || videoElement.ended) {
+					playStoryPreview();
+				}
+				else {
+					videoElement.pause();
+					state.isStoryPreviewPlaying = false;
+					syncStoryPreviewBackdrop();
+				}
+			};
+
+			const storyVideoDisplayDuration = () => {
+				const mediaItem = storiesEditorStore.storyMedia || {};
+				const rawDuration = mediaItem.duration || mediaItem.metadata?.duration || null;
+				const durationSeconds = durationObjectToSeconds(rawDuration) || Number(mediaItem.duration_seconds || mediaItem.metadata?.duration_seconds || 0);
+
+				if(durationSeconds > 0) {
+					return durationSecondsToObject(Math.min(durationSeconds, STORY_VIDEO_CLIP_SECONDS));
+				}
+
+				return rawDuration;
+			};
+
 			const uploadSelectedMedia = async (file, options = {}) => {
 				try {
 					state.isUploading = true;
@@ -284,7 +378,7 @@
 					return storiesEditorStore.storyMedia?.thumbnail_url || '';
 				}),
 				storyVideoDuration: computed(() => {
-					return storiesEditorStore.storyMedia?.duration || storiesEditorStore.storyMedia?.metadata?.duration || null;
+					return storyVideoDisplayDuration();
 				}),
 				uploadProgress: computed(() => {
 					return storiesEditorStore.uploadProgress;
@@ -302,9 +396,15 @@
 				stroyMediaFileInput: stroyMediaFileInput,
 				storyTextInputField: storyTextInputField,
 				syncStoryPreviewBackdrop: syncStoryPreviewBackdrop,
+				playStoryPreview: playStoryPreview,
+				toggleStoryPreviewPlayback: toggleStoryPreviewPlayback,
+				handleStoryPreviewPlaying: handleStoryPreviewPlaying,
+				handleStoryPreviewPaused: handleStoryPreviewPaused,
+				handleStoryPreviewTimeUpdate: handleStoryPreviewTimeUpdate,
 				handleStoryVideoLoadedMetadata: (event) => {
 					previewLoadedDimensions.value = elementVideoDimensions(event.target);
 					syncStoryPreviewBackdrop();
+					playStoryPreview();
 				},
 				handleStoryImageLoaded: (event) => {
 					previewLoadedDimensions.value = elementImageDimensions(event.target);
