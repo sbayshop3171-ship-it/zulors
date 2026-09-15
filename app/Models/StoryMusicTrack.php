@@ -10,6 +10,7 @@ class StoryMusicTrack extends Model
 
     protected $casts = [
         'duration_seconds' => 'integer',
+        'audio_quality_score' => 'integer',
         'tags' => 'array',
         'meta' => 'array',
         'sort_order' => 'integer',

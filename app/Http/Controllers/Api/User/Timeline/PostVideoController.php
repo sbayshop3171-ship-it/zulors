@@ -55,10 +55,7 @@ class PostVideoController extends Controller
     {
         $this->rejectServerVideoUpload();
         $request->validate([
-            'story_music_category' => [OriginalAudioEligibility::categoryValidationRule()],
-            'original_audio_category' => [OriginalAudioEligibility::categoryValidationRule()],
-            'upload_category' => [OriginalAudioEligibility::categoryValidationRule()],
-            'content_category' => [OriginalAudioEligibility::categoryValidationRule()],
+            ...OriginalAudioEligibility::metadataValidationRules(),
         ]);
 
         $postVideoFile = $request->file('video');

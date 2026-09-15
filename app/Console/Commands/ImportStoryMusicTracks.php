@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\StoryMusicTrack;
+use App\Support\StoryMusic\StoryMusicSearchIndex;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -110,10 +111,20 @@ class ImportStoryMusicTracks extends Command
                     'audio_path' => $remoteAudioPath,
                     'cover_path' => $remoteCoverPath,
                     'duration_seconds' => $track['duration_seconds'],
+                    'audio_quality_score' => 100,
                     'mood' => $track['mood'],
                     'genre' => $track['genre'],
                     'collection' => $track['collection'],
                     'tags' => $track['tags'],
+                    'search_text' => StoryMusicSearchIndex::build([
+                        $track['title'],
+                        $track['artist'],
+                        $track['source'],
+                        $track['mood'],
+                        $track['genre'],
+                        $track['collection'],
+                        $track['tags'],
+                    ]),
                     'sort_order' => $track['sort_order'],
                     'is_active' => $track['is_active'],
                     'meta' => [

@@ -71,10 +71,7 @@ class StoryMediaController extends Controller
             'media_file' => ['required', 'file'],
             'clip_start_seconds' => ['nullable', 'numeric', 'min:0', 'max:86400'],
             'clip_duration_seconds' => ['nullable', 'numeric', 'min:1', 'max:' . config('story.video_clip_size')],
-            'story_music_category' => [OriginalAudioEligibility::categoryValidationRule()],
-            'original_audio_category' => [OriginalAudioEligibility::categoryValidationRule()],
-            'upload_category' => [OriginalAudioEligibility::categoryValidationRule()],
-            'content_category' => [OriginalAudioEligibility::categoryValidationRule()],
+            ...OriginalAudioEligibility::metadataValidationRules(),
         ]);
 
         $mediaFile = $request->file('media_file');
@@ -118,10 +115,7 @@ class StoryMediaController extends Controller
             'duration_seconds' => ['nullable', 'numeric', 'min:0', 'max:' . $this->maxDirectVideoDurationSeconds()],
             'clip_start_seconds' => ['nullable', 'numeric', 'min:0', 'max:' . $this->maxDirectVideoDurationSeconds()],
             'clip_duration_seconds' => ['nullable', 'numeric', 'min:1', 'max:' . config('story.video_clip_size')],
-            'story_music_category' => [OriginalAudioEligibility::categoryValidationRule()],
-            'original_audio_category' => [OriginalAudioEligibility::categoryValidationRule()],
-            'upload_category' => [OriginalAudioEligibility::categoryValidationRule()],
-            'content_category' => [OriginalAudioEligibility::categoryValidationRule()],
+            ...OriginalAudioEligibility::metadataValidationRules(),
         ]);
 
         if(! $r2DirectUploadService->isConfigured()) {

@@ -12,6 +12,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Storage;
 use App\Jobs\User\Story\ExtractOriginalAudioFromMedia;
 use App\Support\StoryMusic\OriginalAudioEligibility;
+use App\Support\StoryMusic\StoryMusicSearchIndex;
 use App\Traits\Http\Api\SupportsApiResponses;
 
 class StoryMusicController extends Controller
@@ -41,13 +42,33 @@ class StoryMusicController extends Controller
                 $query->where('genre', (string) $request->input('genre'));
             })
             ->when($request->filled('search'), function ($query) use ($request) {
-                $search = '%' . addcslashes((string) $request->input('search'), '\\%_') . '%';
+                $rawSearch = trim((string) $request->input('search'));
+                $search = '%' . addcslashes($rawSearch, '\\%_') . '%';
+                $normalizedSearch = StoryMusicSearchIndex::normalize($rawSearch);
+                $normalizedLike = filled($normalizedSearch) ? '%' . addcslashes($normalizedSearch, '\\%_') . '%' : null;
+                $terms = collect(preg_split('/\s+/', $normalizedSearch) ?: [])
+                    ->filter(fn (string $term) => mb_strlen($term) >= 2)
+                    ->unique()
+                    ->take(8)
+                    ->values();
 
-                $query->where(function ($searchQuery) use ($search) {
+                $query->where(function ($searchQuery) use ($search, $normalizedLike, $terms) {
                     $searchQuery->where('title', 'like', $search)
                         ->orWhere('artist', 'like', $search)
                         ->orWhere('mood', 'like', $search)
                         ->orWhere('genre', 'like', $search);
+
+                    if($normalizedLike) {
+                        $searchQuery->orWhere('search_text', 'like', $normalizedLike);
+                    }
+
+                    if($terms->count() > 1) {
+                        $searchQuery->orWhere(function ($termQuery) use ($terms) {
+                            foreach($terms as $term) {
+                                $termQuery->where('search_text', 'like', '%' . addcslashes($term, '\\%_') . '%');
+                            }
+                        });
+                    }
                 });
             });
 
@@ -95,10 +116,7 @@ class StoryMusicController extends Controller
             'mood' => ['nullable', 'string', 'max:60'],
             'genre' => ['nullable', 'string', 'max:60'],
             'allow_reuse' => ['nullable', 'boolean'],
-            'story_music_category' => [OriginalAudioEligibility::categoryValidationRule()],
-            'original_audio_category' => [OriginalAudioEligibility::categoryValidationRule()],
-            'upload_category' => [OriginalAudioEligibility::categoryValidationRule()],
-            'content_category' => [OriginalAudioEligibility::categoryValidationRule()],
+            ...OriginalAudioEligibility::metadataValidationRules(),
         ]);
 
         if(! (bool) config('story_music.original_audio.enabled', true)) {
@@ -161,11 +179,16 @@ class StoryMusicController extends Controller
             'license_url' => $track->license_url,
             'license_type' => $track->license_type,
             'duration_seconds' => $track->duration_seconds,
+            'audio_quality_score' => $track->audio_quality_score,
+            'recognition_status' => $track->recognition_status,
+            'recognition_provider' => $track->recognition_provider,
             'expires_at' => $track->expires_at?->toIso8601String(),
             'mood' => $track->mood,
             'genre' => $track->genre,
             'collection' => $track->collection,
             'tags' => $track->tags ?? [],
+            'lyrics_keywords' => data_get($track->meta ?? [], 'lyrics_keywords', []),
+            'search_keywords' => data_get($track->meta ?? [], 'search_keywords', []),
             'cover_url' => $track->cover_path ? $this->temporaryFileUrl($track->disk, $track->cover_path) : null,
             'play_url_endpoint' => route('api.story.music.play-url', ['track' => $track->id], false),
             'origin' => [

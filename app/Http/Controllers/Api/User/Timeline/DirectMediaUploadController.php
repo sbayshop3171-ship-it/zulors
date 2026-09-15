@@ -40,10 +40,7 @@ class DirectMediaUploadController extends Controller
             'width' => ['nullable', 'integer', 'min:1', 'max:20000'],
             'height' => ['nullable', 'integer', 'min:1', 'max:20000'],
             'duration_seconds' => ['nullable', 'numeric', 'min:0', 'max:' . config('media.uploads.video.max_duration_seconds', 600)],
-            'story_music_category' => [OriginalAudioEligibility::categoryValidationRule()],
-            'original_audio_category' => [OriginalAudioEligibility::categoryValidationRule()],
-            'upload_category' => [OriginalAudioEligibility::categoryValidationRule()],
-            'content_category' => [OriginalAudioEligibility::categoryValidationRule()],
+            ...OriginalAudioEligibility::metadataValidationRules(),
         ]);
         $presentationMetadata = $this->videoPresentationMetadata($request);
 

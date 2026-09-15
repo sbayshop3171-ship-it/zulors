@@ -8,7 +8,9 @@ use App\Models\StoryFrame;
 use App\Models\StoryMusicTrack;
 use App\Models\User;
 use App\Services\Filesystem\Upload\VideoUploadService;
+use App\Support\StoryMusic\OriginalAudioAnalyzer;
 use App\Support\StoryMusic\OriginalAudioEligibility;
+use App\Support\StoryMusic\StoryMusicSearchIndex;
 use FFMpeg\Coordinate\TimeCode;
 use FFMpeg\Format\Audio\Mp3;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -78,11 +80,22 @@ class ExtractOriginalAudioFromMedia implements ShouldQueue
                 return;
             }
 
-            $track = $this->storeTrack($media, $owner, $localAudioPath, $durationSeconds);
+            $analysis = app(OriginalAudioAnalyzer::class)->analyze($localAudioPath);
+
+            if(! (bool) ($analysis['is_music_candidate'] ?? false)) {
+                $this->markMediaExtraction($media, 'skipped_audio_analysis', [
+                    'audio_analysis' => $analysis,
+                    'skip_reason' => $analysis['reject_reason'] ?? 'audio_not_music_candidate',
+                ]);
+                return;
+            }
+
+            $track = $this->storeTrack($media, $owner, $localAudioPath, $durationSeconds, $analysis);
 
             $this->markMediaExtraction($media, 'processed', [
                 'track_id' => $track->id,
                 'extracted_at' => now()->toIso8601String(),
+                'audio_analysis' => $analysis,
             ]);
         }
         catch (\Throwable $e) {
@@ -236,18 +249,22 @@ class ExtractOriginalAudioFromMedia implements ShouldQueue
         return $durationSeconds >= $min;
     }
 
-    private function storeTrack(Media $media, User $owner, string $localAudioPath, int $durationSeconds): StoryMusicTrack
+    private function storeTrack(Media $media, User $owner, string $localAudioPath, int $durationSeconds, array $analysis): StoryMusicTrack
     {
         $disk = (string) config('story_music.disk', 'r2_music');
         $basePath = trim(config('story_music.prefix'), '/') . '/original-audio/user-' . $owner->id . '/media-' . $media->id;
         $remoteAudioPath = "{$basePath}/audio.mp3";
         $sourceUrl = $this->sourceUrl($media);
         $metadata = $media->metadata ?? [];
-        $title = trim((string) data_get($metadata, 'story_music.title'));
-        $artist = trim((string) ($owner->username ?: $owner->name));
+        $recognition = $this->recognitionMetadata($metadata);
+        $title = trim((string) (data_get($metadata, 'story_music.title') ?: data_get($recognition, 'title')));
+        $artist = trim((string) (data_get($metadata, 'story_music.artist') ?: data_get($recognition, 'artist') ?: $owner->username ?: $owner->name));
         $isActive = $this->shouldPublish();
         $category = OriginalAudioEligibility::categoryFor($media) ?: 'original_audio';
         $expiresAt = $this->expiresAt();
+        $lyricsKeywords = StoryMusicSearchIndex::keywords(data_get($metadata, 'story_music.lyrics_keywords'));
+        $searchKeywords = StoryMusicSearchIndex::keywords(data_get($metadata, 'story_music.search_keywords'));
+        $sourceCaption = $this->sourceCaption($media);
 
         if(blank($title)) {
             $title = 'Original audio';
@@ -287,6 +304,7 @@ class ExtractOriginalAudioFromMedia implements ShouldQueue
                 'audio_path' => $remoteAudioPath,
                 'cover_path' => null,
                 'duration_seconds' => $durationSeconds,
+                'audio_quality_score' => (int) ($analysis['score'] ?? 0),
                 'mood' => data_get($metadata, 'story_music.mood'),
                 'genre' => data_get($metadata, 'story_music.genre'),
                 'collection' => 'original_audio',
@@ -296,17 +314,41 @@ class ExtractOriginalAudioFromMedia implements ShouldQueue
                     $category,
                     data_get($metadata, 'story_music.mood'),
                     data_get($metadata, 'story_music.genre'),
+                    data_get($metadata, 'story_music.album'),
+                    ...$searchKeywords,
                 ])),
+                'search_text' => StoryMusicSearchIndex::build([
+                    $title,
+                    $artist,
+                    data_get($metadata, 'story_music.album'),
+                    data_get($metadata, 'story_music.mood'),
+                    data_get($metadata, 'story_music.genre'),
+                    $category,
+                    $sourceCaption,
+                    data_get($recognition, 'title'),
+                    data_get($recognition, 'artist'),
+                    data_get($recognition, 'album'),
+                    $lyricsKeywords,
+                    $searchKeywords,
+                ]),
                 'meta' => [
                     'source_media_id' => $media->id,
                     'source_media_type' => $media->mediaable_type,
                     'source_disk' => $media->disk,
                     'creator_user_id' => $owner->id,
                     'category' => $category,
+                    'album' => data_get($metadata, 'story_music.album'),
+                    'lyrics_keywords' => $lyricsKeywords,
+                    'search_keywords' => $searchKeywords,
+                    'recognition' => $recognition,
+                    'audio_analysis' => $analysis,
+                    'source_caption' => $sourceCaption,
                     'consent_recorded_at' => data_get($metadata, 'story_music.consent_recorded_at'),
                     'auto_extracted' => true,
                 ],
                 'review_status' => $isActive ? 'approved' : 'pending',
+                'recognition_status' => $recognition['status'],
+                'recognition_provider' => $recognition['provider'],
                 'published_at' => $isActive ? now() : null,
                 'expires_at' => $expiresAt,
                 'is_active' => $isActive,
@@ -343,6 +385,41 @@ class ExtractOriginalAudioFromMedia implements ShouldQueue
         }
 
         return url('/');
+    }
+
+    private function sourceCaption(Media $media): ?string
+    {
+        $mediaable = $media->mediaable;
+
+        if($mediaable instanceof Post) {
+            return (string) ($mediaable->caption ?? '');
+        }
+
+        if($mediaable instanceof StoryFrame) {
+            return (string) data_get($mediaable->meta ?? [], 'caption', '');
+        }
+
+        return null;
+    }
+
+    private function recognitionMetadata(array $metadata): array
+    {
+        $confidence = data_get($metadata, 'story_music.recognition_confidence');
+        $confidence = is_numeric($confidence) ? (float) $confidence : null;
+        $recognizedTitle = trim((string) data_get($metadata, 'story_music.recognized_title'));
+        $recognizedArtist = trim((string) data_get($metadata, 'story_music.recognized_artist'));
+        $provider = trim((string) data_get($metadata, 'story_music.recognition_provider'));
+        $minConfidence = (float) config('story_music.original_audio.recognition.min_confidence', 70);
+        $matched = filled($recognizedTitle) || filled($recognizedArtist);
+
+        return [
+            'status' => $matched && ($confidence === null || $confidence >= $minConfidence) ? 'matched' : 'not_configured',
+            'provider' => filled($provider) ? $provider : config('story_music.original_audio.recognition.provider'),
+            'confidence' => $confidence,
+            'title' => $recognizedTitle ?: null,
+            'artist' => $recognizedArtist ?: null,
+            'album' => data_get($metadata, 'story_music.album'),
+        ];
     }
 
     private function markMediaExtraction(Media $media, string $status, array $extra = []): void
