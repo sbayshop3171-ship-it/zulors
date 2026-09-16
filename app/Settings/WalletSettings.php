@@ -21,6 +21,9 @@ class WalletSettings extends Settings
     public float $withdraw_min_amount;
     public float $withdraw_max_amount;
     public string $cashout_methods;
+    public bool $ads_reward_enabled;
+    public float $ads_reward_monthly_amount;
+    public int $ads_reward_reset_day;
 
     public static function group(): string
     {

@@ -3,6 +3,7 @@
 namespace App\Services\User;
 
 use App\Models\User;
+use App\Services\Ad\AdRewardService;
 
 class AutoVerifyUserService
 {
@@ -25,6 +26,8 @@ class AutoVerifyUserService
             'verified' => true,
             'verified_at' => $user->verified_at ?: now(),
         ])->save();
+
+        app(AdRewardService::class)->grantCurrentMonth($user->refresh());
 
         return true;
     }

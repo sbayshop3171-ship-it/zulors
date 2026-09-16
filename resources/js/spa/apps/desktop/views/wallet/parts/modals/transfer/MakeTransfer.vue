@@ -24,6 +24,9 @@
 					{{ formData.amount ? $t('wallet.transfer_commission_amount', { commission_amount: $money(commissionAmount)} ) : $t('wallet.transfer_commission_helper') }}
 				</template>
 			</ModalTextInput>
+			<p class="mt-2 text-cap-l font-medium text-lab-sc">
+				{{ $t('wallet.available_to_transfer', { amount: transferableBalance }) }}
+			</p>
 		</div>
 	</div>
 	<div class="mb-4 block">
@@ -88,11 +91,19 @@
 				message: ''
 			});
 
+			const selectedAmount = computed(() => Number(formData.amount || 0));
+			const transferableRaw = computed(() => {
+				return Number(walletStore.walletData?.transferable_balance?.raw || walletStore.walletData?.cash_balance?.raw || 0);
+			});
+
 			return {
 				formData: formData,
 				state: state,
 				commissionAmount: computed(() => {
-					return formData.amount * config('wallet.transfer.commission') / 100;
+					return selectedAmount.value * config('wallet.transfer.commission') / 100;
+				}),
+				transferableBalance: computed(() => {
+					return walletStore.walletData?.transferable_balance?.formatted || walletStore.walletData?.cash_balance?.formatted || '0.00';
 				}),
 				makeTransfer: async function() {
 					state.isSubmitting = true;
@@ -124,7 +135,7 @@
 					}
 				},
 				isValidForm: computed(() => {
-					return formData.amount && formData.amount > 0 && formData.message.length <= 140;
+					return selectedAmount.value > 0 && selectedAmount.value <= transferableRaw.value && formData.message.length <= 140;
 				}),
 				clearAmount: function() {
 					formData.amount = '';

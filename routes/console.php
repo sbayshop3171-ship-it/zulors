@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 use App\Services\Timeline\ReelQualityService;
+use App\Services\Ad\AdRewardService;
 use App\Services\Timeline\UserInterestService;
 use App\Services\Timeline\CreatorQualityService;
 
@@ -44,6 +45,7 @@ Schedule::command('horizon:snapshot')->everyFiveMinutes();
 Schedule::command('media:reconcile-publications')->everyFiveMinutes()->withoutOverlapping();
 
 Schedule::command('calls:cleanup-stale --limit=200')->everyMinute()->withoutOverlapping();
+Schedule::command('ads:reset-monthly-credits')->dailyAt('00:10')->withoutOverlapping();
 
 Artisan::command('app:version', function () {
     $this->info(Zulors::VERSION);
@@ -81,4 +83,18 @@ Artisan::command('timeline:reel-quality-hourly', function () {
     $warmedCount = app(ReelQualityService::class)->warmRecent();
 
     $this->info("Warmed {$warmedCount} reel quality scores.");
+});
+
+Artisan::command('ads:reset-monthly-credits', function () {
+    $resetDay = (int) config('wallet.ads_reward.reset_day', 1);
+
+    if((int) now()->day !== $resetDay) {
+        $this->info('Skipped. Today is not the configured ads reward reset day.');
+
+        return;
+    }
+
+    $processed = app(AdRewardService::class)->resetMonthlyCredits();
+
+    $this->info("Reset monthly ads rewards for {$processed} verified users.");
 });

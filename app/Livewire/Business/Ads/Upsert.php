@@ -12,11 +12,8 @@ use App\Constants\Filesystem;
 use Livewire\WithFileUploads;
 use App\Enums\Media\MediaType;
 use App\Enums\Media\MediaStatus;
-use App\Enums\Wallet\TransactionType;
-use App\Services\Wallet\WalletService;
-use App\Enums\Wallet\TransactionStatus;
+use App\Services\Ad\AdRewardService;
 use App\Actions\Media\DeleteMediaAction;
-use App\Enums\Wallet\TransactionDirection;
 use Illuminate\Validation\ValidationException;
 use App\Services\Timeline\TopicExtractionService;
 use App\Services\Filesystem\Upload\ImageUploadService;
@@ -143,8 +140,15 @@ class Upsert extends Component
             }
         }
 
-        if(! $this->allocateBudget()) {
+        $budgetAllocation = $this->allocateBudget();
+
+        if(! $budgetAllocation) {
             return false;
+        }
+
+        if($this->upsertType == 'create') {
+            $updateData['funding_metadata'] = $budgetAllocation;
+            $updateData['pause_reason'] = null;
         }
 
         $this->adData->update($updateData);
@@ -208,27 +212,27 @@ class Upsert extends Component
     private function allocateBudget()
     {
         if($this->upsertType == 'create') {
-            if(! me()->wallet->balance->canAfford($this->formData['total_budget'])) {
+            $adRewardService = app(AdRewardService::class);
+
+            $allocation = $adRewardService->allocateAdBudget(
+                me(),
+                $this->adData,
+                (float) $this->formData['total_budget'],
+                (float) $this->formData['price_per_view']
+            );
+
+            if(empty($allocation['success'])) {
                 $this->addError('formData.total_budget', __('business/ads.form.budget_insufficient'));
 
                 return false;
             }
 
-            $walletService = app(WalletService::class);
-
-            $walletService->setUserData(me())->subtractWalletBalance($this->formData['total_budget'])->addWalletTransaction([
-                'amount' => $this->formData['total_budget'],
-                'transaction_type' => TransactionType::ADVERTISING,
-                'status' => TransactionStatus::COMPLETED,
-                'direction' => TransactionDirection::OUTGOING,
-                'currency' => config('app.default_currency') ?: 'USD',
-                'metadata' => [
-                    'ad_id' => $this->adData->id,
-                    'source' => ['name' => config('ads.name')],
-                    'reason' => 'ad_budget_allocation',
-                    'price_per_view' => (float) $this->formData['price_per_view'],
-                ]
-            ]);
+            return [
+                'reward_amount' => (float) ($allocation['reward_amount'] ?? 0),
+                'cash_amount' => (float) ($allocation['cash_amount'] ?? 0),
+                'total_amount' => (float) $this->formData['total_budget'],
+                'price_per_view' => (float) $this->formData['price_per_view'],
+            ];
         }
         else {
             if((float) $this->formData['total_budget'] != (float) $this->adData->total_budget) {
@@ -238,7 +242,7 @@ class Upsert extends Component
             }
         }
 
-        return true;
+        return [];
     }
 
     private function normalizeTargetTopics(): array

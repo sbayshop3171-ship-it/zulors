@@ -8,6 +8,7 @@ use App\Services\TestContent\BulkTestAccountFollowPublisher;
 use App\Support\Views\Flash;
 use Illuminate\Http\Request;
 use App\Enums\User\ASRStatus;
+use App\Services\Ad\AdRewardService;
 use App\Http\Controllers\Controller;
 use App\Actions\User\DeleteUserAction;
 
@@ -127,6 +128,8 @@ class UserController extends Controller
             'verified_at' => now(),
         ]);
 
+        app(AdRewardService::class)->grantCurrentMonth($userData->refresh());
+
         return redirect()->route('admin.users.show', $userId)->with('flashMessage', (new Flash(content: __('admin/flash.user.verify_success')))->get());
     }
 
@@ -138,6 +141,10 @@ class UserController extends Controller
             'verified' => false,
             'verified_at' => null,
         ]);
+
+        $adRewardService = app(AdRewardService::class);
+        $adRewardService->freezeCurrentMonth($userData->refresh());
+        $adRewardService->pauseRewardOnlyAdsWithoutCash($userData);
 
         return redirect()->route('admin.users.show', $userId)->with('flashMessage', (new Flash(content: __('admin/flash.user.unverify_success')))->get());
     }

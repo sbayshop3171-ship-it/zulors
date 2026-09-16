@@ -2,7 +2,10 @@
 
 return [
 	'wallet_page' => 'Wallet',
-	'current_balance' => 'Current balance',
+	'current_balance' => 'Total balance',
+	'cash_balance' => 'Cash balance',
+	'ads_reward_credit' => 'Ads reward credit',
+	'available_to_transfer' => 'Available to transfer: {amount}',
 	'wallet_address' => 'Wallet address',
 	'add_money_to_wallet' => 'Add money to your wallet',
 	'send_to_another' => 'Send to another user',

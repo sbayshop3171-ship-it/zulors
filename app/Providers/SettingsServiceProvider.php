@@ -220,6 +220,10 @@ class SettingsServiceProvider extends ServiceProvider
             'wallet.withdraw.min_amount' => $walletSettings->withdraw_min_amount,
             'wallet.withdraw.max_amount' => $walletSettings->withdraw_max_amount,
             'wallet.cashout.methods' => explode(',', $walletSettings->cashout_methods),
+            'wallet.ads_reward.enabled' => $walletSettings->ads_reward_enabled,
+            'wallet.ads_reward.monthly_amount' => $walletSettings->ads_reward_monthly_amount,
+            'wallet.ads_reward.reset_day' => $walletSettings->ads_reward_reset_day,
+            'wallet.ads_reward.verified_only' => true,
         ]);
     }
 

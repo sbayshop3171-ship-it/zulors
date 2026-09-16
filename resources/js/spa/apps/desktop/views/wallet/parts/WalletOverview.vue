@@ -22,6 +22,17 @@
 						</span>
 					</span>
 
+						<div class="mt-3 grid max-w-xl grid-cols-1 gap-2 min-[420px]:grid-cols-2">
+							<div class="rounded-2xl bg-bg-pr px-3 py-2 sm:bg-fill-qt">
+								<span class="block text-cap-s font-semibold text-lab-sc">{{ $t('wallet.cash_balance') }}</span>
+								<strong class="mt-1 block truncate text-par-m font-bold text-lab-pr2">{{ moneyLabel(walletData.cash_balance) }}</strong>
+							</div>
+							<div class="rounded-2xl bg-bg-pr px-3 py-2 sm:bg-fill-qt">
+								<span class="block text-cap-s font-semibold text-lab-sc">{{ $t('wallet.ads_reward_credit') }}</span>
+								<strong class="mt-1 block truncate text-par-m font-bold text-brand-900">{{ moneyLabel(walletData.ads_reward_credit) }}</strong>
+							</div>
+						</div>
+
 						<div class="mt-4 flex w-full max-w-full items-center gap-3 rounded-2xl border border-bord-pr bg-bg-pr px-3 py-3 sm:inline-flex sm:w-auto sm:rounded-xl sm:border-0 sm:bg-fill-qt sm:py-2">
 							<span class="inline-flex size-10 shrink-0 items-center justify-center rounded-xl bg-fill-qt text-lab-sc sm:block sm:size-6 sm:bg-transparent">
 							<SvgIcon name="wallet-02" type="line" classes="size-full"></SvgIcon>
@@ -178,6 +189,15 @@
 						return "*".repeat(walletData.value.balance.formatted.length);
                     }
                 },
+				moneyLabel: (moneyData) => {
+					const formatted = moneyData?.formatted || walletData.value.balance.formatted;
+
+					if(state.isBalanceVisible) {
+						return formatted;
+					}
+
+					return "*".repeat(formatted.length);
+				},
 				showBalance: () => {
 					localStorage.removeItem('hide_wallet_balance');
 					state.isBalanceVisible = true;

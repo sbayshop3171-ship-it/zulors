@@ -11,6 +11,9 @@
                         <div class="bg-lime-50 border-lime-300 border rounded-2xl py-4 px-5">
                             <p class="text-lime-800 text-par-s font-normal">
                                 {{ __('business/ads.ad_is_paused') }}
+                                @if($adData->pause_reason)
+                                    {{ __('business/ads.pause_reasons.' . $adData->pause_reason) }}
+                                @endif
                             </p>
                         </div>
                     </div>
@@ -121,6 +124,24 @@
                             {{ $adData->formatted_total_budget }}
                         </x-slot:labelValue>
                     </x-line-table.row>
+                    @if($adData->funding_metadata)
+                        <x-line-table.row>
+                            <x-slot:labelText>
+                                {{ __('business/ads.reward_credit_budget') }}
+                            </x-slot:labelText>
+                            <x-slot:labelValue>
+                                {{ \App\Support\Num::currency((float) data_get($adData->funding_metadata, 'reward_amount', 0)) }}
+                            </x-slot:labelValue>
+                        </x-line-table.row>
+                        <x-line-table.row>
+                            <x-slot:labelText>
+                                {{ __('business/ads.cash_budget') }}
+                            </x-slot:labelText>
+                            <x-slot:labelValue>
+                                {{ \App\Support\Num::currency((float) data_get($adData->funding_metadata, 'cash_amount', 0)) }}
+                            </x-slot:labelValue>
+                        </x-line-table.row>
+                    @endif
                     <x-line-table.row>
                         <x-slot:labelText>
                             {{ __('business/ads.total_budget') }}

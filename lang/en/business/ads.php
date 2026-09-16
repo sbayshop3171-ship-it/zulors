@@ -11,11 +11,16 @@ return [
 	'spent_budget' => 'Spent budget',
 	'total_budget' => 'Total budget',
 	'remaining_budget' => 'Remaining budget',
+	'reward_credit_budget' => 'Reward credit budget',
+	'cash_budget' => 'Cash budget',
 	'about_ad' => 'About Ad',
 	'last_show_date' => 'Last show date',
 	'price_per_view' => 'Price per view',
 	'clicks' => 'Clicks',
 	'target_topics' => 'Target topics',
+	'pause_reasons' => [
+		'reward_unavailable' => 'Reward credit is unavailable and no cash balance is available.',
+	],
 	'tabs' => [
 		'all' => 'All ads',
 		'active' => 'Active',

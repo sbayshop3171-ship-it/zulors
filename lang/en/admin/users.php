@@ -14,5 +14,8 @@ return [
     'form' => [
         'wallet_balance' => 'Wallet balance',
         'wallet_balance_helper' => 'Current balance of the user\'s wallet. Enter new balance to make add or subtract money from the wallet.',
+        'ads_reward_credit' => 'Ads reward credit',
+        'ads_reward_credit_helper' => 'Current month campaign-only reward credit. Verified users can use it for ads, but cannot transfer or withdraw it.',
+        'ads_reward_active' => 'Ads reward active',
     ]
 ];

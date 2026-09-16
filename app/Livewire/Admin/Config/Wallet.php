@@ -26,6 +26,9 @@ class Wallet extends Component
             'commission_deposit' => $walletSettings->commission_deposit,
             'commission_transfer' => $walletSettings->commission_transfer,
             'cashout_methods' => $walletSettings->cashout_methods,
+            'ads_reward_enabled' => $walletSettings->ads_reward_enabled,
+            'ads_reward_monthly_amount' => $walletSettings->ads_reward_monthly_amount,
+            'ads_reward_reset_day' => $walletSettings->ads_reward_reset_day,
             'enabled' => $walletSettings->enabled
         ];
     }
@@ -45,6 +48,9 @@ class Wallet extends Component
             'formData.commission_deposit' => ['required', 'numeric', 'min:0', 'max:100'],
             'formData.commission_transfer' => ['required', 'numeric', 'min:0', 'max:100'],
             'formData.cashout_methods' => ['required', 'string', 'max:1200'],
+            'formData.ads_reward_enabled' => ['nullable', 'bool'],
+            'formData.ads_reward_monthly_amount' => ['required', 'numeric', 'min:0', 'max:1000000'],
+            'formData.ads_reward_reset_day' => ['required', 'integer', 'min:1', 'max:28'],
         ], attributes: [
             'formData.name' => __('admin/wallet.form.name'),
             'formData.about_link' => __('admin/wallet.form.about_link'),
@@ -57,6 +63,8 @@ class Wallet extends Component
             'formData.commission_deposit' => __('admin/wallet.form.commission_deposit'),
             'formData.commission_transfer' => __('admin/wallet.form.commission_transfer'),
             'formData.cashout_methods' => __('admin/wallet.form.cashout_methods'),
+            'formData.ads_reward_monthly_amount' => __('admin/wallet.form.ads_reward_monthly_amount'),
+            'formData.ads_reward_reset_day' => __('admin/wallet.form.ads_reward_reset_day'),
         ]);
 
         $walletSettings = app(WalletSettings::class);
@@ -73,6 +81,9 @@ class Wallet extends Component
         $walletSettings->commission_deposit = $this->formData['commission_deposit'];
         $walletSettings->commission_transfer = $this->formData['commission_transfer'];
         $walletSettings->cashout_methods = $this->formData['cashout_methods'];
+        $walletSettings->ads_reward_enabled = $this->formData['ads_reward_enabled'] ?? false;
+        $walletSettings->ads_reward_monthly_amount = $this->formData['ads_reward_monthly_amount'];
+        $walletSettings->ads_reward_reset_day = $this->formData['ads_reward_reset_day'];
         $walletSettings->save();
 
         return redirect()->with('flashMessage', (new Flash(content: __('admin/flash.config.settings_success')))->get())

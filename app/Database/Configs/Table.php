@@ -48,6 +48,8 @@ class Table
     public const CATEGORIES = 'categories';
     public const WALLETS = 'wallets';
     public const WALLET_TRANSACTIONS = 'wallet_transactions';
+    public const AD_REWARD_ACCOUNTS = 'ad_reward_accounts';
+    public const AD_REWARD_TRANSACTIONS = 'ad_reward_transactions';
     public const BUSINESS_ACCOUNTS = 'business_accounts';
     public const ACCOUNT_DELETION_FEEDBACK = 'account_deletion_feedback';
     public const STORES = 'stores';

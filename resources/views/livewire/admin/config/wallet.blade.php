@@ -100,5 +100,32 @@
             </x-slot:feedbackInfo>
         </x-form.text-input>
     </x-form.group>
+    <x-form.group>
+        <x-form.switcher
+            labelText="{{ __('admin/wallet.form.ads_reward_enabled') }}"
+            wire:model="formData.ads_reward_enabled"
+            name="formData.ads_reward_enabled">
+        </x-form.switcher>
+    </x-form.group>
+    <x-form.group cols="grid-cols-2">
+        <x-form.text-input
+            labelText="{{ __('admin/wallet.form.ads_reward_monthly_amount') }}"
+            wire:model="formData.ads_reward_monthly_amount"
+            type="number"
+            name="formData.ads_reward_monthly_amount">
+            <x-slot:feedbackInfo>
+                {{ __('admin/wallet.form.ads_reward_monthly_amount_helper') }}
+            </x-slot:feedbackInfo>
+        </x-form.text-input>
+        <x-form.text-input
+            labelText="{{ __('admin/wallet.form.ads_reward_reset_day') }}"
+            wire:model="formData.ads_reward_reset_day"
+            type="number"
+            name="formData.ads_reward_reset_day">
+            <x-slot:feedbackInfo>
+                {{ __('admin/wallet.form.ads_reward_reset_day_helper') }}
+            </x-slot:feedbackInfo>
+        </x-form.text-input>
+    </x-form.group>
     <x-ui.buttons.pill size="sm" type="submit" btnText="{{ __('buttons.save_changes') }}"></x-ui.buttons.pill>
 </form>

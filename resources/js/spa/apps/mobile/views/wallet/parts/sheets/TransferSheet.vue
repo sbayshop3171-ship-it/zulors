@@ -141,6 +141,9 @@
 										{{ state.form.amount ? $t('wallet.transfer_commission_amount', { commission_amount: commissionDisplay }) : $t('wallet.transfer_commission_helper') }}
 									</template>
 								</TextInput>
+								<p class="mt-2 text-cap-l font-medium text-lab-sc">
+									{{ $t('wallet.available_to_transfer', { amount: transferableDisplay }) }}
+								</p>
 							</div>
 
 							<div class="mt-4">
@@ -311,6 +314,7 @@
 			});
 
 			const selectedAmount = computed(() => Number(state.form.amount || 0));
+			const transferableAmount = computed(() => Number(walletStore.walletData?.transferable_balance?.raw || walletStore.walletData?.cash_balance?.raw || 0));
 			const commissionAmount = computed(() => selectedAmount.value * transferCommissionRate / 100);
 
 			const amountDisplay = computed(() => {
@@ -325,6 +329,10 @@
 				const netAmount = Math.max(selectedAmount.value - commissionAmount.value, 0);
 
 				return `${netAmount.toFixed(2)}${walletCurrency.value.symbol ? ` ${walletCurrency.value.symbol}` : ''}`.trim();
+			});
+
+			const transferableDisplay = computed(() => {
+				return walletStore.walletData?.transferable_balance?.formatted || walletStore.walletData?.cash_balance?.formatted || `0.00${walletCurrency.value.symbol ? ` ${walletCurrency.value.symbol}` : ''}`.trim();
 			});
 
 			const resetErrors = () => {
@@ -427,8 +435,9 @@
 				amountDisplay: amountDisplay,
 				commissionDisplay: commissionDisplay,
 				netAmountDisplay: netAmountDisplay,
+				transferableDisplay: transferableDisplay,
 				isValidForm: computed(() => {
-					return !! state.selectedReceiver && selectedAmount.value > 0 && state.form.message.length <= 140;
+					return !! state.selectedReceiver && selectedAmount.value > 0 && selectedAmount.value <= transferableAmount.value && state.form.message.length <= 140;
 				}),
 				isSelectedReceiver: (receiver) => {
 					return receiver.wallet_number === state.selectedReceiver?.wallet_number;

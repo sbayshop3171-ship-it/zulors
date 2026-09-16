@@ -11,6 +11,7 @@ use Illuminate\Validation\Rule;
 use App\Http\Controllers\Controller;
 use App\Enums\Wallet\TransactionType;
 use App\Services\Wallet\WalletService;
+use App\Services\Ad\AdRewardService;
 use App\Enums\Wallet\TransactionStatus;
 use Illuminate\Support\Facades\Validator;
 use App\Enums\Wallet\TransactionDirection;
@@ -38,14 +39,10 @@ class WalletController extends Controller
         $fiatCurrencyService = app(FiatCurrencyService::class);
 
         return $this->responseSuccess([
-            'data' => [
-                'balance' => [
-                    'raw' => $wallet->balance->getAmount(),
-                    'formatted' => $wallet->balance->getFormattedAmount(),
-                ],
+            'data' => array_merge(app(AdRewardService::class)->getWalletSummary(me()), [
                 'wallet_number' => $wallet->wallet_number,
                 'currency' => $fiatCurrencyService->getCurrencyData($wallet->currency)->toArray()
-            ]
+            ])
         ]);
     }
 

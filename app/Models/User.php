@@ -387,6 +387,16 @@ class User extends Authenticatable
         return $this->hasOne(Wallet::class, 'user_id', 'id');
     }
 
+    public function adRewardAccounts()
+    {
+        return $this->hasMany(AdRewardAccount::class, 'user_id', 'id');
+    }
+
+    public function adRewardTransactions()
+    {
+        return $this->hasMany(AdRewardTransaction::class, 'user_id', 'id');
+    }
+
     public function businessAccount()
     {
         return $this->hasOne(BusinessAccount::class, 'user_id', 'id');

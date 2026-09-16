@@ -16,6 +16,7 @@ class Ad extends Model
         'status' => AdStatus::class,
         'approval' => AdApproval::class,
         'target_topics' => 'array',
+        'funding_metadata' => 'array',
         'created_at' => ModelTimestampCast::class,
         'last_show_at' => ModelTimestampCast::class,
         'last_charge_at' => ModelTimestampCast::class

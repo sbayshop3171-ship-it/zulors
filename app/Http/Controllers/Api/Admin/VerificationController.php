@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Models\User;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
+use App\Services\Ad\AdRewardService;
 use Illuminate\Support\Facades\Validator;
 use App\Traits\Http\Api\SupportsApiResponses;
 use App\Validation\User\Account\UserdataRules;
@@ -46,6 +47,8 @@ class VerificationController extends Controller
                 'verified_at' => now(),
                 'verified' => true
             ]);
+
+            app(AdRewardService::class)->grantCurrentMonth($userData->refresh());
     
             // TODO: Send verification email to user.
             // Send notification to user.

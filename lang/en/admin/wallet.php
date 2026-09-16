@@ -17,5 +17,10 @@ return [
         'commission_transfer' => 'Transfer Fee, %',
         'cashout_methods' => 'Cashout Methods',
         'cashout_methods_helper' => 'List comma separated methods that will be available for cashout.',
+        'ads_reward_enabled' => 'Monthly ads reward credit',
+        'ads_reward_monthly_amount' => 'Monthly ads reward amount',
+        'ads_reward_monthly_amount_helper' => 'Verified users receive this campaign-only credit each reset period. It cannot be transferred or withdrawn.',
+        'ads_reward_reset_day' => 'Reward reset day',
+        'ads_reward_reset_day_helper' => 'Day of month when unused reward credit expires and the monthly amount is granted again.',
     ],
 ];
