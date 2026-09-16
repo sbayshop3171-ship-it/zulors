@@ -41,17 +41,6 @@
 									{{ walletBalanceLabel }}
 								</h2>
 							</div>
-
-							<div class="mt-4 grid grid-cols-1 gap-2 min-[360px]:grid-cols-2">
-								<div class="rounded-2xl bg-bg-pr px-3 py-2">
-									<span class="block text-cap-s font-semibold text-lab-sc">{{ $t('wallet.cash_balance') }}</span>
-									<strong class="mt-1 block truncate text-par-m font-bold text-lab-pr2">{{ moneyLabel(walletData.cash_balance) }}</strong>
-								</div>
-								<div class="rounded-2xl bg-bg-pr px-3 py-2">
-									<span class="block text-cap-s font-semibold text-lab-sc">{{ $t('wallet.ads_reward_credit') }}</span>
-									<strong class="mt-1 block truncate text-par-m font-bold text-brand-900">{{ moneyLabel(walletData.ads_reward_credit) }}</strong>
-								</div>
-							</div>
 						</div>
 					</div>
 
@@ -473,16 +462,6 @@
 				return currency.name || currency.symbol || '-';
 			});
 
-			const moneyLabel = (moneyData) => {
-				const balanceText = moneyData?.formatted || '0.00';
-
-				if(state.isBalanceVisible) {
-					return balanceText;
-				}
-
-				return '*'.repeat(Math.max(balanceText.length, 4));
-			};
-
 			const loadWalletData = async () => {
 				const results = await Promise.allSettled([
 					walletStore.fetchWalletData(),
@@ -596,7 +575,6 @@
 				hasTransactions: hasTransactions,
 				walletBalanceLabel: walletBalanceLabel,
 				walletCurrencyLabel: walletCurrencyLabel,
-				moneyLabel: moneyLabel,
 				copyWalletNumber: () => {
 					navigator.clipboard.writeText(walletData.value.wallet_number).then(() => {
 						state.isWalletNumberCopied = true;
