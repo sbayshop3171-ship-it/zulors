@@ -98,3 +98,14 @@ Artisan::command('ads:reset-monthly-credits', function () {
 
     $this->info("Reset monthly ads rewards for {$processed} verified users.");
 });
+
+Artisan::command('ads:grant-current-month-credits', function () {
+    $stats = app(AdRewardService::class)->grantCurrentMonthToEligibleUsers();
+
+    $this->info(sprintf(
+        'Granted current-month ads rewards to %d verified users. Already granted: %d. Eligible checked: %d.',
+        $stats['granted'],
+        $stats['already_granted'],
+        $stats['eligible']
+    ));
+});

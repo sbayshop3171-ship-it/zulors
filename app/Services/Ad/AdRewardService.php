@@ -207,6 +207,41 @@ class AdRewardService
         $this->freezeCurrentMonth($user, $reason);
     }
 
+    public function grantCurrentMonthToEligibleUsers(): array
+    {
+        $period = $this->currentPeriod();
+        $stats = [
+            'eligible' => 0,
+            'granted' => 0,
+            'already_granted' => 0,
+        ];
+
+        if(! $this->isEnabled()) {
+            return $stats;
+        }
+
+        User::where('verified', true)->chunkById(200, function($users) use (&$stats, $period) {
+            foreach($users as $user) {
+                $stats['eligible']++;
+
+                $alreadyGranted = AdRewardAccount::where('user_id', $user->id)
+                    ->where('period_month', $period)
+                    ->exists();
+
+                if($this->grantCurrentMonth($user)) {
+                    if($alreadyGranted) {
+                        $stats['already_granted']++;
+                    }
+                    else {
+                        $stats['granted']++;
+                    }
+                }
+            }
+        });
+
+        return $stats;
+    }
+
     public function resetMonthlyCredits(): int
     {
         $currentPeriod = $this->currentPeriod();

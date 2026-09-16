@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Models\UserNotificationSettings;
 use App\Services\Ad\AdRewardService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
@@ -126,6 +127,69 @@ class AdRewardCreditTest extends TestCase
             'user_id' => $user->id,
             'available_amount' => 50,
         ]);
+    }
+
+    public function test_current_grant_does_not_overwrite_existing_credit_and_next_reset_uses_saved_amount(): void
+    {
+        Carbon::setTestNow('2026-09-16 10:00:00');
+
+        config([
+            'wallet.ads_reward.enabled' => true,
+            'wallet.ads_reward.monthly_amount' => 300,
+        ]);
+
+        $firstUser = $this->createUser('reward-monthly-first', verified: true);
+        $secondUser = $this->createUser('reward-monthly-second', verified: true);
+        $unverifiedUser = $this->createUser('reward-monthly-unverified', verified: false);
+
+        $service = app(AdRewardService::class);
+        $stats = $service->grantCurrentMonthToEligibleUsers();
+
+        $this->assertSame(2, $stats['eligible']);
+        $this->assertSame(2, $stats['granted']);
+        $this->assertSame(0, $stats['already_granted']);
+        $this->assertDatabaseHas(Table::AD_REWARD_ACCOUNTS, [
+            'user_id' => $firstUser->id,
+            'period_month' => '2026-09',
+            'monthly_amount' => 300,
+            'available_amount' => 300,
+        ]);
+        $this->assertDatabaseMissing(Table::AD_REWARD_ACCOUNTS, [
+            'user_id' => $unverifiedUser->id,
+            'period_month' => '2026-09',
+        ]);
+
+        config(['wallet.ads_reward.monthly_amount' => 500]);
+
+        $stats = $service->grantCurrentMonthToEligibleUsers();
+
+        $this->assertSame(2, $stats['eligible']);
+        $this->assertSame(0, $stats['granted']);
+        $this->assertSame(2, $stats['already_granted']);
+        $this->assertDatabaseHas(Table::AD_REWARD_ACCOUNTS, [
+            'user_id' => $secondUser->id,
+            'period_month' => '2026-09',
+            'monthly_amount' => 300,
+            'available_amount' => 300,
+        ]);
+
+        Carbon::setTestNow('2026-10-01 00:10:00');
+
+        $this->assertSame(2, $service->resetMonthlyCredits());
+        $this->assertDatabaseHas(Table::AD_REWARD_ACCOUNTS, [
+            'user_id' => $firstUser->id,
+            'period_month' => '2026-09',
+            'available_amount' => 0,
+            'status' => 'expired',
+        ]);
+        $this->assertDatabaseHas(Table::AD_REWARD_ACCOUNTS, [
+            'user_id' => $firstUser->id,
+            'period_month' => '2026-10',
+            'monthly_amount' => 500,
+            'available_amount' => 500,
+        ]);
+
+        Carbon::setTestNow();
     }
 
     private function createUser(string $username, bool $verified): User
