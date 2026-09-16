@@ -43,6 +43,20 @@ return [
 					'image/gif'
 				]),
 				'max' => '2048' // 2MB
+			],
+			'video' => [
+				'mimes' => join(',', [
+					'mp4',
+					'webm',
+					'mov'
+				]),
+				'mimetypes' => join(',', [
+					'video/mp4',
+					'video/webm',
+					'video/quicktime'
+				]),
+				'max' => env('ADS_VIDEO_MAX_KB', 51200),
+				'max_duration_seconds' => env('ADS_VIDEO_MAX_DURATION_SECONDS', 30)
 			]
 		],
 		'default_preview' => 'assets/ads/default-preview.png',

@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Support\Num;
 use App\Enums\Ad\AdStatus;
 use App\Enums\Ad\AdApproval;
+use App\Enums\Post\PostStatus;
 use Illuminate\Database\Eloquent\Model;
 use App\Support\Casts\ModelTimestampCast;
 
@@ -32,6 +33,11 @@ class Ad extends Model
         return $this->belongsTo(User::class, 'user_id', 'id');
     }
 
+    public function sourcePost()
+    {
+        return $this->belongsTo(Post::class, 'source_post_id', 'id');
+    }
+
     public function scopeExcludeDraft($query)
     {
         return $query->where('status', '!=', AdStatus::DRAFT);
@@ -54,14 +60,78 @@ class Ad extends Model
 
     public function getPreviewImageUrlAttribute()
 	{
-		$media = $this->media;
+		$media = $this->displayMedia();
 
-		if($media->isEmpty()) {
+		if(empty($media)) {
 			return asset(config('ads.ad.default_preview'));
 		}
 
-		return $media->first()->source_url;
+        if($media->type->isVideo()) {
+            return $media->thumbnail_url ?: asset(config('ads.ad.default_preview'));
+        }
+
+		return $media->source_url ?: asset(config('ads.ad.default_preview'));
 	}
+
+    public function getDisplayTitleAttribute(): ?string
+    {
+        return $this->title ?: $this->sourcePost?->title;
+    }
+
+    public function getDisplayContentAttribute(): ?string
+    {
+        return $this->content ?: $this->sourcePost?->content;
+    }
+
+    public function getDisplayMediaTypeAttribute(): ?string
+    {
+        return $this->displayMedia()?->type->value ?: $this->type;
+    }
+
+    public function getDisplayMediaUrlAttribute(): ?string
+    {
+        return $this->displayMedia()?->source_url;
+    }
+
+    public function getDisplayThumbnailUrlAttribute(): ?string
+    {
+        return $this->displayMedia()?->thumbnail_url ?: $this->preview_image_url;
+    }
+
+    public function isPostSourced(): bool
+    {
+        return $this->source_type === 'post';
+    }
+
+    public function isSourceAvailable(): bool
+    {
+        if(! $this->isPostSourced()) {
+            return true;
+        }
+
+        $post = $this->sourcePost;
+
+        if(empty($post) || $post->status !== PostStatus::ACTIVE) {
+            return false;
+        }
+
+        if($post->type->isTextified()) {
+            return true;
+        }
+
+        $media = $this->displayMedia();
+
+        return ! empty($media) && $media->status->isProcessed();
+    }
+
+    public function displayMedia(): ?Media
+    {
+        if($this->isPostSourced()) {
+            return $this->sourcePost?->media?->first();
+        }
+
+        return $this->media->first();
+    }
 
     public function getFormattedIdAttribute(): string
     {

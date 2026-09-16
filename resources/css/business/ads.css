@@ -36,7 +36,8 @@
         @apply block aspect-video overflow-hidden bg-fill-fv;
     }
 
-    .business-ads-card-media img {
+    .business-ads-card-media img,
+    .business-ads-card-media video {
         @apply size-full object-cover;
     }
 

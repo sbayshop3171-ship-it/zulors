@@ -25,13 +25,17 @@ class TargetedAdService
         $ads = Ad::query()
             ->published()
             ->approved()
-            ->with(['media', 'impressions' => function($query) use ($fingerprint) {
+            ->with(['media', 'sourcePost.media', 'impressions' => function($query) use ($fingerprint) {
                 $query->where('fingerprint', $fingerprint);
             }])
             ->when($prevAdId, fn($query) => $query->where('id', '!=', $prevAdId))
             ->whereColumn('spent_budget', '<', 'total_budget')
             ->get()
             ->filter(function(Ad $ad) use ($frequencyCap) {
+                if(! $ad->isSourceAvailable()) {
+                    return false;
+                }
+
                 $impression = $ad->impressions->first();
 
                 return empty($impression) || $impression->impressions_count < $frequencyCap;

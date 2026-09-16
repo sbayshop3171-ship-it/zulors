@@ -36,7 +36,9 @@ class AdController extends Controller
 
     public function click(int $adId, Request $request, TargetedAdService $targetedAdService)
     {
-        $adData = Ad::approved()->findOrFail($adId);
+        $adData = Ad::published()->approved()->with(['media', 'sourcePost.media'])->findOrFail($adId);
+
+        abort_unless($adData->isSourceAvailable(), 404);
 
         $targetedAdService->recordClick($adData, $request);
 

@@ -1,15 +1,24 @@
 <article class="business-ads-card">
     <a href="{{ route('business.ads.show', ['adId' => $adData->id]) }}" class="business-ads-card-media">
-        <img src="{{ $adData->preview_image_url }}" alt="{{ $adData->title }}">
+        @if($adData->display_media_type === 'video' && $adData->display_media_url)
+            <video
+                class="size-full object-cover"
+                src="{{ $adData->display_media_url }}"
+                poster="{{ $adData->display_thumbnail_url }}"
+                muted
+                playsinline></video>
+        @else
+            <img src="{{ $adData->preview_image_url }}" alt="{{ $adData->display_title }}">
+        @endif
     </a>
 
     <div class="business-ads-card-body">
         <a href="{{ route('business.ads.show', ['adId' => $adData->id]) }}" class="business-ads-card-title">
-            {{ $adData->title }}
+            {{ $adData->display_title }}
         </a>
 
         <p class="business-ads-card-content">
-            {{ $adData->content }}
+            {{ $adData->display_content }}
         </p>
 
         <div class="business-ads-card-badges">

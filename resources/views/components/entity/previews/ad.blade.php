@@ -5,14 +5,24 @@
 <x-card>
 	<div class="p-4">
 		<div class="rounded-lg overflow-hidden mb-3">
-			<img class="w-full" src="{{ $adData->preview_image_url }}" alt="Image">
+			@if($adData->display_media_type === 'video' && $adData->display_media_url)
+				<video
+					class="w-full"
+					src="{{ $adData->display_media_url }}"
+					poster="{{ $adData->display_thumbnail_url }}"
+					controls
+					muted
+					playsinline></video>
+			@else
+				<img class="w-full" src="{{ $adData->preview_image_url }}" alt="Image">
+			@endif
 		</div>
 		<div class="mb-4">
 			<h4 class="text-lab-pr2 text-par-l font-semibold">
-				{{ $adData->title }}
+				{{ $adData->display_title }}
 			</h4>
 			<p class="text-lab-sc text-par-m mb-2">
-				{{ $adData->content }}
+				{{ $adData->display_content }}
 			</p>
 
 			<p class="text-lab-sc text-par-m">

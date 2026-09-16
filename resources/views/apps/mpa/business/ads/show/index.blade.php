@@ -18,6 +18,15 @@
                         </div>
                     </div>
                 @endif
+                @if($adData->isPostSourced() && ! $adData->isSourceAvailable())
+                    <div class="mt-4">
+                        <div class="bg-amber-50 border-amber-300 border rounded-2xl py-4 px-5">
+                            <p class="text-amber-800 text-par-s font-normal">
+                                {{ __('business/ads.source_unavailable') }}
+                            </p>
+                        </div>
+                    </div>
+                @endif
             </x-slot:sideContent>
             <div class="mb-4">
                 <x-entity.header

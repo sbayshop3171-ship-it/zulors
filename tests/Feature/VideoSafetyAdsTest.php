@@ -249,6 +249,132 @@ class VideoSafetyAdsTest extends TestCase
         ]);
     }
 
+    public function test_business_ad_form_can_boost_existing_post_without_creative_fields(): void
+    {
+        $advertiser = $this->createUser('boost-post-owner');
+        $this->createWallet($advertiser, 0);
+        $post = $this->createPost($advertiser, 'Boost this post for a seasonal sale #offers', now(), [
+            'title' => 'Seasonal sale post',
+            'type' => PostType::IMAGE,
+        ]);
+        $this->createImageMedia($post);
+        $ad = $advertiser->advertising()->create([
+            'status' => AdStatus::DRAFT,
+        ]);
+
+        $this->actingAs($advertiser);
+
+        Livewire::test(AdUpsert::class, [
+            'adData' => $ad,
+            'upsertType' => 'create',
+        ])
+            ->call('setSourceType', 'post')
+            ->set('formData.source_post_id', $post->id)
+            ->set('formData.cta_text', 'Shop Now')
+            ->set('formData.target_url', $post->url)
+            ->set('formData.total_budget', 10)
+            ->set('formData.price_per_view', 0.05)
+            ->set('formData.target_topics', '#sale')
+            ->call('submitForm')
+            ->assertRedirect(route('business.ads.index'));
+
+        $ad->refresh();
+
+        $this->assertSame('post', $ad->source_type);
+        $this->assertSame($post->id, $ad->source_post_id);
+        $this->assertSame('Seasonal sale post', $ad->title);
+        $this->assertSame('image', $ad->type);
+        $this->assertSame('Shop Now', $ad->cta_text);
+        $this->assertCount(0, $ad->media);
+    }
+
+    public function test_boost_post_picker_only_allows_current_users_active_supported_posts(): void
+    {
+        $advertiser = $this->createUser('boost-picker-owner');
+        $otherUser = $this->createUser('boost-picker-other');
+        $ownPost = $this->createPost($advertiser, 'Own active boostable post', now(), [
+            'type' => PostType::TEXT,
+        ]);
+        $otherPost = $this->createPost($otherUser, 'Other user post should not appear', now(), [
+            'type' => PostType::TEXT,
+        ]);
+        $draftPost = $this->createPost($advertiser, 'Draft post should not appear', now(), [
+            'type' => PostType::TEXT,
+            'status' => PostStatus::DRAFT,
+        ]);
+        $ad = $advertiser->advertising()->create([
+            'status' => AdStatus::DRAFT,
+        ]);
+
+        $this->actingAs($advertiser);
+
+        Livewire::test(AdUpsert::class, [
+            'adData' => $ad,
+            'upsertType' => 'create',
+        ])
+            ->call('setSourceType', 'post')
+            ->assertSee('Own active boostable post')
+            ->assertDontSee('Other user post should not appear')
+            ->assertDontSee('Draft post should not appear')
+            ->set('formData.source_post_id', $otherPost->id)
+            ->set('formData.cta_text', 'Learn More')
+            ->set('formData.target_url', $otherPost->url)
+            ->set('formData.total_budget', 10)
+            ->set('formData.price_per_view', 0.05)
+            ->call('submitForm')
+            ->assertHasErrors(['formData.source_post_id']);
+    }
+
+    public function test_post_sourced_ad_is_not_served_when_source_post_is_unavailable(): void
+    {
+        $viewer = $this->createUser('unavailable-source-viewer');
+        $advertiser = $this->createUser('unavailable-source-owner');
+        $post = $this->createPost($advertiser, 'Deleted source post', now(), [
+            'status' => PostStatus::DELETED,
+            'type' => PostType::TEXT,
+        ]);
+        $this->createAd('Unavailable post ad', ['tech'], [
+            'owner' => $advertiser,
+            'source_type' => 'post',
+            'source_post_id' => $post->id,
+        ]);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/ads/ad')
+            ->assertOk()
+            ->assertJsonPath('data', null);
+    }
+
+    public function test_ad_api_returns_post_video_media_payload(): void
+    {
+        $viewer = $this->createUser('post-video-ad-viewer');
+        $advertiser = $this->createUser('post-video-ad-owner');
+        $post = $this->createPost($advertiser, 'Watch the product demo video', now(), [
+            'title' => 'Product demo',
+            'type' => PostType::VIDEO,
+        ]);
+        $this->createVideoMedia($post, 12);
+        $ad = $this->createAd('Video boost ad', ['tech'], [
+            'owner' => $advertiser,
+            'source_type' => 'post',
+            'source_post_id' => $post->id,
+            'title' => 'Product demo',
+            'content' => $post->content,
+            'type' => 'video',
+        ]);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/ads/ad')
+            ->assertOk()
+            ->assertJsonPath('data.id', $ad->id)
+            ->assertJsonPath('data.source_type', 'post')
+            ->assertJsonPath('data.source_post_id', $post->id)
+            ->assertJsonPath('data.media_type', 'video')
+            ->assertJsonPath('data.title', 'Product demo');
+    }
+
     public function test_admin_approval_pauses_campaign_when_ad_funds_are_unavailable(): void
     {
         $advertiser = $this->createUser('approval-zero-owner');
@@ -534,6 +660,21 @@ class VideoSafetyAdsTest extends TestCase
                 ],
                 'is_portrait' => false,
             ],
+        ]);
+    }
+
+    private function createImageMedia(Post $post): Media
+    {
+        return $post->media()->create([
+            'source_path' => "posts/images/{$post->id}.jpg",
+            'type' => MediaType::IMAGE,
+            'status' => MediaStatus::PROCESSED,
+            'disk' => 'public',
+            'extension' => 'jpg',
+            'visibility' => MediaVisibility::VISIBLE,
+            'mime' => 'image/jpeg',
+            'size' => '100',
+            'metadata' => [],
         ]);
     }
 

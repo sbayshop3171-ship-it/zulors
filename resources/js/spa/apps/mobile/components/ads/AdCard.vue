@@ -2,7 +2,16 @@
 	<template v-if="! state.isLoading">
 		<a v-if="adData" v-bind:href="adData.click_url || adData.target_url" target="_blank" class="w-full block">
 			<div class="overflow-hidden relative">
-				<img class="w-full" v-bind:src="adData.preview_image_url" alt="Ad Creative">
+				<video
+					v-if="adData.media_type === 'video' && adData.video_url"
+					class="w-full"
+					v-bind:src="adData.video_url"
+					v-bind:poster="adData.thumbnail_url || adData.preview_image_url"
+					muted
+					loop
+					playsinline
+					autoplay></video>
+				<img v-else class="w-full" v-bind:src="adData.preview_image_url" alt="Ad Creative">
 				<span class="absolute top-3 bg-black/20 leading-none text-white left-3 backdrop-blur-xs px-2 py-1.5 rounded-full text-cap-s">
 					{{ $t('labels.ad') }} &middot; 16+
 				</span>
