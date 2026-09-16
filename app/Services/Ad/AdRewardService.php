@@ -366,6 +366,59 @@ class AdRewardService
         });
     }
 
+    public function fundAdForDelivery(Ad $ad): array
+    {
+        if(! empty($ad->funding_metadata)) {
+            return [
+                'success' => true,
+                'metadata' => $ad->funding_metadata,
+            ];
+        }
+
+        if($this->shouldTreatAdAsLegacyCashFunded($ad)) {
+            return [
+                'success' => true,
+                'metadata' => null,
+                'legacy_funded' => true,
+            ];
+        }
+
+        $amount = max(0, round(((float) $ad->total_budget - (float) $ad->spent_budget), 2));
+
+        if($amount <= 0) {
+            return [
+                'success' => true,
+                'metadata' => [
+                    'reward_amount' => 0,
+                    'cash_amount' => 0,
+                    'total_amount' => 0,
+                    'price_per_view' => (float) $ad->price_per_view,
+                ],
+            ];
+        }
+
+        $user = $ad->user()->firstOrFail();
+        $allocation = $this->allocateAdBudget($user, $ad, $amount, (float) $ad->price_per_view);
+
+        if(empty($allocation['success'])) {
+            return [
+                'success' => false,
+                'available' => (float) ($allocation['available'] ?? 0),
+                'required' => $amount,
+            ];
+        }
+
+        return [
+            'success' => true,
+            'metadata' => [
+                'reward_amount' => (float) ($allocation['reward_amount'] ?? 0),
+                'cash_amount' => (float) ($allocation['cash_amount'] ?? 0),
+                'total_amount' => $amount,
+                'price_per_view' => (float) $ad->price_per_view,
+            ],
+        ];
+    }
+
     public function refundUnusedAdBudget(Ad $ad): array
     {
         $spentBudget = round((float) $ad->spent_budget, 2);
@@ -523,10 +576,23 @@ class AdRewardService
             ->filter(fn($transaction) => (int) data_get($transaction->metadata, 'ad_id') === (int) $ad->id)
             ->sum('amount'), 2);
 
-        if($allocatedAmount <= 0 && empty($ad->funding_metadata)) {
+        if($allocatedAmount <= 0 && empty($ad->funding_metadata) && $this->shouldTreatAdAsLegacyCashFunded($ad)) {
             return round((float) $ad->total_budget, 2);
         }
 
         return $allocatedAmount;
+    }
+
+    private function shouldTreatAdAsLegacyCashFunded(Ad $ad): bool
+    {
+        if($ad->approval->isPending()) {
+            return false;
+        }
+
+        if(in_array($ad->pause_reason, ['insufficient_funds', 'reward_unavailable'], true)) {
+            return false;
+        }
+
+        return $ad->approval->isApproved();
     }
 }

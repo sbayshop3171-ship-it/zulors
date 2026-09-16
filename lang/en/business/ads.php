@@ -13,6 +13,9 @@ return [
 	'remaining_budget' => 'Remaining budget',
 	'reward_credit_budget' => 'Reward credit budget',
 	'cash_budget' => 'Cash budget',
+	'funding_status' => 'Funding status',
+	'funded' => 'Funded',
+	'not_funded' => 'Not funded',
 	'about_ad' => 'About Ad',
 	'last_show_date' => 'Last show date',
 	'price_per_view' => 'Price per view',
@@ -20,6 +23,7 @@ return [
 	'target_topics' => 'Target topics',
 	'pause_reasons' => [
 		'reward_unavailable' => 'Reward credit is unavailable and no cash balance is available.',
+		'insufficient_funds' => 'Campaign paused because available ad balance is not enough.',
 	],
 	'tabs' => [
 		'all' => 'All ads',
@@ -40,7 +44,7 @@ return [
 		'budget_targeting' => 'Ad Budget / Targeting',
 		'budget' => 'Budget',
 		'budget_placeholder' => 'Enter budget',
-		'budget_helper' => 'Enter the amount you are willing to spend on the campaign for the entire duration.',
+		'budget_helper' => 'Ad can be submitted for review; delivery starts after approval and available ad balance.',
 		'price_per_view' => 'Bid per view',
 		'price_per_view_placeholder' => 'Enter bid per view',
 		'price_per_view_helper' => 'Your bid per charged view. Higher bids get stronger delivery priority. Allowed range: :min - :max.',

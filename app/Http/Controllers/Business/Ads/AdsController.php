@@ -20,6 +20,7 @@ use App\Enums\Ad\AdApproval;
 use Illuminate\Http\Request;
 use App\Actions\Ad\DeleteAdAction;
 use App\Http\Controllers\Controller;
+use App\Services\Ad\AdRewardService;
 
 class AdsController extends Controller
 {
@@ -102,7 +103,10 @@ class AdsController extends Controller
         $adData = me()->advertising()->findOrFail($adId);
 
         if($adData->status->isPublished()) {
-            $adData->update(['status' => AdStatus::PAUSED]);
+            $adData->update([
+                'status' => AdStatus::PAUSED,
+                'pause_reason' => null,
+            ]);
         }
 
         return redirect()->route('business.ads.show', $adId);
@@ -112,8 +116,23 @@ class AdsController extends Controller
     {
         $adData = me()->advertising()->findOrFail($adId);
 
-        if($adData->status->isPaused()) {
-            $adData->update(['status' => AdStatus::PUBLISHED]);
+        if($adData->status->isPaused() && $adData->approval->isApproved()) {
+            $funding = app(AdRewardService::class)->fundAdForDelivery($adData);
+
+            if(empty($funding['success'])) {
+                $adData->update([
+                    'status' => AdStatus::PAUSED,
+                    'pause_reason' => 'insufficient_funds',
+                    'funding_metadata' => null,
+                ]);
+            }
+            else {
+                $adData->update([
+                    'status' => AdStatus::PUBLISHED,
+                    'pause_reason' => null,
+                    'funding_metadata' => $funding['metadata'],
+                ]);
+            }
         }
 
         return redirect()->route('business.ads.show', $adId);

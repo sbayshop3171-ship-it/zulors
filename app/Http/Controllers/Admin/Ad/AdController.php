@@ -3,11 +3,13 @@
 namespace App\Http\Controllers\Admin\Ad;
 
 use App\Models\Ad;
+use App\Enums\Ad\AdStatus;
 use App\Enums\Ad\AdApproval;
 use App\Support\Views\Flash;
 use Illuminate\Http\Request;
 use App\Actions\Ad\DeleteAdAction;
 use App\Http\Controllers\Controller;
+use App\Services\Ad\AdRewardService;
 
 class AdController extends Controller
 {
@@ -58,10 +60,24 @@ class AdController extends Controller
     public function approve(int $adId)
     {
         $adData = Ad::findOrFail($adId);
+        $funding = app(AdRewardService::class)->fundAdForDelivery($adData);
 
-        $adData->update([
-            'approval' => AdApproval::APPROVED
-        ]);
+        if(empty($funding['success'])) {
+            $adData->update([
+                'approval' => AdApproval::APPROVED,
+                'status' => AdStatus::PAUSED,
+                'pause_reason' => 'insufficient_funds',
+                'funding_metadata' => null,
+            ]);
+        }
+        else {
+            $adData->update([
+                'approval' => AdApproval::APPROVED,
+                'status' => AdStatus::PUBLISHED,
+                'pause_reason' => null,
+                'funding_metadata' => $funding['metadata'],
+            ]);
+        }
 
         return back()->with('flashMessage', (new Flash(content: __('admin/flash.ad.approve_success')))->get());
     }

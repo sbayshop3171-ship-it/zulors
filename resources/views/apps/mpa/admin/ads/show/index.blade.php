@@ -90,6 +90,42 @@
 						{{ $adData->status->label() }} {{ $adData->status->emoji() }}
 					</x-slot:labelValue>
 				</x-line-table.row>
+				@if($adData->pause_reason)
+					<x-line-table.row>
+						<x-slot:labelText>
+							{{ __('business/ads.ad_is_paused') }}
+						</x-slot:labelText>
+						<x-slot:labelValue>
+							{{ __('business/ads.pause_reasons.' . $adData->pause_reason) }}
+						</x-slot:labelValue>
+					</x-line-table.row>
+				@endif
+				<x-line-table.row>
+					<x-slot:labelText>
+						{{ __('business/ads.funding_status') }}
+					</x-slot:labelText>
+					<x-slot:labelValue>
+						{{ $adData->funding_metadata ? __('business/ads.funded') : __('business/ads.not_funded') }}
+					</x-slot:labelValue>
+				</x-line-table.row>
+				@if($adData->funding_metadata)
+					<x-line-table.row>
+						<x-slot:labelText>
+							{{ __('business/ads.reward_credit_budget') }}
+						</x-slot:labelText>
+						<x-slot:labelValue>
+							{{ \App\Support\Num::currency((float) data_get($adData->funding_metadata, 'reward_amount', 0)) }}
+						</x-slot:labelValue>
+					</x-line-table.row>
+					<x-line-table.row>
+						<x-slot:labelText>
+							{{ __('business/ads.cash_budget') }}
+						</x-slot:labelText>
+						<x-slot:labelValue>
+							{{ \App\Support\Num::currency((float) data_get($adData->funding_metadata, 'cash_amount', 0)) }}
+						</x-slot:labelValue>
+					</x-line-table.row>
+				@endif
 				<x-line-table.row>
 					<x-slot:labelText>
 						{{ __('table.labels.total_budget') }}

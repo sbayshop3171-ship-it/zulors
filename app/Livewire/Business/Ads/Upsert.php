@@ -12,7 +12,6 @@ use App\Constants\Filesystem;
 use Livewire\WithFileUploads;
 use App\Enums\Media\MediaType;
 use App\Enums\Media\MediaStatus;
-use App\Services\Ad\AdRewardService;
 use App\Actions\Media\DeleteMediaAction;
 use Illuminate\Validation\ValidationException;
 use App\Services\Timeline\TopicExtractionService;
@@ -127,28 +126,24 @@ class Upsert extends Component
         ];
 
         if($this->upsertType == 'create') {
-            $updateData['approval'] = config('ads.default_approval') ? AdApproval::APPROVED : AdApproval::PENDING;
+            $updateData['approval'] = AdApproval::PENDING;
             $updateData['status'] = AdStatus::PUBLISHED;
             $updateData['total_budget'] = $this->formData['total_budget'];
+            $updateData['funding_metadata'] = null;
+            $updateData['pause_reason'] = null;
         }
-
-        if($this->upsertType == 'edit') {
+        else if($this->upsertType == 'edit') {
             // If the ad is rejected, set it to pending.
             // This is to allow the user to update the ad and resubmit it for approval.
             if($this->adData->approval->isRejected()) {
                 $updateData['approval'] = AdApproval::PENDING;
             }
-        }
 
-        $budgetAllocation = $this->allocateBudget();
+            if((float) $this->formData['total_budget'] != (float) $this->adData->total_budget) {
+                $this->addError('formData.total_budget', __('business/ads.form.budget_edit'));
 
-        if(! $budgetAllocation) {
-            return false;
-        }
-
-        if($this->upsertType == 'create') {
-            $updateData['funding_metadata'] = $budgetAllocation;
-            $updateData['pause_reason'] = null;
+                return false;
+            }
         }
 
         $this->adData->update($updateData);
@@ -207,42 +202,6 @@ class Upsert extends Component
         catch (ValidationException $e) {
             $this->addError('creative', $e->getMessage());
         }
-    }
-
-    private function allocateBudget()
-    {
-        if($this->upsertType == 'create') {
-            $adRewardService = app(AdRewardService::class);
-
-            $allocation = $adRewardService->allocateAdBudget(
-                me(),
-                $this->adData,
-                (float) $this->formData['total_budget'],
-                (float) $this->formData['price_per_view']
-            );
-
-            if(empty($allocation['success'])) {
-                $this->addError('formData.total_budget', __('business/ads.form.budget_insufficient'));
-
-                return false;
-            }
-
-            return [
-                'reward_amount' => (float) ($allocation['reward_amount'] ?? 0),
-                'cash_amount' => (float) ($allocation['cash_amount'] ?? 0),
-                'total_amount' => (float) $this->formData['total_budget'],
-                'price_per_view' => (float) $this->formData['price_per_view'],
-            ];
-        }
-        else {
-            if((float) $this->formData['total_budget'] != (float) $this->adData->total_budget) {
-                $this->addError('formData.total_budget', __('business/ads.form.budget_edit'));
-
-                return false;
-            }
-        }
-
-        return [];
     }
 
     private function normalizeTargetTopics(): array

@@ -17,6 +17,9 @@
                 <span class="business-ads-badge">{{ $adData->approval->label() }} {{ $adData->approval->emoji() }}</span>
         @else
                 <span class="business-ads-badge">{{ $adData->status->label() }} {{ $adData->status->emoji() }}</span>
+                @if($adData->status->isPaused() && $adData->pause_reason)
+                    <span class="business-ads-badge">{{ __('business/ads.pause_reasons.' . $adData->pause_reason) }}</span>
+                @endif
         @endif
         </div>
 

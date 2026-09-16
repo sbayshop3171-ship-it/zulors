@@ -202,7 +202,7 @@ class VideoSafetyAdsTest extends TestCase
             ->value('impressions_count'));
     }
 
-    public function test_business_ad_form_saves_bid_target_topics_and_allocates_budget(): void
+    public function test_business_ad_form_submits_pending_campaign_without_allocating_budget(): void
     {
         $advertiser = $this->createUser('campaign-owner');
         $this->createWallet($advertiser, 50);
@@ -232,18 +232,130 @@ class VideoSafetyAdsTest extends TestCase
         $advertiser->wallet->refresh();
 
         $this->assertSame(AdStatus::PUBLISHED, $ad->status);
+        $this->assertSame(AdApproval::PENDING, $ad->approval);
         $this->assertEquals(10.00, (float) $ad->total_budget);
         $this->assertEquals(0.05, (float) $ad->price_per_view);
         $this->assertSame(['tech', 'ai', 'laravel'], $ad->target_topics);
-        $this->assertEquals(40.00, $advertiser->wallet->balance->getAmount());
+        $this->assertNull($ad->funding_metadata);
+        $this->assertNull($ad->pause_reason);
+        $this->assertEquals(50.00, $advertiser->wallet->balance->getAmount());
 
-        $this->assertDatabaseHas(Table::WALLET_TRANSACTIONS, [
+        $this->assertDatabaseMissing(Table::WALLET_TRANSACTIONS, [
             'wallet_id' => $advertiser->wallet->id,
             'amount' => 10,
             'transaction_type' => TransactionType::ADVERTISING->value,
             'direction' => TransactionDirection::OUTGOING->value,
             'status' => TransactionStatus::COMPLETED->value,
         ]);
+    }
+
+    public function test_admin_approval_pauses_campaign_when_ad_funds_are_unavailable(): void
+    {
+        $advertiser = $this->createUser('approval-zero-owner');
+        $this->createWallet($advertiser, 0);
+        $ad = $this->createAd('Needs funding', ['tech'], [
+            'owner' => $advertiser,
+            'approval' => AdApproval::PENDING,
+            'total_budget' => 25,
+            'funding_metadata' => null,
+        ]);
+
+        $this->withoutMiddleware()
+            ->post(route('admin.ads.approve', $ad->id))
+            ->assertRedirect();
+
+        $ad->refresh();
+
+        $this->assertSame(AdApproval::APPROVED, $ad->approval);
+        $this->assertSame(AdStatus::PAUSED, $ad->status);
+        $this->assertSame('insufficient_funds', $ad->pause_reason);
+        $this->assertNull($ad->funding_metadata);
+        $this->assertEquals(0.00, $advertiser->wallet->refresh()->balance->getAmount());
+    }
+
+    public function test_user_can_resume_unfunded_paused_campaign_after_deposit(): void
+    {
+        $advertiser = $this->createUser('resume-funded-owner');
+        $this->createWallet($advertiser, 0);
+        $ad = $this->createAd('Resume funding', ['tech'], [
+            'owner' => $advertiser,
+            'status' => AdStatus::PAUSED,
+            'approval' => AdApproval::APPROVED,
+            'total_budget' => 30,
+            'pause_reason' => 'insufficient_funds',
+            'funding_metadata' => null,
+        ]);
+
+        $advertiser->wallet()->update(['balance' => 30]);
+
+        $this->actingAs($advertiser)
+            ->withoutMiddleware()
+            ->post(route('business.ads.publish', $ad->id))
+            ->assertRedirect(route('business.ads.show', $ad->id));
+
+        $ad->refresh();
+
+        $this->assertSame(AdStatus::PUBLISHED, $ad->status);
+        $this->assertNull($ad->pause_reason);
+        $this->assertEquals(0.00, (float) data_get($ad->funding_metadata, 'reward_amount'));
+        $this->assertEquals(30.00, (float) data_get($ad->funding_metadata, 'cash_amount'));
+        $this->assertEquals(0.00, $advertiser->wallet->refresh()->balance->getAmount());
+    }
+
+    public function test_admin_approval_allocates_reward_credit_before_cash(): void
+    {
+        config([
+            'wallet.ads_reward.enabled' => true,
+            'wallet.ads_reward.monthly_amount' => 300,
+        ]);
+
+        $advertiser = $this->createUser('approval-reward-owner');
+        $advertiser->update([
+            'verified' => true,
+            'verified_at' => now(),
+        ]);
+        $this->createWallet($advertiser, 550);
+        $ad = $this->createAd('Reward mixed funding', ['tech'], [
+            'owner' => $advertiser,
+            'approval' => AdApproval::PENDING,
+            'total_budget' => 400,
+            'funding_metadata' => null,
+        ]);
+
+        $this->withoutMiddleware()
+            ->post(route('admin.ads.approve', $ad->id))
+            ->assertRedirect();
+
+        $ad->refresh();
+
+        $this->assertSame(AdApproval::APPROVED, $ad->approval);
+        $this->assertSame(AdStatus::PUBLISHED, $ad->status);
+        $this->assertNull($ad->pause_reason);
+        $this->assertEquals(300.00, (float) data_get($ad->funding_metadata, 'reward_amount'));
+        $this->assertEquals(100.00, (float) data_get($ad->funding_metadata, 'cash_amount'));
+        $this->assertEquals(450.00, $advertiser->wallet->refresh()->balance->getAmount());
+        $this->assertDatabaseHas(Table::AD_REWARD_ACCOUNTS, [
+            'user_id' => $advertiser->id,
+            'available_amount' => 0,
+        ]);
+    }
+
+    public function test_paused_campaign_is_not_served_by_ads_api(): void
+    {
+        $viewer = $this->createUser('paused-ad-viewer');
+
+        $this->createAd('Paused campaign', ['tech'], [
+            'status' => AdStatus::PAUSED,
+            'approval' => AdApproval::APPROVED,
+            'pause_reason' => 'insufficient_funds',
+            'funding_metadata' => null,
+        ]);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/ads/ad')
+            ->assertOk()
+            ->assertJsonPath('data', null);
     }
 
     public function test_ad_delivery_charges_bid_without_overspending_and_completes(): void
