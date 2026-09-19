@@ -42,6 +42,11 @@
 							</div>
 						</div>
 					</div>
+					<div v-else-if="loadError" class="flex min-h-52 flex-col items-center justify-center px-6 text-center text-white/70">
+						<SvgIcon name="alert-circle" type="line" classes="mb-3 size-9"></SvgIcon>
+						<p class="text-par-s">Unable to load music right now.</p>
+						<button v-on:click="fetchTracks" type="button" class="mt-3 rounded-lg bg-white px-4 py-2 text-par-s font-semibold text-black">Try again</button>
+					</div>
 					<div v-else-if="tracks.length" class="space-y-1">
 						<div
 							v-for="trackItem in tracks"
@@ -101,6 +106,7 @@
 			const searchQuery = ref('');
 			const tracks = ref([]);
 			const isLoading = ref(false);
+			const loadError = ref(false);
 			const savedTrackIds = ref([]);
 			const requestIndex = ref(0);
 			let searchTimer = null;
@@ -116,6 +122,7 @@
 				const currentRequest = requestIndex.value + 1;
 				requestIndex.value = currentRequest;
 				isLoading.value = true;
+				loadError.value = false;
 
 				try {
 					const response = await colibriAPI().storyMusic().params({
@@ -135,6 +142,7 @@
 				catch (error) {
 					if(currentRequest === requestIndex.value) {
 						tracks.value = [];
+						loadError.value = true;
 						toastError(error.response?.data?.message || error.message || 'Unable to load music.');
 					}
 				}
@@ -168,6 +176,7 @@
 				searchQuery: searchQuery,
 				tracks: tracks,
 				isLoading: isLoading,
+				loadError: loadError,
 				savedTrackIds: savedTrackIds,
 				tabs: tabs,
 				closePicker: () => {
