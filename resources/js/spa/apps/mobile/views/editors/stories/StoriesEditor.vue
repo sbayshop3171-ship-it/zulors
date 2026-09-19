@@ -119,16 +119,16 @@
 				</div>
 
 				<div class="absolute right-4 z-30 flex flex-col items-center gap-3" style="top: calc(var(--mobile-safe-top, 0px) + 4.75rem);">
-					<button type="button" class="inline-flex size-11 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-md">
+					<button v-on:click="focusTextTool" type="button" class="inline-flex size-11 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-md">
 						<span class="text-par-l font-semibold leading-none">Aa</span>
 					</button>
-					<button type="button" class="inline-flex size-11 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-md">
+					<button v-on:click="activateTool('stickers')" type="button" class="inline-flex size-11 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-md">
 						<SvgIcon name="face-smile" type="line" classes="size-6"></SvgIcon>
 					</button>
 					<button v-on:click="openMusicPicker" type="button" class="inline-flex size-11 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-md">
 						<SvgIcon name="music-note-01" type="line" classes="size-6"></SvgIcon>
 					</button>
-					<button type="button" class="inline-flex size-11 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-md">
+					<button v-on:click="activateTool('effects')" type="button" class="inline-flex size-11 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-md">
 						<SvgIcon name="stars-01" type="line" classes="size-6"></SvgIcon>
 					</button>
 				</div>
@@ -147,6 +147,15 @@
 				</div>
 
 				<div class="absolute bottom-0 left-0 right-0 z-30 px-4 pt-16 from-black/80 via-black/55 to-transparent bg-gradient-to-t" style="padding-bottom: calc(var(--mobile-safe-bottom, 0px) + 1rem);">
+					<div class="mb-3 flex items-center justify-center gap-2 overflow-x-auto pb-1">
+						<button v-for="tool in bottomTools" v-bind:key="tool.value" v-on:click="handleTool(tool.value)" type="button" v-bind:class="activeTool === tool.value ? 'bg-white text-black' : 'bg-black/45 text-white'" class="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-cap-l font-semibold shadow-lg backdrop-blur-md">
+							<SvgIcon v-if="tool.icon" v-bind:name="tool.icon" type="line" classes="size-4"></SvgIcon>
+							<span>{{ tool.label }}</span>
+						</button>
+					</div>
+					<div v-if="activeTool === 'effects' || activeTool === 'stickers' || activeTool === 'trim' || activeTool === 'mention' || activeTool === 'captions'" class="mb-3 rounded-xl border border-white/15 bg-black/35 px-3 py-2 text-center text-cap-l text-white/75 backdrop-blur-md">
+						{{ toolStatusText }}
+					</div>
 					<textarea
 						v-on:input="textInputHandler"
 						v-model="storyData.content"
@@ -185,8 +194,9 @@
 </template>
 
 <script>
-	import { defineComponent, reactive, ref, computed, defineAsyncComponent, watch } from 'vue';
+	import { defineComponent, reactive, ref, computed, defineAsyncComponent, watch, onBeforeUnmount } from 'vue';
 	import { useRouter } from 'vue-router';
+	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 
 	import { useInputHandlers } from '@/kernel/vue/composables/input/index.js';
 	import { durationObjectToSeconds, durationSecondsToObject } from '@/kernel/helpers/media/audio/index.js';
@@ -210,15 +220,54 @@
 			const state = reactive({
 				isSubmitting: false,
 				isMusicPickerOpen: false,
-				isStoryPreviewPlaying: false
+				isStoryPreviewPlaying: false,
+				activeTool: 'music',
+				videoVolume: 0
 			});
 			const previewLoadedDimensions = ref({});
+			let storyMusicAudio = null;
+			const bottomTools = [
+				{ value: 'music', label: 'Music', icon: 'music-note-01' },
+				{ value: 'volume', label: 'Volume', icon: 'volume-max' },
+				{ value: 'stickers', label: 'Stickers', icon: 'face-smile' },
+				{ value: 'text', label: 'Text' },
+				{ value: 'trim', label: 'Trim', icon: 'scissors' },
+				{ value: 'mention', label: 'Mention', icon: 'at-sign' },
+				{ value: 'effects', label: 'Effects', icon: 'stars-01' },
+				{ value: 'captions', label: 'Captions', icon: 'message-text-01' }
+			];
 
 			const { autoResize } = useInputHandlers();
 			const storyData = ref(storiesEditorStore.storyData);
 			const storyMedia = computed(() => {
 				return storiesEditorStore.storyMedia;
 			});
+			const stopMusicPreview = () => {
+				if(storyMusicAudio) {
+					storyMusicAudio.pause();
+					storyMusicAudio.src = '';
+					storyMusicAudio = null;
+				}
+			};
+			const focusTextTool = () => {
+				state.activeTool = 'text';
+				storyTextInputField.value?.focus();
+			};
+			const previewSelectedMusic = async (trackData) => {
+				stopMusicPreview();
+				if(! trackData?.id) return;
+				try {
+					const response = await colibriAPI().storyMusic().getFrom(`tracks/${trackData.id}/play-url`);
+					const playUrl = response.data.data.play_url;
+					if(! playUrl) return;
+					storyMusicAudio = new Audio(playUrl);
+					storyMusicAudio.loop = true;
+					storyMusicAudio.volume = 0.85;
+					storyMusicAudio.play().catch(() => {});
+				} catch (error) {
+					toastError(error.response?.data?.message || 'Unable to preview this track.');
+				}
+			};
 			const deleteStoryMedia = () => {
 				try {
 					if(storiesEditorStore.storyMedia) {
@@ -363,6 +412,9 @@
 
 			return {
 				state: state,
+				bottomTools: bottomTools,
+				activeTool: computed(() => state.activeTool),
+				toolStatusText: computed(() => `${state.activeTool.charAt(0).toUpperCase()}${state.activeTool.slice(1)} controls will be available in the next editor engine integration.`),
 				isLocalPublication: computed(() => Boolean(storiesEditorStore.publicationSelection)),
 				storyMediaVideoPreview: storyMediaVideoPreview,
 				storyMediaBackdropVideo: storyMediaBackdropVideo,
@@ -434,14 +486,33 @@
 					}
 				},
 				openMusicPicker: () => {
+					state.activeTool = 'music';
 					state.isMusicPickerOpen = true;
 				},
 				selectStoryMusicTrack: (trackData) => {
 					storiesEditorStore.setSelectedMusicTrack(trackData);
+					previewSelectedMusic(trackData);
 					state.isMusicPickerOpen = false;
 				},
 				clearStoryMusicTrack: () => {
 					storiesEditorStore.clearSelectedMusicTrack();
+					stopMusicPreview();
+				},
+				activateTool: (tool) => { state.activeTool = tool; },
+				focusTextTool: focusTextTool,
+				handleTool: (tool) => {
+					if(tool === 'music') return;
+					if(tool === 'volume') {
+						state.videoVolume = state.videoVolume > 0 ? 0 : 1;
+						if(storyMediaVideoPreview.value) {
+							storyMediaVideoPreview.value.muted = state.videoVolume === 0;
+							storyMediaVideoPreview.value.volume = state.videoVolume;
+						}
+						state.activeTool = 'volume';
+						return;
+					}
+					if(tool === 'text') return focusTextTool();
+					state.activeTool = tool;
 				},
 				
 				textInputHandler: () => {
@@ -455,6 +526,7 @@
 					});
 				}
 			};
+			onBeforeUnmount(stopMusicPreview);
 		},
 		components: {
 			PublicationAudience,

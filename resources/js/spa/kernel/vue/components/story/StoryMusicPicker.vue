@@ -43,13 +43,12 @@
 						</div>
 					</div>
 					<div v-else-if="tracks.length" class="space-y-1">
-						<button
+						<div
 							v-for="trackItem in tracks"
 							v-bind:key="trackItem.id"
-							v-on:click="selectTrack(trackItem)"
-							type="button"
 							class="flex w-full items-center gap-3 rounded-lg py-2 text-left transition-colors hover:bg-white/10"
 						>
+							<button v-on:click="selectTrack(trackItem)" type="button" class="flex min-w-0 flex-1 items-center gap-3 text-left">
 							<div class="size-12 shrink-0 overflow-hidden rounded-md bg-white/10">
 								<img v-if="trackItem.cover_url" v-bind:src="trackItem.cover_url" class="size-full object-cover" alt="">
 								<div v-else class="flex size-full items-center justify-center bg-white/10 text-white/70">
@@ -65,10 +64,11 @@
 									{{ trackItem.artist || 'Original audio' }} <span v-if="trackItem.duration_seconds"> &middot; {{ formatDuration(trackItem.duration_seconds) }}</span>
 								</p>
 							</div>
+							</button>
 							<button v-on:click.stop="toggleSaved(trackItem.id)" type="button" class="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-white hover:bg-white/10">
 								<SvgIcon v-bind:name="savedTrackIds.includes(trackItem.id) ? 'bookmark-minus' : 'bookmark'" type="line" classes="size-6"></SvgIcon>
 							</button>
-						</button>
+						</div>
 					</div>
 					<div v-else class="flex min-h-52 flex-col items-center justify-center text-center text-white/70">
 						<SvgIcon name="music-note-01" type="line" classes="mb-3 size-9"></SvgIcon>
