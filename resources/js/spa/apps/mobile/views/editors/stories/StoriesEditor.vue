@@ -409,6 +409,7 @@
 			}, {
 				immediate: true
 			});
+			onBeforeUnmount(stopMusicPreview);
 
 			return {
 				state: state,
@@ -526,7 +527,6 @@
 					});
 				}
 			};
-			onBeforeUnmount(stopMusicPreview);
 		},
 		components: {
 			PublicationAudience,

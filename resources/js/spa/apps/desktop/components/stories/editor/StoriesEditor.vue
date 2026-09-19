@@ -80,7 +80,7 @@
 									</template>
 
 									<div class="absolute right-4 top-16 z-20 flex flex-col items-center gap-3">
-										<button type="button" class="inline-flex size-10 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-md">
+										<button v-on:click="focusTextTool" type="button" class="inline-flex size-10 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-md">
 											<span class="text-par-s font-semibold leading-none">Aa</span>
 										</button>
 										<button type="button" class="inline-flex size-10 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-md">
@@ -88,6 +88,9 @@
 										</button>
 										<button v-on:click="openMusicPicker" type="button" class="inline-flex size-10 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-md">
 											<SvgIcon name="music-note-01" type="line" classes="size-5"></SvgIcon>
+										</button>
+										<button v-on:click="toggleStoryVolume" type="button" class="inline-flex size-10 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-md">
+											<SvgIcon v-bind:name="state.videoVolume > 0 ? 'volume-max' : 'volume-x'" type="line" classes="size-5"></SvgIcon>
 										</button>
 										<button type="button" class="inline-flex size-10 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-md">
 											<SvgIcon name="stars-01" type="line" classes="size-5"></SvgIcon>
@@ -187,7 +190,8 @@
 </template>
 
 <script>
-	import { defineComponent, reactive, ref, computed, defineAsyncComponent } from 'vue';
+	import { defineComponent, reactive, ref, computed, defineAsyncComponent, onBeforeUnmount } from 'vue';
+	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 	
 	import { useInputHandlers } from '@/kernel/vue/composables/input/index.js';
 	import { durationObjectToSeconds, durationSecondsToObject } from '@/kernel/helpers/media/audio/index.js';
@@ -218,15 +222,42 @@
 				isMusicPickerOpen: false,
 				isStoryPreviewPlaying: false,
 				isSubmitting: false,
-				isUploading: false
+				isUploading: false,
+				videoVolume: 0
 			});
 			const previewLoadedDimensions = ref({});
+			let storyMusicAudio = null;
 
 			const { autoResize, insertSymbolAtCaret, matchMention, completeText } = useInputHandlers();
 			const storyData = ref(storiesEditorStore.storyData);
 			const storyMedia = computed(() => {
 				return storiesEditorStore.storyMedia;
 			});
+			const stopMusicPreview = () => {
+				if(storyMusicAudio) {
+					storyMusicAudio.pause();
+					storyMusicAudio.src = '';
+					storyMusicAudio = null;
+				}
+			};
+			const previewSelectedMusic = async (trackData) => {
+				stopMusicPreview();
+				if(! trackData?.id) return;
+				try {
+					const response = await colibriAPI().storyMusic().getFrom(`tracks/${trackData.id}/play-url`);
+					const playUrl = response.data.data.play_url;
+					if(! playUrl) return;
+					storyMusicAudio = new Audio(playUrl);
+					storyMusicAudio.loop = true;
+					storyMusicAudio.volume = 0.85;
+					storyMusicAudio.play().catch(() => {});
+				} catch (error) {
+					toastError(error.response?.data?.message || 'Unable to preview this track.');
+				}
+			};
+			const focusTextTool = () => {
+				storyTextInputField.value?.focus();
+			};
 
 			const playVideo = (videoElement) => {
 				const playPromise = videoElement?.play?.();
@@ -269,7 +300,8 @@
 					return;
 				}
 
-				videoElement.muted = true;
+				videoElement.muted = state.videoVolume === 0;
+				videoElement.volume = state.videoVolume;
 				videoElement.loop = true;
 
 				const playPromise = videoElement.play?.();
@@ -336,6 +368,7 @@
 
 				return rawDuration;
 			};
+			onBeforeUnmount(stopMusicPreview);
 
 			const uploadSelectedMedia = async (file, options = {}) => {
 				try {
@@ -413,6 +446,14 @@
 					storyData.value.content = insertSymbolAtCaret(storyTextInputField.value, emojiSymbol);
                     storyTextInputField.value.focus();
 				},
+				focusTextTool: focusTextTool,
+				toggleStoryVolume: () => {
+					state.videoVolume = state.videoVolume > 0 ? 0 : 1;
+					if(storyMediaVideoPreview.value) {
+						storyMediaVideoPreview.value.muted = state.videoVolume === 0;
+						storyMediaVideoPreview.value.volume = state.videoVolume;
+					}
+				},
 				submitForm: async () => {
 					if (state.isSubmitting) return;
 					try {
@@ -441,10 +482,12 @@
 				},
 				selectStoryMusicTrack: (trackData) => {
 					storiesEditorStore.setSelectedMusicTrack(trackData);
+					previewSelectedMusic(trackData);
 					state.isMusicPickerOpen = false;
 				},
 				clearStoryMusicTrack: () => {
 					storiesEditorStore.clearSelectedMusicTrack();
+					stopMusicPreview();
 				},
 				selectStoryMedia: async () => {
 					try {
