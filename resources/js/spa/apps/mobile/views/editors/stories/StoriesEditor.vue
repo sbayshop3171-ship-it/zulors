@@ -323,7 +323,8 @@
 					return;
 				}
 
-				videoElement.muted = true;
+				videoElement.muted = state.videoVolume === 0;
+				videoElement.volume = state.videoVolume;
 				videoElement.loop = true;
 
 				const playPromise = videoElement.play?.();
