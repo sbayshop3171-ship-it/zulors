@@ -179,6 +179,7 @@
 				loadError: loadError,
 				savedTrackIds: savedTrackIds,
 				tabs: tabs,
+				fetchTracks: fetchTracks,
 				closePicker: () => {
 					context.emit('close');
 				},
