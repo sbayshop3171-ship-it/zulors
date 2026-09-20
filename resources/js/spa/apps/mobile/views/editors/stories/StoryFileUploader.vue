@@ -35,6 +35,11 @@
 					const clipCandidate = await getStoryVideoClipCandidate(file);
 
 					router.push({ name: 'story_editor' });
+
+					if(storiesEditorStore.startCreativeDraft(file, clipCandidate)) {
+						return;
+					}
+
 					await storiesEditorStore.uploadMedia(file, storyClipUploadOptions(clipCandidate));
 				} catch (e) {
 					toastError(e.message);

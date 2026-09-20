@@ -57,11 +57,15 @@ function createStoryMusicPlayback(playerState) {
 		resetAudio();
 		audio.removeAttribute('src');
 
-		if(! musicData?.track_id) {
-			return;
-		}
+			if(! musicData?.track_id) {
+				return;
+			}
 
-		try {
+			if(musicData.baked_into_media) {
+				return;
+			}
+
+			try {
 			const response = await colibriAPI().storyMusic().getFrom(`tracks/${musicData.track_id}/play-url`);
 
 			if(token !== requestToken || playerState.frameData?.id !== frameData?.id) {

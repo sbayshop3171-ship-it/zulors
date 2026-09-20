@@ -6,6 +6,27 @@ import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 import { useStoriesStore } from '@M/store/stories/stories.store.js';
 import { appendStoryMusicUploadMetadata, storyMusicPublishPayload, storyMusicUploadOptions } from '@/kernel/services/media/story-music-upload.js';
 
+const STORY_EDITOR_PROVIDER = String(import.meta.env.VITE_STORY_EDITOR_PROVIDER || 'legacy').toLowerCase();
+const STORY_EDITOR_LEGACY_FALLBACK = String(import.meta.env.VITE_STORY_EDITOR_LEGACY_FALLBACK ?? 'true') !== 'false';
+const IMGLY_CESDK_LICENSE = String(import.meta.env.VITE_IMGLY_CESDK_LICENSE_KEY || import.meta.env.VITE_IMGLY_LICENSE_KEY || '').trim();
+
+function isLocalEditableMedia(file) {
+	const mime = file?.type || file?.mime || '';
+
+	return file instanceof Blob && ! file.native_file_id && (mime.startsWith('image/') || mime.startsWith('video/')) && ! /\.gif$/i.test(file?.name || '');
+}
+
+function storyClipOptionsFromCandidate(clipCandidate = null) {
+	if(! clipCandidate) {
+		return {};
+	}
+
+	return {
+		clip_start_seconds: Math.max(0, Math.floor(Number(clipCandidate.clipStartSeconds || 0))),
+		clip_duration_seconds: Math.max(1, Math.min(60, Math.ceil(Number(clipCandidate.clipDurationSeconds || 60))))
+	};
+}
+
 const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 	state: function() {
 		return {
@@ -17,6 +38,8 @@ const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 			publicationSelection: null,
 			publicationOptions: {},
 			storyMediaObjectUrl: null,
+			creativeDraft: null,
+			creativeMusicBaked: false,
 			selectedMusicTrack: null,
 			storyData: {
 				content: ''
@@ -26,6 +49,18 @@ const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 	getters: {
 		isFormValid: (state) => {
 			return state.storyMedia !== null && !state.isUploading;
+		},
+		hasCreativeDraft: (state) => {
+			return Boolean(state.creativeDraft?.file && state.creativeDraft?.objectUrl);
+		},
+		creativeEditorEnabled: () => {
+			return STORY_EDITOR_PROVIDER === 'imgly' && Boolean(IMGLY_CESDK_LICENSE);
+		},
+		imglyLicenseKey: () => {
+			return IMGLY_CESDK_LICENSE;
+		},
+		legacyEditorFallbackEnabled: () => {
+			return STORY_EDITOR_LEGACY_FALLBACK;
 		}
 	},
 	actions: {
@@ -33,11 +68,17 @@ const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 			if(this.storyMediaObjectUrl) URL.revokeObjectURL(this.storyMediaObjectUrl);
 			this.storyMediaObjectUrl = null;
 		},
+		releaseCreativeDraft: function() {
+			if(this.creativeDraft?.objectUrl) URL.revokeObjectURL(this.creativeDraft.objectUrl);
+			this.creativeDraft = null;
+		},
 		resetEditor: function() {
 			this.publicationSelection = null;
 			this.publicationOptions = {};
 			this.releaseMediaPreview();
+			this.releaseCreativeDraft();
 			this.clearVideoClipCandidate();
+			this.creativeMusicBaked = false;
 			this.discardUploadedMedia = false;
 			this.isUploading = false;
 			this.uploadProgress = 0;
@@ -72,16 +113,78 @@ const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 
 			this.resetEditor();
 		},
-		publishStory: async function() {
+		canUseCreativeEditorForFile: function(file) {
+			return this.creativeEditorEnabled && isLocalEditableMedia(file);
+		},
+		startCreativeDraft: function(file, clipCandidate = null) {
+			if(! this.canUseCreativeEditorForFile(file)) {
+				return false;
+			}
+
+			this.publicationSelection = null;
+			this.publicationOptions = {};
+			this.releaseMediaPreview();
+			this.releaseCreativeDraft();
+			this.clearVideoClipCandidate();
+			this.discardUploadedMedia = false;
+			this.isUploading = false;
+			this.uploadProgress = 0;
+			this.storyMedia = null;
+			this.creativeMusicBaked = false;
+			this.selectedMusicTrack = null;
+			this.storyData = {
+				content: ''
+			};
+
+			this.creativeDraft = {
+				file: file,
+				objectUrl: URL.createObjectURL(file),
+				name: file.name || (file.type?.startsWith('video/') ? 'story-video.mp4' : 'story-image.jpg'),
+				mime: file.type || 'application/octet-stream',
+				type: file.type?.startsWith('video/') ? 'video' : 'image',
+				clipCandidate: clipCandidate,
+				legacyUploadOptions: storyClipOptionsFromCandidate(clipCandidate),
+				createdAt: Date.now()
+			};
+
+			return true;
+		},
+		uploadCreativeDraftWithLegacy: async function() {
+			const draft = this.creativeDraft;
+
+			if(! draft?.file) {
+				throw new Error('Select a photo or video.');
+			}
+
+			this.releaseCreativeDraft();
+
+			return this.uploadMedia(draft.file, draft.legacyUploadOptions || {});
+		},
+		uploadCreativeExport: async function(mediaFile, exportMetadata = {}) {
+			const uploadOptions = {
+				...exportMetadata,
+				skip_publication_manager: true
+			};
+
+			return this.uploadMedia(mediaFile, uploadOptions);
+		},
+		setCreativeMusicBaked: function(value) {
+			this.creativeMusicBaked = Boolean(value);
+		},
+		publishStory: async function(options = {}) {
+			const musicPayload = storyMusicPublishPayload(this.selectedMusicTrack, {
+				bakedIntoMedia: Boolean(options.musicBaked)
+			});
+
 			if (this.publicationSelection) {
-				await publicationManager.enqueue({ kind: 'story', content: this.storyData.content, privacy: this.storyData.privacy || 'all', selected_user_ids: this.storyData.selected_user_ids || [], ...this.publicationOptions, ...storyMusicPublishPayload(this.selectedMusicTrack) }, [this.publicationSelection]);
+				await publicationManager.enqueue({ kind: 'story', content: this.storyData.content, privacy: this.storyData.privacy || 'all', selected_user_ids: this.storyData.selected_user_ids || [], ...this.publicationOptions, ...musicPayload }, [this.publicationSelection]);
 				return { queued: true };
 			}
 			const storiesStore = useStoriesStore();
 			if (this.storyMedia) {
 				await colibriAPI().storyEditor().with({
 					content: this.storyData.content,
-					...storyMusicPublishPayload(this.selectedMusicTrack)
+					...musicPayload
 				}).sendTo('create').then((response) => {
 					if(response.data.data) {
 						storiesStore.prependFeedItem(response.data.data);
@@ -94,9 +197,10 @@ const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 			}
 		},
 		uploadMedia: async function(mediaFile, options = {}) {
-			const uploadOptions = storyMusicUploadOptions(mediaFile, options);
+			const { skip_publication_manager: skipPublicationManager, ...mediaOptions } = options;
+			const uploadOptions = storyMusicUploadOptions(mediaFile, mediaOptions);
 
-			if (isPublicationMedia(mediaFile)) {
+			if (! skipPublicationManager && isPublicationMedia(mediaFile)) {
 				this.isUploading = true;
 				try {
 					if (await publicationManager.enabled('story')) {

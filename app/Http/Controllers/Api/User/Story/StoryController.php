@@ -97,6 +97,7 @@ class StoryController extends Controller
             $request->validate([
                 'content' => ['nullable', 'string', XRule::join('max', config('story.validation.content.max'))],
                 'story_music_track_id' => ['nullable', 'integer'],
+                'story_music_baked' => ['nullable', 'boolean'],
             ]);
 
             $selectedMusicTrack = $this->findSelectedStoryMusicTrack($request);
@@ -139,10 +140,12 @@ class StoryController extends Controller
             if($selectedMusicTrack) {
                 data_set($frameMeta, 'story_music.selected_track', $this->storyMusicSelectionPayload($selectedMusicTrack));
                 data_set($frameMeta, 'story_music.mute_original_media', true);
+                data_set($frameMeta, 'story_music.baked_into_media', $request->boolean('story_music_baked'));
             }
             else {
                 data_forget($frameMeta, 'story_music.selected_track');
                 data_forget($frameMeta, 'story_music.mute_original_media');
+                data_forget($frameMeta, 'story_music.baked_into_media');
             }
 
             $updateData = [

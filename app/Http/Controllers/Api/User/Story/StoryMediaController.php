@@ -71,6 +71,13 @@ class StoryMediaController extends Controller
             'media_file' => ['required', 'file'],
             'clip_start_seconds' => ['nullable', 'numeric', 'min:0', 'max:86400'],
             'clip_duration_seconds' => ['nullable', 'numeric', 'min:1', 'max:' . config('story.video_clip_size')],
+            'editor_provider' => ['nullable', 'string', 'max:64'],
+            'editor_export_format' => ['nullable', 'string', 'max:16'],
+            'editor_export_resolution' => ['nullable', 'string', 'max:32'],
+            'editor_export_width' => ['nullable', 'integer', 'min:1', 'max:20000'],
+            'editor_export_height' => ['nullable', 'integer', 'min:1', 'max:20000'],
+            'editor_export_fps' => ['nullable', 'numeric', 'min:1', 'max:120'],
+            'editor_export_source_mime' => ['nullable', 'string', 'max:120'],
             ...OriginalAudioEligibility::metadataValidationRules(),
         ]);
 
@@ -115,6 +122,13 @@ class StoryMediaController extends Controller
             'duration_seconds' => ['nullable', 'numeric', 'min:0', 'max:' . $this->maxDirectVideoDurationSeconds()],
             'clip_start_seconds' => ['nullable', 'numeric', 'min:0', 'max:' . $this->maxDirectVideoDurationSeconds()],
             'clip_duration_seconds' => ['nullable', 'numeric', 'min:1', 'max:' . config('story.video_clip_size')],
+            'editor_provider' => ['nullable', 'string', 'max:64'],
+            'editor_export_format' => ['nullable', 'string', 'max:16'],
+            'editor_export_resolution' => ['nullable', 'string', 'max:32'],
+            'editor_export_width' => ['nullable', 'integer', 'min:1', 'max:20000'],
+            'editor_export_height' => ['nullable', 'integer', 'min:1', 'max:20000'],
+            'editor_export_fps' => ['nullable', 'numeric', 'min:1', 'max:120'],
+            'editor_export_source_mime' => ['nullable', 'string', 'max:120'],
             ...OriginalAudioEligibility::metadataValidationRules(),
         ]);
 
@@ -192,7 +206,7 @@ class StoryMediaController extends Controller
                     'processing_progress' => 0,
                     'original_name' => (string) $request->input('name'),
                     'original_size' => $request->integer('size', 0),
-                ], OriginalAudioEligibility::storyMusicMetadataFromRequest($request))
+                ], OriginalAudioEligibility::storyMusicMetadataFromRequest($request), $this->storyEditorMetadataFromRequest($request))
             ]);
 
             $this->draftStoryFrame->story->update([
@@ -404,7 +418,7 @@ class StoryMediaController extends Controller
 
             $metadata = array_merge($imageUploadService->presentationMetadata(), [
                 'original_dimensions' => $originalDimensions,
-            ]);
+            ], $this->storyEditorMetadataFromRequest(request()));
 
             $imageData = $imageUploadService
                 ->compress(config('story.processing.image.compress_rate'))
@@ -512,7 +526,7 @@ class StoryMediaController extends Controller
                     'temp_disk' => $storyVideoStorage['temp_disk'],
                     'final_disk' => $storyVideoStorage['final_disk'],
                     'original_size' => $storyVideoStorage['video_size'] ?: $mediaFile->getSize(),
-                ], OriginalAudioEligibility::storyMusicMetadataFromRequest($request))
+                ], OriginalAudioEligibility::storyMusicMetadataFromRequest($request), $this->storyEditorMetadataFromRequest($request))
             ]);
 
             $this->draftStoryFrame->duration_seconds = $clipData['duration_seconds'];
@@ -550,6 +564,27 @@ class StoryMediaController extends Controller
                 ]
             ]);
         }
+    }
+
+    private function storyEditorMetadataFromRequest(Request $request): array
+    {
+        $metadata = [];
+
+        foreach([
+            'editor_provider',
+            'editor_export_format',
+            'editor_export_resolution',
+            'editor_export_width',
+            'editor_export_height',
+            'editor_export_fps',
+            'editor_export_source_mime',
+        ] as $key) {
+            if($request->filled($key)) {
+                $metadata[$key] = $request->input($key);
+            }
+        }
+
+        return $metadata;
     }
 
     public function previewVideo(int $mediaId)

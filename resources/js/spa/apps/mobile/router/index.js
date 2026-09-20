@@ -366,7 +366,7 @@ const Router = createRouter({
             path: '/new/story',
             name: 'story_editor',
             component: function() {
-                return import('@M/views/editors/stories/StoriesEditor.vue');
+                return import('@M/views/editors/stories/StoryEditorShell.vue');
             },
             meta: {
                 layout: Layouts.FLAT,

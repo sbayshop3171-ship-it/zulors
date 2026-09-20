@@ -169,6 +169,7 @@ class StoryResource extends JsonResource
         return array_merge($selectedTrack, [
             'play_url_endpoint' => route('api.story.music.play-url', ['track' => $selectedTrack['track_id']], false),
             'mute_original_media' => (bool) data_get($frameItem->meta ?? [], 'story_music.mute_original_media', false),
+            'baked_into_media' => (bool) data_get($frameItem->meta ?? [], 'story_music.baked_into_media', false),
         ]);
     }
 

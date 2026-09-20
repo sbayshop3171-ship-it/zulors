@@ -11,6 +11,16 @@ const STORY_MUSIC_METADATA_KEYS = [
 	'story_music_genre'
 ];
 
+const STORY_EDITOR_METADATA_KEYS = [
+	'editor_provider',
+	'editor_export_format',
+	'editor_export_resolution',
+	'editor_export_width',
+	'editor_export_height',
+	'editor_export_fps',
+	'editor_export_source_mime'
+];
+
 function isVideoFile(file) {
 	return file?.type?.startsWith('video/');
 }
@@ -33,13 +43,27 @@ function appendStoryMusicUploadMetadata(formData, options = {}) {
 			formData.append(key, value);
 		}
 	});
+
+	STORY_EDITOR_METADATA_KEYS.forEach((key) => {
+		const value = options[key];
+
+		if(value !== undefined && value !== null && value !== '') {
+			formData.append(key, value);
+		}
+	});
 }
 
-function storyMusicPublishPayload(selectedTrack) {
+function storyMusicPublishPayload(selectedTrack, options = {}) {
 	if(selectedTrack?.id) {
-		return {
+		const payload = {
 			story_music_track_id: selectedTrack.id
 		};
+
+		if(options.bakedIntoMedia) {
+			payload.story_music_baked = true;
+		}
+
+		return payload;
 	}
 
 	return {};
