@@ -46,7 +46,7 @@ class Upsert extends Component
             'media_type' => $this->adData->type ?: MediaType::IMAGE->value,
             'title' => $this->adData->title,
             'content' => $this->adData->content,
-            'cta_text' => $this->adData->cta_text,
+            'cta_text' => $this->adData->cta_text ?: __('business/ads.form.cta_presets.send_message'),
             'total_budget' => $this->adData->total_budget,
             'price_per_view' => $this->adData->price_per_view ?: config('ads.price_per_view'),
             'target_topics' => $this->adData->target_topics_text,
@@ -72,6 +72,7 @@ class Upsert extends Component
 
     public function getRules()
     {
+        $noButton = __('business/ads.form.cta_presets.no_button');
         $rules = [
             'formData.source_type' => ['required', Rule::in(['creative', 'post'])],
             'formData.cta_text' => [
@@ -96,12 +97,15 @@ class Upsert extends Component
                 'string',
                 XRule::join('max', config('ads.targeting.topics_max_length')),
             ],
-            'formData.target_url' => [
+        ];
+
+        if(($this->formData['cta_text'] ?? '') !== $noButton) {
+            $rules['formData.target_url'] = [
                 'required',
                 'url',
                 XRule::join('max', config('ads.ad.validation.target_url.max')),
-            ]
-        ];
+            ];
+        }
 
         if(($this->formData['source_type'] ?? 'creative') === 'post') {
             $rules['formData.source_post_id'] = ['required', 'integer'];
@@ -163,7 +167,9 @@ class Upsert extends Component
             'cta_text' => e($this->formData['cta_text']),
             'price_per_view' => $this->formData['price_per_view'],
             'target_topics' => $this->normalizeTargetTopics(),
-            'target_url' => $this->formData['target_url'],
+            'target_url' => ($this->formData['cta_text'] ?? '') === __('business/ads.form.cta_presets.no_button')
+                ? null
+                : $this->formData['target_url'],
             'type' => $sourceType === 'post' ? $this->postAdType($sourcePost) : $this->formData['media_type'],
         ];
 
@@ -530,6 +536,9 @@ class Upsert extends Component
 
     private function previewData(): array
     {
+        $noButton = __('business/ads.form.cta_presets.no_button');
+        $ctaText = $this->formData['cta_text'] ?: __('business/ads.preview.cta_placeholder');
+
         if(($this->formData['source_type'] ?? 'creative') === 'post') {
             $post = $this->selectedSourcePost();
             $media = $post?->media?->first();
@@ -538,8 +547,8 @@ class Upsert extends Component
                 'source_type' => 'post',
                 'title' => $this->postPreviewTitle($post) ?: __('business/ads.preview.title_placeholder'),
                 'content' => $post?->content ?: __('business/ads.preview.content_placeholder'),
-                'cta_text' => $this->formData['cta_text'] ?: __('business/ads.preview.cta_placeholder'),
-                'target_url' => $this->formData['target_url'] ?: ($post?->url ?: ''),
+                'cta_text' => $ctaText,
+                'target_url' => $ctaText === $noButton ? '' : ($this->formData['target_url'] ?: ($post?->url ?: '')),
                 'media_type' => $media?->type->value ?: ($post?->type->value ?: 'text'),
                 'media_url' => $media?->source_url,
                 'thumbnail_url' => $media?->thumbnail_url,
@@ -552,8 +561,8 @@ class Upsert extends Component
             'source_type' => 'creative',
             'title' => $this->formData['title'] ?: __('business/ads.preview.title_placeholder'),
             'content' => $this->formData['content'] ?: __('business/ads.preview.content_placeholder'),
-            'cta_text' => $this->formData['cta_text'] ?: __('business/ads.preview.cta_placeholder'),
-            'target_url' => $this->formData['target_url'] ?: __('business/ads.preview.url_placeholder'),
+            'cta_text' => $ctaText,
+            'target_url' => $ctaText === $noButton ? '' : ($this->formData['target_url'] ?: __('business/ads.preview.url_placeholder')),
             'media_type' => $media?->type->value ?: ($this->formData['media_type'] ?? MediaType::IMAGE->value),
             'media_url' => $media?->source_url,
             'thumbnail_url' => $media?->thumbnail_url,

@@ -1,14 +1,19 @@
-<div class="business-ad-builder">
-    <div class="grid grid-cols-[minmax(320px,420px)_minmax(0,1fr)] gap-6 lg:grid-cols-1">
-        <aside class="lg:order-first">
+<div class="business-ad-builder" x-data="{ previewOpen: false }">
+    <div class="grid grid-cols-[minmax(0,1fr)_minmax(320px,380px)] items-start gap-5 lg:grid-cols-1">
+        <aside class="order-2 lg:order-1">
             <div class="sticky top-6 lg:static">
-                <div class="mb-3">
+                <div class="mb-3 flex items-start justify-between gap-3">
+                    <div>
                     <h3 class="text-par-l font-bold text-lab-pr2">{{ __('business/ads.preview.title') }}</h3>
                     <p class="text-par-s text-lab-sc">{{ __('business/ads.preview.caption') }}</p>
+                    </div>
+                    <button type="button" x-on:click="previewOpen = true" class="shrink-0 rounded-lg bg-fill-qt px-3 py-2 text-cap-l font-bold text-lab-pr2 transition-opacity hover:opacity-80">
+                        See all previews
+                    </button>
                 </div>
 
-                <div class="overflow-hidden rounded-2xl border border-bord-pr bg-bg-pr shadow-xs">
-                    <div class="p-4">
+                <div class="overflow-hidden rounded-xl border border-bord-pr bg-bg-pr shadow-xs">
+                    <div class="p-3">
                         <div class="mb-3 flex items-center gap-3">
                             <img src="{{ me()->avatar_url }}" alt="{{ me()->name }}" class="size-10 rounded-full object-cover">
                             <div class="min-w-0">
@@ -39,19 +44,23 @@
 
                         <div class="rounded-xl bg-fill-fv p-3">
                             <h4 class="line-clamp-2 text-par-m font-bold text-lab-pr2">{{ $previewData['title'] }}</h4>
-                            <p class="mt-1 truncate text-cap-l font-semibold text-lab-sc">{{ $previewData['target_url'] }}</p>
-                            <div class="mt-3">
-                                <button type="button" class="h-10 w-full rounded-xl bg-lab-pr2 px-4 text-par-s font-bold text-bg-pr">
-                                    {{ $previewData['cta_text'] }}
-                                </button>
-                            </div>
+                            @if($previewData['target_url'])
+                                <p class="mt-1 truncate text-cap-l font-semibold text-lab-sc">{{ $previewData['target_url'] }}</p>
+                            @endif
+                            @if($previewData['cta_text'] !== __('business/ads.form.cta_presets.no_button'))
+                                <div class="mt-3">
+                                    <button type="button" class="h-10 w-full rounded-xl bg-lab-pr2 px-4 text-par-s font-bold text-bg-pr">
+                                        {{ $previewData['cta_text'] }}
+                                    </button>
+                                </div>
+                            @endif
                         </div>
                     </div>
                 </div>
             </div>
         </aside>
 
-        <form wire:submit.prevent="submitForm">
+        <form class="order-1 lg:order-2" wire:submit.prevent="submitForm">
             @csrf
 
             <x-accordion.form title="{{ __('business/ads.form.source_type') }}">
@@ -208,32 +217,85 @@
             @endif
 
             <x-accordion.form title="{{ __('business/ads.form.cta') }}">
-                <div class="mb-5 flex flex-wrap gap-2">
-                    @foreach([
-                        __('business/ads.form.cta_presets.call_now'),
-                        __('business/ads.form.cta_presets.send_message'),
-                        __('business/ads.form.cta_presets.shop_now'),
-                        __('business/ads.form.cta_presets.learn_more'),
-                    ] as $ctaPreset)
-                        <button
-                            type="button"
-                            wire:click="setCtaText('{{ $ctaPreset }}')"
-                            class="rounded-full bg-fill-qt px-3 py-2 text-cap-l font-bold text-lab-pr2">
-                            {{ $ctaPreset }}
-                        </button>
-                    @endforeach
-                </div>
-
-                <div class="mb-6">
-                    <x-form.text-input
-                        labelText="{{ __('business/ads.form.cta') }} *"
-                        wire:model.live.debounce.300ms="formData.cta_text"
+                <div
+                    class="mb-6"
+                    x-data="{
+                        open: false,
+                        selected: @js($formData['cta_text'] ?: __('business/ads.form.cta_presets.send_message')),
+                        selectOption(value) {
+                            this.selected = value;
+                            this.open = false;
+                            $wire.set('formData.cta_text', value);
+                        }
+                    }"
+                    x-on:keydown.escape.window="open = false"
+                    x-on:click.outside="open = false">
+                    <label for="formDataCtaText" class="mb-1 block text-par-s font-normal text-lab-pr3">
+                        {{ __('business/ads.form.cta') }} *
+                    </label>
+                    <button
+                        id="formDataCtaText"
+                        type="button"
+                        x-on:click="open = ! open"
+                        x-bind:aria-expanded="open"
+                        aria-haspopup="listbox"
+                        class="flex h-11 w-full items-center justify-between rounded-xl border border-bord-pr bg-bg-pr px-3 text-left text-par-s text-lab-pr2 outline-hidden transition-colors hover:border-brand-900 focus:border-brand-900">
+                        <span x-text="selected"></span>
+                        <svg class="size-4 shrink-0 transition-transform" x-bind:class="{ 'rotate-180': open }" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                            <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.938a.75.75 0 1 1 1.08 1.04l-4.25 4.51a.75.75 0 0 1-1.08 0l-4.25-4.51a.75.75 0 0 1 .02-1.06Z" clip-rule="evenodd"></path>
+                        </svg>
+                    </button>
+                    <div
+                        x-cloak
+                        x-show="open"
+                        x-transition.origin.top
+                        class="relative z-40 mt-2 w-full overflow-hidden rounded-xl border border-bord-pr bg-bg-pr shadow-xl"
+                        role="listbox"
+                        aria-label="CTA options">
+                        @foreach([
+                            __('business/ads.form.cta_presets.no_button'),
+                            __('business/ads.form.cta_presets.learn_more'),
+                            __('business/ads.form.cta_presets.sign_up'),
+                            __('business/ads.form.cta_presets.send_message'),
+                            __('business/ads.form.cta_presets.call_now'),
+                        ] as $ctaPreset)
+                            <button
+                                type="button"
+                                role="option"
+                                x-on:click="selectOption(@js($ctaPreset))"
+                                x-bind:aria-selected="selected === @js($ctaPreset)"
+                                class="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors hover:bg-fill-fv">
+                                <span class="min-w-0">
+                                    <strong class="block text-par-s font-semibold text-lab-pr2">{{ $ctaPreset }}</strong>
+                                    @if($ctaPreset === __('business/ads.form.cta_presets.send_message'))
+                                        <small class="mt-0.5 block text-cap-l leading-snug text-lab-sc">Get messages on Messenger, Instagram and WhatsApp</small>
+                                    @endif
+                                </span>
+                                <span class="flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-lab-sc" x-bind:class="{ 'border-brand-900 bg-brand-900': selected === @js($ctaPreset) }">
+                                    <span x-show="selected === @js($ctaPreset)" class="size-2 rounded-full bg-bg-pr"></span>
+                                </span>
+                            </button>
+                        @endforeach
+                    </div>
+                    <input type="hidden"
                         name="formData.cta_text"
-                        placeholder="{{ __('business/ads.form.cta_placeholder') }}">
-                        <x-slot:feedbackInfo>
-                            {{ __('business/ads.form.cta_helper') }}
-                        </x-slot:feedbackInfo>
-                    </x-form.text-input>
+                        wire:model.live.debounce.300ms="formData.cta_text">
+                    <p class="mt-1 text-cap-l text-lab-sc">{{ __('business/ads.form.cta_helper') }}</p>
+
+                    @if(($formData['cta_text'] ?? '') !== __('business/ads.form.cta_presets.no_button'))
+                        <div class="mt-4">
+                            <x-form.text-input
+                                labelText="{{ __('business/ads.form.target_url') }} *"
+                                inputType="url"
+                                wire:model.live.debounce.300ms="formData.target_url"
+                                name="formData.target_url"
+                                placeholder="{{ __('business/ads.form.target_url_placeholder') }}">
+                                <x-slot:feedbackInfo>
+                                    {{ __('business/ads.form.target_url_helper') }}
+                                </x-slot:feedbackInfo>
+                            </x-form.text-input>
+                        </div>
+                    @endif
                 </div>
             </x-accordion.form>
 
@@ -286,19 +348,6 @@
                     </x-form.text-input>
                 </div>
 
-                <div class="mb-10">
-                    <x-form.text-input
-                        labelText="{{ __('business/ads.form.target_url') }} *"
-                        inputType="url"
-                        wire:model.live.debounce.300ms="formData.target_url"
-                        name="formData.target_url"
-                        placeholder="{{ __('business/ads.form.target_url_placeholder') }}">
-                        <x-slot:feedbackInfo>
-                            {{ __('business/ads.form.target_url_helper') }}
-                        </x-slot:feedbackInfo>
-                    </x-form.text-input>
-                </div>
-
                 <div class="block">
                     <div class="business-form-actions mb-6">
                         <x-ui.buttons.pill size="sm" wire:loading.attr="disabled" type="submit" btnText="{{ route_is('business.ads.create') ? __('business/ads.form.create_button') : __('business/ads.form.save_button') }}"></x-ui.buttons.pill>
@@ -323,5 +372,75 @@
                 </div>
             </x-accordion.form>
         </form>
+    </div>
+
+    <button type="button" x-on:click="previewOpen = true" class="fixed bottom-20 right-4 z-30 rounded-full bg-lab-pr2 px-4 py-3 text-par-s font-bold text-bg-pr shadow-lg lg:hidden">
+        View preview
+    </button>
+
+    <div
+        x-cloak
+        x-show="previewOpen"
+        x-transition.opacity
+        x-on:keydown.escape.window="previewOpen = false"
+        class="fixed inset-0 z-[70] flex items-end justify-center bg-black/60 p-3 sm:items-center"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Ad previews">
+        <div x-on:click.outside="previewOpen = false" class="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-bg-pr p-4 shadow-2xl sm:p-6">
+            <div class="mb-4 flex items-center justify-between gap-3">
+                <div>
+                    <h3 class="text-par-l font-bold text-lab-pr2">See all previews</h3>
+                    <p class="text-par-s text-lab-sc">Review how your ad can appear across placements.</p>
+                </div>
+                <button type="button" x-on:click="previewOpen = false" class="size-10 rounded-full bg-fill-qt text-par-l font-bold text-lab-pr2" aria-label="Close previews">&times;</button>
+            </div>
+            <div class="grid gap-4 md:grid-cols-3">
+                <div class="rounded-xl border border-bord-pr bg-fill-fv p-3">
+                    <p class="mb-2 text-cap-l font-bold text-lab-sc">Desktop feed</p>
+                    <div class="overflow-hidden rounded-lg bg-bg-pr">
+                        @if($previewData['media_type'] === 'video' && $previewData['media_url'])
+                            <video class="aspect-video w-full object-cover" src="{{ $previewData['media_url'] }}" poster="{{ $previewData['thumbnail_url'] ?: asset(config('ads.ad.default_preview')) }}" controls muted playsinline></video>
+                        @elseif(in_array($previewData['media_type'], ['image', 'gif'], true) && $previewData['media_url'])
+                            <img class="aspect-video w-full object-cover" src="{{ $previewData['media_url'] }}" alt="{{ $previewData['title'] }}">
+                        @else
+                            <div class="flex aspect-video items-center justify-center p-4 text-center text-cap-l text-lab-sc">{{ __('business/ads.preview.media_placeholder') }}</div>
+                        @endif
+                        <div class="p-3"><h4 class="line-clamp-2 text-par-m font-bold text-lab-pr2">{{ $previewData['title'] }}</h4><p class="mt-1 line-clamp-3 text-cap-l text-lab-sc">{{ $previewData['content'] }}</p></div>
+                    </div>
+                </div>
+                <div class="rounded-xl border border-bord-pr bg-fill-fv p-3">
+                    <p class="mb-2 text-cap-l font-bold text-lab-sc">Mobile feed</p>
+                    <div class="mx-auto max-w-[230px] overflow-hidden rounded-xl bg-bg-pr">
+                        @if($previewData['media_type'] === 'video' && $previewData['media_url'])
+                            <video class="aspect-[4/5] w-full object-cover" src="{{ $previewData['media_url'] }}" poster="{{ $previewData['thumbnail_url'] ?: asset(config('ads.ad.default_preview')) }}" controls muted playsinline></video>
+                        @elseif($previewData['media_url'])
+                            <img loading="lazy" class="aspect-[4/5] w-full object-cover" src="{{ $previewData['media_url'] }}" alt="{{ $previewData['title'] }}">
+                        @else
+                            <div class="flex aspect-[4/5] items-center justify-center p-4 text-center text-cap-l text-lab-sc">{{ __('business/ads.preview.media_placeholder') }}</div>
+                        @endif
+                        <div class="p-3"><h4 class="line-clamp-2 text-par-m font-bold text-lab-pr2">{{ $previewData['title'] }}</h4><p class="mt-1 line-clamp-3 text-cap-l text-lab-sc">{{ $previewData['content'] }}</p></div>
+                    </div>
+                </div>
+                <div class="rounded-xl border border-bord-pr bg-fill-fv p-3">
+                    <p class="mb-2 text-cap-l font-bold text-lab-sc">Stories</p>
+                    <div class="mx-auto max-w-[190px] overflow-hidden rounded-xl bg-bg-pr">
+                        @if($previewData['media_type'] === 'video' && $previewData['media_url'])
+                            <video class="aspect-[9/16] w-full object-cover" src="{{ $previewData['media_url'] }}" poster="{{ $previewData['thumbnail_url'] ?: asset(config('ads.ad.default_preview')) }}" controls muted playsinline></video>
+                        @elseif($previewData['media_url'])
+                            <img loading="lazy" class="aspect-[9/16] w-full object-cover" src="{{ $previewData['media_url'] }}" alt="{{ $previewData['title'] }}">
+                        @else
+                            <div class="flex aspect-[9/16] items-center justify-center p-4 text-center text-cap-l text-lab-sc">{{ __('business/ads.preview.media_placeholder') }}</div>
+                        @endif
+                        <div class="p-3"><h4 class="line-clamp-2 text-par-m font-bold text-lab-pr2">{{ $previewData['title'] }}</h4><p class="mt-1 line-clamp-3 text-cap-l text-lab-sc">{{ $previewData['content'] }}</p></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div wire:loading.flex wire:target="submitForm,setSourceType,setMediaType,setCtaText" class="fixed right-4 top-4 z-[80] items-center gap-2 rounded-full bg-lab-pr2 px-4 py-2 text-cap-l font-bold text-bg-pr shadow-lg">
+        <span class="size-3 animate-spin rounded-full border-2 border-bg-pr/40 border-t-bg-pr"></span>
+        Updating...
     </div>
 </div>

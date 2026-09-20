@@ -96,6 +96,8 @@ return [
 		'video_helper' => 'Upload an MP4, WebM, or MOV video. Maximum duration: :seconds seconds. Maximum size: :size MB.',
 		'video_duration_limit' => 'Video must be :seconds seconds or shorter.',
 		'cta_presets' => [
+			'no_button' => 'No Button',
+			'sign_up' => 'Sign Up',
 			'call_now' => 'Call Now',
 			'send_message' => 'Send Message',
 			'shop_now' => 'Shop Now',
