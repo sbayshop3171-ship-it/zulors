@@ -147,15 +147,6 @@
 				</div>
 
 				<div class="absolute bottom-0 left-0 right-0 z-30 px-4 pt-16 from-black/80 via-black/55 to-transparent bg-gradient-to-t" style="padding-bottom: calc(var(--mobile-safe-bottom, 0px) + 1rem);">
-					<div class="mb-3 flex items-center justify-center gap-2 overflow-x-auto pb-1">
-						<button v-for="tool in bottomTools" v-bind:key="tool.value" v-on:click="handleTool(tool.value)" type="button" v-bind:class="activeTool === tool.value ? 'bg-white text-black' : 'bg-black/45 text-white'" class="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-cap-l font-semibold shadow-lg backdrop-blur-md">
-							<SvgIcon v-if="tool.icon" v-bind:name="tool.icon" type="line" classes="size-4"></SvgIcon>
-							<span>{{ tool.label }}</span>
-						</button>
-					</div>
-					<div v-if="activeTool === 'effects' || activeTool === 'stickers' || activeTool === 'trim' || activeTool === 'mention' || activeTool === 'captions'" class="mb-3 rounded-xl border border-white/15 bg-black/35 px-3 py-2 text-center text-cap-l text-white/75 backdrop-blur-md">
-						{{ toolStatusText }}
-					</div>
 					<textarea
 						v-on:input="textInputHandler"
 						v-model="storyData.content"
@@ -226,17 +217,6 @@
 			});
 			const previewLoadedDimensions = ref({});
 			let storyMusicAudio = null;
-			const bottomTools = [
-				{ value: 'music', label: 'Music', icon: 'music-note-01' },
-				{ value: 'volume', label: 'Volume', icon: 'volume-max' },
-				{ value: 'stickers', label: 'Stickers', icon: 'face-smile' },
-				{ value: 'text', label: 'Text' },
-				{ value: 'trim', label: 'Trim', icon: 'scissors' },
-				{ value: 'mention', label: 'Mention', icon: 'at-sign' },
-				{ value: 'effects', label: 'Effects', icon: 'stars-01' },
-				{ value: 'captions', label: 'Captions', icon: 'message-text-01' }
-			];
-
 			const { autoResize } = useInputHandlers();
 			const storyData = ref(storiesEditorStore.storyData);
 			const storyMedia = computed(() => {
@@ -414,9 +394,6 @@
 
 			return {
 				state: state,
-				bottomTools: bottomTools,
-				activeTool: computed(() => state.activeTool),
-				toolStatusText: computed(() => `${state.activeTool.charAt(0).toUpperCase()}${state.activeTool.slice(1)} controls will be available in the next editor engine integration.`),
 				isLocalPublication: computed(() => Boolean(storiesEditorStore.publicationSelection)),
 				storyMediaVideoPreview: storyMediaVideoPreview,
 				storyMediaBackdropVideo: storyMediaBackdropVideo,
@@ -502,20 +479,6 @@
 				},
 				activateTool: (tool) => { state.activeTool = tool; },
 				focusTextTool: focusTextTool,
-				handleTool: (tool) => {
-					if(tool === 'music') return;
-					if(tool === 'volume') {
-						state.videoVolume = state.videoVolume > 0 ? 0 : 1;
-						if(storyMediaVideoPreview.value) {
-							storyMediaVideoPreview.value.muted = state.videoVolume === 0;
-							storyMediaVideoPreview.value.volume = state.videoVolume;
-						}
-						state.activeTool = 'volume';
-						return;
-					}
-					if(tool === 'text') return focusTextTool();
-					state.activeTool = tool;
-				},
 				
 				textInputHandler: () => {
 					autoResize(storyTextInputField.value);
