@@ -1,7 +1,7 @@
-<div class="business-ad-builder" x-data="{ previewOpen: false }">
-    <div class="grid grid-cols-[minmax(0,1fr)_minmax(320px,380px)] items-start gap-5 lg:grid-cols-1">
-        <aside class="order-2 lg:order-1">
-            <div class="sticky top-6 lg:static">
+<div class="business-ad-builder min-w-0 overflow-x-hidden" x-data="{ previewOpen: false }">
+    <div class="grid min-w-0 grid-cols-1 items-start gap-4 md:grid-cols-[minmax(0,1fr)_minmax(280px,340px)] md:gap-5">
+        <aside class="order-1 min-w-0 md:order-2">
+            <div class="md:sticky md:top-6">
                 <div class="mb-3 flex items-start justify-between gap-3">
                     <div>
                     <h3 class="text-par-l font-bold text-lab-pr2">{{ __('business/ads.preview.title') }}</h3>
@@ -12,7 +12,7 @@
                     </button>
                 </div>
 
-                <div class="overflow-hidden rounded-xl border border-bord-pr bg-bg-pr shadow-xs">
+                <div class="mx-auto w-full max-w-[340px] overflow-hidden rounded-xl border border-bord-pr bg-bg-pr shadow-xs">
                     <div class="p-3">
                         <div class="mb-3 flex items-center gap-3">
                             <img src="{{ me()->avatar_url }}" alt="{{ me()->name }}" class="size-10 rounded-full object-cover">
@@ -60,7 +60,7 @@
             </div>
         </aside>
 
-        <form class="order-1 lg:order-2" wire:submit.prevent="submitForm">
+        <form class="order-2 min-w-0 md:order-1" wire:submit.prevent="submitForm">
             @csrf
 
             <x-accordion.form title="{{ __('business/ads.form.source_type') }}">

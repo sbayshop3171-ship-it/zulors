@@ -1,4 +1,21 @@
 @layer components {
+    .business-ad-builder {
+        @apply w-full;
+    }
+
+    .business-ad-builder form .mb-10,
+    .business-ad-builder form .mb-6 {
+        margin-bottom: 1rem !important;
+    }
+
+    .business-ad-builder form .mb-5 {
+        margin-bottom: 0.75rem !important;
+    }
+
+    .business-ad-builder form .mb-4 {
+        margin-bottom: 0.75rem !important;
+    }
+
     .business-ads-page {
         @apply mx-auto w-full max-w-[1180px];
     }
