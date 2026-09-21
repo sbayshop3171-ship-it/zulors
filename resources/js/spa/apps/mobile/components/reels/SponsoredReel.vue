@@ -55,10 +55,15 @@ export default defineComponent({
             .catch(() => {});
 
         const handleTimeUpdate = (event) => {
-            watchSeconds = Math.max(watchSeconds, Number(event.target.currentTime || 0));
+            const currentTime = Number(event.target.currentTime || 0);
+            const duration = Number(event.target.duration || 0);
+            watchSeconds = Math.max(watchSeconds, currentTime);
             if(watchSeconds >= 3 && ! sentThreeSecondView) {
                 sentThreeSecondView = true;
                 sendEvent('three_second_view', { watch_time_seconds: watchSeconds });
+            }
+            if(duration > 0 && currentTime / duration >= 0.95) {
+                handleEnded();
             }
         };
 

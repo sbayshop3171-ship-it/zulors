@@ -540,7 +540,7 @@ const useTimelineStore = defineStore('timeline_store', {
             }
         },
         persistFirstPage: function(options = {}) {
-            const posts = this.posts.slice(0, timelineCacheLimit);
+            const posts = this.posts.filter((postData) => postData?.type !== 'ad').slice(0, timelineCacheLimit);
             const snapshot = {
                 posts: posts,
                 meta: options.meta ?? this.feedMeta,

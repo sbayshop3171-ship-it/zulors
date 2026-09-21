@@ -256,6 +256,7 @@ class FeedController extends Controller
                 ],
             ];
             $items = $payload['data'] ?? [];
+            // MVP delivery inserts one frequency-capped ad after the first three organic items.
             $insertAt = min(3, count($items));
             array_splice($items, $insertAt, 0, [$sponsored]);
             $payload['data'] = $items;

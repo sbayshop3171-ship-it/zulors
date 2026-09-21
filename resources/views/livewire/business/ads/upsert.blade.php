@@ -4,6 +4,8 @@
         previewOpen: false,
         sourceType: @js($formData['source_type'] ?? 'creative'),
         mediaType: @js($formData['media_type'] ?? 'image'),
+        ctaType: @js($formData['cta_type'] ?? 'SEND_MESSAGE'),
+        noButtonLabel: @js(__('business/ads.form.cta_presets.no_button')),
         preview: {
             title: @js($previewData['title']),
             content: @js($previewData['content']),
@@ -71,7 +73,7 @@
                         <div class="rounded-xl bg-fill-fv p-3">
                             <h4 class="line-clamp-2 text-par-m font-bold text-lab-pr2" x-text="preview.title"></h4>
                             <p x-show="preview.targetUrl" class="mt-1 truncate text-cap-l font-semibold text-lab-sc" x-text="preview.targetUrl"></p>
-                            <div x-show="preview.ctaText !== @js(__('business/ads.form.cta_presets.no_button'))" class="mt-3">
+                            <div x-show="ctaType !== 'NO_BUTTON' && preview.ctaText !== noButtonLabel" class="mt-3">
                                 <button type="button" class="h-10 w-full rounded-xl bg-lab-pr2 px-4 text-par-s font-bold text-bg-pr" x-text="preview.ctaText"></button>
                             </div>
                         </div>
@@ -252,17 +254,84 @@
                 </x-accordion.form>
             @endif
 
+            <x-accordion.form title="{{ __('business/ads.form.campaign_controls') }}">
+                <div class="mb-6">
+                    <label for="formDataObjective" class="mb-1 block text-par-s font-normal text-lab-pr3">{{ __('business/ads.form.objective') }} *</label>
+                    <select id="formDataObjective" wire:model="formData.objective" class="h-11 w-full rounded-xl border border-bord-pr bg-bg-pr px-3 text-par-s text-lab-pr2">
+                        @foreach(__('business/ads.form.objectives') as $value => $label)
+                            <option value="{{ $value }}">{{ $label }}</option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <fieldset class="mb-6">
+                    <legend class="mb-2 block text-par-s font-normal text-lab-pr3">{{ __('business/ads.form.placements') }} *</legend>
+                    <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        @foreach(['feed', 'reels', 'sidebar'] as $placement)
+                            <label class="flex items-center gap-2 rounded-xl border border-bord-pr px-3 py-2.5 text-par-s text-lab-pr2">
+                                <input type="checkbox" value="{{ $placement }}" wire:model="formData.placement_flags" class="size-4 rounded border-bord-pr text-brand-900">
+                                <span>{{ __('business/ads.form.' . $placement) }}</span>
+                            </label>
+                        @endforeach
+                    </div>
+                </fieldset>
+
+                <div class="mb-6">
+                    <label for="formDataDestinationType" class="mb-1 block text-par-s font-normal text-lab-pr3">{{ __('business/ads.form.destination_type') }} *</label>
+                    <select id="formDataDestinationType" wire:model="formData.destination_type" class="h-11 w-full rounded-xl border border-bord-pr bg-bg-pr px-3 text-par-s text-lab-pr2">
+                        @foreach(__('business/ads.form.destinations') as $value => $label)
+                            <option value="{{ $value }}">{{ $label }}</option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <div class="mb-6 grid gap-4 sm:grid-cols-2">
+                    <label class="block text-par-s font-normal text-lab-pr3">{{ __('business/ads.form.start_at') }}
+                        <input type="datetime-local" wire:model="formData.start_at" class="mt-1 h-11 w-full rounded-xl border border-bord-pr bg-bg-pr px-3 text-par-s text-lab-pr2">
+                    </label>
+                    <label class="block text-par-s font-normal text-lab-pr3">{{ __('business/ads.form.end_at') }}
+                        <input type="datetime-local" wire:model="formData.end_at" class="mt-1 h-11 w-full rounded-xl border border-bord-pr bg-bg-pr px-3 text-par-s text-lab-pr2">
+                    </label>
+                </div>
+
+                <div class="mb-6 grid gap-4 sm:grid-cols-2">
+                    <label class="block text-par-s font-normal text-lab-pr3">{{ __('business/ads.form.frequency_cap') }}
+                        <input type="number" min="1" max="100" wire:model="formData.frequency_cap" class="mt-1 h-11 w-full rounded-xl border border-bord-pr bg-bg-pr px-3 text-par-s text-lab-pr2">
+                    </label>
+                    <label class="block text-par-s font-normal text-lab-pr3">{{ __('business/ads.form.target_category') }}
+                        <input type="text" maxlength="120" wire:model="formData.target_category" class="mt-1 h-11 w-full rounded-xl border border-bord-pr bg-bg-pr px-3 text-par-s text-lab-pr2">
+                    </label>
+                </div>
+            </x-accordion.form>
+
+            @php
+                $ctaOptions = [
+                    ['type' => 'NO_BUTTON', 'label' => __('business/ads.form.cta_presets.no_button')],
+                    ['type' => 'LEARN_MORE', 'label' => __('business/ads.form.cta_presets.learn_more')],
+                    ['type' => 'SIGN_UP', 'label' => __('business/ads.form.cta_presets.sign_up')],
+                    ['type' => 'SEND_MESSAGE', 'label' => __('business/ads.form.cta_presets.send_message')],
+                    ['type' => 'CALL_NOW', 'label' => __('business/ads.form.cta_presets.call_now')],
+                    ['type' => 'ORDER_NOW', 'label' => 'Order Now'],
+                    ['type' => 'BOOK_NOW', 'label' => 'Book Now'],
+                    ['type' => 'GET_OFFER', 'label' => 'Get Offer'],
+                    ['type' => 'WHATSAPP_MESSAGE', 'label' => 'WhatsApp Message'],
+                ];
+            @endphp
             <x-accordion.form title="{{ __('business/ads.form.cta') }}">
                 <div
                     class="mb-6"
                     x-data="{
                         open: false,
-                        selected: @js($formData['cta_text'] ?: __('business/ads.form.cta_presets.send_message')),
-                        selectOption(value) {
-                            this.selected = value;
+                        selected: @js(($formData['cta_type'] ?? '') === 'NO_BUTTON' ? __('business/ads.form.cta_presets.no_button') : ($formData['cta_text'] ?: __('business/ads.form.cta_presets.send_message'))),
+                        selectedType: @js($formData['cta_type'] ?: 'SEND_MESSAGE'),
+                        selectOption(option) {
+                            this.selected = option.label;
+                            this.selectedType = option.type;
                             this.open = false;
-                            updatePreview('ctaText', value);
-                            $wire.set('formData.cta_text', value);
+                            updatePreview('ctaText', option.label);
+                            this.ctaType = option.type;
+                            $wire.set('formData.cta_type', option.type);
+                            $wire.set('formData.cta_text', option.label);
                         }
                     }"
                     x-on:keydown.escape.window="open = false"
@@ -289,27 +358,21 @@
                         class="relative z-40 mt-2 w-full overflow-hidden rounded-xl border border-bord-pr bg-bg-pr shadow-xl"
                         role="listbox"
                         aria-label="CTA options">
-                        @foreach([
-                            __('business/ads.form.cta_presets.no_button'),
-                            __('business/ads.form.cta_presets.learn_more'),
-                            __('business/ads.form.cta_presets.sign_up'),
-                            __('business/ads.form.cta_presets.send_message'),
-                            __('business/ads.form.cta_presets.call_now'),
-                        ] as $ctaPreset)
+                        @foreach($ctaOptions as $ctaOption)
                             <button
                                 type="button"
                                 role="option"
-                                x-on:click="selectOption(@js($ctaPreset))"
-                                x-bind:aria-selected="selected === @js($ctaPreset)"
+                                x-on:click="selectOption(@js($ctaOption))"
+                                x-bind:aria-selected="selectedType === @js($ctaOption['type'])"
                                 class="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors hover:bg-fill-fv">
                                 <span class="min-w-0">
-                                    <strong class="block text-par-s font-semibold text-lab-pr2">{{ $ctaPreset }}</strong>
-                                    @if($ctaPreset === __('business/ads.form.cta_presets.send_message'))
+                                    <strong class="block text-par-s font-semibold text-lab-pr2">{{ $ctaOption['label'] }}</strong>
+                                    @if($ctaOption['type'] === 'SEND_MESSAGE')
                                         <small class="mt-0.5 block text-cap-l leading-snug text-lab-sc">Get messages on Messenger, Instagram and WhatsApp</small>
                                     @endif
                                 </span>
-                                <span class="flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-lab-sc" x-bind:class="{ 'border-brand-900 bg-brand-900': selected === @js($ctaPreset) }">
-                                    <span x-show="selected === @js($ctaPreset)" class="size-2 rounded-full bg-bg-pr"></span>
+                                <span class="flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-lab-sc" x-bind:class="{ 'border-brand-900 bg-brand-900': selectedType === @js($ctaOption['type']) }">
+                                    <span x-show="selectedType === @js($ctaOption['type'])" class="size-2 rounded-full bg-bg-pr"></span>
                                 </span>
                             </button>
                         @endforeach
@@ -319,7 +382,7 @@
                             wire:model.live.debounce.100ms="formData.cta_text">
                     <p class="mt-1 text-cap-l text-lab-sc">{{ __('business/ads.form.cta_helper') }}</p>
 
-                    @if(($formData['cta_text'] ?? '') !== __('business/ads.form.cta_presets.no_button'))
+                    @if(($formData['cta_type'] ?? '') !== 'NO_BUTTON' && ($formData['cta_text'] ?? '') !== __('business/ads.form.cta_presets.no_button') && ! in_array($formData['destination_type'] ?? 'external_url', ['profile', 'internal_post', 'phone', 'whatsapp'], true))
                         <div class="mt-4">
                             <x-form.text-input
                                 labelText="{{ __('business/ads.form.target_url') }} *"

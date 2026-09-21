@@ -603,7 +603,7 @@ const useTimelineStore = defineStore('mobile_timeline_store', {
         },
         persistFirstPage: function(options = {}) {
             const posts = this.posts.filter((postData) => {
-                return ! isOptimisticPost(postData);
+                return ! isOptimisticPost(postData) && postData?.type !== 'ad';
             }).slice(0, timelineCacheLimit);
             const snapshot = {
                 posts: posts,

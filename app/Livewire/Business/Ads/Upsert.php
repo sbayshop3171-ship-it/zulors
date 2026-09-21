@@ -117,7 +117,10 @@ class Upsert extends Component
             ],
         ];
 
-        if(($this->formData['cta_type'] ?? '') !== 'NO_BUTTON' && ($this->formData['cta_text'] ?? '') !== $noButton) {
+        $destinationType = $this->formData['destination_type'] ?? 'external_url';
+        $derivedDestination = in_array($destinationType, ['profile', 'internal_post', 'phone', 'whatsapp'], true);
+
+        if(($this->formData['cta_type'] ?? '') !== 'NO_BUTTON' && ($this->formData['cta_text'] ?? '') !== $noButton && ! $derivedDestination) {
             $rules['formData.target_url'] = [
                 'required',
                 'url',
@@ -148,8 +151,12 @@ class Upsert extends Component
     public function submitForm()
     {
         $noButton = __('business/ads.form.cta_presets.no_button');
+        $isNoButton = ($this->formData['cta_type'] ?? '') === 'NO_BUTTON'
+            || ($this->formData['cta_text'] ?? '') === $noButton;
+        $destinationType = $this->formData['destination_type'] ?? 'external_url';
+        $derivedDestination = in_array($destinationType, ['profile', 'internal_post', 'phone', 'whatsapp'], true);
 
-        if(($this->formData['cta_text'] ?? '') !== __('business/ads.form.cta_presets.no_button')) {
+        if(! $isNoButton && ! $derivedDestination) {
             try {
                 $this->formData['target_url'] = app(AdUrlNormalizer::class)
                     ->normalize($this->formData['target_url'] ?? '');
@@ -209,9 +216,7 @@ class Upsert extends Component
             'cta_text' => e($this->formData['cta_text']),
             'price_per_view' => $this->formData['price_per_view'],
             'target_topics' => $this->normalizeTargetTopics(),
-            'target_url' => ($this->formData['cta_text'] ?? '') === __('business/ads.form.cta_presets.no_button')
-                ? null
-                : app(AdUrlNormalizer::class)->normalize($this->formData['target_url']),
+            'target_url' => $isNoButton || $derivedDestination ? null : app(AdUrlNormalizer::class)->normalize($this->formData['target_url']),
             'type' => $sourceType === 'post' ? $this->postAdType($sourcePost) : $this->formData['media_type'],
         ];
 

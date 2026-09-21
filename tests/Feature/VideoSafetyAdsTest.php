@@ -300,6 +300,44 @@ class VideoSafetyAdsTest extends TestCase
         $this->assertNull(app(\App\Services\Ad\AdDestinationResolver::class)->resolve($ad));
     }
 
+    public function test_business_ad_form_allows_no_button_without_target_url(): void
+    {
+        $advertiser = $this->createUser('no-button-owner');
+        $this->createWallet($advertiser, 50);
+        $ad = $advertiser->advertising()->create(['status' => AdStatus::DRAFT]);
+        $this->createAdMedia($ad);
+
+        Livewire::actingAs($advertiser)
+            ->test(AdUpsert::class, ['adData' => $ad, 'upsertType' => 'create'])
+            ->set('formData.title', 'No button campaign')
+            ->set('formData.content', 'A campaign without a call to action destination.')
+            ->set('formData.cta_type', 'NO_BUTTON')
+            ->set('formData.cta_text', 'Send Message')
+            ->set('formData.target_url', '')
+            ->set('formData.total_budget', 10)
+            ->set('formData.price_per_view', 0.05)
+            ->call('submitForm')
+            ->assertRedirect(route('business.ads.index'));
+
+        $this->assertSame('NO_BUTTON', $ad->refresh()->cta_type);
+        $this->assertNull($ad->target_url);
+    }
+
+    public function test_profile_destination_uses_profile_url_before_target_url(): void
+    {
+        $owner = $this->createUser('profile-destination-owner');
+        $ad = $this->createAd('Profile campaign', [], [
+            'owner' => $owner,
+            'destination_type' => 'profile',
+            'target_url' => 'https://fallback.example/profile',
+        ]);
+
+        $this->assertSame(
+            $owner->profile_url,
+            app(\App\Services\Ad\AdDestinationResolver::class)->resolve($ad)
+        );
+    }
+
     public function test_ad_event_endpoint_records_reels_watch_metrics(): void
     {
         $viewer = $this->createUser('ad-event-viewer');
