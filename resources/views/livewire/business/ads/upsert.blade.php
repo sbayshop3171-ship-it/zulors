@@ -1,4 +1,29 @@
-<div class="business-ad-builder min-w-0 overflow-x-hidden" x-data="{ previewOpen: false }">
+<div
+    class="business-ad-builder min-w-0 overflow-x-hidden"
+    x-data="{
+        previewOpen: false,
+        sourceType: @js($formData['source_type'] ?? 'creative'),
+        mediaType: @js($formData['media_type'] ?? 'image'),
+        preview: {
+            title: @js($previewData['title']),
+            content: @js($previewData['content']),
+            targetUrl: @js($previewData['target_url']),
+            ctaText: @js($previewData['cta_text']),
+            mediaType: @js($previewData['media_type']),
+            mediaUrl: @js($previewData['media_url']),
+        },
+        updatePreview(key, value) {
+            this.preview[key] = value;
+        },
+        previewFile(file) {
+            if (!file) return;
+            if (this.preview.mediaUrl && this.preview.mediaUrl.startsWith('blob:')) {
+                URL.revokeObjectURL(this.preview.mediaUrl);
+            }
+            this.preview.mediaUrl = URL.createObjectURL(file);
+            this.preview.mediaType = file.type.startsWith('video/') ? 'video' : 'image';
+        }
+    }">
     <div class="grid min-w-0 grid-cols-1 items-start gap-4 md:grid-cols-[minmax(0,1fr)_minmax(280px,340px)] md:gap-5">
         <aside class="order-1 min-w-0 md:order-2">
             <div class="md:sticky md:top-6">
@@ -22,38 +47,33 @@
                             </div>
                         </div>
 
-                        <p class="mb-3 whitespace-pre-line text-par-s leading-relaxed text-lab-pr2">{{ $previewData['content'] }}</p>
+                        <p class="mb-3 whitespace-pre-line text-par-s leading-relaxed text-lab-pr2" x-text="preview.content"></p>
 
                         <div class="mb-3 overflow-hidden rounded-xl bg-fill-fv">
-                            @if($previewData['media_type'] === 'video' && $previewData['media_url'])
-                                <video
-                                    class="aspect-video w-full object-cover"
-                                    src="{{ $previewData['media_url'] }}"
-                                    poster="{{ $previewData['thumbnail_url'] ?: asset(config('ads.ad.default_preview')) }}"
-                                    controls
-                                    muted
-                                    playsinline></video>
-                            @elseif(in_array($previewData['media_type'], ['image', 'gif'], true) && $previewData['media_url'])
-                                <img class="aspect-video w-full object-cover" src="{{ $previewData['media_url'] }}" alt="{{ $previewData['title'] }}">
-                            @else
-                                <div class="flex aspect-video items-center justify-center px-6 text-center text-par-s font-semibold text-lab-sc">
-                                    {{ __('business/ads.preview.media_placeholder') }}
-                                </div>
-                            @endif
+                            <video
+                                x-show="preview.mediaType === 'video' && preview.mediaUrl"
+                                class="aspect-video w-full object-cover"
+                                x-bind:src="preview.mediaUrl"
+                                poster="{{ $previewData['thumbnail_url'] ?: asset(config('ads.ad.default_preview')) }}"
+                                controls
+                                muted
+                                playsinline></video>
+                            <img
+                                x-show="preview.mediaType !== 'video' && preview.mediaUrl"
+                                class="aspect-video w-full object-cover"
+                                x-bind:src="preview.mediaUrl"
+                                x-bind:alt="preview.title">
+                            <div x-show="!preview.mediaUrl" class="flex aspect-video items-center justify-center px-6 text-center text-par-s font-semibold text-lab-sc">
+                                {{ __('business/ads.preview.media_placeholder') }}
+                            </div>
                         </div>
 
                         <div class="rounded-xl bg-fill-fv p-3">
-                            <h4 class="line-clamp-2 text-par-m font-bold text-lab-pr2">{{ $previewData['title'] }}</h4>
-                            @if($previewData['target_url'])
-                                <p class="mt-1 truncate text-cap-l font-semibold text-lab-sc">{{ $previewData['target_url'] }}</p>
-                            @endif
-                            @if($previewData['cta_text'] !== __('business/ads.form.cta_presets.no_button'))
-                                <div class="mt-3">
-                                    <button type="button" class="h-10 w-full rounded-xl bg-lab-pr2 px-4 text-par-s font-bold text-bg-pr">
-                                        {{ $previewData['cta_text'] }}
-                                    </button>
-                                </div>
-                            @endif
+                            <h4 class="line-clamp-2 text-par-m font-bold text-lab-pr2" x-text="preview.title"></h4>
+                            <p x-show="preview.targetUrl" class="mt-1 truncate text-cap-l font-semibold text-lab-sc" x-text="preview.targetUrl"></p>
+                            <div x-show="preview.ctaText !== @js(__('business/ads.form.cta_presets.no_button'))" class="mt-3">
+                                <button type="button" class="h-10 w-full rounded-xl bg-lab-pr2 px-4 text-par-s font-bold text-bg-pr" x-text="preview.ctaText"></button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -68,7 +88,9 @@
                     <button
                         type="button"
                         wire:click="setSourceType('post')"
-                        class="rounded-2xl border p-4 text-left smoothing {{ ($formData['source_type'] ?? 'creative') === 'post' ? 'border-brand-900 bg-fill-qt' : 'border-bord-pr bg-bg-pr' }}">
+                        x-on:click="sourceType = 'post'"
+                        x-bind:class="sourceType === 'post' ? 'border-brand-900 bg-fill-qt' : 'border-bord-pr bg-bg-pr'"
+                        class="rounded-2xl border p-4 text-left smoothing">
                         <strong class="block text-par-s text-lab-pr2">{{ __('business/ads.form.boost_post') }}</strong>
                         <span class="mt-1 block text-cap-l text-lab-sc">{{ __('business/ads.form.boost_post_helper') }}</span>
                     </button>
@@ -76,7 +98,9 @@
                     <button
                         type="button"
                         wire:click="setSourceType('creative')"
-                        class="rounded-2xl border p-4 text-left smoothing {{ ($formData['source_type'] ?? 'creative') === 'creative' ? 'border-brand-900 bg-fill-qt' : 'border-bord-pr bg-bg-pr' }}">
+                        x-on:click="sourceType = 'creative'"
+                        x-bind:class="sourceType === 'creative' ? 'border-brand-900 bg-fill-qt' : 'border-bord-pr bg-bg-pr'"
+                        class="rounded-2xl border p-4 text-left smoothing">
                         <strong class="block text-par-s text-lab-pr2">{{ __('business/ads.form.create_new_ad') }}</strong>
                         <span class="mt-1 block text-cap-l text-lab-sc">{{ __('business/ads.form.create_new_ad_helper') }}</span>
                     </button>
@@ -88,7 +112,7 @@
                     <div class="mb-6">
                         <x-form.text-input
                             labelText="{{ __('business/ads.form.search_posts') }}"
-                            wire:model.live.debounce.300ms="boostPostSearch"
+                            wire:model.live.debounce.250ms="boostPostSearch"
                             name="boostPostSearch"
                             placeholder="{{ __('business/ads.form.search_posts_placeholder') }}">
                             <x-slot:feedbackInfo>
@@ -121,7 +145,8 @@
                 <x-accordion.form title="{{ __('business/ads.form.base_info') }}">
                     <div class="mb-6">
                         <x-form.text-input
-                            wire:model.live.debounce.300ms="formData.title"
+                            wire:model.live.debounce.100ms="formData.title"
+                            x-on:input="updatePreview('title', $event.target.value)"
                             name="formData.title"
                             labelText="{{ __('business/ads.form.title') }} *"
                             placeholder="{{ __('business/ads.form.title_placeholder') }}">
@@ -135,7 +160,8 @@
                         <x-form.text-input
                             labelText="{{ __('business/ads.form.content') }} *"
                             :asText="true"
-                            wire:model.live.debounce.300ms="formData.content"
+                            wire:model.live.debounce.100ms="formData.content"
+                            x-on:input="updatePreview('content', $event.target.value)"
                             name="formData.content"
                             placeholder="{{ __('business/ads.form.content_placeholder') }}">
                             <x-slot:feedbackInfo>
@@ -150,13 +176,17 @@
                         <button
                             type="button"
                             wire:click="setMediaType('image')"
-                            class="rounded-xl border p-3 text-center text-par-s font-bold smoothing {{ ($formData['media_type'] ?? 'image') === 'image' ? 'border-brand-900 bg-fill-qt text-brand-900' : 'border-bord-pr text-lab-sc' }}">
+                            x-on:click="mediaType = 'image'"
+                            x-bind:class="mediaType === 'image' ? 'border-brand-900 bg-fill-qt text-brand-900' : 'border-bord-pr text-lab-sc'"
+                            class="rounded-xl border p-3 text-center text-par-s font-bold smoothing">
                             {{ __('labels.image') }}
                         </button>
                         <button
                             type="button"
                             wire:click="setMediaType('video')"
-                            class="rounded-xl border p-3 text-center text-par-s font-bold smoothing {{ ($formData['media_type'] ?? 'image') === 'video' ? 'border-brand-900 bg-fill-qt text-brand-900' : 'border-bord-pr text-lab-sc' }}">
+                            x-on:click="mediaType = 'video'"
+                            x-bind:class="mediaType === 'video' ? 'border-brand-900 bg-fill-qt text-brand-900' : 'border-bord-pr text-lab-sc'"
+                            class="rounded-xl border p-3 text-center text-par-s font-bold smoothing">
                             {{ __('labels.video') }}
                         </button>
                     </div>
@@ -178,7 +208,13 @@
                                             </span>
                                         </span>
                                     </button>
-                                    <input x-ref="input" wire:model="creative" type="file" class="hidden" accept="{{ ($formData['media_type'] ?? 'image') === 'video' ? 'video/mp4,video/webm,video/quicktime' : 'image/*' }}">
+                                    <input
+                                        x-ref="input"
+                                        wire:model="creative"
+                                        x-on:change="previewFile($event.target.files[0])"
+                                        x-bind:accept="mediaType === 'video' ? 'video/mp4,video/webm,video/quicktime' : 'image/*'"
+                                        type="file"
+                                        class="hidden">
                                 </div>
                             @endif
 
@@ -225,6 +261,7 @@
                         selectOption(value) {
                             this.selected = value;
                             this.open = false;
+                            updatePreview('ctaText', value);
                             $wire.set('formData.cta_text', value);
                         }
                     }"
@@ -279,7 +316,7 @@
                     </div>
                     <input type="hidden"
                         name="formData.cta_text"
-                        wire:model.live.debounce.300ms="formData.cta_text">
+                            wire:model.live.debounce.100ms="formData.cta_text">
                     <p class="mt-1 text-cap-l text-lab-sc">{{ __('business/ads.form.cta_helper') }}</p>
 
                     @if(($formData['cta_text'] ?? '') !== __('business/ads.form.cta_presets.no_button'))
@@ -287,7 +324,8 @@
                             <x-form.text-input
                                 labelText="{{ __('business/ads.form.target_url') }} *"
                                 inputType="url"
-                                wire:model.live.debounce.300ms="formData.target_url"
+                                wire:model.live.debounce.100ms="formData.target_url"
+                                x-on:input="updatePreview('targetUrl', $event.target.value)"
                                 name="formData.target_url"
                                 placeholder="{{ __('business/ads.form.target_url_placeholder') }}">
                                 <x-slot:feedbackInfo>
