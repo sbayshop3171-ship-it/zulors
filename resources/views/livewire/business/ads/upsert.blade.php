@@ -382,7 +382,7 @@
                             wire:model.live.debounce.100ms="formData.cta_text">
                     <p class="mt-1 text-cap-l text-lab-sc">{{ __('business/ads.form.cta_helper') }}</p>
 
-                    @if(($formData['cta_type'] ?? '') !== 'NO_BUTTON' && ($formData['cta_text'] ?? '') !== __('business/ads.form.cta_presets.no_button') && ! in_array($formData['destination_type'] ?? 'external_url', ['profile', 'internal_post', 'phone', 'whatsapp'], true))
+                    @if(($formData['cta_type'] ?? '') !== 'NO_BUTTON' && ($formData['cta_text'] ?? '') !== __('business/ads.form.cta_presets.no_button') && (! in_array($formData['destination_type'] ?? 'external_url', ['profile', 'internal_post'], true) && (! in_array($formData['destination_type'] ?? 'external_url', ['phone', 'whatsapp'], true) || blank($adData->user?->phone))))
                         <div class="mt-4">
                             <x-form.text-input
                                 labelText="{{ __('business/ads.form.target_url') }} *"

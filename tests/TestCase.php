@@ -12,7 +12,10 @@ abstract class TestCase extends BaseTestCase
     {
         $this->configureIsolatedSqliteDatabase();
 
-        return parent::createApplication();
+        $application = parent::createApplication();
+        $application['config']->set('broadcasting.default', 'null');
+
+        return $application;
     }
 
     protected function configureIsolatedSqliteDatabase(): void

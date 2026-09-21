@@ -338,6 +338,41 @@ class VideoSafetyAdsTest extends TestCase
         );
     }
 
+    public function test_phone_and_whatsapp_destinations_use_advertiser_phone(): void
+    {
+        $owner = $this->createUser('phone-destination-owner');
+        $owner->forceFill(['phone' => '+1 (555) 123-4567'])->save();
+
+        $phoneAd = $this->createAd('Phone campaign', [], ['owner' => $owner, 'destination_type' => 'phone']);
+        $whatsappAd = $this->createAd('WhatsApp campaign', [], ['owner' => $owner, 'destination_type' => 'whatsapp']);
+
+        $resolver = app(\App\Services\Ad\AdDestinationResolver::class);
+
+        $this->assertSame('tel:+15551234567', $resolver->resolve($phoneAd));
+        $this->assertSame('https://wa.me/15551234567', $resolver->resolve($whatsappAd));
+    }
+
+    public function test_phone_destination_without_advertiser_phone_requires_target_url(): void
+    {
+        $advertiser = $this->createUser('missing-phone-owner');
+        $this->createWallet($advertiser, 50);
+        $ad = $advertiser->advertising()->create(['status' => AdStatus::DRAFT]);
+        $this->createAdMedia($ad);
+
+        Livewire::actingAs($advertiser)
+            ->test(AdUpsert::class, ['adData' => $ad, 'upsertType' => 'create'])
+            ->set('formData.title', 'Phone campaign')
+            ->set('formData.content', 'A phone campaign with a fallback destination.')
+            ->set('formData.cta_type', 'CALL_NOW')
+            ->set('formData.cta_text', 'Call Now')
+            ->set('formData.destination_type', 'phone')
+            ->set('formData.target_url', '')
+            ->set('formData.total_budget', 10)
+            ->set('formData.price_per_view', 0.05)
+            ->call('submitForm')
+            ->assertHasErrors(['formData.target_url']);
+    }
+
     public function test_ad_event_endpoint_records_reels_watch_metrics(): void
     {
         $viewer = $this->createUser('ad-event-viewer');

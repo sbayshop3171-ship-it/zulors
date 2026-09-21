@@ -118,7 +118,9 @@ class Upsert extends Component
         ];
 
         $destinationType = $this->formData['destination_type'] ?? 'external_url';
-        $derivedDestination = in_array($destinationType, ['profile', 'internal_post', 'phone', 'whatsapp'], true);
+        $hasAdvertiserPhone = filled($this->adData->user?->phone);
+        $derivedDestination = in_array($destinationType, ['profile', 'internal_post'], true)
+            || in_array($destinationType, ['phone', 'whatsapp'], true) && $hasAdvertiserPhone;
 
         if(($this->formData['cta_type'] ?? '') !== 'NO_BUTTON' && ($this->formData['cta_text'] ?? '') !== $noButton && ! $derivedDestination) {
             $rules['formData.target_url'] = [
@@ -154,7 +156,9 @@ class Upsert extends Component
         $isNoButton = ($this->formData['cta_type'] ?? '') === 'NO_BUTTON'
             || ($this->formData['cta_text'] ?? '') === $noButton;
         $destinationType = $this->formData['destination_type'] ?? 'external_url';
-        $derivedDestination = in_array($destinationType, ['profile', 'internal_post', 'phone', 'whatsapp'], true);
+        $hasAdvertiserPhone = filled($this->adData->user?->phone);
+        $derivedDestination = in_array($destinationType, ['profile', 'internal_post'], true)
+            || in_array($destinationType, ['phone', 'whatsapp'], true) && $hasAdvertiserPhone;
 
         if(! $isNoButton && ! $derivedDestination) {
             try {
