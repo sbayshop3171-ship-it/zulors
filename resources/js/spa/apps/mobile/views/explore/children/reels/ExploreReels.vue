@@ -24,17 +24,22 @@
 			v-on:scroll.passive="handleScroll"
 		class="h-full overflow-y-auto snap-y snap-mandatory overscroll-contain reels-scrollbar">
 			<div class="snap-none" v-bind:style="{ height: `${virtualTopSpacerPx}px` }"></div>
-			<ReelItem
-				v-for="(postData, index) in visiblePosts"
-				v-bind:key="postData.id"
-				v-bind:postData="postData"
-				v-bind:active="activeIndex === (visibleWindow.start + index)"
-				v-bind:isNear="Math.abs(activeIndex - (visibleWindow.start + index)) <= nearRadius"
-				v-bind:distanceFromActive="Math.abs(activeIndex - (visibleWindow.start + index))"
-				v-bind:position="visibleWindow.start + index + 1"
-				v-bind:feedSessionId="feedSessionId"
-				v-on:interaction="handleReelInteraction"
-			></ReelItem>
+			<template v-for="(postData, index) in visiblePosts" v-bind:key="postData.id">
+				<SponsoredReel
+					v-if="postData.type === 'ad'"
+					v-bind:adData="postData.ad"
+				></SponsoredReel>
+				<ReelItem
+					v-else
+					v-bind:postData="postData"
+					v-bind:active="activeIndex === (visibleWindow.start + index)"
+					v-bind:isNear="Math.abs(activeIndex - (visibleWindow.start + index)) <= nearRadius"
+					v-bind:distanceFromActive="Math.abs(activeIndex - (visibleWindow.start + index))"
+					v-bind:position="visibleWindow.start + index + 1"
+					v-bind:feedSessionId="feedSessionId"
+					v-on:interaction="handleReelInteraction"
+				></ReelItem>
+			</template>
 			<div class="snap-none" v-bind:style="{ height: `${virtualBottomSpacerPx}px` }"></div>
 
 			<div v-if="state.isLoadingContent" class="h-24 inline-flex-center text-white/70">
@@ -60,6 +65,7 @@
 	import { mobileExploreSwipeSequence, useSwipeRouteNavigation } from '@/kernel/vue/composables/swipe-route-navigation/index.js';
 
 	import ReelItem from '@M/components/reels/ReelItem.vue';
+	import SponsoredReel from '@M/components/reels/SponsoredReel.vue';
 	import ExploreTabs from '@M/views/explore/parts/ExploreTabs.vue';
 	import SvgIcon from '@/kernel/vue/components/icons/SvgIcon.vue';
 
@@ -303,6 +309,7 @@
 		},
 		components: {
 			ReelItem: ReelItem,
+			SponsoredReel: SponsoredReel,
 			ExploreTabs: ExploreTabs,
 			SvgIcon: SvgIcon
 		}

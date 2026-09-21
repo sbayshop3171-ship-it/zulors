@@ -30,16 +30,22 @@
                     </template>
                     <FeedUpdate v-if="timelineNewPosts.length" v-bind:posts="timelineNewPosts" v-on:click="applyTimelineUpdate"></FeedUpdate>
                     <div v-if="timelinePosts.length">
-                        <TimelinePublication
-                            v-for="(postData, index) in timelinePosts"
-                            v-bind:postData="postData"
-                            v-bind:feedSessionId="timelineFeedSessionId"
-                            v-bind:feedType="timelineFeedType"
-                            v-bind:position="index + 1"
-                            v-bind:refreshReason="timelineRefreshReason"
-                            source="home"
-                            v-on:delete="handlePostDelete(postData)"
-                        v-bind:key="postData.hash_id"></TimelinePublication>
+                        <template v-for="(postData, index) in timelinePosts" v-bind:key="postData.type === 'ad' ? postData.id : postData.hash_id">
+                            <NativeSponsoredPost
+                                v-if="postData.type === 'ad'"
+                                v-bind:adData="postData.ad"
+                            ></NativeSponsoredPost>
+                            <TimelinePublication
+                                v-else
+                                v-bind:postData="postData"
+                                v-bind:feedSessionId="timelineFeedSessionId"
+                                v-bind:feedType="timelineFeedType"
+                                v-bind:position="index + 1"
+                                v-bind:refreshReason="timelineRefreshReason"
+                                source="home"
+                                v-on:delete="handlePostDelete(postData)"
+                            ></TimelinePublication>
+                        </template>
 
                         <div v-if="state.isLoadingContent">
                             <div class="flex justify-center my-4">
@@ -92,6 +98,7 @@
     import ScrollTopButton from '@D/components/inter-ui/buttons/ScrollTopButton.vue';
     import FollowRecommendationList from '@D/components/recommend/follow/list/FollowRecommendationList.vue';
     import AdGridItem from '@D/components/ads/AdGridItem.vue';
+    import NativeSponsoredPost from '@D/components/ads/NativeSponsoredPost.vue';
     import SidedContentLayout from '@D/components/layout/SidedContentLayout.vue';
     import HomeHeader from '@D/views/home/parts/HomeHeader.vue';
     import FeedUpdate from '@D/components/timeline/update/FeedUpdate.vue';
@@ -337,6 +344,7 @@
             TimelineContainer: TimelineContainer,
             FollowRecommendationList: FollowRecommendationList,
             AdGridItem: AdGridItem,
+            NativeSponsoredPost: NativeSponsoredPost,
             ScrollTopButton: ScrollTopButton,
             HomeHeader: HomeHeader,
             SidedContentLayout: SidedContentLayout,

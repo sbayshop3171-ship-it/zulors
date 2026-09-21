@@ -82,12 +82,14 @@ class AdController extends Controller
         return back()->with('flashMessage', (new Flash(content: __('admin/flash.ad.approve_success')))->get());
     }
 
-    public function reject(int $adId)
+    public function reject(int $adId, Request $request)
     {
         $adData = Ad::findOrFail($adId);
 
         $adData->update([
-            'approval' => AdApproval::REJECTED
+            'approval' => AdApproval::REJECTED,
+            'status' => AdStatus::PAUSED,
+            'rejection_reason' => $request->string('reason')->trim()->limit(1000)->value() ?: null,
         ]);
 
         return back()->with('flashMessage', (new Flash(content: __('admin/flash.ad.reject_success')))->get());

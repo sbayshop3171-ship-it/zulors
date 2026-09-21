@@ -17,7 +17,11 @@ class Ad extends Model
         'status' => AdStatus::class,
         'approval' => AdApproval::class,
         'target_topics' => 'array',
+        'placement_flags' => 'array',
         'funding_metadata' => 'array',
+        'start_at' => 'datetime',
+        'end_at' => 'datetime',
+        'frequency_cap' => 'integer',
         'created_at' => ModelTimestampCast::class,
         'last_show_at' => ModelTimestampCast::class,
         'last_charge_at' => ModelTimestampCast::class
@@ -56,6 +60,11 @@ class Ad extends Model
     public function impressions()
     {
         return $this->hasMany(AdImpression::class, 'ad_id', 'id');
+    }
+
+    public function events()
+    {
+        return $this->hasMany(AdEvent::class, 'ad_id');
     }
 
     public function getPreviewImageUrlAttribute()

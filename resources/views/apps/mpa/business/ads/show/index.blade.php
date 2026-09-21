@@ -86,6 +86,29 @@
                 </x-counter.counter>
             </div>
             <div class="mb-8">
+                <x-entity.title title="Campaign analytics"></x-entity.title>
+                <x-line-table.table>
+                    <x-line-table.row>
+                        <x-slot:labelText>Unique reach</x-slot:labelText>
+                        <x-slot:labelValue>{{ $adAnalytics['reach'] }}</x-slot:labelValue>
+                    </x-line-table.row>
+                    <x-line-table.row>
+                        <x-slot:labelText>CTR</x-slot:labelText>
+                        <x-slot:labelValue>{{ number_format($adAnalytics['ctr'], 2) }}%</x-slot:labelValue>
+                    </x-line-table.row>
+                    <x-line-table.row>
+                        <x-slot:labelText>CTA clicks</x-slot:labelText>
+                        <x-slot:labelValue>{{ $adAnalytics['cta_clicks'] }}</x-slot:labelValue>
+                    </x-line-table.row>
+                    @foreach($adAnalytics['placements'] as $placement => $stats)
+                        <x-line-table.row>
+                            <x-slot:labelText>{{ ucfirst($placement) }} performance</x-slot:labelText>
+                            <x-slot:labelValue>{{ $stats['impressions'] }} impressions / {{ $stats['clicks'] }} clicks / {{ $stats['reach'] }} reach</x-slot:labelValue>
+                        </x-line-table.row>
+                    @endforeach
+                </x-line-table.table>
+            </div>
+            <div class="mb-8">
                 <x-line-table.table>
                     <x-line-table.row>
                         <x-slot:labelText>

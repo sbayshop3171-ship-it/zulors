@@ -21,6 +21,9 @@ use Illuminate\Http\Response;
 use App\Enums\Post\PostStatus;
 use App\Http\Controllers\Controller;
 use App\Services\Timeline\FeedService;
+use App\Actions\Ad\AdShowAction;
+use App\Http\Resources\Ad\AdResource;
+use App\Services\Ad\TargetedAdService;
 use Illuminate\Support\Facades\Cache;
 use App\Traits\Http\Api\SupportsApiResponses;
 use App\Http\Resources\User\Timeline\TimelineResource;
@@ -59,7 +62,7 @@ class FeedController extends Controller
             }
 
             return $this->homeFeedSuccessResponse(
-                $this->homeFeedPayloadForRequest($cachedResponse['payload'], $filter),
+                $this->withNativeSponsoredAd($this->homeFeedPayloadForRequest($cachedResponse['payload'], $filter), 'feed'),
                 $etag,
                 $snapshotHash,
                 $startedAt,
@@ -74,7 +77,7 @@ class FeedController extends Controller
         ];
 
         if(! $canUseHomeSwr) {
-            return $this->responseSuccess($payload);
+            return $this->responseSuccess($this->withNativeSponsoredAd($payload, $this->nativeAdPlacement($filter)));
         }
 
         $snapshotHash = $this->homeFeedSnapshotHash($payload);
@@ -90,7 +93,13 @@ class FeedController extends Controller
             return $this->homeFeedNotModifiedResponse($etag, $snapshotHash, $startedAt, 'miss-validated');
         }
 
-        return $this->homeFeedSuccessResponse($payload, $etag, $snapshotHash, $startedAt, 'miss');
+        return $this->homeFeedSuccessResponse(
+            $this->withNativeSponsoredAd($payload, 'feed'),
+            $etag,
+            $snapshotHash,
+            $startedAt,
+            'miss'
+        );
     }
 
     public function getFeedUpdate()
@@ -216,6 +225,55 @@ class FeedController extends Controller
         }
 
         return $payload;
+    }
+
+    private function withNativeSponsoredAd(array $payload, ?string $placement): array
+    {
+        if(! $placement) {
+            return $payload;
+        }
+
+        try {
+            $request = request();
+            $request->query->set('placement', $placement);
+            $ad = app(TargetedAdService::class)->selectForRequest($request);
+
+            if(! $ad) {
+                return $payload;
+            }
+
+            $adService = app(TargetedAdService::class);
+            $adService->recordImpression($ad, $request);
+            (new AdShowAction($ad))->execute();
+
+            $sponsored = [
+                'id' => 'ad-' . $ad->id,
+                'type' => 'ad',
+                'ad' => AdResource::make($ad)->resolve($request),
+                'meta' => [
+                    'sponsored' => true,
+                    'placement' => $placement,
+                ],
+            ];
+            $items = $payload['data'] ?? [];
+            $insertAt = min(3, count($items));
+            array_splice($items, $insertAt, 0, [$sponsored]);
+            $payload['data'] = $items;
+        }
+        catch(\Throwable) {
+            // Native ads are optional; an ad delivery failure must not fail the feed.
+        }
+
+        return $payload;
+    }
+
+    private function nativeAdPlacement(array $filter): ?string
+    {
+        return match(data_get($filter, 'type', FeedService::TYPE_FOR_YOU)) {
+            FeedService::TYPE_REELS => 'reels',
+            FeedService::TYPE_FOR_YOU => 'feed',
+            default => null,
+        };
     }
 
     private function homeFeedRefreshProfile(array $filter): string

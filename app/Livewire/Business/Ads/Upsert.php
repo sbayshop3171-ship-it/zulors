@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use App\Services\Timeline\TopicExtractionService;
+use App\Services\Ad\AdUrlNormalizer;
 use App\Services\Filesystem\Upload\ImageUploadService;
 use App\Services\Filesystem\Upload\VideoUploadService;
 use App\Services\Filesystem\RoundRobin\RoundRobinService;
@@ -43,6 +44,14 @@ class Upsert extends Component
         $this->formData = [
             'source_type' => $this->adData->source_type ?: 'creative',
             'source_post_id' => $this->adData->source_post_id,
+            'objective' => $this->adData->objective ?: 'traffic',
+            'placement_flags' => $this->adData->placement_flags ?: ['feed'],
+            'cta_type' => $this->adData->cta_type ?: 'SEND_MESSAGE',
+            'destination_type' => $this->adData->destination_type ?: 'external_url',
+            'start_at' => optional($this->adData->start_at)->format('Y-m-d\\TH:i'),
+            'end_at' => optional($this->adData->end_at)->format('Y-m-d\\TH:i'),
+            'frequency_cap' => $this->adData->frequency_cap,
+            'target_category' => $this->adData->target_category,
             'media_type' => $this->adData->type ?: MediaType::IMAGE->value,
             'title' => $this->adData->title,
             'content' => $this->adData->content,
@@ -75,6 +84,15 @@ class Upsert extends Component
         $noButton = __('business/ads.form.cta_presets.no_button');
         $rules = [
             'formData.source_type' => ['required', Rule::in(['creative', 'post'])],
+            'formData.objective' => ['required', Rule::in(['traffic', 'message', 'booking', 'offer', 'awareness'])],
+            'formData.placement_flags' => ['required', 'array', 'min:1'],
+            'formData.placement_flags.*' => [Rule::in(['feed', 'reels', 'sidebar'])],
+            'formData.cta_type' => ['required', Rule::in(['NO_BUTTON', 'ORDER_NOW', 'BOOK_NOW', 'GET_OFFER', 'SIGN_UP', 'SEND_MESSAGE', 'LEARN_MORE', 'VISIT_WEBSITE', 'CALL_NOW', 'WHATSAPP_MESSAGE'])],
+            'formData.destination_type' => ['required', Rule::in(['external_url', 'internal_post', 'profile', 'message', 'product', 'offer', 'booking', 'phone', 'whatsapp'])],
+            'formData.start_at' => ['nullable', 'date'],
+            'formData.end_at' => ['nullable', 'date', 'after_or_equal:formData.start_at'],
+            'formData.frequency_cap' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'formData.target_category' => ['nullable', 'string', 'max:120'],
             'formData.cta_text' => [
                 'required',
                 'string',
@@ -99,7 +117,7 @@ class Upsert extends Component
             ],
         ];
 
-        if(($this->formData['cta_text'] ?? '') !== $noButton) {
+        if(($this->formData['cta_type'] ?? '') !== 'NO_BUTTON' && ($this->formData['cta_text'] ?? '') !== $noButton) {
             $rules['formData.target_url'] = [
                 'required',
                 'url',
@@ -129,6 +147,20 @@ class Upsert extends Component
 
     public function submitForm()
     {
+        $noButton = __('business/ads.form.cta_presets.no_button');
+
+        if(($this->formData['cta_text'] ?? '') !== __('business/ads.form.cta_presets.no_button')) {
+            try {
+                $this->formData['target_url'] = app(AdUrlNormalizer::class)
+                    ->normalize($this->formData['target_url'] ?? '');
+            }
+            catch (\InvalidArgumentException $exception) {
+                $this->addError('formData.target_url', $exception->getMessage());
+
+                return false;
+            }
+        }
+
         $this->validate(rules: $this->getRules(), attributes: [
             'formData.title' => __('business/ads.form.title'),
             'formData.content' => __('business/ads.form.content'),
@@ -162,6 +194,16 @@ class Upsert extends Component
         $updateData = [
             'source_type' => $sourceType,
             'source_post_id' => $sourcePost?->id,
+            'objective' => $this->formData['objective'],
+            'placement_flags' => array_values(array_unique($this->formData['placement_flags'])),
+            'cta_type' => ($this->formData['cta_type'] ?? '') === 'NO_BUTTON' || ($this->formData['cta_text'] ?? '') === $noButton
+                ? 'NO_BUTTON'
+                : $this->formData['cta_type'],
+            'destination_type' => $this->formData['destination_type'],
+            'start_at' => $this->formData['start_at'] ?: null,
+            'end_at' => $this->formData['end_at'] ?: null,
+            'frequency_cap' => $this->formData['frequency_cap'] ?: null,
+            'target_category' => filled($this->formData['target_category'] ?? null) ? trim($this->formData['target_category']) : null,
             'title' => e($sourceType === 'post' ? $this->postPreviewTitle($sourcePost) : $this->formData['title']),
             'content' => e($sourceType === 'post' ? $sourcePost->content : $this->formData['content']),
             'cta_text' => e($this->formData['cta_text']),
@@ -169,7 +211,7 @@ class Upsert extends Component
             'target_topics' => $this->normalizeTargetTopics(),
             'target_url' => ($this->formData['cta_text'] ?? '') === __('business/ads.form.cta_presets.no_button')
                 ? null
-                : $this->formData['target_url'],
+                : app(AdUrlNormalizer::class)->normalize($this->formData['target_url']),
             'type' => $sourceType === 'post' ? $this->postAdType($sourcePost) : $this->formData['media_type'],
         ];
 

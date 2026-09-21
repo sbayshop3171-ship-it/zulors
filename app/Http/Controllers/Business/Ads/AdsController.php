@@ -82,10 +82,27 @@ class AdsController extends Controller
 
     public function show($adId)
     {
-        $adData = me()->advertising()->excludeDraft()->with(['media'])->findOrFail($adId);
+        $adData = me()->advertising()->excludeDraft()->with(['media', 'impressions'])->findOrFail($adId);
+
+        $impressions = $adData->impressions;
+        $views = (int) $adData->views_count;
+        $clicks = (int) $adData->clicks_count;
+        $placementStats = $impressions->groupBy('placement')->map(function($rows) {
+            return [
+                'impressions' => (int) $rows->sum('impressions_count'),
+                'clicks' => (int) $rows->sum('clicks_count'),
+                'reach' => $rows->count(),
+            ];
+        });
 
         return view('business::ads.show.index', [
-            'adData' => $adData
+            'adData' => $adData,
+            'adAnalytics' => [
+                'reach' => $impressions->unique('fingerprint')->count(),
+                'ctr' => $views > 0 ? round(($clicks / $views) * 100, 2) : 0,
+                'cta_clicks' => $clicks,
+                'placements' => $placementStats,
+            ],
         ]);
     }
 

@@ -202,6 +202,127 @@ class VideoSafetyAdsTest extends TestCase
             ->value('impressions_count'));
     }
 
+    public function test_ad_delivery_respects_requested_placement_and_schedule(): void
+    {
+        $viewer = $this->createUser('placement-viewer');
+        $feedAd = $this->createAd('Feed placement ad', [], [
+            'placement_flags' => ['feed'],
+            'start_at' => now()->subMinute(),
+            'end_at' => now()->addMinute(),
+        ]);
+        $expiredAd = $this->createAd('Expired feed ad', [], [
+            'placement_flags' => ['feed'],
+            'end_at' => now()->subMinute(),
+        ]);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/ads/ad?placement=feed')
+            ->assertOk()
+            ->assertJsonPath('data.id', $feedAd->id)
+            ->assertJsonPath('data.placement_flags.0', 'feed');
+
+        $this->assertDatabaseHas('ad_impressions', [
+            'ad_id' => $feedAd->id,
+            'placement' => 'feed',
+            'device' => 'desktop',
+        ]);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/ads/ad?placement=reels')
+            ->assertOk()
+            ->assertJsonPath('data', null);
+
+        $this->assertDatabaseMissing('ad_impressions', ['ad_id' => $expiredAd->id]);
+    }
+
+    public function test_home_feed_injects_native_sponsored_item_without_replacing_posts(): void
+    {
+        $viewer = $this->createUser('native-feed-viewer');
+        $author = $this->createUser('native-feed-author');
+
+        foreach(range(1, 4) as $index) {
+            $this->createPost($author, "Organic feed post {$index}", now()->subMinutes($index));
+        }
+
+        $ad = $this->createAd('Native feed campaign', [], [
+            'owner' => $author,
+            'placement_flags' => ['feed'],
+        ]);
+        $this->createAdMedia($ad);
+
+        $response = $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/timeline/feed?type=for_you&candidate_limit=20')
+            ->assertOk();
+
+        $data = $response->json('data');
+        $this->assertContains('ad', array_column($data, 'type'));
+        $this->assertSame($ad->id, collect($data)->firstWhere('type', 'ad')['ad']['id']);
+        $this->assertGreaterThanOrEqual(4, count(array_filter($data, fn($item) => $item['type'] !== 'ad')));
+        $this->assertDatabaseHas('ad_impressions', [
+            'ad_id' => $ad->id,
+            'placement' => 'feed',
+        ]);
+    }
+
+    public function test_reels_feed_injects_only_reels_placement_ads(): void
+    {
+        $viewer = $this->createUser('native-reels-viewer');
+        $author = $this->createUser('native-reels-author');
+        $this->createPost($author, 'Organic reel', now(), ['type' => PostType::VIDEO]);
+
+        $reelsAd = $this->createAd('Native reels campaign', [], [
+            'owner' => $author,
+            'placement_flags' => ['reels'],
+        ]);
+        $this->createAdMedia($reelsAd);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/timeline/feed?type=reels')
+            ->assertOk()
+            ->assertJsonPath('data.0.type', 'ad')
+            ->assertJsonPath('data.0.ad.id', $reelsAd->id)
+            ->assertJsonPath('data.0.meta.placement', 'reels');
+
+        $this->assertDatabaseHas('ad_impressions', [
+            'ad_id' => $reelsAd->id,
+            'placement' => 'reels',
+        ]);
+    }
+
+    public function test_no_button_ad_has_no_resolvable_destination(): void
+    {
+        $ad = $this->createAd('No button campaign', [], ['cta_type' => 'NO_BUTTON']);
+
+        $this->assertNull(app(\App\Services\Ad\AdDestinationResolver::class)->resolve($ad));
+    }
+
+    public function test_ad_event_endpoint_records_reels_watch_metrics(): void
+    {
+        $viewer = $this->createUser('ad-event-viewer');
+        $ad = $this->createAd('Tracked reels campaign', [], ['placement_flags' => ['reels']]);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->postJson("/api/ads/event/{$ad->id}?placement=reels", [
+                'event_type' => 'completed_view',
+                'watch_time_seconds' => 9.5,
+                'completion_rate' => 1,
+                'session_id' => 'reels-session',
+            ])
+            ->assertOk();
+
+        $this->assertDatabaseHas('ad_events', [
+            'ad_id' => $ad->id,
+            'event_type' => 'completed_view',
+            'placement' => 'reels',
+            'watch_time_seconds' => 9.5,
+        ]);
+    }
+
     public function test_business_ad_form_submits_pending_campaign_without_allocating_budget(): void
     {
         $advertiser = $this->createUser('campaign-owner');
@@ -247,6 +368,65 @@ class VideoSafetyAdsTest extends TestCase
             'direction' => TransactionDirection::OUTGOING->value,
             'status' => TransactionStatus::COMPLETED->value,
         ]);
+    }
+
+    public function test_business_ad_form_rejects_malformed_target_url(): void
+    {
+        $advertiser = $this->createUser('malformed-url-owner');
+        $this->createWallet($advertiser, 50);
+        $ad = $advertiser->advertising()->create([
+            'status' => AdStatus::DRAFT,
+        ]);
+
+        $this->createAdMedia($ad);
+
+        Livewire::actingAs($advertiser)
+            ->test(AdUpsert::class, [
+                'adData' => $ad,
+                'upsertType' => 'create',
+            ])
+            ->set('formData.title', 'Malformed URL campaign')
+            ->set('formData.content', 'A practical offer for users who want a clear destination URL.')
+            ->set('formData.cta_text', 'Learn More')
+            ->set('formData.total_budget', 10)
+            ->set('formData.price_per_view', 0.05)
+            ->set('formData.target_url', 'createhttp://127.0.0.1:8765')
+            ->call('submitForm')
+            ->assertHasErrors(['formData.target_url']);
+
+        $this->assertNull($ad->refresh()->target_url);
+    }
+
+    public function test_business_ad_form_persists_structured_campaign_fields(): void
+    {
+        $advertiser = $this->createUser('structured-campaign-owner');
+        $this->createWallet($advertiser, 50);
+        $ad = $advertiser->advertising()->create(['status' => AdStatus::DRAFT]);
+        $this->createAdMedia($ad);
+
+        Livewire::actingAs($advertiser)
+            ->test(AdUpsert::class, ['adData' => $ad, 'upsertType' => 'create'])
+            ->set('formData.title', 'Structured campaign title')
+            ->set('formData.content', 'A practical offer for users who want a structured campaign destination.')
+            ->set('formData.cta_text', 'Learn More')
+            ->set('formData.cta_type', 'LEARN_MORE')
+            ->set('formData.destination_type', 'external_url')
+            ->set('formData.objective', 'offer')
+            ->set('formData.placement_flags', ['feed', 'reels'])
+            ->set('formData.frequency_cap', 2)
+            ->set('formData.target_url', 'https://example.com/offer')
+            ->set('formData.total_budget', 10)
+            ->set('formData.price_per_view', 0.05)
+            ->call('submitForm')
+            ->assertRedirect(route('business.ads.index'));
+
+        $ad->refresh();
+
+        $this->assertSame('offer', $ad->objective);
+        $this->assertSame(['feed', 'reels'], $ad->placement_flags);
+        $this->assertSame('LEARN_MORE', $ad->cta_type);
+        $this->assertSame('external_url', $ad->destination_type);
+        $this->assertSame(2, $ad->frequency_cap);
     }
 
     public function test_business_ad_form_can_boost_existing_post_without_creative_fields(): void
@@ -531,6 +711,25 @@ class VideoSafetyAdsTest extends TestCase
             'fingerprint' => "user:{$viewer->id}",
             'clicks_count' => 1,
         ]);
+    }
+
+    public function test_ad_resource_preserves_legacy_cta_and_click_placement(): void
+    {
+        $viewer = $this->createUser('ad-resource-viewer');
+        $ad = $this->createAd('Legacy resource campaign', [], [
+            'cta_type' => null,
+            'cta_text' => 'Visit website',
+            'target_url' => 'https://example.com/legacy',
+            'placement_flags' => ['feed'],
+        ]);
+        $this->createAdMedia($ad);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/ads/ad?placement=feed')
+            ->assertOk()
+            ->assertJsonPath('data.cta_type', 'VISIT_WEBSITE')
+            ->assertJsonPath('data.click_url', url("/api/ads/click/{$ad->id}?placement=feed"));
     }
 
     public function test_unused_ad_budget_is_refunded_when_campaign_is_deleted(): void

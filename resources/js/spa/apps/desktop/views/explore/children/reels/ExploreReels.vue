@@ -52,17 +52,22 @@
 
 			<template v-else-if="posts.length">
 				<div class="snap-none" v-bind:style="{ height: `${virtualTopSpacerPx}px` }"></div>
-				<ReelItem
-					v-for="(postData, index) in visiblePosts"
-					v-bind:key="postData.id"
-					v-bind:postData="postData"
-					v-bind:active="(visibleWindow.start + index) === state.activeIndex"
-					v-bind:isNear="Math.abs((visibleWindow.start + index) - state.activeIndex) <= nearRadius"
-					v-bind:distanceFromActive="Math.abs((visibleWindow.start + index) - state.activeIndex)"
-					v-bind:position="visibleWindow.start + index"
-					v-bind:feedSessionId="reelsStore.feedSessionId"
-					v-on:interaction="handleReelInteraction"
-				></ReelItem>
+				<template v-for="(postData, index) in visiblePosts" v-bind:key="postData.id">
+					<SponsoredReel
+						v-if="postData.type === 'ad'"
+						v-bind:adData="postData.ad"
+					></SponsoredReel>
+					<ReelItem
+						v-else
+						v-bind:postData="postData"
+						v-bind:active="(visibleWindow.start + index) === state.activeIndex"
+						v-bind:isNear="Math.abs((visibleWindow.start + index) - state.activeIndex) <= nearRadius"
+						v-bind:distanceFromActive="Math.abs((visibleWindow.start + index) - state.activeIndex)"
+						v-bind:position="visibleWindow.start + index"
+						v-bind:feedSessionId="reelsStore.feedSessionId"
+						v-on:interaction="handleReelInteraction"
+					></ReelItem>
+				</template>
 				<div class="snap-none" v-bind:style="{ height: `${virtualBottomSpacerPx}px` }"></div>
 
 				<div v-if="state.isLoadingMore" class="h-28 snap-start inline-flex-center bg-transparent text-white">
@@ -89,6 +94,7 @@
 	import { useExploreReelsStore } from '@D/store/explore/reels.store.js';
 
 	import ReelItem from '@D/components/reels/ReelItem.vue';
+	import SponsoredReel from '@D/components/reels/SponsoredReel.vue';
 	import SvgIcon from '@/kernel/vue/components/icons/SvgIcon.vue';
 
 	export default defineComponent({
@@ -379,6 +385,7 @@
 		},
 		components: {
 			ReelItem: ReelItem,
+			SponsoredReel: SponsoredReel,
 			SvgIcon: SvgIcon
 		}
 	});

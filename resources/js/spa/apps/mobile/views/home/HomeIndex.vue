@@ -13,8 +13,10 @@
 			<div class="pb-6">
 	            <FeedUpdate v-if="timelineNewPosts.length" v-bind:posts="timelineNewPosts" v-on:click="applyTimelineUpdate"></FeedUpdate>
 				<div v-if="timelinePosts.length">
-	                <template v-for="(postData, index) in timelinePosts" v-bind:key="postData.hash_id">
+                    <template v-for="(postData, index) in timelinePosts" v-bind:key="postData.type === 'ad' ? postData.id : postData.hash_id">
+                        <NativeSponsoredPost v-if="postData.type === 'ad'" v-bind:adData="postData.ad"></NativeSponsoredPost>
 	                    <TimelinePublication
+                            v-else
 	                        v-bind:postData="postData"
 	                        v-bind:feedSessionId="timelineFeedSessionId"
 	                        v-bind:feedType="timelineFeedType"
@@ -28,11 +30,6 @@
 	                        <FollowRecommendation v-bind:key="index"></FollowRecommendation>
 	                    </template>
 
-	                    <!-- Show ad card every 10 posts -->
-	                    <template v-if="(index + 1) % 10 === 0">
-	                        <AdCard v-bind:key="index"></AdCard>
-	                        <Border height="h-2" opacity="opacity-30"></Border>
-	                    </template>
 	                </template>
 
 					<div v-if="state.isLoadingContent">
@@ -73,7 +70,7 @@
     import StoriesFeed from '@M/components/stories/feed/StoriesFeed.vue';
     import { useStoriesStore } from '@M/store/stories/stories.store.js';
     import PublicationOutbox from '@/kernel/vue/components/media/publications/PublicationOutbox.vue';
-    import AdCard from '@M/components/ads/AdCard.vue';
+    import NativeSponsoredPost from '@M/components/ads/NativeSponsoredPost.vue';
     import FollowRecommendation from '@M/components/recommend/follow/FollowRecommendation.vue';
     import FeedUpdate from '@M/components/timeline/update/FeedUpdate.vue';
 
@@ -315,7 +312,7 @@
             TimelinePublicationSkeleton: TimelinePublicationSkeleton,
             TimelineContainer: TimelineContainer,
             StoriesFeed: StoriesFeed,
-            AdCard: AdCard,
+            NativeSponsoredPost: NativeSponsoredPost,
             FollowRecommendation: FollowRecommendation,
             FeedUpdate: FeedUpdate
         }
