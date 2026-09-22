@@ -25,6 +25,12 @@ return new class extends Migration
             });
         }
 
+        if (! $this->hasIndex('ad_impressions_ad_id_index')) {
+            Schema::table(Table::AD_IMPRESSIONS, function (Blueprint $table) {
+                $table->index('ad_id', 'ad_impressions_ad_id_index');
+            });
+        }
+
         if ($this->hasIndex('ad_impressions_ad_fingerprint_unique')) {
             Schema::table(Table::AD_IMPRESSIONS, function (Blueprint $table) {
                 $table->dropUnique('ad_impressions_ad_fingerprint_unique');
@@ -49,6 +55,12 @@ return new class extends Migration
         if (! $this->hasIndex('ad_impressions_ad_fingerprint_unique')) {
             Schema::table(Table::AD_IMPRESSIONS, function (Blueprint $table) {
                 $table->unique(['ad_id', 'fingerprint'], 'ad_impressions_ad_fingerprint_unique');
+            });
+        }
+
+        if ($this->hasIndex('ad_impressions_ad_id_index')) {
+            Schema::table(Table::AD_IMPRESSIONS, function (Blueprint $table) {
+                $table->dropIndex('ad_impressions_ad_id_index');
             });
         }
 
