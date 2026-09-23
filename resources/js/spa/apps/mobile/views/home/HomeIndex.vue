@@ -75,6 +75,20 @@
     import FeedUpdate from '@M/components/timeline/update/FeedUpdate.vue';
 
     const maxRouteLoaderMs = 120;
+    const feedLoadTimeoutMs = 10000;
+
+    const withFeedTimeout = (promise) => {
+        let timeoutId = null;
+        const timeout = new Promise((resolve) => {
+            timeoutId = window.setTimeout(() => resolve(false), feedLoadTimeoutMs);
+        });
+
+        return Promise.race([promise.then(() => true), timeout]).finally(() => {
+            if(timeoutId) {
+                window.clearTimeout(timeoutId);
+            }
+        });
+    };
 
     export default defineComponent({
         setup: function() {
@@ -218,7 +232,11 @@
                         }).catch(() => {});
                     }
                     else {
-                        await timelineStore.initialLoad();
+                        const completed = await withFeedTimeout(timelineStore.initialLoad());
+
+                        if(! completed) {
+                            console.warn('Home feed timed out; rendering the available state');
+                        }
                     }
                 } catch (error) {
                     console.log(error);

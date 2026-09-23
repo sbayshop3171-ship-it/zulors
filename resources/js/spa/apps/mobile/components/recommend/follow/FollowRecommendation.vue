@@ -41,13 +41,19 @@
 				return recommendStore.followRecommendations;
 			});
 
-			onMounted(async () => {
-				state.isLoading = ! followRecommendations.value.length;
+            onMounted(async () => {
+                state.isLoading = ! followRecommendations.value.length;
 
-				await recommendStore.fetchFollowRecommendations();
-
-				state.isLoading = false;
-			});
+                try {
+                    await recommendStore.fetchFollowRecommendations();
+                } catch (error) {
+                    if(error?.response?.status !== 401 && error?.response?.status !== 419) {
+                        console.warn('Could not load follow recommendations', error);
+                    }
+                } finally {
+                    state.isLoading = false;
+                }
+            });
 
 			return {
 				state: state,

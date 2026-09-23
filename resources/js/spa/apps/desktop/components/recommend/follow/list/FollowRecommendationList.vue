@@ -49,15 +49,23 @@
                     state.isLoading = true;
                 }
 
-                await recommendStore.fetchFollowRecommendations();
+                try {
+                    await recommendStore.fetchFollowRecommendations();
+                } catch (error) {
+                    // Recommendations are optional; an expired guest session must not
+                    // leave the sidebar spinner visible forever.
+                    if(error?.response?.status !== 401 && error?.response?.status !== 419) {
+                        console.warn('Could not load follow recommendations', error);
+                    }
+                } finally {
+                    updateAttempts++;
 
-                updateAttempts++;
+                    if(updateAttempts > 10) {
+                        clearInterval(updateInterval);
+                    }
 
-                if(updateAttempts > 10) {
-                    clearInterval(updateInterval);
+                    state.isLoading = false;
                 }
-
-                state.isLoading = false;
             }
 
 			onMounted(async () => {
