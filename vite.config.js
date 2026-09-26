@@ -70,9 +70,16 @@ export default defineConfig({
     server: {
         port: 5173,
         strictPort: true,
-        host: '0.0.0.0',
+        host: '127.0.0.1',
+        origin: 'http://127.0.0.1:5173',
+        cors: {
+            origin: [
+                'http://127.0.0.1:8001',
+                'http://localhost:8001',
+            ],
+        },
         hmr: {
-            host: 'localhost',
+            host: '127.0.0.1',
             port: 5173,
             overlay: false,
         }

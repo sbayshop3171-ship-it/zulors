@@ -300,6 +300,131 @@ class VideoSafetyAdsTest extends TestCase
         $this->assertNull(app(\App\Services\Ad\AdDestinationResolver::class)->resolve($ad));
     }
 
+    public function test_no_button_ad_click_endpoint_is_not_clickable(): void
+    {
+        $viewer = $this->createUser('no-button-click-viewer');
+        $ad = $this->createAd('No button click campaign', [], [
+            'cta_type' => 'NO_BUTTON',
+            'target_url' => null,
+        ]);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->get("/api/ads/click/{$ad->id}")
+            ->assertNotFound();
+
+        $this->assertDatabaseHas('ads', [
+            'id' => $ad->id,
+            'clicks_count' => 0,
+        ]);
+    }
+
+    public function test_post_sourced_no_button_ad_exposes_native_post_without_destination(): void
+    {
+        $viewer = $this->createUser('native-post-ad-viewer');
+        $advertiser = $this->createUser('native-post-ad-owner');
+        $post = $this->createPost($advertiser, 'Native post content #offers', now(), [
+            'title' => 'Native post title',
+            'type' => PostType::IMAGE,
+        ]);
+        $this->createImageMedia($post);
+
+        $ad = $this->createAd('Native post campaign', [], [
+            'owner' => $advertiser,
+            'source_type' => 'post',
+            'source_post_id' => $post->id,
+            'cta_type' => 'NO_BUTTON',
+            'cta_text' => 'No Button',
+            'target_url' => null,
+            'type' => 'image',
+            'placement_flags' => ['feed'],
+        ]);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/ads/ad?placement=feed')
+            ->assertOk()
+            ->assertJsonPath('data.id', $ad->id)
+            ->assertJsonPath('data.source_type', 'post')
+            ->assertJsonPath('data.source_post.id', $post->id)
+            ->assertJsonPath('data.source_post.relations.user.id', $advertiser->id)
+            ->assertJsonPath('data.click_url', null)
+            ->assertJsonPath('data.target_url', null)
+            ->assertJsonPath('data.cta_type', 'NO_BUTTON');
+    }
+
+    public function test_home_feed_injects_post_sourced_ad_with_native_post_payload(): void
+    {
+        $viewer = $this->createUser('native-post-feed-viewer');
+        $advertiser = $this->createUser('native-post-feed-owner');
+        $post = $this->createPost($advertiser, 'Feed boost content', now(), [
+            'title' => 'Feed boost title',
+            'type' => PostType::IMAGE,
+        ]);
+        $this->createImageMedia($post);
+
+        foreach(range(1, 4) as $index) {
+            $this->createPost($advertiser, "Organic post {$index}", now()->subMinutes($index));
+        }
+
+        $ad = $this->createAd('Feed post campaign', [], [
+            'owner' => $advertiser,
+            'source_type' => 'post',
+            'source_post_id' => $post->id,
+            'cta_type' => 'NO_BUTTON',
+            'cta_text' => 'No Button',
+            'target_url' => null,
+            'placement_flags' => ['feed'],
+        ]);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/timeline/feed?type=for_you&candidate_limit=20')
+            ->assertOk()
+            ->assertJsonPath('data.3.type', 'ad')
+            ->assertJsonPath('data.3.ad.id', $ad->id)
+            ->assertJsonPath('data.3.ad.source_post.id', $post->id)
+            ->assertJsonPath('data.3.ad.click_url', null);
+    }
+
+    public function test_post_sourced_ad_exposes_and_tracks_explicit_cta_destination(): void
+    {
+        $viewer = $this->createUser('native-post-cta-viewer');
+        $advertiser = $this->createUser('native-post-cta-owner');
+        $post = $this->createPost($advertiser, 'CTA post content', now(), [
+            'type' => PostType::TEXT,
+        ]);
+        $ad = $this->createAd('CTA post campaign', [], [
+            'owner' => $advertiser,
+            'source_type' => 'post',
+            'source_post_id' => $post->id,
+            'cta_type' => 'LEARN_MORE',
+            'cta_text' => 'Learn More',
+            'destination_type' => 'external_url',
+            'target_url' => 'https://example.com/cta-post',
+            'placement_flags' => ['feed'],
+        ]);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/ads/ad?placement=feed')
+            ->assertOk()
+            ->assertJsonPath('data.source_post.id', $post->id)
+            ->assertJsonPath('data.cta_type', 'LEARN_MORE')
+            ->assertJsonPath('data.target_url', 'https://example.com/cta-post')
+            ->assertJsonPath('data.click_url', url("/api/ads/click/{$ad->id}?placement=feed"));
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->get("/api/ads/click/{$ad->id}?placement=feed")
+            ->assertRedirect('https://example.com/cta-post');
+
+        $this->assertDatabaseHas('ads', [
+            'id' => $ad->id,
+            'clicks_count' => 1,
+        ]);
+    }
+
     public function test_business_ad_form_allows_no_button_without_target_url(): void
     {
         $advertiser = $this->createUser('no-button-owner');
@@ -502,6 +627,45 @@ class VideoSafetyAdsTest extends TestCase
         $this->assertSame(2, $ad->frequency_cap);
     }
 
+    public function test_business_ad_form_persists_date_schedule_category_and_multiple_detailed_targeting_chips(): void
+    {
+        $advertiser = $this->createUser('detailed-targeting-owner');
+        $this->createWallet($advertiser, 50);
+        $ad = $advertiser->advertising()->create(['status' => AdStatus::DRAFT]);
+        $this->createAdMedia($ad);
+
+        $startAt = now()->addHour()->format('Y-m-d\\TH:i');
+        $endAt = now()->addDay()->format('Y-m-d\\TH:i');
+        $topics = collect(range(1, 12))->map(fn(int $number) => "audience-keyword-{$number}")->all();
+
+        $component = Livewire::actingAs($advertiser)
+            ->test(AdUpsert::class, ['adData' => $ad, 'upsertType' => 'create'])
+            ->set('formData.title', 'Detailed audience campaign')
+            ->set('formData.content', 'A campaign with a scheduled date, a broad category, and multiple detailed audience keywords.')
+            ->set('formData.cta_type', 'NO_BUTTON')
+            ->set('formData.cta_text', 'No Button')
+            ->set('formData.start_at', $startAt)
+            ->set('formData.end_at', $endAt)
+            ->set('formData.target_category', 'technology')
+            ->set('formData.total_budget', 10)
+            ->set('formData.price_per_view', 0.05);
+
+        foreach($topics as $topic) {
+            $component->call('addTargetTopic', $topic);
+        }
+
+        $component
+            ->call('submitForm')
+            ->assertRedirect(route('business.ads.index'));
+
+        $ad->refresh();
+
+        $this->assertSame('technology', $ad->target_category);
+        $this->assertSame($topics, $ad->target_topics);
+        $this->assertSame($startAt, $ad->start_at->format('Y-m-d\\TH:i'));
+        $this->assertSame($endAt, $ad->end_at->format('Y-m-d\\TH:i'));
+    }
+
     public function test_business_ad_form_can_boost_existing_post_without_creative_fields(): void
     {
         $advertiser = $this->createUser('boost-post-owner');
@@ -523,6 +687,7 @@ class VideoSafetyAdsTest extends TestCase
         ])
             ->call('setSourceType', 'post')
             ->set('formData.source_post_id', $post->id)
+            ->set('formData.cta_type', 'LEARN_MORE')
             ->set('formData.cta_text', 'Shop Now')
             ->set('formData.target_url', $post->url)
             ->set('formData.total_budget', 10)
@@ -537,8 +702,243 @@ class VideoSafetyAdsTest extends TestCase
         $this->assertSame($post->id, $ad->source_post_id);
         $this->assertSame('Seasonal sale post', $ad->title);
         $this->assertSame('image', $ad->type);
+        $this->assertSame('LEARN_MORE', $ad->cta_type);
         $this->assertSame('Shop Now', $ad->cta_text);
+        $this->assertSame($post->url, $ad->target_url);
         $this->assertCount(0, $ad->media);
+    }
+
+    public function test_boost_post_search_reuses_recent_active_posts_when_search_is_empty(): void
+    {
+        $advertiser = $this->createUser('boost-search-owner');
+        $this->actingAs($advertiser);
+
+        $recentPost = $this->createPost($advertiser, 'Latest active boostable post', now(), [
+            'title' => 'Latest campaign',
+            'type' => PostType::IMAGE,
+        ]);
+        $this->createImageMedia($recentPost);
+
+        $ad = $advertiser->advertising()->create([
+            'status' => AdStatus::DRAFT,
+        ]);
+
+        Livewire::test(AdUpsert::class, [
+            'adData' => $ad,
+            'upsertType' => 'create',
+        ])
+            ->call('setSourceType', 'post')
+            ->set('boostPostSearch', '')
+            ->assertSee('Recent posts')
+            ->assertSee('Latest campaign')
+            ->assertDontSee('No matching posts');
+    }
+
+    public function test_boost_post_search_matches_title_content_and_hashtag_topics(): void
+    {
+        $advertiser = $this->createUser('boost-topic-owner');
+        $this->actingAs($advertiser);
+
+        $titlePost = $this->createPost($advertiser, 'Summer launch teaser', now()->subMinute(), [
+            'title' => 'Summer sale announcement',
+            'type' => PostType::TEXT,
+        ]);
+        $contentPost = $this->createPost($advertiser, 'This content mentions the weekend special offer', now()->subMinutes(2), [
+            'title' => 'Weekend content',
+            'type' => PostType::TEXT,
+        ]);
+        $topicPost = $this->createPost($advertiser, 'Marketing update #launchweek', now()->subMinutes(3), [
+            'title' => 'Launch week teaser',
+            'type' => PostType::GIF,
+        ]);
+
+        $ad = $advertiser->advertising()->create([
+            'status' => AdStatus::DRAFT,
+        ]);
+
+        Livewire::test(AdUpsert::class, [
+            'adData' => $ad,
+            'upsertType' => 'create',
+        ])
+            ->call('setSourceType', 'post')
+            ->set('boostPostSearch', 'summer')
+            ->assertSee('Summer sale announcement')
+            ->set('boostPostSearch', 'weekend')
+            ->assertSee('This content mentions the weekend special offer')
+            ->set('boostPostSearch', 'launchweek')
+            ->assertSee('Launch week teaser');
+    }
+
+    public function test_boost_post_picker_browses_older_posts_and_loads_more(): void
+    {
+        $advertiser = $this->createUser('boost-picker-history-owner');
+        $this->actingAs($advertiser);
+
+        $posts = [];
+        foreach(range(1, 14) as $index) {
+            $posts[$index] = $this->createPost($advertiser, "Older post {$index} content", now()->subMinutes($index), [
+                'title' => "Older post {$index}",
+                'type' => PostType::TEXT,
+            ]);
+        }
+
+        $ad = $advertiser->advertising()->create(['status' => AdStatus::DRAFT]);
+
+        Livewire::test(AdUpsert::class, [
+            'adData' => $ad,
+            'upsertType' => 'create',
+        ])
+            ->call('setSourceType', 'post')
+            ->assertSee('Older post 1')
+            ->assertSee('Older post 3')
+            ->assertDontSee('Older post 14')
+            ->call('openBoostPostPicker')
+            ->assertSet('boostPostPickerOpen', true)
+            ->assertSee('All active posts')
+            ->assertSee('Older post 12')
+            ->assertDontSee('Older post 14')
+            ->call('loadMoreBoostPosts')
+            ->assertSee('Older post 14')
+            ->call('chooseBoostPost', $posts[14]->id)
+            ->assertSet('formData.source_post_id', $posts[14]->id)
+            ->assertSet('boostPostPickerOpen', false);
+    }
+
+    public function test_boost_post_picker_searches_old_posts_and_sorts_by_reach(): void
+    {
+        $advertiser = $this->createUser('boost-picker-reach-owner');
+        $this->actingAs($advertiser);
+
+        $lowReachPost = $this->createPost($advertiser, 'Evergreen low reach content', now()->subHour(), [
+            'title' => 'Evergreen low reach',
+            'type' => PostType::TEXT,
+            'views_count' => 2,
+            'comments_count' => 1,
+        ]);
+        $highReachPost = $this->createPost($advertiser, 'Evergreen high reach content', now()->subHours(2), [
+            'title' => 'Evergreen high reach',
+            'type' => PostType::TEXT,
+            'views_count' => 5000,
+            'comments_count' => 120,
+            'shares_count' => 80,
+        ]);
+        $ad = $advertiser->advertising()->create(['status' => AdStatus::DRAFT]);
+
+        Livewire::test(AdUpsert::class, [
+            'adData' => $ad,
+            'upsertType' => 'create',
+        ])
+            ->call('setSourceType', 'post')
+            ->set('boostPostSearch', 'not-found')
+            ->call('openBoostPostPicker')
+            ->set('boostPostPickerSearch', 'evergreen')
+            ->set('boostPostPickerSort', 'reach')
+            ->assertSeeInOrder(['Evergreen high reach', 'Evergreen low reach'])
+            ->call('chooseBoostPost', $highReachPost->id)
+            ->assertSet('formData.source_post_id', $highReachPost->id);
+    }
+
+    public function test_boost_post_search_ignores_other_users_and_inactive_or_unsupported_posts(): void
+    {
+        $advertiser = $this->createUser('boost-filter-owner');
+        $otherUser = $this->createUser('boost-filter-other');
+        $this->actingAs($advertiser);
+
+        $validPost = $this->createPost($advertiser, 'Matching post #summer', now(), [
+            'title' => 'Matching post',
+            'type' => PostType::VIDEO,
+        ]);
+        $this->createVideoMedia($validPost, 12);
+
+        $otherPost = $this->createPost($otherUser, 'Other user matching post #summer', now(), [
+            'title' => 'Other user matching post',
+            'type' => PostType::TEXT,
+        ]);
+
+        $draftPost = $this->createPost($advertiser, 'Draft post #summer', now(), [
+            'title' => 'Draft matching post',
+            'type' => PostType::TEXT,
+            'status' => PostStatus::DRAFT,
+        ]);
+
+        $unsupportedPost = $this->createPost($advertiser, 'Unsupported post #summer', now(), [
+            'title' => 'Unsupported matching post',
+            'type' => PostType::AUDIO,
+        ]);
+
+        $ad = $advertiser->advertising()->create([
+            'status' => AdStatus::DRAFT,
+        ]);
+
+        Livewire::test(AdUpsert::class, [
+            'adData' => $ad,
+            'upsertType' => 'create',
+        ])
+            ->call('setSourceType', 'post')
+            ->set('boostPostSearch', 'summer')
+            ->assertSee('Matching post')
+            ->assertDontSee('Other user matching post')
+            ->assertDontSee('Draft matching post')
+            ->assertDontSee('Unsupported matching post');
+    }
+
+    public function test_boost_post_selection_updates_source_post_id_and_keeps_selection_when_search_clears(): void
+    {
+        $advertiser = $this->createUser('boost-select-owner');
+        $this->actingAs($advertiser);
+
+        $post = $this->createPost($advertiser, 'Selected finance update #offers', now(), [
+            'title' => 'Finance update',
+            'type' => PostType::IMAGE,
+        ]);
+        $this->createImageMedia($post);
+
+        $ad = $advertiser->advertising()->create([
+            'status' => AdStatus::DRAFT,
+        ]);
+
+        Livewire::test(AdUpsert::class, [
+            'adData' => $ad,
+            'upsertType' => 'create',
+        ])
+            ->call('setSourceType', 'post')
+            ->call('chooseBoostPost', $post->id)
+            ->assertSet('formData.source_post_id', $post->id)
+            ->assertSet('formData.cta_type', 'NO_BUTTON')
+            ->assertSet('formData.cta_text', 'No Button')
+            ->assertSet('formData.target_url', null)
+            ->set('boostPostSearch', '')
+            ->assertSet('formData.source_post_id', $post->id)
+            ->assertSee('Selected post');
+    }
+
+    public function test_boost_post_submit_rejects_invalid_source_post_id(): void
+    {
+        $advertiser = $this->createUser('boost-invalid-owner');
+        $otherUser = $this->createUser('boost-invalid-other');
+        $this->actingAs($advertiser);
+
+        $foreignPost = $this->createPost($otherUser, 'Foreign post', now(), [
+            'title' => 'Foreign title',
+            'type' => PostType::TEXT,
+        ]);
+
+        $ad = $advertiser->advertising()->create([
+            'status' => AdStatus::DRAFT,
+        ]);
+
+        Livewire::test(AdUpsert::class, [
+            'adData' => $ad,
+            'upsertType' => 'create',
+        ])
+            ->call('setSourceType', 'post')
+            ->set('formData.source_post_id', $foreignPost->id)
+            ->set('formData.cta_text', 'Learn More')
+            ->set('formData.target_url', $foreignPost->url)
+            ->set('formData.total_budget', 10)
+            ->set('formData.price_per_view', 0.05)
+            ->call('submitForm')
+            ->assertHasErrors(['formData.source_post_id']);
     }
 
     public function test_boost_post_picker_only_allows_current_users_active_supported_posts(): void

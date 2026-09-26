@@ -27,10 +27,15 @@ class TargetedAdService
         $ads = Ad::query()
             ->published()
             ->approved()
-            ->with(['user', 'media', 'sourcePost.media', 'impressions' => function($query) use ($fingerprint, $placement) {
-                $query->where('fingerprint', $fingerprint)
-                    ->where('placement', $placement);
-            }])
+            ->with([
+                'user',
+                'media',
+                'sourcePost' => fn($query) => $query->timelineFormatPosts(),
+                'impressions' => function($query) use ($fingerprint, $placement) {
+                    $query->where('fingerprint', $fingerprint)
+                        ->where('placement', $placement);
+                },
+            ])
             ->when($prevAdId, fn($query) => $query->where('id', '!=', $prevAdId))
             ->whereColumn('spent_budget', '<', 'total_budget')
             ->get()

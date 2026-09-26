@@ -5,12 +5,15 @@ namespace App\Http\Resources\Ad;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use App\Http\Resources\User\User\UserPreviewResource;
+use App\Http\Resources\User\Timeline\TimelineResource;
 use App\Services\Ad\AdDestinationResolver;
 
 class AdResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        $sourceType = $this->source_type ?: 'creative';
+        $destination = app(AdDestinationResolver::class)->resolve($this->resource);
         $legacyCtaType = blank($this->cta_type) && filled($this->target_url) && filled($this->cta_text)
             ? 'VISIT_WEBSITE'
             : ($this->cta_type ?: 'NO_BUTTON');
@@ -22,12 +25,15 @@ class AdResource extends JsonResource
             'id' => $this->id,
             'title' => $this->display_title,
             'content' => $this->display_content,
-            'target_url' => app(AdDestinationResolver::class)->resolve($this->resource),
-            'click_url' => url("/api/ads/click/{$this->id}?placement={$placement}"),
+            'target_url' => $destination,
+            'click_url' => $destination ? url("/api/ads/click/{$this->id}?placement={$placement}") : null,
             'cta_text' => $this->cta_text,
             'target_topics' => $this->target_topics ?: [],
-            'source_type' => $this->source_type ?: 'creative',
+            'source_type' => $sourceType,
             'source_post_id' => $this->source_post_id,
+            'source_post' => $sourceType === 'post' && $this->sourcePost
+                ? TimelineResource::make($this->sourcePost)
+                : null,
             'advertiser' => UserPreviewResource::make($this->user),
             'objective' => $this->objective,
             'placement_flags' => $this->placement_flags ?: ['sidebar'],

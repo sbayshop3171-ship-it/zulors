@@ -1,6 +1,13 @@
 <template>
 	<template v-if="! state.isLoading">
-		<a v-if="adData" v-bind:href="adData.click_url || adData.target_url" target="_blank" class="w-full block">
+		<component
+			v-if="adData"
+			v-bind:is="adData.click_url ? 'a' : 'div'"
+			v-bind:href="adData.click_url || undefined"
+			v-bind:target="adData.click_url ? '_blank' : undefined"
+			v-bind:rel="adData.click_url ? 'noopener' : undefined"
+			class="w-full block"
+		>
 			<div class="overflow-hidden relative">
 				<video
 					v-if="adData.media_type === 'video' && adData.video_url"
@@ -23,14 +30,14 @@
 				<p class="text-lab-sc text-par-s mb-2">
 					{{ adData.content }}
 				</p>
-				<span class="block text-lab-sc text-par-s mb-4">
+				<span v-if="adData.target_url" class="block text-lab-sc text-par-s mb-4">
 					{{ adData.target_url }}
 				</span>
-				<div class="block">
+				<div v-if="adData.cta_type !== 'NO_BUTTON' && adData.click_url" class="block">
 					<PrimaryPillButton v-bind:buttonText="adData.cta_text" v-bind:buttonFluid="true" buttonSize="md"></PrimaryPillButton>	
 				</div>
 			</div>
-		</a>
+		</component>
 	</template>
 </template>
 

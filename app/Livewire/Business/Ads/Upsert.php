@@ -36,17 +36,28 @@ class Upsert extends Component
     public $creative = null;
     public $adMedia = null;
     public string $boostPostSearch = '';
+    public bool $boostPostPickerOpen = false;
+    public string $boostPostPickerSearch = '';
+    public string $boostPostPickerSort = 'recent';
+    public int $boostPostPickerPage = 1;
+    public int $boostPostPickerPerPage = 12;
+    public array $targetTopicChips = [];
 
     public function mount()
     {
         $this->adMedia = $this->adData->media;
+        $sourceType = $this->adData->source_type ?: 'creative';
+        $ctaType = $this->adData->cta_type ?: ($sourceType === 'post'
+            ? (filled($this->adData->target_url) ? 'VISIT_WEBSITE' : 'NO_BUTTON')
+            : 'SEND_MESSAGE');
+        $noButton = __('business/ads.form.cta_presets.no_button');
 
         $this->formData = [
-            'source_type' => $this->adData->source_type ?: 'creative',
+            'source_type' => $sourceType,
             'source_post_id' => $this->adData->source_post_id,
             'objective' => $this->adData->objective ?: 'traffic',
             'placement_flags' => $this->adData->placement_flags ?: ['feed'],
-            'cta_type' => $this->adData->cta_type ?: 'SEND_MESSAGE',
+            'cta_type' => $ctaType,
             'destination_type' => $this->adData->destination_type ?: 'external_url',
             'start_at' => optional($this->adData->start_at)->format('Y-m-d\\TH:i'),
             'end_at' => optional($this->adData->end_at)->format('Y-m-d\\TH:i'),
@@ -55,12 +66,16 @@ class Upsert extends Component
             'media_type' => $this->adData->type ?: MediaType::IMAGE->value,
             'title' => $this->adData->title,
             'content' => $this->adData->content,
-            'cta_text' => $this->adData->cta_text ?: __('business/ads.form.cta_presets.send_message'),
+            'cta_text' => $ctaType === 'NO_BUTTON'
+                ? $noButton
+                : ($this->adData->cta_text ?: __('business/ads.form.cta_presets.send_message')),
             'total_budget' => $this->adData->total_budget,
             'price_per_view' => $this->adData->price_per_view ?: config('ads.price_per_view'),
             'target_topics' => $this->adData->target_topics_text,
-            'target_url' => $this->adData->target_url,
+            'target_url' => $ctaType === 'NO_BUTTON' ? null : $this->adData->target_url,
         ];
+
+        $this->targetTopicChips = $this->normalizeTopicList($this->adData->target_topics ?: []);
     }
 
     public function updatedCreative()
@@ -72,8 +87,17 @@ class Upsert extends Component
 
     public function render()
     {
+        $boostPicker = $this->boostPostPickerOpen
+            ? $this->boostPostPickerResults()
+            : ['posts' => collect(), 'hasMore' => false];
+
         return view('livewire.business.ads.upsert', [
-            'boostablePosts' => $this->boostablePostOptions(),
+            'boostablePosts' => $this->boostablePosts(
+                $this->boostPostSearch,
+                filled($this->boostPostSearch) ? 8 : 3
+            ),
+            'boostPickerPosts' => $boostPicker['posts'],
+            'boostPickerHasMore' => $boostPicker['hasMore'],
             'selectedSourcePost' => $this->selectedSourcePost(),
             'previewData' => $this->previewData(),
         ]);
@@ -113,13 +137,15 @@ class Upsert extends Component
             'formData.target_topics' => [
                 'nullable',
                 'string',
-                XRule::join('max', config('ads.targeting.topics_max_length')),
             ],
         ];
 
         $destinationType = $this->formData['destination_type'] ?? 'external_url';
         $hasAdvertiserPhone = filled($this->adData->user?->phone);
-        $derivedDestination = in_array($destinationType, ['profile', 'internal_post'], true)
+        $hasSourcePost = ($this->formData['source_type'] ?? 'creative') === 'post'
+            && filled($this->formData['source_post_id'] ?? null);
+        $derivedDestination = $destinationType === 'profile'
+            || ($destinationType === 'internal_post' && $hasSourcePost)
             || in_array($destinationType, ['phone', 'whatsapp'], true) && $hasAdvertiserPhone;
 
         if(($this->formData['cta_type'] ?? '') !== 'NO_BUTTON' && ($this->formData['cta_text'] ?? '') !== $noButton && ! $derivedDestination) {
@@ -157,7 +183,10 @@ class Upsert extends Component
             || ($this->formData['cta_text'] ?? '') === $noButton;
         $destinationType = $this->formData['destination_type'] ?? 'external_url';
         $hasAdvertiserPhone = filled($this->adData->user?->phone);
-        $derivedDestination = in_array($destinationType, ['profile', 'internal_post'], true)
+        $hasSourcePost = ($this->formData['source_type'] ?? 'creative') === 'post'
+            && filled($this->formData['source_post_id'] ?? null);
+        $derivedDestination = $destinationType === 'profile'
+            || ($destinationType === 'internal_post' && $hasSourcePost)
             || in_array($destinationType, ['phone', 'whatsapp'], true) && $hasAdvertiserPhone;
 
         if(! $isNoButton && ! $derivedDestination) {
@@ -188,13 +217,16 @@ class Upsert extends Component
         $sourcePost = null;
 
         if($sourceType === 'post') {
-            $sourcePost = $this->selectedSourcePost();
+            $sourcePost = $this->validBoostPost((int) ($this->formData['source_post_id'] ?? 0));
 
             if(empty($sourcePost)) {
                 $this->addError('formData.source_post_id', __('business/ads.form.source_post_required'));
 
                 return false;
             }
+
+            $this->formData['source_post_id'] = $sourcePost->id;
+            $this->formData['target_url'] = $this->formData['target_url'] ?? null;
         }
         else if($this->freshAdMedia()->isEmpty()) {
             $this->addError('creative', __('business/ads.form.creative_required'));
@@ -217,7 +249,7 @@ class Upsert extends Component
             'target_category' => filled($this->formData['target_category'] ?? null) ? trim($this->formData['target_category']) : null,
             'title' => e($sourceType === 'post' ? $this->postPreviewTitle($sourcePost) : $this->formData['title']),
             'content' => e($sourceType === 'post' ? $sourcePost->content : $this->formData['content']),
-            'cta_text' => e($this->formData['cta_text']),
+            'cta_text' => e($isNoButton ? $noButton : $this->formData['cta_text']),
             'price_per_view' => $this->formData['price_per_view'],
             'target_topics' => $this->normalizeTargetTopics(),
             'target_url' => $isNoButton || $derivedDestination ? null : app(AdUrlNormalizer::class)->normalize($this->formData['target_url']),
@@ -420,13 +452,11 @@ class Upsert extends Component
 
     public function updatedFormDataSourceType($value)
     {
-        if($value === 'post' && empty($this->formData['source_post_id'])) {
-            $firstPost = $this->boostablePosts()->first();
-
-            if($firstPost) {
-                $this->formData['source_post_id'] = $firstPost->id;
-                $this->formData['target_url'] = $firstPost->url;
-            }
+        if($value === 'post') {
+            $this->formData['source_post_id'] ??= null;
+            $this->resetBoostPostCtaState();
+            $this->boostPostPickerOpen = false;
+            $this->boostPostPickerPage = 1;
         }
     }
 
@@ -436,8 +466,91 @@ class Upsert extends Component
             return;
         }
 
+        $previousValue = $this->formData['source_type'] ?? 'creative';
         $this->formData['source_type'] = $value;
-        $this->updatedFormDataSourceType($value);
+
+        if($value === 'post') {
+            $this->updatedFormDataSourceType($value);
+        }
+        elseif($previousValue === 'post') {
+            $this->formData['cta_type'] = 'SEND_MESSAGE';
+            $this->formData['cta_text'] = __('business/ads.form.cta_presets.send_message');
+            $this->formData['target_url'] = null;
+            $this->formData['destination_type'] = 'external_url';
+            $this->boostPostPickerOpen = false;
+        }
+    }
+
+    private function resetBoostPostCtaState(): void
+    {
+        $this->formData['cta_type'] = 'NO_BUTTON';
+        $this->formData['cta_text'] = __('business/ads.form.cta_presets.no_button');
+        $this->formData['target_url'] = null;
+        $this->formData['destination_type'] = 'external_url';
+    }
+
+    public function chooseBoostPost(int $postId): void
+    {
+        $post = $this->validBoostPost($postId);
+
+        if(! $post) {
+            $this->addError('formData.source_post_id', __('business/ads.form.source_post_required'));
+
+            return;
+        }
+
+        $this->formData['source_post_id'] = $post->id;
+        $this->resetBoostPostCtaState();
+        $this->boostPostSearch = '';
+        $this->boostPostPickerSearch = '';
+        $this->boostPostPickerPage = 1;
+        $this->boostPostPickerOpen = false;
+    }
+
+    public function openBoostPostPicker(): void
+    {
+        $this->boostPostPickerOpen = true;
+        $this->boostPostPickerPage = 1;
+        $this->boostPostPickerSearch = trim($this->boostPostSearch);
+    }
+
+    public function closeBoostPostPicker(): void
+    {
+        $this->boostPostPickerOpen = false;
+    }
+
+    public function updatedBoostPostPickerSearch(): void
+    {
+        $this->boostPostPickerPage = 1;
+    }
+
+    public function updatedBoostPostPickerSort(): void
+    {
+        $this->boostPostPickerPage = 1;
+    }
+
+    public function loadMoreBoostPosts(): void
+    {
+        if($this->boostPostPickerOpen) {
+            $this->boostPostPickerPage++;
+        }
+    }
+
+    public function clearBoostPostSearch(): void
+    {
+        $this->boostPostSearch = '';
+    }
+
+    public function clearBoostPostSelection(): void
+    {
+        $this->formData['source_post_id'] = null;
+        $this->formData['cta_type'] = 'NO_BUTTON';
+        $this->formData['cta_text'] = __('business/ads.form.cta_presets.no_button');
+        $this->formData['target_url'] = null;
+        $this->formData['destination_type'] = 'external_url';
+        $this->boostPostPickerOpen = false;
+        $this->boostPostPickerSearch = '';
+        $this->boostPostPickerPage = 1;
     }
 
     public function setMediaType(string $value): void
@@ -460,11 +573,10 @@ class Upsert extends Component
         $post = $this->selectedSourcePost();
 
         if($post) {
-            $this->formData['target_url'] = $post->url;
-
-            if(blank($this->formData['cta_text'] ?? '')) {
-                $this->formData['cta_text'] = __('business/ads.form.cta_presets.learn_more');
-            }
+            $this->formData['cta_type'] = 'NO_BUTTON';
+            $this->formData['cta_text'] = __('business/ads.form.cta_presets.no_button');
+            $this->formData['target_url'] = null;
+            $this->formData['destination_type'] = 'external_url';
         }
     }
 
@@ -477,16 +589,70 @@ class Upsert extends Component
         }
     }
 
+    public function addTargetTopic(string $value): void
+    {
+        $values = preg_split('/[,\r\n]+/u', $value, -1, PREG_SPLIT_NO_EMPTY);
+
+        foreach($values as $topic) {
+            $normalizedTopic = app(TopicExtractionService::class)->normalizeTopic($topic);
+
+            if($normalizedTopic && ! in_array($normalizedTopic, $this->targetTopicChips, true)) {
+                $this->targetTopicChips[] = $normalizedTopic;
+            }
+        }
+
+        $this->syncTargetTopicsField();
+    }
+
+    public function removeTargetTopic(string $topic): void
+    {
+        $normalizedTopic = app(TopicExtractionService::class)->normalizeTopic($topic);
+
+        $this->targetTopicChips = array_values(array_filter(
+            $this->targetTopicChips,
+            fn(string $item) => $item !== $normalizedTopic
+        ));
+        $this->syncTargetTopicsField();
+    }
+
+    public function removeLastTargetTopic(): void
+    {
+        array_pop($this->targetTopicChips);
+        $this->syncTargetTopicsField();
+    }
+
+    public function updatedFormDataTargetTopics($value): void
+    {
+        $this->targetTopicChips = $this->normalizeTopicList($value);
+    }
+
+    private function syncTargetTopicsField(): void
+    {
+        $this->formData['target_topics'] = implode(', ', $this->targetTopicChips);
+    }
+
     private function normalizeTargetTopics(): array
     {
+        $topics = $this->targetTopicChips;
+
+        if(empty($topics) && filled($this->formData['target_topics'] ?? null)) {
+            $topics = preg_split('/[\s,]+/u', (string) $this->formData['target_topics']);
+        }
+
+        return $this->normalizeTopicList($topics);
+    }
+
+    private function normalizeTopicList(array|string|null $topics): array
+    {
         $topicExtractionService = app(TopicExtractionService::class);
-        $topics = preg_split('/[\s,]+/u', (string) ($this->formData['target_topics'] ?? ''));
+        $topics = is_array($topics)
+            ? $topics
+            : preg_split('/[\s,]+/u', (string) $topics, -1, PREG_SPLIT_NO_EMPTY);
 
         return collect($topics)
             ->map(fn($topic) => $topicExtractionService->normalizeTopic($topic))
             ->filter()
             ->unique()
-            ->take((int) config('ads.targeting.topics_limit'))
             ->values()
             ->all();
     }
@@ -508,24 +674,64 @@ class Upsert extends Component
         }
     }
 
-    private function boostablePosts()
+    private function boostablePosts(?string $search = null, int $limit = 3, ?string $sort = null)
     {
-        return Post::query()
+        $search = trim((string) ($search ?? ''));
+        $normalizedSearch = app(TopicExtractionService::class)->normalizeTopic($search) ?? $search;
+
+        $query = Post::query()
             ->where('user_id', me()->id)
             ->where('status', PostStatus::ACTIVE)
             ->whereIn('type', $this->supportedBoostPostTypes())
-            ->when(filled($this->boostPostSearch), function($query) {
-                $search = trim($this->boostPostSearch);
+            ->with([
+                'media' => fn($mediaQuery) => $mediaQuery->orderBy('order')->orderBy('id'),
+                'topics' => fn($topicQuery) => $topicQuery->select(['id', 'post_id', 'topic']),
+            ]);
 
-                $query->where(function($query) use ($search) {
-                    $query->where('title', 'like', "%{$search}%")
-                        ->orWhere('content', 'like', "%{$search}%");
-                });
-            })
-            ->with(['media'])
-            ->latest('id')
-            ->limit(30)
-            ->get();
+        if(filled($search) && mb_strlen($search, 'UTF-8') >= 2) {
+            $searchTerm = str_replace(['%', '_'], ['\\%', '\\_'], $search);
+            $normalizedTerm = str_replace(['%', '_'], ['\\%', '\\_'], $normalizedSearch);
+
+            $query->where(function($query) use ($searchTerm, $normalizedTerm) {
+                $query->where('title', 'like', "%{$searchTerm}%")
+                    ->orWhere('content', 'like', "%{$searchTerm}%")
+                    ->orWhere('title', 'like', "%{$normalizedTerm}%")
+                    ->orWhere('content', 'like', "%{$normalizedTerm}%")
+                    ->orWhereHas('topics', function($topicQuery) use ($normalizedTerm) {
+                        $topicQuery->where('topic', 'like', "%{$normalizedTerm}%");
+                    });
+            });
+        }
+
+        if($sort === 'reach') {
+            $query
+                ->orderByDesc('views_count')
+                ->orderByDesc('comments_count')
+                ->orderByDesc('shares_count')
+                ->latest('id');
+        }
+        else {
+            $query
+                ->orderByDesc('created_at')
+                ->orderByDesc('id');
+        }
+
+        return $query->limit(max(1, $limit))->get();
+    }
+
+    private function boostPostPickerResults(): array
+    {
+        $limit = max(1, $this->boostPostPickerPage * $this->boostPostPickerPerPage);
+        $posts = $this->boostablePosts(
+            $this->boostPostPickerSearch,
+            $limit + 1,
+            $this->boostPostPickerSort
+        );
+
+        return [
+            'hasMore' => $posts->count() > $limit,
+            'posts' => $posts->take($limit),
+        ];
     }
 
     private function boostablePostOptions(): array
@@ -538,20 +744,26 @@ class Upsert extends Component
             ->all();
     }
 
-    private function selectedSourcePost(): ?Post
+    private function validBoostPost(?int $postId): ?Post
     {
-        $postId = (int) ($this->formData['source_post_id'] ?? 0);
+        $postId = (int) ($postId ?? 0);
 
         if($postId < 1) {
             return null;
         }
 
         return Post::query()
+            ->where('id', $postId)
             ->where('user_id', me()->id)
             ->where('status', PostStatus::ACTIVE)
             ->whereIn('type', $this->supportedBoostPostTypes())
-            ->with(['media'])
-            ->find($postId);
+            ->with(['media', 'topics'])
+            ->first();
+    }
+
+    private function selectedSourcePost(): ?Post
+    {
+        return $this->validBoostPost((int) ($this->formData['source_post_id'] ?? 0));
     }
 
     private function supportedBoostPostTypes(): array
@@ -589,6 +801,7 @@ class Upsert extends Component
     {
         $noButton = __('business/ads.form.cta_presets.no_button');
         $ctaText = $this->formData['cta_text'] ?: __('business/ads.preview.cta_placeholder');
+        $isNoButton = ($this->formData['cta_type'] ?? '') === 'NO_BUTTON' || $ctaText === $noButton;
 
         if(($this->formData['source_type'] ?? 'creative') === 'post') {
             $post = $this->selectedSourcePost();
@@ -598,8 +811,9 @@ class Upsert extends Component
                 'source_type' => 'post',
                 'title' => $this->postPreviewTitle($post) ?: __('business/ads.preview.title_placeholder'),
                 'content' => $post?->content ?: __('business/ads.preview.content_placeholder'),
+                'cta_type' => $this->formData['cta_type'] ?? 'NO_BUTTON',
                 'cta_text' => $ctaText,
-                'target_url' => $ctaText === $noButton ? '' : ($this->formData['target_url'] ?: ($post?->url ?: '')),
+                'target_url' => $isNoButton ? '' : ($this->formData['target_url'] ?: ''),
                 'media_type' => $media?->type->value ?: ($post?->type->value ?: 'text'),
                 'media_url' => $media?->source_url,
                 'thumbnail_url' => $media?->thumbnail_url,
@@ -612,8 +826,9 @@ class Upsert extends Component
             'source_type' => 'creative',
             'title' => $this->formData['title'] ?: __('business/ads.preview.title_placeholder'),
             'content' => $this->formData['content'] ?: __('business/ads.preview.content_placeholder'),
+            'cta_type' => $this->formData['cta_type'] ?? 'SEND_MESSAGE',
             'cta_text' => $ctaText,
-            'target_url' => $ctaText === $noButton ? '' : ($this->formData['target_url'] ?: __('business/ads.preview.url_placeholder')),
+            'target_url' => $isNoButton ? '' : ($this->formData['target_url'] ?: __('business/ads.preview.url_placeholder')),
             'media_type' => $media?->type->value ?: ($this->formData['media_type'] ?? MediaType::IMAGE->value),
             'media_url' => $media?->source_url,
             'thumbnail_url' => $media?->thumbnail_url,

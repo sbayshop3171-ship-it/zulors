@@ -1,6 +1,35 @@
 @layer components {
     .business-ad-builder {
-        @apply w-full;
+        @apply block w-full min-w-0 max-w-full;
+        overflow-wrap: anywhere;
+    }
+
+    .business-ad-builder form,
+    .business-ad-builder aside,
+    .business-ad-builder article,
+    .business-ad-builder section,
+    .business-ad-builder fieldset,
+    .business-ad-builder label,
+    .business-ad-builder .grid,
+    .business-ad-builder .flex {
+        min-width: 0;
+    }
+
+    .business-ad-builder img,
+    .business-ad-builder video {
+        max-width: 100%;
+    }
+
+    .business-ad-builder input,
+    .business-ad-builder select,
+    .business-ad-builder textarea,
+    .business-ad-builder button {
+        max-width: 100%;
+    }
+
+    .business-ad-preview-media {
+        width: auto;
+        object-fit: contain;
     }
 
     .business-ad-builder form .mb-10,
@@ -135,12 +164,33 @@
     }
 
     @media (max-width: 1023px) {
+        .business-ad-builder > .grid {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .business-ad-builder > .grid > aside {
+            order: 1;
+        }
+
+        .business-ad-builder > .grid > form {
+            order: 2;
+        }
+
         .business-ads-page {
             @apply max-w-4xl;
         }
     }
 
     @media (max-width: 767px) {
+        .business-ad-builder {
+            padding-inline: 0;
+        }
+
+        .business-ad-builder .business-ad-preview-media {
+            height: auto;
+            max-height: 70vh;
+        }
+
         .business-ads-page {
             @apply pb-1;
         }
