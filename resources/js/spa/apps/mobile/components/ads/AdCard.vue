@@ -20,15 +20,15 @@
 					autoplay></video>
 				<img v-else class="w-full" v-bind:src="adData.preview_image_url" alt="Ad Creative">
 				<span class="absolute top-3 bg-black/20 leading-none text-white left-3 backdrop-blur-xs px-2 py-1.5 rounded-full text-cap-s">
-					{{ $t('labels.ad') }} &middot; 16+
+					{{ $t('labels.ad') }} &middot; Sponsored
 				</span>
 			</div>
 			<div class="p-4">
 				<h4 class="font-semibold text-par-l text-lab-pr mb-1">
-					{{ adData.title }}
+					{{ adData.headline || adData.title }}
 				</h4>
 				<p class="text-lab-sc text-par-s mb-2">
-					{{ adData.content }}
+					{{ adData.primary_text || adData.content }}
 				</p>
 				<span v-if="adData.target_url" class="block text-lab-sc text-par-s mb-4">
 					{{ adData.target_url }}

@@ -65,6 +65,8 @@ class Upsert extends Component
             'target_category' => $this->adData->target_category,
             'media_type' => $this->adData->type ?: MediaType::IMAGE->value,
             'title' => $this->adData->title,
+            'headline' => $this->adData->headline,
+            'primary_text' => $this->adData->primary_text,
             'content' => $this->adData->content,
             'cta_text' => $ctaType === 'NO_BUTTON'
                 ? $noButton
@@ -117,6 +119,8 @@ class Upsert extends Component
             'formData.end_at' => ['nullable', 'date', 'after_or_equal:formData.start_at'],
             'formData.frequency_cap' => ['nullable', 'integer', 'min:1', 'max:100'],
             'formData.target_category' => ['nullable', 'string', 'max:120'],
+            'formData.headline' => ['nullable', 'string', 'max:180'],
+            'formData.primary_text' => ['nullable', 'string', 'max:5000'],
             'formData.cta_text' => [
                 'required',
                 'string',
@@ -248,6 +252,12 @@ class Upsert extends Component
             'frequency_cap' => $this->formData['frequency_cap'] ?: null,
             'target_category' => filled($this->formData['target_category'] ?? null) ? trim($this->formData['target_category']) : null,
             'title' => e($sourceType === 'post' ? $this->postPreviewTitle($sourcePost) : $this->formData['title']),
+            'headline' => filled($this->formData['headline'] ?? null)
+                ? e($this->formData['headline'])
+                : e($sourceType === 'post' ? $this->postPreviewTitle($sourcePost) : $this->formData['title']),
+            'primary_text' => filled($this->formData['primary_text'] ?? null)
+                ? e($this->formData['primary_text'])
+                : e($sourceType === 'post' ? $sourcePost->content : $this->formData['content']),
             'content' => e($sourceType === 'post' ? $sourcePost->content : $this->formData['content']),
             'cta_text' => e($isNoButton ? $noButton : $this->formData['cta_text']),
             'price_per_view' => $this->formData['price_per_view'],

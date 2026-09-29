@@ -8,8 +8,9 @@ const useAdStore = defineStore('ad', {
         };
     },
     actions: {
-        fetchAd: async function() {
+        fetchAd: async function(placement = 'sidebar') {
             await colibriAPI().ads().params({
+				placement,
 				prev_ad_id: this.ad ? this.ad.id : null
 			}).getFrom('ad').then((response) => {
                 this.ad = response.data.data;

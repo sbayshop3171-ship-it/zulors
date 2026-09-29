@@ -1,12 +1,6 @@
 <template>
     <section class="relative h-full snap-start snap-always overflow-hidden bg-black text-white">
-        <component
-            v-bind:is="adData.click_url ? 'a' : 'div'"
-            v-bind:href="adData.click_url || undefined"
-            v-bind:target="adData.click_url ? '_blank' : undefined"
-            v-bind:rel="adData.click_url ? 'noopener' : undefined"
-            class="absolute inset-0"
-        >
+        <div class="absolute inset-0">
             <video
                 ref="videoRef"
                 v-if="adData.media_type === 'video' && adData.video_url"
@@ -21,12 +15,15 @@
                 v-on:timeupdate="handleTimeUpdate"
                 v-on:ended="handleEnded"></video>
             <img v-else class="size-full object-cover" v-bind:src="adData.preview_image_url" v-bind:alt="adData.title">
-        </component>
+        </div>
         <div class="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-1/2 bg-gradient-to-t from-black/85 via-black/35 to-transparent"></div>
         <div class="absolute left-4 right-20 bottom-5 z-20">
-            <span class="mb-2 inline-block rounded bg-black/40 px-2 py-1 text-cap-l font-semibold">{{ $t('labels.ad') }}</span>
-            <strong class="block text-par-m font-bold">{{ adData.advertiser?.name }}</strong>
-            <p class="mt-2 line-clamp-3 text-par-s leading-5 text-white/95">{{ adData.content || adData.title }}</p>
+            <span class="mb-2 inline-flex rounded-full bg-black/45 px-2.5 py-1 text-cap-l font-semibold backdrop-blur">{{ $t('labels.ad') }} · Sponsored</span>
+            <div class="flex items-center gap-2">
+                <img v-if="adData.advertiser?.avatar_url" class="size-8 rounded-full object-cover" v-bind:src="adData.advertiser.avatar_url" v-bind:alt="adData.advertiser.name">
+                <strong class="block text-par-m font-bold">{{ adData.advertiser?.name }}</strong>
+            </div>
+            <p class="mt-2 line-clamp-3 text-par-s leading-5 text-white/95">{{ adData.primary_text || adData.content || adData.title }}</p>
             <a v-if="adData.cta_type !== 'NO_BUTTON' && adData.click_url" v-bind:href="adData.click_url" target="_blank" rel="noopener" class="pointer-events-auto mt-3 inline-flex rounded-xl bg-white px-4 py-2.5 text-par-s font-bold text-black">
                 {{ adData.cta_text }}
             </a>

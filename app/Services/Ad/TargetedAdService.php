@@ -127,7 +127,7 @@ class TargetedAdService
     {
         $eventType = $request->string('event_type')->toString();
 
-        abort_unless(in_array($eventType, ['impression', 'unique_impression', 'click', 'cta_click', 'three_second_view', 'video_watch', 'completed_view'], true), 422);
+        abort_unless(in_array($eventType, ['impression', 'unique_impression', 'click', 'cta_click', 'video_start', 'three_second_view', 'six_second_view', 'video_watch', 'completed_view', 'landing_visit', 'lead', 'conversion'], true), 422);
 
         $user = $request->user() ?: auth()->user();
 

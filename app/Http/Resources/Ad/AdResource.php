@@ -23,8 +23,12 @@ class AdResource extends JsonResource
 
         return [
             'id' => $this->id,
+            'campaign_id' => $this->id,
+            'creative_id' => $this->id,
             'title' => $this->display_title,
-            'content' => $this->display_content,
+            'headline' => $this->headline ?: $this->display_title,
+            'primary_text' => $this->primary_text ?: $this->display_content,
+            'content' => $this->primary_text ?: $this->display_content,
             'target_url' => $destination,
             'click_url' => $destination ? url("/api/ads/click/{$this->id}?placement={$placement}") : null,
             'cta_text' => $this->cta_text,
@@ -37,6 +41,7 @@ class AdResource extends JsonResource
             'advertiser' => UserPreviewResource::make($this->user),
             'objective' => $this->objective,
             'placement_flags' => $this->placement_flags ?: ['sidebar'],
+            'placement' => $placement,
             'cta_type' => $legacyCtaType,
             'destination_type' => $this->destination_type ?: 'external_url',
             'media_type' => $this->display_media_type,

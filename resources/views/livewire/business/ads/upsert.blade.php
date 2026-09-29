@@ -437,6 +437,25 @@
                             </x-slot:feedbackInfo>
                         </x-form.text-input>
                     </div>
+
+                    <div class="mb-6">
+                        <x-form.text-input
+                            labelText="Headline"
+                            wire:model.live.debounce.100ms="formData.headline"
+                            name="formData.headline"
+                            placeholder="Short headline for Feed/Reels">
+                        </x-form.text-input>
+                    </div>
+
+                    <div class="mb-6">
+                        <x-form.text-input
+                            labelText="Primary text"
+                            :asText="true"
+                            wire:model.live.debounce.100ms="formData.primary_text"
+                            name="formData.primary_text"
+                            placeholder="Main message shown above the creative">
+                        </x-form.text-input>
+                    </div>
                 </x-accordion.form>
 
                 <x-accordion.form title="{{ __('business/ads.form.media_info') }}">
