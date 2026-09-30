@@ -14,6 +14,13 @@ SHARED_STORAGE_SESSIONS="${SHARED_STORAGE_SESSIONS:-${LIVE_PATH}.shared/storage/
 DEPLOY_PREBUILT_ASSETS="${DEPLOY_PREBUILT_ASSETS:-0}"
 SSH_CONTROL_DIR="${SSH_CONTROL_DIR:-/tmp/zulors-deploy-ssh}"
 
+# Values supplied by GitHub Actions environment blocks are not subject to a
+# second shell expansion.  Normalize a conventional ~/ key path before the
+# existence check below, so LIVE_SSH_KEY=~/.ssh/key works in CI too.
+if [[ "$LIVE_SSH_KEY" == '~/'* ]]; then
+	LIVE_SSH_KEY="$HOME/${LIVE_SSH_KEY#~/}"
+fi
+
 case "$DEPLOY_PREBUILT_ASSETS" in
 	0|1) ;;
 	*)
