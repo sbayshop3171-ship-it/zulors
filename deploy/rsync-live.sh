@@ -265,6 +265,9 @@ attach_shared_sessions_storage() {
 	local app_path="$1"
 
 	mkdir -p "$app_path/storage/framework" "$SHARED_STORAGE_SESSIONS"
+	# The deploy user and PHP-FPM user are different accounts on the panel host.
+	# Keep the shared session directory writable across release promotions.
+	chmod 1777 "$SHARED_STORAGE_SESSIONS"
 	rm -rf "$app_path/storage/framework/sessions"
 	ln -s "$SHARED_STORAGE_SESSIONS" "$app_path/storage/framework/sessions"
 }
