@@ -18,7 +18,9 @@ SSH_CONTROL_DIR="${SSH_CONTROL_DIR:-/tmp/zulors-deploy-ssh}"
 # second shell expansion.  Normalize a conventional ~/ key path before the
 # existence check below, so LIVE_SSH_KEY=~/.ssh/key works in CI too.
 if [[ "$LIVE_SSH_KEY" == '~/'* ]]; then
-	LIVE_SSH_KEY="$HOME/${LIVE_SSH_KEY#~/}"
+	# Remove the leading "~/" explicitly. Parameter-expansion patterns do not
+	# expand a tilde, so ${value#~/} would leave the prefix intact.
+	LIVE_SSH_KEY="$HOME/${LIVE_SSH_KEY:2}"
 fi
 
 case "$DEPLOY_PREBUILT_ASSETS" in
