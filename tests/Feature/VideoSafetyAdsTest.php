@@ -411,7 +411,8 @@ class VideoSafetyAdsTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.source_post.id', $post->id)
             ->assertJsonPath('data.cta_type', 'LEARN_MORE')
-            ->assertJsonPath('data.target_url', 'https://example.com/cta-post')
+            ->assertJsonPath('data.target_url', null)
+            ->assertJsonPath('data.cta_enabled', true)
             ->assertJsonPath('data.click_url', url("/api/ads/click/{$ad->id}?placement=feed"));
 
         $this->actingAs($viewer)
@@ -1184,6 +1185,74 @@ class VideoSafetyAdsTest extends TestCase
             'fingerprint' => "user:{$viewer->id}",
             'clicks_count' => 1,
         ]);
+    }
+
+    public function test_whatsapp_cta_uses_internal_click_tracking_and_prefilled_message(): void
+    {
+        $viewer = $this->createUser('whatsapp-cta-viewer');
+        $advertiser = $this->createUser('whatsapp-cta-owner');
+        $advertiser->update(['phone' => '+8801700000000']);
+        $ad = $this->createAd('WhatsApp campaign', [], [
+            'owner' => $advertiser,
+            'cta_type' => 'WHATSAPP_MESSAGE',
+            'cta_text' => 'Chat on WhatsApp',
+            'destination_type' => 'whatsapp',
+            'cta_message' => 'Hello, I want to learn more.',
+            'target_url' => null,
+            'placement_flags' => ['feed'],
+        ]);
+        $this->createAdMedia($ad);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/ads/ad?placement=feed')
+            ->assertOk()
+            ->assertJsonPath('data.target_url', null)
+            ->assertJsonPath('data.cta_enabled', true)
+            ->assertJsonPath('data.cta_text', 'Chat on WhatsApp')
+            ->assertJsonPath('data.cta_icon', 'whatsapp')
+            ->assertJsonPath('data.click_url', url("/api/ads/click/{$ad->id}?placement=feed"));
+
+        $this->actingAs($viewer)
+            ->get("/api/ads/click/{$ad->id}?placement=feed")
+            ->assertRedirect('https://wa.me/8801700000000?text=Hello%2C%20I%20want%20to%20learn%20more.');
+    }
+
+    public function test_standalone_ad_engagements_persist_and_toggle(): void
+    {
+        $owner = $this->createUser('engagement-owner');
+        $viewer = $this->createUser('engagement-viewer');
+        $ad = $this->createAd('Engagement campaign', [], ['owner' => $owner]);
+
+        $this->actingAs($viewer)
+            ->postJson("/api/ads/engage/{$ad->id}", ['type' => 'like'])
+            ->assertOk()
+            ->assertJsonPath('data.active', true)
+            ->assertJsonPath('data.counts.likes', 1);
+
+        $this->actingAs($viewer)
+            ->postJson("/api/ads/engage/{$ad->id}", ['type' => 'comment', 'content' => 'Looks useful'])
+            ->assertOk()
+            ->assertJsonPath('data.counts.comments', 1);
+
+        $this->actingAs($viewer)
+            ->postJson("/api/ads/engage/{$ad->id}", ['type' => 'save'])
+            ->assertOk()
+            ->assertJsonPath('data.active', true)
+            ->assertJsonPath('data.counts.saves', 1);
+
+        $this->actingAs($viewer)
+            ->getJson("/api/ads/engagements/{$ad->id}")
+            ->assertOk()
+            ->assertJsonPath('data.viewer.liked', true)
+            ->assertJsonPath('data.viewer.saved', true)
+            ->assertJsonCount(1, 'data.comments');
+
+        $this->actingAs($viewer)
+            ->postJson("/api/ads/engage/{$ad->id}", ['type' => 'like'])
+            ->assertOk()
+            ->assertJsonPath('data.active', false)
+            ->assertJsonPath('data.counts.likes', 0);
     }
 
     public function test_ad_resource_preserves_legacy_cta_and_click_placement(): void

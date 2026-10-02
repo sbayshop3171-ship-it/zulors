@@ -15,11 +15,25 @@ class AdDestinationResolver
         return match($ad->destination_type) {
             'message' => $ad->target_url,
             'phone' => filled($ad->user?->phone) ? 'tel:' . preg_replace('/[^0-9+]/', '', $ad->user->phone) : $ad->target_url,
-            'whatsapp' => filled($ad->user?->phone) ? 'https://wa.me/' . preg_replace('/[^0-9]/', '', $ad->user->phone) : $ad->target_url,
+            'whatsapp' => $this->whatsappUrl($ad),
             'internal_post' => $ad->sourcePost?->url ?: $ad->target_url,
             'profile' => $ad->user?->profile_url ?: $ad->target_url,
             'external_url', 'product', 'offer', 'booking' => $ad->target_url,
             default => $ad->target_url,
         };
+    }
+
+    private function whatsappUrl(Ad $ad): ?string
+    {
+        $phone = preg_replace('/[^0-9]/', '', (string) $ad->user?->phone);
+
+        if($phone === '') {
+            return $ad->target_url;
+        }
+
+        $url = 'https://wa.me/' . $phone;
+        $message = trim((string) $ad->cta_message);
+
+        return $message !== '' ? $url . '?text=' . rawurlencode($message) : $url;
     }
 }

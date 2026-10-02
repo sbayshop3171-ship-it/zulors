@@ -9,13 +9,13 @@
             source="sponsored_ad"
             feedType="for_you"
         ></TimelinePublication>
-        <div v-if="adData.cta_type !== 'NO_BUTTON' && adData.click_url" class="px-4 pb-4">
+        <div v-if="adData.cta_enabled && adData.click_url" class="px-4 pb-4">
             <a
                 v-bind:href="adData.click_url"
                 target="_blank"
                 rel="noopener"
                 class="block rounded-xl bg-lab-pr2 px-4 py-3 text-center text-par-s font-bold text-bg-pr transition-opacity hover:opacity-90"
-            >{{ adData.cta_text }}</a>
+            ><span class="inline-flex items-center justify-center gap-2"><SvgIcon v-if="adData.cta_icon" v-bind:name="adData.cta_icon" v-bind:type="adData.cta_icon === 'whatsapp' ? 'social' : 'line'" classes="size-4"></SvgIcon>{{ adData.cta_text }}</span></a>
         </div>
     </div>
     <article v-else class="base-publication border-b border-b-bord-tr">
@@ -40,9 +40,8 @@
             </component>
             <div class="py-3">
                 <h3 class="text-par-m font-bold text-lab-pr2">{{ adData.headline || adData.title }}</h3>
-                <p v-if="adData.target_url" class="mt-1 truncate text-cap-l text-lab-sc">{{ adData.target_url }}</p>
-                <a v-if="adData.cta_type !== 'NO_BUTTON' && adData.click_url" v-bind:href="adData.click_url" target="_blank" rel="noopener" class="mt-3 block rounded-xl bg-lab-pr2 px-4 py-2.5 text-center text-par-s font-bold text-bg-pr">
-                    {{ adData.cta_text }}
+                <a v-if="adData.cta_enabled && adData.click_url" v-bind:href="adData.click_url" target="_blank" rel="noopener" class="mt-3 block rounded-xl bg-lab-pr2 px-4 py-2.5 text-center text-par-s font-bold text-bg-pr">
+                    <span class="inline-flex items-center justify-center gap-2"><SvgIcon v-if="adData.cta_icon" v-bind:name="adData.cta_icon" v-bind:type="adData.cta_icon === 'whatsapp' ? 'social' : 'line'" classes="size-4"></SvgIcon>{{ adData.cta_text }}</span>
                 </a>
             </div>
         </div>
@@ -52,13 +51,15 @@
 <script>
 import { defineComponent } from 'vue';
 import TimelinePublication from '@D/components/timeline/feed/TimelinePublication.vue';
+import SvgIcon from '@/kernel/vue/components/icons/SvgIcon.vue';
 
 export default defineComponent({
     props: {
         adData: { type: Object, required: true }
     },
     components: {
-        TimelinePublication
+        TimelinePublication,
+        SvgIcon
     }
 });
 </script>

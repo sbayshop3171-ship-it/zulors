@@ -31,10 +31,7 @@
 					<p class="text-lab-sc text-par-s mb-2">
 						{{ adData.content }}
 					</p>
-					<span v-if="adData.target_url" class="block text-lab-sc text-par-s mb-4">
-						{{ adData.target_url }}
-					</span>
-					<div v-if="adData.cta_type !== 'NO_BUTTON' && adData.click_url" class="block">
+					<div v-if="adData.cta_enabled && adData.click_url" class="block">
 						<PrimaryPillButton v-bind:buttonText="adData.cta_text || 'Learn more'" v-bind:buttonFluid="true" buttonSize="lm"></PrimaryPillButton>
 					</div>
 				</div>

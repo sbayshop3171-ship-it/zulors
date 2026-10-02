@@ -18,3 +18,7 @@ use Illuminate\Support\Facades\Route;
 Route::get('/ad', [App\Http\Controllers\Api\Ad\AdController::class, 'getAd']);
 Route::get('/click/{adId}', [App\Http\Controllers\Api\Ad\AdController::class, 'click'])->where('adId', '\d+');
 Route::post('/event/{adId}', [App\Http\Controllers\Api\Ad\AdController::class, 'event'])->where('adId', '\d+');
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/engagements/{adId}', [App\Http\Controllers\Api\Ad\AdController::class, 'engagements'])->where('adId', '\d+');
+    Route::post('/engage/{adId}', [App\Http\Controllers\Api\Ad\AdController::class, 'engage'])->where('adId', '\d+');
+});

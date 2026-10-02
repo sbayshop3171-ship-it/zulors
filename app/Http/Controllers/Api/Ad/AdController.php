@@ -54,4 +54,78 @@ class AdController extends Controller
 
         return $this->responseSuccess(['data' => ['id' => $event->id]]);
     }
+
+    public function engagements(int $adId, Request $request)
+    {
+        $ad = Ad::published()->approved()->findOrFail($adId);
+        $userId = $request->user()->id;
+
+        $comments = $ad->engagements()->where('type', 'comment')->whereNull('parent_id')
+            ->with(['user', 'replies.user'])->latest()->limit(50)->get();
+
+        return $this->responseSuccess(['data' => [
+            'comments' => $comments,
+            'counts' => [
+                'likes' => $ad->engagements()->where('type', 'like')->count(),
+                'comments' => $ad->engagements()->where('type', 'comment')->count(),
+                'shares' => $ad->events()->where('event_type', 'share')->count(),
+                'saves' => $ad->engagements()->where('type', 'save')->count(),
+            ],
+            'viewer' => [
+                'liked' => $ad->engagements()->where(['user_id' => $userId, 'type' => 'like'])->exists(),
+                'saved' => $ad->engagements()->where(['user_id' => $userId, 'type' => 'save'])->exists(),
+            ],
+        ]]);
+    }
+
+    public function engage(int $adId, Request $request, TargetedAdService $targetedAdService)
+    {
+        $ad = Ad::published()->approved()->findOrFail($adId);
+        $data = $request->validate([
+            'type' => ['required', 'in:like,save,comment,share,report'],
+            'content' => ['nullable', 'string', 'max:2000'],
+            'parent_id' => ['nullable', 'integer'],
+        ]);
+
+        $userId = $request->user()->id;
+        $type = $data['type'];
+        $engagement = null;
+
+        if(in_array($type, ['like', 'save'], true)) {
+            $engagement = $ad->engagements()->where(['user_id' => $userId, 'type' => $type])->first();
+            if($engagement) {
+                $engagement->delete();
+                $active = false;
+            } else {
+                $engagement = $ad->engagements()->create(['user_id' => $userId, 'type' => $type]);
+                $active = true;
+            }
+        } elseif($type === 'comment') {
+            abort_if(blank(trim((string) ($data['content'] ?? ''))), 422, 'Comment content is required.');
+            $parentId = $data['parent_id'] ?? null;
+            if($parentId) {
+                abort_unless($ad->engagements()->where(['id' => $parentId, 'type' => 'comment'])->exists(), 422, 'Invalid comment parent.');
+            }
+            $engagement = $ad->engagements()->create([
+                'user_id' => $userId,
+                'parent_id' => $parentId,
+                'type' => 'comment',
+                'content' => trim($data['content']),
+            ]);
+            $active = true;
+        } else {
+            $targetedAdService->recordEvent($ad, $request->merge(['event_type' => $type]));
+            $active = true;
+        }
+
+        return $this->responseSuccess(['data' => [
+            'active' => $active,
+            'engagement' => $engagement,
+            'counts' => [
+                'likes' => $ad->engagements()->where('type', 'like')->count(),
+                'comments' => $ad->engagements()->where('type', 'comment')->count(),
+                'saves' => $ad->engagements()->where('type', 'save')->count(),
+            ],
+        ]]);
+    }
 }

@@ -705,6 +705,21 @@
                         </div>
                     @endif
 
+                    @if(($formData['cta_type'] ?? '') !== 'NO_BUTTON' && ($formData['destination_type'] ?? '') === 'whatsapp')
+                        <div class="mt-4">
+                            <x-form.text-input
+                                labelText="WhatsApp message"
+                                inputType="text"
+                                wire:model.live.debounce.100ms="formData.cta_message"
+                                name="formData.cta_message"
+                                placeholder="Hello, I would like to know more about this offer.">
+                                <x-slot:feedbackInfo>
+                                    This message is prefilled when the user opens WhatsApp.
+                                </x-slot:feedbackInfo>
+                            </x-form.text-input>
+                        </div>
+                    @endif
+
                     @if(($formData['cta_type'] ?? '') !== 'NO_BUTTON' && ($formData['cta_text'] ?? '') !== __('business/ads.form.cta_presets.no_button') && (! in_array($formData['destination_type'] ?? 'external_url', ['profile', 'internal_post'], true) && (! in_array($formData['destination_type'] ?? 'external_url', ['phone', 'whatsapp'], true) || blank($adData->user?->phone))))
                         <div class="mt-4">
                             <x-form.text-input

@@ -67,6 +67,11 @@ class Ad extends Model
         return $this->hasMany(AdEvent::class, 'ad_id');
     }
 
+    public function engagements()
+    {
+        return $this->hasMany(AdEngagement::class, 'ad_id');
+    }
+
     public function getPreviewImageUrlAttribute()
 	{
 		$media = $this->displayMedia();

@@ -20,6 +20,14 @@ class AdResource extends JsonResource
         $placement = in_array($request->query('placement'), ['feed', 'reels', 'sidebar'], true)
             ? $request->query('placement')
             : 'sidebar';
+        $ctaEnabled = $legacyCtaType !== 'NO_BUTTON' && filled($destination);
+        $ctaIcon = match ($this->destination_type) {
+            'whatsapp' => 'whatsapp',
+            'phone' => 'phone',
+            'message' => 'message-circle-02',
+            'profile', 'internal_post' => 'arrow-up-right',
+            default => 'arrow-up-right',
+        };
 
         return [
             'id' => $this->id,
@@ -29,9 +37,12 @@ class AdResource extends JsonResource
             'headline' => $this->headline ?: $this->display_title,
             'primary_text' => $this->primary_text ?: $this->display_content,
             'content' => $this->primary_text ?: $this->display_content,
-            'target_url' => $destination,
-            'click_url' => $destination ? url("/api/ads/click/{$this->id}?placement={$placement}") : null,
-            'cta_text' => $this->cta_text,
+            // Deliberately never expose the advertiser's destination URL to clients.
+            'target_url' => null,
+            'click_url' => $ctaEnabled ? url("/api/ads/click/{$this->id}?placement={$placement}") : null,
+            'cta_enabled' => $ctaEnabled,
+            'cta_icon' => $ctaEnabled ? $ctaIcon : null,
+            'cta_text' => $ctaEnabled ? $this->cta_text : null,
             'target_topics' => $this->target_topics ?: [],
             'source_type' => $sourceType,
             'source_post_id' => $this->source_post_id,

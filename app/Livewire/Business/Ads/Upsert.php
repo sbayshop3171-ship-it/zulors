@@ -71,6 +71,7 @@ class Upsert extends Component
             'cta_text' => $ctaType === 'NO_BUTTON'
                 ? $noButton
                 : ($this->adData->cta_text ?: __('business/ads.form.cta_presets.send_message')),
+            'cta_message' => $this->adData->cta_message,
             'total_budget' => $this->adData->total_budget,
             'price_per_view' => $this->adData->price_per_view ?: config('ads.price_per_view'),
             'target_topics' => $this->adData->target_topics_text,
@@ -126,6 +127,7 @@ class Upsert extends Component
                 'string',
                 XRule::join('max', config('ads.ad.validation.cta_text.max'))
             ],
+            'formData.cta_message' => ['nullable', 'string', 'max:500'],
             'formData.total_budget' => [
                 'required',
                 'numeric',
@@ -260,6 +262,7 @@ class Upsert extends Component
                 : e($sourceType === 'post' ? $sourcePost->content : $this->formData['content']),
             'content' => e($sourceType === 'post' ? $sourcePost->content : $this->formData['content']),
             'cta_text' => e($isNoButton ? $noButton : $this->formData['cta_text']),
+            'cta_message' => $isNoButton ? null : (trim((string) ($this->formData['cta_message'] ?? '')) ?: null),
             'price_per_view' => $this->formData['price_per_view'],
             'target_topics' => $this->normalizeTargetTopics(),
             'target_url' => $isNoButton || $derivedDestination ? null : app(AdUrlNormalizer::class)->normalize($this->formData['target_url']),
@@ -486,6 +489,7 @@ class Upsert extends Component
             $this->formData['cta_type'] = 'SEND_MESSAGE';
             $this->formData['cta_text'] = __('business/ads.form.cta_presets.send_message');
             $this->formData['target_url'] = null;
+            $this->formData['cta_message'] = null;
             $this->formData['destination_type'] = 'external_url';
             $this->boostPostPickerOpen = false;
         }
@@ -496,6 +500,7 @@ class Upsert extends Component
         $this->formData['cta_type'] = 'NO_BUTTON';
         $this->formData['cta_text'] = __('business/ads.form.cta_presets.no_button');
         $this->formData['target_url'] = null;
+        $this->formData['cta_message'] = null;
         $this->formData['destination_type'] = 'external_url';
     }
 
@@ -557,6 +562,7 @@ class Upsert extends Component
         $this->formData['cta_type'] = 'NO_BUTTON';
         $this->formData['cta_text'] = __('business/ads.form.cta_presets.no_button');
         $this->formData['target_url'] = null;
+        $this->formData['cta_message'] = null;
         $this->formData['destination_type'] = 'external_url';
         $this->boostPostPickerOpen = false;
         $this->boostPostPickerSearch = '';
@@ -586,6 +592,7 @@ class Upsert extends Component
             $this->formData['cta_type'] = 'NO_BUTTON';
             $this->formData['cta_text'] = __('business/ads.form.cta_presets.no_button');
             $this->formData['target_url'] = null;
+            $this->formData['cta_message'] = null;
             $this->formData['destination_type'] = 'external_url';
         }
     }
