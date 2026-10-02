@@ -21,6 +21,7 @@ class AdResource extends JsonResource
             ? $request->query('placement')
             : 'sidebar';
         $ctaEnabled = $legacyCtaType !== 'NO_BUTTON' && filled($destination);
+        $viewer = $request->user();
         $ctaIcon = match ($this->destination_type) {
             'whatsapp' => 'whatsapp',
             'phone' => 'phone',
@@ -59,7 +60,17 @@ class AdResource extends JsonResource
             'media_url' => $this->display_media_url,
             'video_url' => $this->display_media_type === 'video' ? $this->display_media_url : null,
             'thumbnail_url' => $this->display_thumbnail_url,
-            'preview_image_url' => $this->preview_image_url
+            'preview_image_url' => $this->preview_image_url,
+            'engagement_counts' => [
+                'likes' => $this->engagements()->where('type', 'like')->count(),
+                'comments' => $this->engagements()->where('type', 'comment')->count(),
+                'shares' => $this->events()->where('event_type', 'share')->count(),
+                'saves' => $this->engagements()->where('type', 'save')->count(),
+            ],
+            'viewer_engagement' => [
+                'liked' => $viewer ? $this->engagements()->where(['user_id' => $viewer->id, 'type' => 'like'])->exists() : false,
+                'saved' => $viewer ? $this->engagements()->where(['user_id' => $viewer->id, 'type' => 'save'])->exists() : false,
+            ]
         ];
     }
 }

@@ -53,6 +53,7 @@
                     <PublicationQuote v-if="quotedPost" v-bind:quotedPost="quotedPost" v-bind:key="postData.id"></PublicationQuote>
                     <PublicationQuotePlaceholder v-else></PublicationQuotePlaceholder>
                 </div>
+                <slot name="sponsored-cta"></slot>
                 <div class="px-4" v-if="postReactions.length">
                     <ReactionsViewer v-on:add="addReaction" v-bind:reactions="postReactions"></ReactionsViewer>
                 </div>

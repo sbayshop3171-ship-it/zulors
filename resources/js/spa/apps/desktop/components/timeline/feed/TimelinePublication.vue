@@ -89,6 +89,7 @@
                             <LinkSnapshot v-bind:linkSnapshot="postLinkSnapshot"></LinkSnapshot>
                         </a>
                     </div>
+                    <slot name="sponsored-cta"></slot>
                     <div class="block" v-if="postReactions.length">
                         <ReactionsViewer v-on:add="addReaction" v-bind:reactions="postReactions"></ReactionsViewer>
                     </div>
