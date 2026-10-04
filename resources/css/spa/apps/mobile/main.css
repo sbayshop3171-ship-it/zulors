@@ -8,7 +8,6 @@
 @import "./mobile-base.css";
 
 @theme {
-    --button-dot-fill-pr: var(--color-bord-pr);
-    --button-dot-fill-sc: var(--color-fill-pr);
+    --button-dot-fill-pr: var(--color-brand-900);
+    --button-dot-fill-sc: var(--color-brand-500);
 }
-

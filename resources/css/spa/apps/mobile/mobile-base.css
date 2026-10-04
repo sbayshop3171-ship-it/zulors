@@ -404,7 +404,9 @@ html.zulors-android-app .base-publication img {
 }
 
 .colibri-primary-animation{
-    @apply w-2 aspect-square rounded-full;
+    @apply size-2 rounded-full;
+    min-width: 0.5rem;
+    min-height: 0.5rem;
     animation: primary-animation 1s infinite linear alternate;
 }
 
