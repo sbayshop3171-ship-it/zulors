@@ -63,6 +63,10 @@ import androidx.core.splashscreen.SplashScreen;
 
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption;
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential;
+import com.google.android.gms.auth.api.signin.GoogleSignIn;
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount;
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
+import com.google.android.gms.common.api.ApiException;
 import com.google.android.play.core.appupdate.AppUpdateInfo;
 import com.google.android.play.core.appupdate.AppUpdateManager;
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory;
@@ -98,6 +102,7 @@ public class MainActivity extends Activity {
     private static final String DARK_CHROME_COLOR = "#111111";
 
     private static final int FILE_CHOOSER_REQUEST = 42;
+    private static final int NATIVE_GOOGLE_SIGN_IN_REQUEST = 43;
     private static final int WEB_PERMISSION_REQUEST = 43;
     private static final int GEOLOCATION_PERMISSION_REQUEST = 44;
     private static final int NOTIFICATION_PERMISSION_REQUEST = 45;
@@ -926,7 +931,7 @@ public class MainActivity extends Activity {
         String serverClientId = resolveNativeGoogleServerClientId(requestedServerClientId);
 
         if (!isNativeGoogleSignInSupported(serverClientId)) {
-            fallbackToWebGoogleOAuth("Google sign in is not available in this app. Please use email login.");
+            finishNativeGoogleSignInWithFailure("Google sign in is not available in this app. Please use email login.");
             return false;
         }
 
@@ -948,6 +953,22 @@ public class MainActivity extends Activity {
 
         if (credentialManager == null) {
             finishNativeGoogleSignInWithFailure("Google sign in is not available on this device. Please use email login.");
+            return;
+        }
+
+        // Use the native Google Sign-In activity as a compatibility path for devices
+        // whose Credential Manager provider returns GetCredentialCustomException.
+        boolean legacyNativeGoogleFlow = true;
+        if (legacyNativeGoogleFlow) {
+            try {
+            GoogleSignInOptions options = new GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                .requestIdToken(nativeGoogleServerClientId)
+                .requestEmail()
+                .build();
+            startActivityForResult(GoogleSignIn.getClient(this, options).getSignInIntent(), NATIVE_GOOGLE_SIGN_IN_REQUEST);
+            } catch (Exception exception) {
+                finishNativeGoogleSignInWithFailure("Native Google sign in could not start. Please update Google Play Services.");
+            }
             return;
         }
 
@@ -996,7 +1017,7 @@ public class MainActivity extends Activity {
         Log.w(TAG, "Native Google sign in failed: " + exceptionName + " " + exceptionMessage);
 
         if (normalizedMessage.contains("reauth failed")) {
-            fallbackToWebGoogleOAuth("Google account verification failed in the app. Please update the app or use email login.");
+            finishNativeGoogleSignInWithFailure("Google account verification failed in the app. Please try again or use email login.");
             return;
         }
 
@@ -1006,16 +1027,16 @@ public class MainActivity extends Activity {
         }
 
         if (exceptionName.contains("NoCredential")) {
-            fallbackToWebGoogleOAuth("No Google account is available on this device. Please add one or use email login.");
+            finishNativeGoogleSignInWithFailure("No Google account is available on this device. Please add one or use email login.");
             return;
         }
 
         if (exceptionName.contains("Unsupported") || exceptionName.contains("ProviderConfiguration")) {
-            fallbackToWebGoogleOAuth("Google sign in is not available on this device. Please use email login.");
+            finishNativeGoogleSignInWithFailure("Google sign in is not available on this device. Please use email login.");
             return;
         }
 
-        fallbackToWebGoogleOAuth("Google sign in could not start. Please use email login.");
+        finishNativeGoogleSignInWithFailure("Google sign in could not start. Please use email login.");
     }
 
     private void handleNativeGoogleCredential(GetCredentialResponse response) {
@@ -2516,6 +2537,26 @@ public class MainActivity extends Activity {
         if (requestCode == FLEXIBLE_UPDATE_REQUEST) {
             flexibleUpdateFlowStarted = false;
 
+            return;
+        }
+
+        if (requestCode == NATIVE_GOOGLE_SIGN_IN_REQUEST) {
+            if (data == null) {
+                finishNativeGoogleSignInCancelled("Google sign in was cancelled.");
+                return;
+            }
+            try {
+                GoogleSignInAccount account = GoogleSignIn.getSignedInAccountFromIntent(data)
+                    .getResult(ApiException.class);
+                String idToken = account == null ? null : account.getIdToken();
+                if (idToken == null || idToken.trim().isEmpty()) {
+                    finishNativeGoogleSignInWithFailure("Google did not return a usable sign-in token.");
+                    return;
+                }
+                sendNativeGoogleTokenToServer(idToken);
+            } catch (ApiException exception) {
+                finishNativeGoogleSignInWithFailure("Native Google sign in failed (status " + exception.getStatusCode() + "). Please try again.");
+            }
             return;
         }
 

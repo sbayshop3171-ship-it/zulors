@@ -451,6 +451,7 @@ dependencies {
     implementation 'androidx.credentials:credentials:$CREDENTIALS_VERSION'
     implementation 'androidx.credentials:credentials-play-services-auth:$CREDENTIALS_VERSION'
     implementation 'com.google.android.libraries.identity.googleid:googleid:$GOOGLE_ID_VERSION'
+    implementation 'com.google.android.gms:play-services-auth:21.4.0'
 }
 EOF
 
