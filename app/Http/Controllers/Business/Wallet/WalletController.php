@@ -16,6 +16,7 @@
 namespace App\Http\Controllers\Business\Wallet;
 
 use App\Http\Controllers\Controller;
+use App\Services\Ad\AdRewardService;
 
 class WalletController extends Controller
 {
@@ -25,6 +26,7 @@ class WalletController extends Controller
 
         return view('business::wallet.overview.index', [
             'walletData' => me()->wallet,
+            'walletSummary' => app(AdRewardService::class)->getWalletSummary(me()),
             'cashouts' => $cashouts
         ]);
     }

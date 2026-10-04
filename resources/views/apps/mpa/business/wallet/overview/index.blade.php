@@ -7,11 +7,18 @@
             <div class="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start">
                 <div class="min-w-0 flex-1">
                     <p class="text-par-m text-lab-sc">
-                        {{ __('business/wallet.balance_desc') }}
+                        {{ __('business/wallet.total_balance') }}
                     </p>
                     <h2 class="mt-1 text-4xl font-bold leading-none text-mint sm:text-5xl">
-                        {{ $walletData->balance->getFormattedAmount() }}
+                        {{ $walletSummary['balance']['formatted'] }}
                     </h2>
+                    <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-par-s text-lab-sc">
+                        <span>{{ __('business/wallet.cash_balance') }}: {{ $walletSummary['cash_balance']['formatted'] }}</span>
+                        <span>{{ __('business/wallet.reward_balance') }}: {{ $walletSummary['ads_reward_credit']['formatted'] }}</span>
+                    </div>
+                    <p class="mt-2 text-par-s text-lab-sc">
+                        {{ __('business/wallet.reward_balance_helper') }}
+                    </p>
                 </div>
                 <div class="min-w-0 shrink-0 sm:max-w-xs" x-data="colibriUICode">
                     <div class="flex items-start gap-3 sm:text-right">
