@@ -5,18 +5,18 @@
         </div>
 
         <div class="w-full max-w-content 2xl:max-w-3xl">
-            <button v-if="walletStore.walletData && walletStore.walletData.reward_progress" type="button" class="mb-4 block w-full rounded-2xl border border-brand-200 bg-brand-50 p-4 text-left text-lab-pr2" v-on:click="rewardModalOpen = true">
-                <div class="flex items-center justify-between gap-3">
+            <div v-if="walletStore.walletData && walletStore.walletData.reward_progress" role="button" tabindex="0" class="mb-4 block w-full cursor-pointer rounded-2xl border border-brand-200 bg-brand-50 p-4 text-left text-lab-pr2" v-on:click="rewardModalOpen = true" v-on:keydown.enter="rewardModalOpen = true" v-on:keydown.space.prevent="rewardModalOpen = true">
+                <div class="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                         <p class="font-semibold">Monthly Reward</p>
                         <p class="text-par-s text-lab-sc">{{ walletStore.walletData.reward_progress.posts_completed }}/{{ walletStore.walletData.reward_progress.required_posts }} posts completed</p>
                     </div>
-                    <button v-if="walletStore.walletData.reward_progress.status === 'ready'" type="button" class="rounded-xl bg-brand-900 px-3 py-2 text-par-s font-semibold text-white" v-on:click="claimReward">Claim ${{ walletStore.walletData.reward_progress.reward_amount }}</button>
+                    <button v-if="walletStore.walletData.reward_progress.status === 'ready'" type="button" class="w-full rounded-xl bg-brand-900 px-3 py-2 text-par-s font-semibold text-white sm:w-auto" v-on:click.stop="claimReward">Claim ${{ walletStore.walletData.reward_progress.reward_amount }}</button>
                     <span class="text-par-s font-semibold">{{ walletStore.walletData.reward_progress.status === 'claimed' ? 'Claimed' : 'View tasks' }}</span>
                 </div>
-            </button>
+            </div>
             <div v-if="rewardModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" v-on:click.self="rewardModalOpen = false">
-                <div class="w-full max-w-md rounded-3xl bg-bg-pr p-6 shadow-xl">
+                <div class="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-3xl bg-bg-pr p-5 sm:p-6 shadow-xl">
                     <div class="flex items-start justify-between gap-4">
                         <div><h3 class="text-xl font-bold text-lab-pr2">Monthly Reward</h3><p class="mt-1 text-par-s text-lab-sc">Complete these tasks to unlock your ${{ walletStore.walletData.reward_progress.reward_amount }} reward.</p></div>
                         <button type="button" class="text-2xl text-lab-sc" v-on:click="rewardModalOpen = false">&times;</button>
