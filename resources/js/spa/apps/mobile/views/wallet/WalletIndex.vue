@@ -78,16 +78,23 @@
 					</div>
 				</section>
 
-				<section v-if="walletData.reward_progress" class="mt-4 rounded-2xl border border-brand-200 bg-brand-50 p-4 text-lab-pr2">
+				<button v-if="walletData.reward_progress" type="button" class="mt-4 block w-full rounded-2xl border border-brand-200 bg-brand-50 p-4 text-left text-lab-pr2" v-on:click="state.isRewardModalOpen = true">
 					<div class="flex items-center justify-between gap-3">
 						<div>
 							<p class="font-semibold">Monthly Reward</p>
 							<p class="text-par-s text-lab-sc">{{ walletData.reward_progress.posts_completed }}/{{ walletData.reward_progress.required_posts }} posts completed</p>
 						</div>
 						<button v-if="walletData.reward_progress.status === 'ready'" type="button" class="rounded-xl bg-brand-900 px-3 py-2 text-par-s font-semibold text-white" v-on:click="claimReward">Claim ${{ walletData.reward_progress.reward_amount }}</button>
-						<span v-else class="text-par-s font-semibold">{{ walletData.reward_progress.status === 'claimed' ? 'Claimed' : 'Locked' }}</span>
+						<span class="text-par-s font-semibold">{{ walletData.reward_progress.status === 'claimed' ? 'Claimed' : 'View tasks' }}</span>
 					</div>
-				</section>
+				</button>
+				<div v-if="state.isRewardModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" v-on:click.self="state.isRewardModalOpen = false">
+					<div class="w-full rounded-3xl bg-bg-pr p-5 shadow-xl">
+						<div class="flex items-start justify-between gap-4"><div><h3 class="text-xl font-bold text-lab-pr2">Monthly Reward</h3><p class="mt-1 text-par-s text-lab-sc">Complete these tasks to unlock your ${{ walletData.reward_progress.reward_amount }} reward.</p></div><button type="button" class="text-2xl text-lab-sc" v-on:click="state.isRewardModalOpen = false">&times;</button></div>
+						<div class="mt-5 space-y-3 text-par-s"><div class="flex justify-between"><span>Email verified</span><strong>{{ walletData.reward_progress.email_verified ? 'Completed' : 'Required' }}</strong></div><div class="flex justify-between"><span>Account age</span><strong>{{ walletData.reward_progress.account_age_days }}/{{ walletData.reward_progress.account_age_required }} days</strong></div><div class="flex justify-between"><span>Valid posts this cycle</span><strong>{{ walletData.reward_progress.posts_completed }}/{{ walletData.reward_progress.required_posts }}</strong></div></div>
+						<button v-if="walletData.reward_progress.status === 'ready'" type="button" class="mt-6 w-full rounded-xl bg-brand-900 px-4 py-3 font-semibold text-white" v-on:click="claimReward">Claim Reward</button><p v-else class="mt-6 text-center text-par-s font-semibold text-lab-sc">Status: {{ walletData.reward_progress.status === 'claimed' ? 'Claimed' : 'Locked' }}</p>
+					</div>
+				</div>
 
 				<section class="mt-4 grid grid-cols-1 gap-3 min-[360px]:grid-cols-2">
 					<button
@@ -418,6 +425,7 @@
 				isTransferSheetOpen: false,
 				isWalletInfoOpen: false,
 				isWalletNumberCopied: false,
+				isRewardModalOpen: false,
 				selectedTransaction: null,
 				isBalanceVisible: true
 			});
