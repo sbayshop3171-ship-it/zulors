@@ -102,7 +102,7 @@ public class MainActivity extends Activity {
     private static final String DARK_CHROME_COLOR = "#111111";
 
     private static final int FILE_CHOOSER_REQUEST = 42;
-    private static final int NATIVE_GOOGLE_SIGN_IN_REQUEST = 43;
+    private static final int NATIVE_GOOGLE_SIGN_IN_REQUEST = 47;
     private static final int WEB_PERMISSION_REQUEST = 43;
     private static final int GEOLOCATION_PERMISSION_REQUEST = 44;
     private static final int NOTIFICATION_PERMISSION_REQUEST = 45;
@@ -115,6 +115,8 @@ public class MainActivity extends Activity {
     private static final String APP_UPDATE_PREFS = "zulors_play_updates";
     private static final String PREF_LAST_FLEXIBLE_UPDATE_PROMPT_AT = "last_flexible_update_prompt_at";
     private static final String PREF_LAST_FLEXIBLE_UPDATE_VERSION = "last_flexible_update_version";
+    private static final String STARTUP_PREFS = "zulors_startup_state";
+    private static final String PREF_LAST_SAFE_ROUTE = "last_safe_route";
     private static final long STARTUP_SPLASH_MAX_HOLD_MS = 300L;
     private static final long STARTUP_LAUNCH_COVER_MAX_HOLD_MS = 4500L;
     private static final long DEFERRED_STARTUP_TASK_DELAY_MS = 180L;
@@ -290,6 +292,13 @@ public class MainActivity extends Activity {
         scheduleStartupSplashTimeout();
         scheduleStartupLaunchCoverFallback();
         String launchUrl = resolveLaunchUrl(getIntent());
+
+        if (!hasLaunchUrl(getIntent())) {
+            String cachedRoute = getCachedSafeRoute();
+            if (cachedRoute != null) {
+                launchUrl = cachedRoute;
+            }
+        }
 
         if (hasLaunchUrl(getIntent())) {
             Uri launchUri = Uri.parse(launchUrl);
@@ -636,6 +645,8 @@ public class MainActivity extends Activity {
                 installAndroidViewportGuards(view);
                 syncSystemChromeWithPage(view);
 
+                rememberSafeRoute(url);
+
                 if (deferredStartupTasksStarted) {
                     PushTokenBridge.syncLatestToken(MainActivity.this, view);
                 }
@@ -806,6 +817,38 @@ public class MainActivity extends Activity {
         }
 
         return BuildConfig.APP_URL;
+    }
+
+    private String getCachedSafeRoute() {
+        String route = getSharedPreferences(STARTUP_PREFS, MODE_PRIVATE)
+            .getString(PREF_LAST_SAFE_ROUTE, null);
+
+        if (route == null || !isTrustedWebUrl(Uri.parse(route))) {
+            return null;
+        }
+
+        return route;
+    }
+
+    private void rememberSafeRoute(String url) {
+        if (url == null || url.trim().isEmpty()) {
+            return;
+        }
+
+        Uri uri = Uri.parse(url);
+        if (!isTrustedWebUrl(uri) || isGoogleCallbackUrl(uri)) {
+            return;
+        }
+
+        String path = uri.getPath() == null ? "/" : uri.getPath();
+        if (path.startsWith("/login") || path.startsWith("/register") || path.startsWith("/auth/")) {
+            return;
+        }
+
+        getSharedPreferences(STARTUP_PREFS, MODE_PRIVATE)
+            .edit()
+            .putString(PREF_LAST_SAFE_ROUTE, url)
+            .apply();
     }
 
     private boolean hasLaunchUrl(Intent intent) {
