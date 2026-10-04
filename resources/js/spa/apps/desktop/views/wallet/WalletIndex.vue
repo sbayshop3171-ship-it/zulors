@@ -22,7 +22,6 @@
                         <button type="button" class="text-2xl text-lab-sc" v-on:click="rewardModalOpen = false">&times;</button>
                     </div>
                     <div class="mt-5 space-y-3 text-par-s">
-                        <div class="flex justify-between"><span>Email verified</span><strong>{{ walletStore.walletData.reward_progress.email_verified ? 'Completed' : 'Required' }}</strong></div>
                         <div class="flex justify-between"><span>Account age</span><strong>{{ walletStore.walletData.reward_progress.account_age_days }}/{{ walletStore.walletData.reward_progress.account_age_required }} days</strong></div>
                         <div class="flex justify-between"><span>Valid posts this cycle</span><strong>{{ walletStore.walletData.reward_progress.posts_completed }}/{{ walletStore.walletData.reward_progress.required_posts }}</strong></div>
                     </div>
