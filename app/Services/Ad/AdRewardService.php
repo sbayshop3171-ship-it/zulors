@@ -9,8 +9,10 @@ use App\Enums\Wallet\TransactionType;
 use App\Models\Ad;
 use App\Models\AdRewardAccount;
 use App\Models\AdRewardTransaction;
+use App\Models\Post;
 use App\Models\User;
 use App\Models\Wallet;
+use App\Enums\Post\PostStatus;
 use App\Support\Num;
 use Illuminate\Support\Facades\DB;
 
@@ -31,9 +33,103 @@ class AdRewardService
         return now()->format('Y-m');
     }
 
+    public function currentCycleKey(User $user): string
+    {
+        $createdAt = $user->created_at ?: now();
+        $months = max(0, $createdAt->diffInMonths(now(), false));
+
+        return $createdAt->copy()->addMonthsNoOverflow($months)->format('Y-m-d');
+    }
+
+    public function getRewardProgress(User $user): array
+    {
+        $user->loadMissing('wallet');
+        $requiredPosts = 7;
+        $cycleKey = $this->currentCycleKey($user);
+        $cycleStart = $user->created_at->copy()->addMonthsNoOverflow(max(0, $user->created_at->diffInMonths(now(), false)));
+        $accountAgeDays = max(0, $user->created_at->startOfDay()->diffInDays(now()->startOfDay()));
+        $posts = Post::where('user_id', $user->id)
+            ->whereIn('status', [PostStatus::ACTIVE->value, PostStatus::PUBLISHED->value])
+            ->whereBetween('created_at', [$cycleStart, now()])
+            ->count();
+        $account = AdRewardAccount::where('user_id', $user->id)
+            ->where('cycle_key', $cycleKey)
+            ->first();
+        $initialAgeMet = $user->created_at->lte(now()->subDays(7));
+        $eligible = $this->isEligible($user) && $initialAgeMet && $posts >= $requiredPosts;
+        $claimed = (bool) $account?->claimed_at;
+
+        return [
+            'cycle_key' => $cycleKey,
+            'required_posts' => $requiredPosts,
+            'posts_completed' => min($posts, $requiredPosts),
+            'account_age_days' => min($accountAgeDays, 7),
+            'account_age_required' => 7,
+            'account_age_met' => $initialAgeMet,
+            'email_verified' => (bool) $user->verified,
+            'eligible' => $eligible,
+            'claimed' => $claimed,
+            'claimed_at' => $account?->claimed_at?->toIso8601String(),
+            'status' => $claimed ? 'claimed' : ($eligible ? 'ready' : 'locked'),
+            'reward_amount' => $this->monthlyAmount(),
+        ];
+    }
+
+    public function claimCurrentReward(User $user): AdRewardAccount
+    {
+        return DB::transaction(function () use ($user) {
+            $user = User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+            $progress = $this->getRewardProgress($user);
+            if (! $progress['eligible']) {
+                throw new \RuntimeException('Complete email verification, account age, and monthly post requirements first.');
+            }
+
+            $account = AdRewardAccount::where('user_id', $user->id)
+                ->where('cycle_key', $progress['cycle_key'])
+                ->lockForUpdate()->first();
+            if ($account?->claimed_at) {
+                return $account;
+            }
+
+            $account ??= AdRewardAccount::create([
+                'user_id' => $user->id,
+                'period_month' => now()->format('Y-m'),
+                'cycle_key' => $progress['cycle_key'],
+                'monthly_amount' => $this->monthlyAmount(),
+                'available_amount' => $this->monthlyAmount(),
+                'used_amount' => 0,
+                'status' => 'active',
+                'expires_at' => null,
+                'claimed_at' => now(),
+            ]);
+            if ($account->wasRecentlyCreated) {
+                $this->recordRewardTransaction($account, [
+                    'user_id' => $user->id,
+                    'period_month' => $account->period_month,
+                    'amount' => $account->monthly_amount,
+                    'transaction_type' => 'claim',
+                    'direction' => 'incoming',
+                    'metadata' => ['source' => ['name' => config('ads.name')], 'reason' => 'monthly_activity_reward'],
+                ]);
+            }
+
+            return $account;
+        });
+    }
+
     public function isEligible(User $user): bool
     {
-        return $this->isEnabled() && $user->isVerified();
+        if (! $this->isEnabled() || ! $user->isVerified()) {
+            return false;
+        }
+
+        $phone = preg_replace('/[^0-9+]/', '', (string) $user->phone);
+        if ($phone !== '' && User::where('id', '!=', $user->id)->where('verified', true)
+            ->where('phone', $user->phone)->exists()) {
+            return false;
+        }
+
+        return true;
     }
 
     public function getWalletSummary(User $user): array
@@ -61,13 +157,10 @@ class AdRewardService
             return 0;
         }
 
-        $account = $this->currentAccount($user, false);
-
-        if(empty($account) || $account->status !== 'active') {
-            return 0;
-        }
-
-        return round((float) $account->available_amount, 2);
+        return round((float) AdRewardAccount::where('user_id', $user->id)
+            ->where('status', 'active')
+            ->whereNotNull('claimed_at')
+            ->sum('available_amount'), 2);
     }
 
     public function getAvailableAdFunds(User $user): float
@@ -103,11 +196,13 @@ class AdRewardService
             $account = AdRewardAccount::create([
                 'user_id' => $user->id,
                 'period_month' => $period,
+                'cycle_key' => $this->currentCycleKey($user),
                 'monthly_amount' => $amount,
                 'available_amount' => $amount,
                 'used_amount' => 0,
                 'status' => 'active',
                 'expires_at' => now()->endOfMonth(),
+                'claimed_at' => now(),
             ]);
 
             $this->recordRewardTransaction($account, [
@@ -248,6 +343,7 @@ class AdRewardService
         $processed = 0;
 
         AdRewardAccount::where('period_month', '!=', $currentPeriod)
+            ->whereNull('claimed_at')
             ->whereIn('status', ['active', 'frozen'])
             ->chunkById(200, function($accounts) {
                 foreach($accounts as $account) {
@@ -282,14 +378,6 @@ class AdRewardService
                 }
             });
 
-        User::where('verified', true)->chunkById(200, function($users) use (&$processed) {
-            foreach($users as $user) {
-                if($this->grantCurrentMonth($user)) {
-                    $processed++;
-                }
-            }
-        });
-
         return $processed;
     }
 
@@ -299,9 +387,10 @@ class AdRewardService
             $amount = round($amount, 2);
             $user = User::whereKey($user->id)->firstOrFail();
             $wallet = Wallet::where('user_id', $user->id)->lockForUpdate()->firstOrFail();
-            $account = $this->isEligible($user) ? $this->currentAccount($user, true, true) : null;
-
-            $rewardAvailable = ($account && $account->status === 'active') ? round((float) $account->available_amount, 2) : 0;
+            $rewardAccounts = $this->isEligible($user)
+                ? AdRewardAccount::where('user_id', $user->id)->where('status', 'active')->whereNotNull('claimed_at')->orderBy('id')->lockForUpdate()->get()
+                : collect();
+            $rewardAvailable = round((float) $rewardAccounts->sum('available_amount'), 2);
             $cashAvailable = round((float) $wallet->balance->getAmount(), 2);
             $totalAvailable = round($rewardAvailable + $cashAvailable, 2);
 
@@ -315,25 +404,26 @@ class AdRewardService
             $rewardAmount = min($amount, $rewardAvailable);
             $cashAmount = round($amount - $rewardAmount, 2);
 
-            if($rewardAmount > 0 && $account) {
-                $account->update([
-                    'available_amount' => round(((float) $account->available_amount - $rewardAmount), 2),
-                    'used_amount' => round(((float) $account->used_amount + $rewardAmount), 2),
-                ]);
-
-                $this->recordRewardTransaction($account, [
-                    'user_id' => $user->id,
-                    'ad_id' => $ad->id,
-                    'period_month' => $account->period_month,
-                    'amount' => $rewardAmount,
-                    'transaction_type' => 'spend',
-                    'direction' => 'outgoing',
-                    'metadata' => [
-                        'source' => ['name' => config('ads.name')],
-                        'reason' => 'ad_budget_allocation',
-                        'price_per_view' => (float) $pricePerView,
-                    ],
-                ]);
+            if($rewardAmount > 0) {
+                $remainingReward = $rewardAmount;
+                foreach($rewardAccounts as $account) {
+                    if($remainingReward <= 0) break;
+                    $accountReward = min($remainingReward, (float) $account->available_amount);
+                    $account->update([
+                        'available_amount' => round(((float) $account->available_amount - $accountReward), 2),
+                        'used_amount' => round(((float) $account->used_amount + $accountReward), 2),
+                    ]);
+                    $this->recordRewardTransaction($account, [
+                        'user_id' => $user->id,
+                        'ad_id' => $ad->id,
+                        'period_month' => $account->period_month,
+                        'amount' => $accountReward,
+                        'transaction_type' => 'spend',
+                        'direction' => 'outgoing',
+                        'metadata' => ['source' => ['name' => config('ads.name')], 'reason' => 'ad_budget_allocation', 'price_per_view' => (float) $pricePerView],
+                    ]);
+                    $remainingReward = round($remainingReward - $accountReward, 2);
+                }
             }
 
             if($cashAmount > 0) {
@@ -521,7 +611,12 @@ class AdRewardService
     private function currentAccount(User $user, bool $create, bool $lock = false): ?AdRewardAccount
     {
         $query = AdRewardAccount::where('user_id', $user->id)
-            ->where('period_month', $this->currentPeriod());
+            ->where(function ($query) use ($user) {
+                $query->where('cycle_key', $this->currentCycleKey($user))
+                    ->orWhere(function ($legacy) {
+                        $legacy->whereNull('cycle_key')->where('period_month', $this->currentPeriod());
+                    });
+            });
 
         if($lock) {
             $query->lockForUpdate();

@@ -78,6 +78,17 @@
 					</div>
 				</section>
 
+				<section v-if="walletData.reward_progress" class="mt-4 rounded-2xl border border-brand-200 bg-brand-50 p-4 text-lab-pr2">
+					<div class="flex items-center justify-between gap-3">
+						<div>
+							<p class="font-semibold">Monthly Reward</p>
+							<p class="text-par-s text-lab-sc">{{ walletData.reward_progress.posts_completed }}/{{ walletData.reward_progress.required_posts }} posts completed</p>
+						</div>
+						<button v-if="walletData.reward_progress.status === 'ready'" type="button" class="rounded-xl bg-brand-900 px-3 py-2 text-par-s font-semibold text-white" v-on:click="claimReward">Claim ${{ walletData.reward_progress.reward_amount }}</button>
+						<span v-else class="text-par-s font-semibold">{{ walletData.reward_progress.status === 'claimed' ? 'Claimed' : 'Locked' }}</span>
+					</div>
+				</section>
+
 				<section class="mt-4 grid grid-cols-1 gap-3 min-[360px]:grid-cols-2">
 					<button
 						type="button"
@@ -429,6 +440,16 @@
 				};
 			});
 
+			const claimReward = async () => {
+				try {
+					await walletStore.claimReward();
+					toastSuccess('Monthly reward claimed successfully.');
+				}
+				catch(error) {
+					toastError(error?.response?.data?.message || 'Reward is not ready to claim.');
+				}
+			};
+
 			const transactions = computed(() => {
 				return walletStore.transactions || {
 					today: [],
@@ -575,6 +596,7 @@
 				hasTransactions: hasTransactions,
 				walletBalanceLabel: walletBalanceLabel,
 				walletCurrencyLabel: walletCurrencyLabel,
+				claimReward: claimReward,
 				copyWalletNumber: () => {
 					navigator.clipboard.writeText(walletData.value.wallet_number).then(() => {
 						state.isWalletNumberCopied = true;

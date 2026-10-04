@@ -74,6 +74,29 @@
                 </a>
             </div>
         </div>
+        <div class="mt-4 rounded-2xl border border-brand-200 bg-brand-50 p-4 text-lab-pr2">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                    <p class="text-par-m font-bold">Monthly Reward — ${{ number_format($rewardProgress['reward_amount'], 2) }}</p>
+                    <p class="mt-1 text-par-s text-lab-sc">Complete 7 posts each cycle to unlock your campaign reward.</p>
+                </div>
+                <span class="rounded-full bg-white px-3 py-1 text-par-s font-semibold">
+                    {{ ucfirst($rewardProgress['status']) }}
+                </span>
+            </div>
+            <div class="mt-3 grid gap-2 text-par-s sm:grid-cols-2">
+                <span>Posts: {{ $rewardProgress['posts_completed'] }}/{{ $rewardProgress['required_posts'] }}</span>
+                <span>Account age: {{ $rewardProgress['account_age_days'] }}/{{ $rewardProgress['account_age_required'] }} days</span>
+            </div>
+            @if($rewardProgress['eligible'] && ! $rewardProgress['claimed'])
+                <form method="POST" action="{{ route('business.wallet.reward.claim') }}" class="mt-3">
+                    @csrf
+                    <button type="submit" class="rounded-xl bg-brand-900 px-4 py-2 text-par-s font-semibold text-white">Claim Reward</button>
+                </form>
+            @elseif($rewardProgress['claimed'])
+                <p class="mt-3 text-par-s font-semibold text-green-700">Reward claimed{{ $rewardProgress['claimed_at'] ? ' on '.\Illuminate\Support\Carbon::parse($rewardProgress['claimed_at'])->format('M j, Y') : '' }}.</p>
+            @endif
+        </div>
         <div class="px-4 py-4">
             <p class="text-center text-par-s leading-6 text-lab-sc">
                 {!! __('business/wallet.about_wallet_text', [

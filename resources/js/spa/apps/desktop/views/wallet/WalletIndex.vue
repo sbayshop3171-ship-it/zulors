@@ -5,6 +5,16 @@
         </div>
 
         <div class="w-full max-w-content 2xl:max-w-3xl">
+            <div v-if="walletStore.walletData && walletStore.walletData.reward_progress" class="mb-4 rounded-2xl border border-brand-200 bg-brand-50 p-4 text-lab-pr2">
+                <div class="flex items-center justify-between gap-3">
+                    <div>
+                        <p class="font-semibold">Monthly Reward</p>
+                        <p class="text-par-s text-lab-sc">{{ walletStore.walletData.reward_progress.posts_completed }}/{{ walletStore.walletData.reward_progress.required_posts }} posts completed</p>
+                    </div>
+                    <button v-if="walletStore.walletData.reward_progress.status === 'ready'" type="button" class="rounded-xl bg-brand-900 px-3 py-2 text-par-s font-semibold text-white" v-on:click="claimReward">Claim ${{ walletStore.walletData.reward_progress.reward_amount }}</button>
+                    <span v-else class="text-par-s font-semibold">{{ walletStore.walletData.reward_progress.status === 'claimed' ? 'Claimed' : 'Locked' }}</span>
+                </div>
+            </div>
             <div class="mb-6 sm:mb-8">
                 <WalletOverview></WalletOverview>
             </div>
@@ -31,6 +41,16 @@
             const router = useRouter();
             const walletStore = useWalletStore();
             const handledPaymentStatus = ref('');
+
+            const claimReward = async () => {
+                try {
+                    await walletStore.claimReward();
+                    toastSuccess('Monthly reward claimed successfully.');
+                }
+                catch(error) {
+                    toastError(error?.response?.data?.message || 'Reward is not ready to claim.');
+                }
+            };
 
             const refreshWallet = async () => {
                 await Promise.allSettled([
@@ -81,6 +101,11 @@
             onMounted(handlePaymentReturn);
 
             watch(() => route.query.payment, handlePaymentReturn);
+
+            return {
+                walletStore,
+                claimReward
+            };
         },
         components: {
             PageTitle: PageTitle,

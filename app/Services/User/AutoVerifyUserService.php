@@ -27,8 +27,6 @@ class AutoVerifyUserService
             'verified_at' => $user->verified_at ?: now(),
         ])->save();
 
-        app(AdRewardService::class)->grantCurrentMonth($user->refresh());
-
         return true;
     }
 }

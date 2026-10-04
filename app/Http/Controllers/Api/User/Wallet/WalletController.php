@@ -35,15 +35,37 @@ class WalletController extends Controller
     public function getData(Request $request)
     {
         $wallet = me()->wallet;
+        $rewardService = app(AdRewardService::class);
 
         $fiatCurrencyService = app(FiatCurrencyService::class);
 
         return $this->responseSuccess([
-            'data' => array_merge(app(AdRewardService::class)->getWalletSummary(me()), [
+            'data' => array_merge($rewardService->getWalletSummary(me()), [
+                'reward_progress' => $rewardService->getRewardProgress(me()),
                 'wallet_number' => $wallet->wallet_number,
                 'currency' => $fiatCurrencyService->getCurrencyData($wallet->currency)->toArray()
             ])
         ]);
+    }
+
+    public function claimReward()
+    {
+        try {
+            app(AdRewardService::class)->claimCurrentReward(me());
+
+            return $this->responseSuccess([
+                'data' => [
+                    'reward_progress' => app(AdRewardService::class)->getRewardProgress(me()->refresh()),
+                    'wallet' => app(AdRewardService::class)->getWalletSummary(me()->refresh()),
+                ],
+                'message' => 'Monthly reward claimed successfully.',
+            ]);
+        } catch (Exception $e) {
+            return $this->responseValidationError([
+                'message' => $e->getMessage(),
+                'errors' => ['reward' => [$e->getMessage()]],
+            ]);
+        }
     }
 
     public function getPaymentProviders()

@@ -16,6 +16,7 @@ class AdRewardAccount extends Model
         'available_amount' => 'float',
         'used_amount' => 'float',
         'expires_at' => 'datetime',
+        'claimed_at' => 'datetime',
     ];
 
     public function user()

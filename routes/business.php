@@ -87,6 +87,8 @@ Route::post('/jobs/{jobId}/publish', [App\Http\Controllers\Business\Job\JobContr
 
 Route::middleware('features.status:wallet')->get('/wallet', [App\Http\Controllers\Business\Wallet\WalletController::class, 'index'])
     ->name('business.wallet.index');
+Route::middleware('features.status:wallet')->post('/wallet/reward/claim', [App\Http\Controllers\Business\Wallet\WalletController::class, 'claimReward'])
+    ->name('business.wallet.reward.claim');
 
 Route::middleware('features.status:wallet')->get('/wallet/cashouts', [App\Http\Controllers\Business\Wallet\WalletController::class, 'index'])
     ->name('business.wallet.cashouts');

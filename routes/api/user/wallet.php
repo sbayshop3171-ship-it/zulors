@@ -16,6 +16,7 @@
 use Illuminate\Support\Facades\Route;
 
 Route::get('/data', [App\Http\Controllers\Api\User\Wallet\WalletController::class, 'getData']);
+Route::post('/reward/claim', [App\Http\Controllers\Api\User\Wallet\WalletController::class, 'claimReward']);
 Route::get('/payment/providers', [App\Http\Controllers\Api\User\Wallet\WalletController::class, 'getPaymentProviders']);
 Route::post('/deposit', [App\Http\Controllers\Api\User\Wallet\WalletController::class, 'createDepositPayment']);
 Route::post('/transfer', [App\Http\Controllers\Api\User\Wallet\WalletController::class, 'makeTransfer']);

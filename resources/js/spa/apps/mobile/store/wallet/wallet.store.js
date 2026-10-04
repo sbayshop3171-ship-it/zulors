@@ -23,6 +23,11 @@ const useWalletStore = defineStore('mobile_wallet_store', {
 
 			return response;
 		},
+		claimReward: async function() {
+			const response = await colibriAPI().wallet().sendTo('reward/claim');
+			this.walletData = Object.assign({}, this.walletData, response.data.data.wallet, { reward_progress: response.data.data.reward_progress });
+			return response;
+		},
 		fetchPaymentProviders: async function() {
 			const response = await colibriAPI().wallet().params({
 				_: Date.now()

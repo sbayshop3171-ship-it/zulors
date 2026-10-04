@@ -17,6 +17,7 @@ namespace App\Http\Controllers\Business\Wallet;
 
 use App\Http\Controllers\Controller;
 use App\Services\Ad\AdRewardService;
+use Illuminate\Http\RedirectResponse;
 
 class WalletController extends Controller
 {
@@ -27,6 +28,7 @@ class WalletController extends Controller
         return view('business::wallet.overview.index', [
             'walletData' => me()->wallet,
             'walletSummary' => app(AdRewardService::class)->getWalletSummary(me()),
+            'rewardProgress' => app(AdRewardService::class)->getRewardProgress(me()),
             'cashouts' => $cashouts
         ]);
     }
@@ -34,5 +36,15 @@ class WalletController extends Controller
     public function createCashout()
     {
         return view('business::wallet.cashout.create');
+    }
+
+    public function claimReward(AdRewardService $rewardService): RedirectResponse
+    {
+        try {
+            $rewardService->claimCurrentReward(me());
+            return redirect()->route('business.wallet.index')->with('flashMessage', 'Monthly reward claimed successfully.');
+        } catch (\Throwable $e) {
+            return redirect()->route('business.wallet.index')->with('errorMessage', $e->getMessage());
+        }
     }
 }
