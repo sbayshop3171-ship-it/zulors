@@ -5,4 +5,9 @@
 @import "../../../themes/light/colors.css" layer(theme);
 @import "../../../themes/runtime.css";
 
+@theme {
+    --button-dot-fill-pr: var(--color-lab-pr2);
+    --button-dot-fill-sc: var(--color-brand-900);
+}
+
 @import "./desktop-base.css";

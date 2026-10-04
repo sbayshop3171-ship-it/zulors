@@ -4,6 +4,11 @@
 @import "../../../../themes/devices/desktop.css" layer(theme);
 @import "../../../../themes/dark/colors.css" layer(theme);
 
+@theme {
+    --button-dot-fill-pr: var(--color-lab-pr);
+    --button-dot-fill-sc: var(--color-lab-pr3);
+}
+
 @import "../desktop-base.css";
 
 @plugin "tailwindcss-primeui";
