@@ -56,7 +56,7 @@ return [
             (string) env('GOOGLE_NATIVE_CLIENT_IDS', ''),
             (string) env('GOOGLE_ANDROID_WEB_CLIENT_ID', ''),
             (string) env('GOOGLE_WEB_CLIENT_ID', ''),
-            '505126705219-c4alnqlmvgio1oh1p1qedjj2unj6s6m3.apps.googleusercontent.com',
+            '92185010272-6likk4ebn353qm2mjdembk8cttaivfl3.apps.googleusercontent.com',
         ])))))),
     ],
     'translation' => [
