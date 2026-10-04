@@ -3,8 +3,8 @@
 @plugin "tailwindcss-primeui";
 
 @theme {
-    --button-dot-fill-pr: var(--color-brand-900);
-    --button-dot-fill-sc: var(--color-brand-500);
+    --button-dot-fill-pr: var(--color-lab-pr2);
+    --button-dot-fill-sc: var(--color-brand-900);
 }
 
 @import "../../../themes/base.css" layer(theme);
@@ -12,5 +12,4 @@
 @import "../../../themes/light/colors.css" layer(theme);
 @import "../../../themes/runtime.css";
 @import "./desktop-base.css";
-
 
