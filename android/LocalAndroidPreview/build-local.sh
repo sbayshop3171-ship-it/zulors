@@ -241,6 +241,13 @@ if [ ! -f "$KEYSTORE" ]; then
 		>/dev/null 2>&1
 fi
 
+echo "Android signing certificate fingerprints for this build:"
+"$JDK_HOME/bin/keytool" -list -v \
+	-keystore "$KEYSTORE" \
+	-alias androiddebugkey \
+	-storepass android \
+	-keypass android 2>/dev/null | awk '/SHA1:|SHA256:/ { print "  " $0 }'
+
 if [ "$BUILD_TYPE" = "release" ]; then
 	if [ -z "${RELEASE_STORE_PASSWORD:-}" ] || [ -z "${RELEASE_KEY_PASSWORD:-}" ]; then
 		echo "Release builds require RELEASE_STORE_PASSWORD and RELEASE_KEY_PASSWORD." >&2
@@ -269,6 +276,13 @@ if [ "$BUILD_TYPE" = "release" ]; then
 			-keysize 2048 \
 			>/dev/null
 	fi
+	echo "Release signing certificate fingerprints for this build:"
+	"$JDK_HOME/bin/keytool" -list -v \
+		-keystore "$RELEASE_KEYSTORE" \
+		-storetype "$RELEASE_KEYSTORE_TYPE" \
+		-alias "$RELEASE_KEY_ALIAS" \
+		-storepass "$RELEASE_STORE_PASSWORD" \
+		-keypass "$RELEASE_KEY_PASSWORD" 2>/dev/null | awk '/SHA1:|SHA256:/ { print "  " $0 }'
 fi
 
 GRADLE_PROJECT="$BUILD/gradle"
