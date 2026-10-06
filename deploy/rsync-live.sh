@@ -167,7 +167,7 @@ ssh "${SSH_OPTS[@]}" "${LIVE_USER}@${LIVE_HOST}" "set -e && \
 	php artisan about --only=environment --no-ansi >/dev/null"
 
 echo "Promoting staged release to live..."
-ssh "${SSH_OPTS[@]}" "${LIVE_USER}@${LIVE_HOST}" "bash -s" -- "$LIVE_PATH" "$REMOTE_RELEASE" "$REMOTE_BACKUP" "$LIVE_URL" "$SHARED_STORAGE_PUBLIC" "$SHARED_STORAGE_PRIVATE" "$SHARED_STORAGE_SESSIONS" <<'REMOTE'
+ssh "${SSH_OPTS[@]}" "${LIVE_USER}@${LIVE_HOST}" "bash -s" -- "$LIVE_PATH" "$REMOTE_RELEASE" "$REMOTE_BACKUP" "$LIVE_URL" "$SHARED_STORAGE_PUBLIC" "$SHARED_STORAGE_PRIVATE" "$SHARED_STORAGE_SESSIONS" "$DEPLOY_LOCK_WAIT_SECONDS" <<'REMOTE'
 set -euo pipefail
 
 LIVE_PATH="$1"
@@ -177,6 +177,7 @@ LIVE_URL="$4"
 SHARED_STORAGE_PUBLIC="$5"
 SHARED_STORAGE_PRIVATE="$6"
 SHARED_STORAGE_SESSIONS="$7"
+DEPLOY_LOCK_WAIT_SECONDS="$8"
 
 exec 9>"${LIVE_PATH}.deploy.lock"
 echo "Waiting for any active live deployment to finish (up to ${DEPLOY_LOCK_WAIT_SECONDS}s)..."
