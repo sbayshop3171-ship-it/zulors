@@ -73,6 +73,13 @@ class MessageReceivedNotification extends Notification
                 'chat_id' => $chatUuid,
                 'chat_pk' => $this->messageData?->chat_id,
                 'message_id' => $this->messageData?->id,
+                'message_text' => $showPreview ? html_entity_decode(strip_tags($text)) : null,
+                'message_type' => $this->messageData?->type,
+                'created_at' => $this->messageData?->created_at?->toISOString(),
+                'notification_id' => $chatUuid && $this->messageData?->id
+                    ? "chat:{$chatUuid}:{$this->messageData->id}"
+                    : null,
+                'collapse_key' => $chatUuid ? "chat:{$chatUuid}" : null,
                 'sender_id' => $sender?->id,
                 'sender_name' => $sender?->name,
                 'sender_username' => $sender?->username,

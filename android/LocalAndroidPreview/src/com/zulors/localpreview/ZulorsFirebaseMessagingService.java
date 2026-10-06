@@ -7,7 +7,6 @@ import android.app.PendingIntent;
 import android.app.RemoteInput;
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.media.AudioAttributes;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -22,7 +21,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.media.RingtoneManager;
 import android.media.AudioManager;
-import android.text.TextUtils;
 
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
@@ -30,8 +28,6 @@ import com.google.firebase.messaging.RemoteMessage;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 
 public class ZulorsFirebaseMessagingService extends FirebaseMessagingService {
@@ -44,9 +40,6 @@ public class ZulorsFirebaseMessagingService extends FirebaseMessagingService {
 
     private static final String GROUP_MESSAGES = "zulors.group.messages";
     private static final String GROUP_ACTIVITY = "zulors.group.activity";
-    private static final String HISTORY_PREFS = "zulors_notification_history";
-    private static final String HISTORY_SEPARATOR = "\u001E";
-    private static final int MAX_MESSAGE_HISTORY = 5;
     private static final int ZULORS_BLACK = 0xFF111111;
     private static final long INCOMING_CALL_TIMEOUT_MS = 45000L;
 
@@ -98,7 +91,7 @@ public class ZulorsFirebaseMessagingService extends FirebaseMessagingService {
         String notificationUrl = callNotification && isIncomingCallNotification(data)
             ? buildCallUrl(data, null)
             : (messageNotification ? buildMessageUrl(data) : buildTargetUrl(firstNonBlank(data.get("target"), data.get("url"), BuildConfig.APP_URL)));
-        PendingIntent pendingIntent = createContentIntent(notificationId, notificationUrl);
+        PendingIntent pendingIntent = createContentIntent(notificationId, notificationUrl, data);
         Bitmap largeIcon = loadLargeIcon(data);
 
         if (callNotification && isIncomingCallNotification(data)) {
@@ -211,7 +204,7 @@ public class ZulorsFirebaseMessagingService extends FirebaseMessagingService {
         }
     }
 
-    private PendingIntent createContentIntent(int notificationId, String url) {
+    private PendingIntent createContentIntent(int notificationId, String url, Map<String, String> data) {
         Intent intent = new Intent(this, MainActivity.class);
         intent.setAction("OPEN_ZULORS_NOTIFICATION");
         intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -219,6 +212,8 @@ public class ZulorsFirebaseMessagingService extends FirebaseMessagingService {
         if (!isBlank(url)) {
             intent.putExtra(MainActivity.EXTRA_PUSH_URL, url);
         }
+        intent.putExtra(MainActivity.EXTRA_NOTIFICATION_ID, notificationId);
+        intent.putExtra(MainActivity.EXTRA_CHAT_ID, data.get("chat_id"));
 
         int pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT;
 
@@ -433,18 +428,10 @@ public class ZulorsFirebaseMessagingService extends FirebaseMessagingService {
     }
 
     private Notification.Style createMessageStyle(String senderName, String body, String chatId) {
-        List<String> messages = rememberMessageHistory(chatId, body);
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             Notification.MessagingStyle style = new Notification.MessagingStyle(getString(R.string.app_name))
                 .setConversationTitle(senderName);
-
-            long timestamp = System.currentTimeMillis() - (messages.size() * 1000L);
-
-            for (String message : messages) {
-                style.addMessage(message, timestamp, senderName);
-                timestamp += 1000L;
-            }
+            style.addMessage(body, System.currentTimeMillis(), senderName);
 
             return style;
         }
@@ -453,44 +440,9 @@ public class ZulorsFirebaseMessagingService extends FirebaseMessagingService {
             .setBigContentTitle(senderName)
             .setSummaryText(getString(R.string.app_name));
 
-        for (String message : messages) {
-            style.addLine(message);
-        }
+        style.addLine(body);
 
         return style;
-    }
-
-    private List<String> rememberMessageHistory(String chatId, String body) {
-        ArrayList<String> messages = new ArrayList<>();
-
-        if (isBlank(chatId)) {
-            messages.add(body);
-            return messages;
-        }
-
-        SharedPreferences prefs = getSharedPreferences(HISTORY_PREFS, MODE_PRIVATE);
-        String key = "chat:" + chatId;
-        String existing = prefs.getString(key, "");
-
-        if (!isBlank(existing)) {
-            String[] parts = existing.split(HISTORY_SEPARATOR);
-
-            for (String part : parts) {
-                if (!isBlank(part)) {
-                    messages.add(part);
-                }
-            }
-        }
-
-        messages.add(body);
-
-        while (messages.size() > MAX_MESSAGE_HISTORY) {
-            messages.remove(0);
-        }
-
-        prefs.edit().putString(key, TextUtils.join(HISTORY_SEPARATOR, messages)).apply();
-
-        return messages;
     }
 
     private Bitmap loadLargeIcon(Map<String, String> data) {

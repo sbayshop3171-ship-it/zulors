@@ -97,6 +97,8 @@ import java.util.concurrent.Executor;
 
 public class MainActivity extends Activity {
     public static final String EXTRA_PUSH_URL = "zulors_url";
+    public static final String EXTRA_NOTIFICATION_ID = "zulors_notification_id";
+    public static final String EXTRA_CHAT_ID = "zulors_chat_id";
     private static final String TAG = "ZulorsApp";
     private static final String LIGHT_CHROME_COLOR = "#FFFFFF";
     private static final String DARK_CHROME_COLOR = "#111111";
