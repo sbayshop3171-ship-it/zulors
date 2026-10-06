@@ -23,6 +23,17 @@ class PushNotificationPayloadFactory
         $title = (string) ($customPayload['title'] ?? config('app.name', 'Zulors'));
         $body = (string) ($customPayload['body'] ?? $this->body($notifiable, $data, $type));
 
+        $android = array_merge([
+            'priority' => 'high',
+        ], Arr::get($customPayload, 'android', []));
+
+        $collapseKey = Arr::get($customPayload, 'collapse_key')
+            ?? Arr::get($customPayload, 'data.collapse_key');
+
+        if(filled($collapseKey)) {
+            $android['collapse_key'] = (string) $collapseKey;
+        }
+
         return [
             'data' => $this->stringData(array_merge([
                 'title' => Str::limit($title, 80),
@@ -32,9 +43,7 @@ class PushNotificationPayloadFactory
                 'source' => 'push',
                 'channel_id' => $customPayload['channel_id'] ?? $this->channelId($type),
             ], Arr::get($customPayload, 'data', []))),
-            'android' => array_merge([
-                'priority' => 'high',
-            ], Arr::get($customPayload, 'android', [])),
+            'android' => $android,
         ];
     }
 

@@ -75,7 +75,7 @@ class MessageReceivedNotification extends Notification
                 'message_id' => $this->messageData?->id,
                 'message_text' => $showPreview ? html_entity_decode(strip_tags($text)) : null,
                 'message_type' => $this->messageData?->type,
-                'created_at' => $this->messageData?->created_at?->toISOString(),
+                'created_at' => $this->messageData?->created_at?->toJSON(),
                 'notification_id' => $chatUuid && $this->messageData?->id
                     ? "chat:{$chatUuid}:{$this->messageData->id}"
                     : null,

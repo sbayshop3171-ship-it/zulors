@@ -400,6 +400,8 @@ class PushNotificationsTest extends TestCase
 
         $this->assertSame('zulors_messages', $payload['channel_id']);
         $this->assertSame($chat->chat_id, $payload['data']['chat_id']);
+        $this->assertSame("chat:{$chat->chat_id}", $payload['data']['collapse_key']);
+        $this->assertSame($message->id, $payload['data']['message_id']);
         $this->assertNotSame('Private preview text', $payload['body']);
         $this->assertNotEmpty($payload['data']['action_token']);
     }
