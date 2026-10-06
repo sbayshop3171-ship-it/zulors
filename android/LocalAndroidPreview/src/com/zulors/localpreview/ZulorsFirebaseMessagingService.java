@@ -95,10 +95,10 @@ public class ZulorsFirebaseMessagingService extends FirebaseMessagingService {
         String chatId = data.get("chat_id");
         int notificationId = buildNotificationId(data, messageNotification);
         Bundle incomingCallBundle = null;
-        PendingIntent pendingIntent = createContentIntent(
-            notificationId,
-            callNotification && isIncomingCallNotification(data) ? buildCallUrl(data, null) : data.get("url")
-        );
+        String notificationUrl = callNotification && isIncomingCallNotification(data)
+            ? buildCallUrl(data, null)
+            : (messageNotification ? buildMessageUrl(data) : firstNonBlank(data.get("target"), data.get("url"), BuildConfig.APP_URL));
+        PendingIntent pendingIntent = createContentIntent(notificationId, notificationUrl);
         Bitmap largeIcon = loadLargeIcon(data);
 
         if (callNotification && isIncomingCallNotification(data)) {
@@ -402,7 +402,7 @@ public class ZulorsFirebaseMessagingService extends FirebaseMessagingService {
             return baseUrl + "/messenger/c/" + chatId;
         }
 
-        return firstNonBlank(data.get("url"), BuildConfig.APP_URL);
+        return firstNonBlank(data.get("target"), data.get("url"), BuildConfig.APP_URL);
     }
 
     private PendingIntent createActionPendingIntent(int requestCode, Intent intent, boolean mutable) {
