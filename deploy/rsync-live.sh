@@ -13,6 +13,7 @@ SHARED_STORAGE_PRIVATE="${SHARED_STORAGE_PRIVATE:-${LIVE_PATH}.shared/storage/ap
 SHARED_STORAGE_SESSIONS="${SHARED_STORAGE_SESSIONS:-${LIVE_PATH}.shared/storage/framework/sessions}"
 DEPLOY_PREBUILT_ASSETS="${DEPLOY_PREBUILT_ASSETS:-0}"
 SSH_CONTROL_DIR="${SSH_CONTROL_DIR:-/tmp/zulors-deploy-ssh}"
+DEPLOY_LOCK_WAIT_SECONDS="${DEPLOY_LOCK_WAIT_SECONDS:-900}"
 
 # Values supplied by GitHub Actions environment blocks are not subject to a
 # second shell expansion.  Normalize a conventional ~/ key path before the
@@ -178,10 +179,12 @@ SHARED_STORAGE_PRIVATE="$6"
 SHARED_STORAGE_SESSIONS="$7"
 
 exec 9>"${LIVE_PATH}.deploy.lock"
-if ! flock -n 9; then
-	echo "Another live deployment is already running. Stopping safely."
+echo "Waiting for any active live deployment to finish (up to ${DEPLOY_LOCK_WAIT_SECONDS}s)..."
+if ! flock -w "$DEPLOY_LOCK_WAIT_SECONDS" 9; then
+	echo "Another live deployment is still running after ${DEPLOY_LOCK_WAIT_SECONDS}s. Stopping safely."
 	exit 1
 fi
+echo "Live deployment lock acquired."
 
 rsync_excludes=(
 	--exclude='.env'
