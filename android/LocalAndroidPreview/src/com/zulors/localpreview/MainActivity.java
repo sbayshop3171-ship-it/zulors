@@ -175,6 +175,7 @@ public class MainActivity extends Activity {
     private boolean startupFirstPageCommitted = false;
     private boolean startupAppShellReady = false;
     private boolean startupFirstVisualReady = false;
+    private boolean startupFastCacheMode = true;
     private boolean startupLaunchCoverRemoved = false;
     private boolean deferredStartupTasksStarted = false;
     private Runnable deferredStartupTasksRunnable;
@@ -557,7 +558,9 @@ public class MainActivity extends Activity {
         settings.setDisplayZoomControls(false);
         settings.setLoadsImagesAutomatically(true);
         settings.setBlockNetworkImage(false);
-        settings.setCacheMode(BuildConfig.NO_CACHE ? WebSettings.LOAD_NO_CACHE : WebSettings.LOAD_DEFAULT);
+        settings.setCacheMode(BuildConfig.NO_CACHE
+            ? WebSettings.LOAD_NO_CACHE
+            : (startupFastCacheMode ? WebSettings.LOAD_CACHE_ELSE_NETWORK : WebSettings.LOAD_DEFAULT));
         settings.setGeolocationEnabled(true);
         settings.setMixedContentMode(BuildConfig.ALLOW_MIXED_CONTENT ? WebSettings.MIXED_CONTENT_ALWAYS_ALLOW : WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setUserAgentString(settings.getUserAgentString() + " " + BuildConfig.USER_AGENT_SUFFIX);
@@ -2205,6 +2208,10 @@ public class MainActivity extends Activity {
                 @Override
                 public void run() {
                     startupFirstVisualReady = true;
+                    startupFastCacheMode = false;
+                    if (webView != null && !BuildConfig.NO_CACHE) {
+                        webView.getSettings().setCacheMode(WebSettings.LOAD_DEFAULT);
+                    }
                     recordStartupEvent("first_visual_ready", detailJson);
                     removeStartupLaunchCover("first_visual_ready");
                 }
