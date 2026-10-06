@@ -285,6 +285,48 @@ if [ "$BUILD_TYPE" = "release" ]; then
 		-keypass "$RELEASE_KEY_PASSWORD" 2>/dev/null | awk '/SHA1:|SHA256:/ { print "  " $0 }'
 fi
 
+if [ "$ENABLE_FIREBASE_MESSAGING" = "true" ] && [ -f "$GOOGLE_SERVICES_JSON" ]; then
+	SIGNING_KEYSTORE="$KEYSTORE"
+	SIGNING_ALIAS="androiddebugkey"
+	SIGNING_STORE_PASSWORD="android"
+	SIGNING_KEY_PASSWORD="android"
+	SIGNING_KEYTOOL_ARGS=(-storetype JKS)
+	if [ "$BUILD_TYPE" = "release" ]; then
+		SIGNING_KEYSTORE="$RELEASE_KEYSTORE"
+		SIGNING_ALIAS="$RELEASE_KEY_ALIAS"
+		SIGNING_STORE_PASSWORD="$RELEASE_STORE_PASSWORD"
+		SIGNING_KEY_PASSWORD="$RELEASE_KEY_PASSWORD"
+		SIGNING_KEYTOOL_ARGS=(-storetype "$RELEASE_KEYSTORE_TYPE")
+	fi
+	SIGNING_SHA1="$("$JDK_HOME/bin/keytool" -list -v \
+		-keystore "$SIGNING_KEYSTORE" "${SIGNING_KEYTOOL_ARGS[@]-}" \
+		-alias "$SIGNING_ALIAS" \
+		-storepass "$SIGNING_STORE_PASSWORD" \
+		-keypass "$SIGNING_KEY_PASSWORD" 2>/dev/null | awk -F': ' '/SHA1:/ { print $2; exit }' | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+	if [ -z "$SIGNING_SHA1" ]; then
+		echo "Unable to determine the signing SHA-1; refusing to build an unauthorizable APK." >&2
+		exit 1
+	fi
+	if ! node - "$GOOGLE_SERVICES_JSON" "$SIGNING_SHA1" <<'NODE'
+const fs = require('fs');
+const [file, expected] = process.argv.slice(2);
+const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+const hashes = (data.client || []).flatMap(client => (client.oauth_client || [])
+  .map(client => client.android_info?.certificate_hash)
+  .filter(Boolean))
+  .map(value => value.replace(/:/g, '').toLowerCase());
+if (!hashes.includes(expected)) {
+  console.error(`Signing SHA-1 ${expected} is not registered in ${file}.`);
+  process.exit(1);
+}
+NODE
+	then
+		echo "Refusing to build: Firebase/Google authorization does not contain this APK signing certificate." >&2
+		exit 1
+	fi
+	echo "Authorization certificate check passed for SHA-1: $SIGNING_SHA1"
+fi
+
 GRADLE_PROJECT="$BUILD/gradle"
 GRADLE_APP="$GRADLE_PROJECT/app"
 
