@@ -4,7 +4,7 @@
 	</template>
 	<template v-else>
 		<div class="mobile-safe-page-start sticky top-0 z-30 bg-bg-pr transition-transform duration-300 will-change-transform"
-			v-bind:class="{ '-translate-y-full': isHeaderHidden }">
+			v-bind:class="{ '-translate-y-full pointer-events-none': isHeaderHidden }">
 			<div class="mb-4 px-4">
 				<ProfileControls></ProfileControls>
 			</div>

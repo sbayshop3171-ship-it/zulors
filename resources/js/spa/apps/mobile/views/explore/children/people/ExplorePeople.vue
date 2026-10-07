@@ -71,7 +71,9 @@
 		setup: function() {
 			const peopleSearchQuery = ref('');
 			const swipeSurfaceRef = ref(null);
-			const { isHeaderHidden } = useAutoHideHeader();
+			const { isHeaderHidden } = useAutoHideHeader({
+				isPinned: () => peopleSearchQuery.value.trim().length > 0
+			});
 			let searchTimeoutId = null;
 			
 			const state = reactive({

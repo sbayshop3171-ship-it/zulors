@@ -75,7 +75,9 @@
         setup: function() {
 			const postSearchQuery = ref('');
 			const swipeSurfaceRef = ref(null);
-			const { isHeaderHidden } = useAutoHideHeader();
+			const { isHeaderHidden } = useAutoHideHeader({
+				isPinned: () => postSearchQuery.value.trim().length > 0
+			});
 
 			const state = reactive({
 				isLoading: true,
