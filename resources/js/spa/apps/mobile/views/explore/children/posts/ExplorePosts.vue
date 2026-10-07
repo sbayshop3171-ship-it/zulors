@@ -2,7 +2,7 @@
 	<div ref="swipeSurfaceRef">
 		<TimelineContainer>
 			<div class="mobile-safe-overlay-top sticky top-0 popup-background-tr z-10 transition-transform duration-300 will-change-transform"
-				v-bind:class="{ '-translate-y-full': isHeaderHidden }">
+				v-bind:class="{ '-translate-y-full pointer-events-none': isHeaderHidden }">
 	            <Soundbar></Soundbar>
 				<div class="px-4 pt-4">
 					<QuickSearch v-on:cancel="handleSearchCancel" v-model.lazy="postSearchQuery" v-bind:placeholder="$t('labels.search')"></QuickSearch>

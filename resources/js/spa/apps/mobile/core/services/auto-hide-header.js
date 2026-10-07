@@ -11,8 +11,10 @@ const readScrollY = (source = null) => {
 		return 0;
 	}
 
-	if(source && source !== window && Number.isFinite(source.scrollTop)) {
-		return Math.max(0, source.scrollTop);
+	const resolvedSource = typeof source === 'function' ? source() : unref(source) || source;
+
+	if(resolvedSource && resolvedSource !== window && Number.isFinite(resolvedSource.scrollTop)) {
+		return Math.max(0, resolvedSource.scrollTop);
 	}
 
 	const scrollCandidates = [
@@ -55,7 +57,7 @@ export function useAutoHideHeader(options = {}) {
 
 	const resetToVisible = () => {
 		isHidden.value = false;
-		lastScrollY = readScrollY();
+		lastScrollY = readScrollY(options.scrollTarget);
 	};
 
 	let pendingScrollSource = null;
@@ -116,7 +118,12 @@ export function useAutoHideHeader(options = {}) {
 			return [];
 		}
 
+		const customTarget = typeof options.scrollTarget === 'function'
+			? options.scrollTarget()
+			: unref(options.scrollTarget);
+
 		return [
+			customTarget,
 			window,
 			document,
 			document.scrollingElement,
@@ -177,6 +184,18 @@ export function useAutoHideHeader(options = {}) {
 		else {
 			lastScrollY = readScrollY();
 		}
+	}, {
+		flush: 'post'
+	});
+
+	watch(() => unref(options.scrollTarget), () => {
+		if(! isMounted) {
+			return;
+		}
+
+		unbindScrollTargets();
+		bindScrollTargets();
+		resetToVisible();
 	}, {
 		flush: 'post'
 	});

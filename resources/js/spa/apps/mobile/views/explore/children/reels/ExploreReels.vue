@@ -83,7 +83,9 @@
 			const reelsStore = useExploreReelsStore();
 			const swipeSurfaceRef = ref(null);
 			const scrollerRef = ref(null);
-			const { isHeaderHidden } = useAutoHideHeader();
+			const { isHeaderHidden } = useAutoHideHeader({
+				scrollTarget: scrollerRef
+			});
 			const activeIndex = ref(0);
 			const state = reactive({
 				isLoading: true,
