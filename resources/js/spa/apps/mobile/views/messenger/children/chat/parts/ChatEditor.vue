@@ -200,15 +200,17 @@
                 payload.parent_id = repliedMessage.value.id;
             }
 
+            state.isSubmitting = true;
             messageContent.value = '';
             repliedMessage.value = null;
-            state.isSubmitting = false;
 
             preserveInputFocus(messageContentField.value, '');
             autoResize(messageContentField.value);
             colibriSounds.chatMessageSent();
             chatStore.sendMessage(payload).catch((error) => {
                 alert(error);
+            }).finally(() => {
+                state.isSubmitting = false;
             });
             }
 
