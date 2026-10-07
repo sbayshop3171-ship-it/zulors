@@ -1,6 +1,7 @@
 <template>
 	<div ref="swipeSurfaceRef" class="mobile-reels-viewport relative overflow-hidden bg-black text-white">
-		<div class="mobile-safe-overlay-top pointer-events-none absolute inset-x-0 top-0 z-40 bg-gradient-to-b from-black/90 via-black/55 to-transparent">
+		<div class="mobile-safe-overlay-top pointer-events-none absolute inset-x-0 top-0 z-40 bg-gradient-to-b from-black/90 via-black/55 to-transparent transition-transform duration-300 will-change-transform"
+			v-bind:class="{ '-translate-y-full': isHeaderHidden }">
 			<div class="pointer-events-auto flex h-11 items-center px-2">
 				<button type="button" v-on:click="goBack" class="size-10 rounded-full inline-flex-center text-white hover:bg-white/10">
 					<SvgIcon name="arrow-left" type="solid" classes="size-6"></SvgIcon>
@@ -63,6 +64,7 @@
 	import { prefetchReelsPlaybackWindow } from '@/kernel/services/media-prefetch/index.js';
 	import { useExploreReelsStore } from '@M/store/explore/reels.store.js';
 	import { mobileExploreSwipeSequence, useSwipeRouteNavigation } from '@/kernel/vue/composables/swipe-route-navigation/index.js';
+	import { useAutoHideHeader } from '@M/core/services/auto-hide-header.js';
 
 	import ReelItem from '@M/components/reels/ReelItem.vue';
 	import SponsoredReel from '@M/components/reels/SponsoredReel.vue';
@@ -81,6 +83,7 @@
 			const reelsStore = useExploreReelsStore();
 			const swipeSurfaceRef = ref(null);
 			const scrollerRef = ref(null);
+			const { isHeaderHidden } = useAutoHideHeader();
 			const activeIndex = ref(0);
 			const state = reactive({
 				isLoading: true,
@@ -281,6 +284,7 @@
 				});
 
 			return {
+				isHeaderHidden,
 				state: state,
 				posts: posts,
 				showInitialLoader: showInitialLoader,

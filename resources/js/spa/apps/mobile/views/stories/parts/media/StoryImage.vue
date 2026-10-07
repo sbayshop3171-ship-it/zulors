@@ -11,6 +11,7 @@
         <div v-if="showBlurBackdrop" class="story-media-backdrop-shade"></div>
         <img
             v-show="! isLoading"
+            v-bind:style="foregroundStyle"
             v-bind:class="foregroundFitClass"
             class="story-media-foreground"
             v-bind:src="frameData.media.source_url"
@@ -39,6 +40,10 @@
             const mediaItem = computed(() => {
                 return props.frameData.media || {};
             });
+            const foregroundStyle = computed(() => {
+                const transform = props.frameData?.meta?.story_image_transform?.foreground || {};
+                return { transform: `translate3d(${Number(transform.translate_x || 0)}px, ${Number(transform.translate_y || 0)}px, 0) scale(${Number(transform.scale || 1)}) rotate(${Number(transform.rotation || 0)}deg)` };
+            });
 
             return {
                 isLoading: isLoading,
@@ -48,6 +53,7 @@
                 showBlurBackdrop: computed(() => {
                     return shouldUseStoryBlurBackdrop(mediaItem.value, loadedDimensions.value);
                 }),
+                foregroundStyle: foregroundStyle,
                 onLoaded: (event) => {
                     loadedDimensions.value = elementImageDimensions(event.target);
                     isLoading.value = false;

@@ -35,6 +35,7 @@ const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 			uploadProgress: 0,
 			videoClipCandidate: null,
 			storyMedia: null,
+			storyImageTransform: { scale: 1, translateX: 0, translateY: 0, rotation: 0 },
 			publicationSelection: null,
 			publicationOptions: {},
 			storyMediaObjectUrl: null,
@@ -83,6 +84,7 @@ const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 			this.isUploading = false;
 			this.uploadProgress = 0;
 			this.storyMedia = null;
+			this.storyImageTransform = { scale: 1, translateX: 0, translateY: 0, rotation: 0 };
 			this.selectedMusicTrack = null;
 			this.storyData = {
 				content: ''
@@ -184,6 +186,7 @@ const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 			if (this.storyMedia) {
 				await colibriAPI().storyEditor().with({
 					content: this.storyData.content,
+					story_image_transform: this.storyMedia.type === 'image' ? this.storyImageTransform : undefined,
 					...musicPayload
 				}).sendTo('create').then((response) => {
 					if(response.data.data) {

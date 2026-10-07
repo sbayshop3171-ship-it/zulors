@@ -99,21 +99,7 @@
 							</div>
 						</template>
 						<template v-else>
-							<img
-								v-if="showStoryBlurBackdrop"
-								v-bind:src="storyMedia.source_url"
-								class="story-media-backdrop"
-								alt=""
-								aria-hidden="true"
-							>
-							<div v-if="showStoryBlurBackdrop" class="story-media-backdrop-shade"></div>
-							<img
-								v-bind:src="storyMedia.source_url"
-								v-bind:class="storyPreviewFitClass"
-								v-on:load="handleStoryImageLoaded"
-								class="story-media-foreground"
-								alt="Image"
-							>
+							<StoryImageCanvas v-bind:src="storyMedia.source_url" v-model="imageTransform" v-on:load="handleStoryImageLoaded"></StoryImageCanvas>
 						</template>
 					</div>
 				</div>
@@ -199,7 +185,8 @@
 	import PrimaryTextButton from '@M/components/inter-ui/buttons/PrimaryPillButton.vue';
 	import PrimaryIconButton from '@M/components/inter-ui/buttons/PrimaryIconButton.vue';
 	import StoryPrivacyInfo from '@M/views/editors/stories/parts/StoryPrivacyInfo.vue';
-	import StoryMusicPicker from '@/kernel/vue/components/story/StoryMusicPicker.vue';
+			import StoryMusicPicker from '@/kernel/vue/components/story/StoryMusicPicker.vue';
+			import StoryImageCanvas from '@/kernel/vue/components/story/StoryImageCanvas.vue';
 
 	export default defineComponent({
 		setup: function() {
@@ -216,6 +203,7 @@
 				videoVolume: 0
 			});
 			const previewLoadedDimensions = ref({});
+			const imageTransform = ref({ scale: 1, translateX: 0, translateY: 0, rotation: 0 });
 			let storyMusicAudio = null;
 			const { autoResize } = useInputHandlers();
 			const storyData = ref(storiesEditorStore.storyData);
@@ -430,6 +418,7 @@
 					return storiesEditorStore.isFormValid;
 				}),
 				storyData: storyData,
+				imageTransform: imageTransform,
 				storyTextInputField: storyTextInputField,
 				syncStoryPreviewBackdrop: syncStoryPreviewBackdrop,
 				playStoryPreview: playStoryPreview,
@@ -445,9 +434,10 @@
 				handleStoryImageLoaded: (event) => {
 					previewLoadedDimensions.value = elementImageDimensions(event.target);
 				},
-				submitForm: async () => {
-					if (state.isSubmitting) return;
-					try {
+					submitForm: async () => {
+						if (state.isSubmitting) return;
+						try {
+							storiesEditorStore.storyImageTransform = imageTransform.value;
 						state.isSubmitting = true;
 						const result = await storiesEditorStore.publishStory();
 						state.isSubmitting = false;
@@ -498,6 +488,7 @@
 			PrimaryIconButton: PrimaryIconButton,
 			StoryPrivacyInfo: StoryPrivacyInfo,
 			StoryMusicPicker: StoryMusicPicker,
+			StoryImageCanvas: StoryImageCanvas,
 			VideoDurationTime: defineAsyncComponent(() => {
                 return import('@/kernel/vue/components/media/video/VideoDurationTime.vue');
             })

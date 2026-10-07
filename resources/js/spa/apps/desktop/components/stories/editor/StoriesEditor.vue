@@ -53,22 +53,7 @@
 									>
 										<SvgIcon name="play" type="solid" classes="ml-1 size-6"></SvgIcon>
 									</button>
-									<img
-										v-if="! isVideo && showStoryBlurBackdrop"
-										v-bind:src="storyMedia.source_url"
-										class="story-media-backdrop"
-										alt=""
-										aria-hidden="true"
-									>
-									<div v-if="showStoryBlurBackdrop" class="story-media-backdrop-shade"></div>
-									<img
-										v-if="! isVideo"
-										v-bind:class="storyPreviewFitClass"
-										v-on:load="handleStoryImageLoaded"
-										class="story-media-foreground"
-										v-bind:src="storyMedia.source_url"
-										alt="Image"
-									>
+									<StoryImageCanvas v-if="! isVideo" v-bind:src="storyMedia.source_url" v-model="imageTransform" v-on:load="handleStoryImageLoaded"></StoryImageCanvas>
 
 									<div class="absolute top-4 left-4 z-20 size-8 bg-white rounded-full leading-none">
 										<PrimaryIconButton v-on:click="deleteStoryMedia" iconName="x"></PrimaryIconButton>
@@ -209,6 +194,7 @@
 	import StoryDropper from '@D/components/stories/editor/parts/StoryDropper.vue';
 	import MentionsPicker from '@D/components/mentions/MentionsPicker.vue';
 	import StoryMusicPicker from '@/kernel/vue/components/story/StoryMusicPicker.vue';
+	import StoryImageCanvas from '@/kernel/vue/components/story/StoryImageCanvas.vue';
 
 	export default defineComponent({
 		setup: function() {
@@ -226,6 +212,7 @@
 				videoVolume: 0
 			});
 			const previewLoadedDimensions = ref({});
+			const imageTransform = ref({ scale: 1, translateX: 0, translateY: 0, rotation: 0 });
 			let storyMusicAudio = null;
 
 			const { autoResize, insertSymbolAtCaret, matchMention, completeText } = useInputHandlers();
@@ -426,6 +413,7 @@
 					return storiesEditorStore.isFormValid;
 				}),
 				storyData: storyData,
+				imageTransform: imageTransform,
 				stroyMediaFileInput: stroyMediaFileInput,
 				storyTextInputField: storyTextInputField,
 				syncStoryPreviewBackdrop: syncStoryPreviewBackdrop,
@@ -457,6 +445,7 @@
 				submitForm: async () => {
 					if (state.isSubmitting) return;
 					try {
+						storiesEditorStore.storyImageTransform = imageTransform.value;
 						state.isSubmitting = true;
 						const result = await storiesEditorStore.publishStory();
 						state.isSubmitting = false;
@@ -536,6 +525,7 @@
 			StoryEditorHeader: StoryEditorHeader,
 			StoryDropper: StoryDropper,
 			StoryMusicPicker: StoryMusicPicker,
+			StoryImageCanvas: StoryImageCanvas,
 			VideoDurationTime: defineAsyncComponent(() => {
                 return import('@/kernel/vue/components/media/video/VideoDurationTime.vue');
             }),

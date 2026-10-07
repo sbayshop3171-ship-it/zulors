@@ -98,6 +98,11 @@ class StoryController extends Controller
                 'content' => ['nullable', 'string', XRule::join('max', config('story.validation.content.max'))],
                 'story_music_track_id' => ['nullable', 'integer'],
                 'story_music_baked' => ['nullable', 'boolean'],
+                'story_image_transform' => ['nullable', 'array'],
+                'story_image_transform.scale' => ['nullable', 'numeric', 'between:1,4'],
+                'story_image_transform.translateX' => ['nullable', 'numeric', 'between:-10000,10000'],
+                'story_image_transform.translateY' => ['nullable', 'numeric', 'between:-10000,10000'],
+                'story_image_transform.rotation' => ['nullable', 'numeric', 'between:-360,360'],
             ]);
 
             $selectedMusicTrack = $this->findSelectedStoryMusicTrack($request);
@@ -136,6 +141,20 @@ class StoryController extends Controller
             }
 
             $frameMeta = $this->draftStoryFrame->meta ?? [];
+
+            if(! $isVideo && $request->filled('story_image_transform')) {
+                data_set($frameMeta, 'story_image_transform', [
+                    'canvas' => ['width' => 1080, 'height' => 1920, 'aspect_ratio' => '9:16'],
+                    'foreground' => [
+                        'scale' => (float) $request->input('story_image_transform.scale', 1),
+                        'translate_x' => (float) $request->input('story_image_transform.translateX', 0),
+                        'translate_y' => (float) $request->input('story_image_transform.translateY', 0),
+                        'rotation' => (float) $request->input('story_image_transform.rotation', 0),
+                        'fit' => 'contain',
+                    ],
+                    'background' => ['type' => 'blurred_duplicate', 'dark_overlay' => true],
+                ]);
+            }
 
             if($selectedMusicTrack) {
                 data_set($frameMeta, 'story_music.selected_track', $this->storyMusicSelectionPayload($selectedMusicTrack));
