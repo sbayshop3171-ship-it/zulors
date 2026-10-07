@@ -2,8 +2,8 @@ import { computed, onMounted, onUnmounted, ref, unref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 
 const TOP_VISIBLE_SCROLL_Y = 24;
-const HIDE_START_SCROLL_Y = 64;
-const HIDE_DELTA = 12;
+const HIDE_START_SCROLL_Y = 24;
+const HIDE_DELTA = 4;
 const SHOW_DELTA = 0;
 
 const readScrollY = (source = null) => {
@@ -97,7 +97,7 @@ export function useAutoHideHeader(options = {}) {
 
 		// Reveal on every real upward movement. Mobile browsers often emit
 		// several sub-pixel scroll events while the finger is moving back up.
-		if(scrollDelta < 0 && Math.abs(scrollDelta) >= SHOW_DELTA) {
+		if(scrollDelta < 0 && (isHidden.value || Math.abs(scrollDelta) >= SHOW_DELTA)) {
 			isHidden.value = false;
 			lastScrollY = currentScrollY;
 
