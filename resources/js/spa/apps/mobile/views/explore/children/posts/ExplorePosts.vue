@@ -79,7 +79,8 @@
 			const postSearchQuery = ref('');
 			const swipeSurfaceRef = ref(null);
 			const { isHeaderHidden, handleWheel, handleTouchStart, handleTouchMove } = useAutoHideHeader({
-				isPinned: () => postSearchQuery.value.trim().length > 0
+				isPinned: () => postSearchQuery.value.trim().length > 0,
+				scrollTarget: () => swipeSurfaceRef.value?.closest('.mobile-app-stage') || document.scrollingElement
 			});
 
 			const state = reactive({

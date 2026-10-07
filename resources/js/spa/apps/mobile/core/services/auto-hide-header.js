@@ -123,7 +123,7 @@ export function useAutoHideHeader(options = {}) {
 			return;
 		}
 
-		const currentScrollY = readScrollY();
+		const currentScrollY = readScrollY(options.scrollTarget);
 		if(event.deltaY < 0) {
 			isHidden.value = false;
 		}
@@ -147,7 +147,7 @@ export function useAutoHideHeader(options = {}) {
 		if(direction > 0) {
 			isHidden.value = false;
 		}
-		else if(direction < 0 && readScrollY() > TOP_VISIBLE_SCROLL_Y) {
+		else if(direction < 0 && readScrollY(options.scrollTarget) > TOP_VISIBLE_SCROLL_Y) {
 			isHidden.value = true;
 		}
 	};
