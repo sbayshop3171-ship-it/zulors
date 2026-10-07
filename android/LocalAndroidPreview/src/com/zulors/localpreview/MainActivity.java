@@ -175,6 +175,7 @@ public class MainActivity extends Activity {
     private boolean startupSplashVisible = true;
     private boolean startupSplashReleased = false;
     private boolean startupFirstPageCommitted = false;
+    private String pendingColdStartNotificationUrl;
     private boolean startupAppShellReady = false;
     private boolean startupFirstVisualReady = false;
     private boolean startupFastCacheMode = true;
@@ -294,24 +295,25 @@ public class MainActivity extends Activity {
         configureBackNavigation();
         scheduleStartupSplashTimeout();
         scheduleStartupLaunchCoverFallback();
-        String launchUrl = resolveLaunchUrl(getIntent());
+        String launchUrl = BuildConfig.APP_URL;
 
-        if (!hasLaunchUrl(getIntent())) {
-            String cachedRoute = getCachedSafeRoute();
-            if (cachedRoute != null) {
-                launchUrl = cachedRoute;
+        // A process restart always starts from the stable Home route. A push
+        // target is opened only after Home commits so WebView back navigation
+        // has a predictable Home -> target history.
+        if (hasLaunchUrl(getIntent())) {
+            String requestedUrl = resolveLaunchUrl(getIntent());
+            Uri requestedUri = Uri.parse(requestedUrl);
+
+            if (isGoogleCallbackUrl(requestedUri)) {
+                launchUrl = requestedUrl;
+            }
+            else {
+                pendingColdStartNotificationUrl = requestedUrl;
             }
         }
 
-        if (hasLaunchUrl(getIntent())) {
-            Uri launchUri = Uri.parse(launchUrl);
-
-            if (isGoogleCallbackUrl(launchUri)) {
-                shouldLoadGoogleCallback(launchUrl);
-            }
-            else {
-                rememberNotificationLaunchUrl(launchUrl);
-            }
+        if (isGoogleCallbackUrl(Uri.parse(launchUrl))) {
+            shouldLoadGoogleCallback(launchUrl);
         }
 
         webView.loadUrl(launchUrl, noCacheHeaders());
@@ -641,6 +643,16 @@ public class MainActivity extends Activity {
                 super.onPageCommitVisible(view, url);
                 startupFirstPageCommitted = true;
                 recordStartupEvent("page_commit_visible", url);
+
+                if (pendingColdStartNotificationUrl != null
+                    && !pendingColdStartNotificationUrl.equals(url)
+                    && isTrustedWebUrl(Uri.parse(url))
+                    && Uri.parse(url).getPath() != null
+                    && (Uri.parse(url).getPath().equals("/") || Uri.parse(url).getPath().isEmpty())) {
+                    String targetUrl = pendingColdStartNotificationUrl;
+                    pendingColdStartNotificationUrl = null;
+                    mainHandler.post(() -> webView.loadUrl(targetUrl, noCacheHeaders()));
+                }
             }
 
             @Override
@@ -836,24 +848,9 @@ public class MainActivity extends Activity {
     }
 
     private void rememberSafeRoute(String url) {
-        if (url == null || url.trim().isEmpty()) {
-            return;
-        }
-
-        Uri uri = Uri.parse(url);
-        if (!isTrustedWebUrl(uri) || isGoogleCallbackUrl(uri)) {
-            return;
-        }
-
-        String path = uri.getPath() == null ? "/" : uri.getPath();
-        if (path.startsWith("/login") || path.startsWith("/register") || path.startsWith("/auth/")) {
-            return;
-        }
-
-        getSharedPreferences(STARTUP_PREFS, MODE_PRIVATE)
-            .edit()
-            .putString(PREF_LAST_SAFE_ROUTE, url)
-            .apply();
+        // Sub-page persistence is intentionally disabled. Cold starts always
+        // begin at BuildConfig.APP_URL; only explicit notification intents
+        // may open a deep link.
     }
 
     private boolean hasLaunchUrl(Intent intent) {
