@@ -6,28 +6,50 @@ const HIDE_START_SCROLL_Y = 24;
 const HIDE_DELTA = 4;
 const SHOW_DELTA = 0;
 
-const readScrollY = (source = null) => {
-	if(typeof window === 'undefined') {
-		return 0;
+const isScrollableElement = (element) => {
+	if(typeof window === 'undefined' || ! element || element === document.body) {
+		return false;
+	}
+
+	const overflowY = window.getComputedStyle(element).overflowY;
+
+	return ['auto', 'overlay', 'scroll'].includes(overflowY) && element.scrollHeight > element.clientHeight;
+};
+
+const resolveScrollTarget = (source = null) => {
+	if(typeof window === 'undefined' || typeof document === 'undefined') {
+		return null;
 	}
 
 	const resolvedSource = typeof source === 'function' ? source() : unref(source) || source;
 
-	if(resolvedSource && resolvedSource !== window && Number.isFinite(resolvedSource.scrollTop)) {
-		return Math.max(0, resolvedSource.scrollTop);
+	if(resolvedSource === window || resolvedSource === document || ! resolvedSource) {
+		return document.scrollingElement || document.documentElement;
 	}
 
-	const scrollCandidates = [
-		window.scrollY,
-		window.pageYOffset,
-		document.scrollingElement?.scrollTop,
-		document.documentElement?.scrollTop,
-		document.body?.scrollTop
-	].filter((scrollTop) => {
-		return Number.isFinite(scrollTop);
-	});
+	if(resolvedSource.nodeType === 1) {
+		let candidate = resolvedSource;
 
-	return Math.max(0, ...scrollCandidates, 0);
+		while(candidate && candidate !== document.body) {
+			if(isScrollableElement(candidate)) {
+				return candidate;
+			}
+
+			candidate = candidate.parentElement;
+		}
+	}
+
+	return document.scrollingElement || document.documentElement;
+};
+
+const readScrollY = (source = null) => {
+	const scrollTarget = resolveScrollTarget(source);
+
+	if(scrollTarget && Number.isFinite(scrollTarget.scrollTop)) {
+		return Math.max(0, scrollTarget.scrollTop);
+	}
+
+	return typeof window !== 'undefined' ? Math.max(0, window.scrollY || window.pageYOffset || 0) : 0;
 };
 
 const readBoolean = (source) => {
@@ -47,7 +69,6 @@ export function useAutoHideHeader(options = {}) {
 	let animationFrame = null;
 	let isMounted = false;
 	let scrollTargets = [];
-	let lastTouchY = null;
 
 	const isPinned = computed(() => {
 		return isFullscreen.value ||
@@ -118,57 +139,14 @@ export function useAutoHideHeader(options = {}) {
 		animationFrame = window.requestAnimationFrame(evaluateScroll);
 	};
 
-	const handleWheel = (event) => {
-		if(! isMounted || isPinned.value || !Number.isFinite(event?.deltaY) || event.deltaY === 0) {
-			return;
-		}
-
-		const currentScrollY = readScrollY(options.scrollTarget);
-		if(event.deltaY < 0) {
-			isHidden.value = false;
-		}
-		else if(currentScrollY > TOP_VISIBLE_SCROLL_Y) {
-			isHidden.value = true;
-		}
-	};
-
-	const handleTouchStart = (event) => {
-		lastTouchY = Number.isFinite(event?.touches?.[0]?.clientY) ? event.touches[0].clientY : null;
-	};
-
-	const handleTouchMove = (event) => {
-		const currentTouchY = Number.isFinite(event?.touches?.[0]?.clientY) ? event.touches[0].clientY : null;
-		if(!isMounted || isPinned.value || lastTouchY === null || currentTouchY === null) {
-			return;
-		}
-
-		const direction = currentTouchY - lastTouchY;
-		lastTouchY = currentTouchY;
-		if(direction > 0) {
-			isHidden.value = false;
-		}
-		else if(direction < 0 && readScrollY(options.scrollTarget) > TOP_VISIBLE_SCROLL_Y) {
-			isHidden.value = true;
-		}
-	};
-
 	const collectScrollTargets = () => {
 		if(typeof window === 'undefined' || typeof document === 'undefined') {
 			return [];
 		}
 
-		const customTarget = typeof options.scrollTarget === 'function'
-			? options.scrollTarget()
-			: unref(options.scrollTarget);
+		const customTarget = resolveScrollTarget(options.scrollTarget);
 
-		return [
-			customTarget,
-			window,
-			document,
-			document.scrollingElement,
-			document.documentElement,
-			document.body
-		].filter((target, index, targets) => {
+		return [customTarget].filter((target, index, targets) => {
 			return target && targets.indexOf(target) === index && typeof target.addEventListener === 'function';
 		});
 	};
@@ -221,7 +199,7 @@ export function useAutoHideHeader(options = {}) {
 			resetToVisible();
 		}
 		else {
-			lastScrollY = readScrollY();
+			lastScrollY = readScrollY(options.scrollTarget);
 		}
 	}, {
 		flush: 'post'
@@ -234,9 +212,6 @@ export function useAutoHideHeader(options = {}) {
 
 		unbindScrollTargets();
 		bindScrollTargets();
-		document.addEventListener('wheel', handleWheel, { capture: true, passive: true });
-		document.addEventListener('touchstart', handleTouchStart, { capture: true, passive: true });
-		document.addEventListener('touchmove', handleTouchMove, { capture: true, passive: true });
 		resetToVisible();
 	}, {
 		flush: 'post'
@@ -272,16 +247,10 @@ export function useAutoHideHeader(options = {}) {
 
 		if(typeof document !== 'undefined') {
 			document.removeEventListener('fullscreenchange', syncFullscreenState);
-			document.removeEventListener('wheel', handleWheel, true);
-			document.removeEventListener('touchstart', handleTouchStart, true);
-			document.removeEventListener('touchmove', handleTouchMove, true);
 		}
 	});
 
 	return {
-		handleWheel,
-		handleTouchStart,
-		handleTouchMove,
 		isHeaderHidden: computed(() => {
 			return ! isPinned.value && isHidden.value;
 		}),

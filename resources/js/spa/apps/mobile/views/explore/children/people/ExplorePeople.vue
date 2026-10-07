@@ -2,7 +2,7 @@
 	<div ref="swipeSurfaceRef">
 		<TimelineContainer>
 			<div class="mobile-safe-overlay-top sticky top-0 popup-background-tr z-10 transition-transform duration-300 will-change-transform"
-				v-bind:class="{ '-translate-y-full pointer-events-none': isHeaderHidden }">
+				v-bind:class="{ '-translate-y-full pointer-events-none': isHeaderHidden, 'translate-y-0': !isHeaderHidden }">
 				<div class="px-4 pt-4">
 					<QuickSearch v-on:cancel="handleSearchCancel" v-model="peopleSearchQuery" v-bind:placeholder="$t('labels.search')"></QuickSearch>
 				</div>
@@ -72,7 +72,8 @@
 			const peopleSearchQuery = ref('');
 			const swipeSurfaceRef = ref(null);
 			const { isHeaderHidden } = useAutoHideHeader({
-				isPinned: () => peopleSearchQuery.value.trim().length > 0
+				isPinned: () => peopleSearchQuery.value.trim().length > 0,
+				scrollTarget: () => swipeSurfaceRef.value?.closest('.mobile-app-stage') || document.scrollingElement
 			});
 			let searchTimeoutId = null;
 			

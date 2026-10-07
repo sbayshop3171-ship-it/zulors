@@ -1,11 +1,8 @@
 <template>
-	<div ref="swipeSurfaceRef"
-		v-on:wheel.capture="handleWheel"
-		v-on:touchstart.capture="handleTouchStart"
-		v-on:touchmove.capture="handleTouchMove">
+	<div ref="swipeSurfaceRef">
 		<TimelineContainer>
 			<div class="mobile-safe-overlay-top sticky top-0 popup-background-tr z-10 transition-transform duration-300 will-change-transform"
-				v-bind:class="{ '-translate-y-full pointer-events-none': isHeaderHidden }">
+				v-bind:class="{ '-translate-y-full pointer-events-none': isHeaderHidden, 'translate-y-0': !isHeaderHidden }">
 	            <Soundbar></Soundbar>
 				<div class="px-4 pt-4">
 					<QuickSearch v-on:cancel="handleSearchCancel" v-model.lazy="postSearchQuery" v-bind:placeholder="$t('labels.search')"></QuickSearch>
@@ -78,7 +75,7 @@
         setup: function() {
 			const postSearchQuery = ref('');
 			const swipeSurfaceRef = ref(null);
-			const { isHeaderHidden, handleWheel, handleTouchStart, handleTouchMove } = useAutoHideHeader({
+			const { isHeaderHidden } = useAutoHideHeader({
 				isPinned: () => postSearchQuery.value.trim().length > 0,
 				scrollTarget: () => swipeSurfaceRef.value?.closest('.mobile-app-stage') || document.scrollingElement
 			});
@@ -230,9 +227,6 @@
 	            });
 
 			return {
-				handleWheel: handleWheel,
-				handleTouchStart: handleTouchStart,
-				handleTouchMove: handleTouchMove,
 				isHeaderHidden: isHeaderHidden,
                 state: state,
 				swipeSurfaceRef: swipeSurfaceRef,
