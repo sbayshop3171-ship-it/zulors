@@ -1,5 +1,8 @@
 <template>
-	<div ref="swipeSurfaceRef">
+	<div ref="swipeSurfaceRef"
+		v-on:wheel.capture="handleWheel"
+		v-on:touchstart.capture="handleTouchStart"
+		v-on:touchmove.capture="handleTouchMove">
 		<TimelineContainer>
 			<div class="mobile-safe-overlay-top sticky top-0 popup-background-tr z-10 transition-transform duration-300 will-change-transform"
 				v-bind:class="{ '-translate-y-full pointer-events-none': isHeaderHidden }">
@@ -75,7 +78,7 @@
         setup: function() {
 			const postSearchQuery = ref('');
 			const swipeSurfaceRef = ref(null);
-			const { isHeaderHidden } = useAutoHideHeader({
+			const { isHeaderHidden, handleWheel, handleTouchStart, handleTouchMove } = useAutoHideHeader({
 				isPinned: () => postSearchQuery.value.trim().length > 0
 			});
 
@@ -226,6 +229,9 @@
 	            });
 
 			return {
+				handleWheel: handleWheel,
+				handleTouchStart: handleTouchStart,
+				handleTouchMove: handleTouchMove,
 				isHeaderHidden: isHeaderHidden,
                 state: state,
 				swipeSurfaceRef: swipeSurfaceRef,

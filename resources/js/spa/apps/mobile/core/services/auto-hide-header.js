@@ -123,7 +123,7 @@ export function useAutoHideHeader(options = {}) {
 			return;
 		}
 
-		const currentScrollY = readScrollY(event.target);
+		const currentScrollY = readScrollY();
 		if(event.deltaY < 0) {
 			isHidden.value = false;
 		}
@@ -147,7 +147,7 @@ export function useAutoHideHeader(options = {}) {
 		if(direction > 0) {
 			isHidden.value = false;
 		}
-		else if(direction < 0 && readScrollY(event.target) > TOP_VISIBLE_SCROLL_Y) {
+		else if(direction < 0 && readScrollY() > TOP_VISIBLE_SCROLL_Y) {
 			isHidden.value = true;
 		}
 	};
@@ -279,6 +279,9 @@ export function useAutoHideHeader(options = {}) {
 	});
 
 	return {
+		handleWheel,
+		handleTouchStart,
+		handleTouchMove,
 		isHeaderHidden: computed(() => {
 			return ! isPinned.value && isHidden.value;
 		}),
