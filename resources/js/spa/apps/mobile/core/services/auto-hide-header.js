@@ -6,9 +6,13 @@ const HIDE_START_SCROLL_Y = 64;
 const HIDE_DELTA = 12;
 const SHOW_DELTA = 8;
 
-const readScrollY = () => {
+const readScrollY = (source = null) => {
 	if(typeof window === 'undefined') {
 		return 0;
+	}
+
+	if(source && source !== window && Number.isFinite(source.scrollTop)) {
+		return Math.max(0, source.scrollTop);
 	}
 
 	const scrollCandidates = [
@@ -54,6 +58,8 @@ export function useAutoHideHeader(options = {}) {
 		lastScrollY = readScrollY();
 	};
 
+	let pendingScrollSource = null;
+
 	const evaluateScroll = () => {
 		animationFrame = null;
 
@@ -61,7 +67,8 @@ export function useAutoHideHeader(options = {}) {
 			return;
 		}
 
-		const currentScrollY = readScrollY();
+		const currentScrollY = readScrollY(pendingScrollSource);
+		pendingScrollSource = null;
 
 		if(isPinned.value) {
 			isHidden.value = false;
@@ -92,10 +99,12 @@ export function useAutoHideHeader(options = {}) {
 		}
 	};
 
-	const requestScrollEvaluation = () => {
+	const requestScrollEvaluation = (event = null) => {
 		if(animationFrame !== null || typeof window === 'undefined') {
 			return;
 		}
+
+		pendingScrollSource = event?.target || null;
 
 		animationFrame = window.requestAnimationFrame(evaluateScroll);
 	};
