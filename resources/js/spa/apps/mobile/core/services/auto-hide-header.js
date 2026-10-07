@@ -47,6 +47,7 @@ export function useAutoHideHeader(options = {}) {
 	let animationFrame = null;
 	let isMounted = false;
 	let scrollTargets = [];
+	let lastTouchY = null;
 
 	const isPinned = computed(() => {
 		return isFullscreen.value ||
@@ -115,6 +116,40 @@ export function useAutoHideHeader(options = {}) {
 		}
 
 		animationFrame = window.requestAnimationFrame(evaluateScroll);
+	};
+
+	const handleWheel = (event) => {
+		if(! isMounted || isPinned.value || !Number.isFinite(event?.deltaY) || event.deltaY === 0) {
+			return;
+		}
+
+		const currentScrollY = readScrollY(event.target);
+		if(event.deltaY < 0) {
+			isHidden.value = false;
+		}
+		else if(currentScrollY > TOP_VISIBLE_SCROLL_Y) {
+			isHidden.value = true;
+		}
+	};
+
+	const handleTouchStart = (event) => {
+		lastTouchY = Number.isFinite(event?.touches?.[0]?.clientY) ? event.touches[0].clientY : null;
+	};
+
+	const handleTouchMove = (event) => {
+		const currentTouchY = Number.isFinite(event?.touches?.[0]?.clientY) ? event.touches[0].clientY : null;
+		if(!isMounted || isPinned.value || lastTouchY === null || currentTouchY === null) {
+			return;
+		}
+
+		const direction = currentTouchY - lastTouchY;
+		lastTouchY = currentTouchY;
+		if(direction > 0) {
+			isHidden.value = false;
+		}
+		else if(direction < 0 && readScrollY(event.target) > TOP_VISIBLE_SCROLL_Y) {
+			isHidden.value = true;
+		}
 	};
 
 	const collectScrollTargets = () => {
@@ -199,6 +234,9 @@ export function useAutoHideHeader(options = {}) {
 
 		unbindScrollTargets();
 		bindScrollTargets();
+		document.addEventListener('wheel', handleWheel, { capture: true, passive: true });
+		document.addEventListener('touchstart', handleTouchStart, { capture: true, passive: true });
+		document.addEventListener('touchmove', handleTouchMove, { capture: true, passive: true });
 		resetToVisible();
 	}, {
 		flush: 'post'
@@ -234,6 +272,9 @@ export function useAutoHideHeader(options = {}) {
 
 		if(typeof document !== 'undefined') {
 			document.removeEventListener('fullscreenchange', syncFullscreenState);
+			document.removeEventListener('wheel', handleWheel, true);
+			document.removeEventListener('touchstart', handleTouchStart, true);
+			document.removeEventListener('touchmove', handleTouchMove, true);
 		}
 	});
 
