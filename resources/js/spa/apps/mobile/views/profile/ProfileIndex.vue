@@ -23,7 +23,8 @@
 			<ProfileActions></ProfileActions>
 		</div>
 
-		<div v-if="! state.isLoading" class="mobile-safe-sticky-top block sticky bg-bg-pr z-20">
+		<div v-if="! state.isLoading" class="mobile-safe-sticky-top block sticky bg-bg-pr z-20 transition-transform duration-300 will-change-transform"
+			v-bind:class="{ '-translate-y-full': isHeaderHidden }">
 			<ContentTabs>
 				<TabsLink v-bind:link="{ name: 'profile_posts' }">
 					{{ $t('labels.posts') }}
@@ -48,6 +49,7 @@
 	import { useRoute, useRouter } from 'vue-router';
 	import { useInstantRevalidation } from '@/kernel/vue/composables/instant-revalidation/index.js';
 	import { normalizeProfileUsername, isValidProfileUsername } from '@/kernel/support/profile-routing/index.js';
+	import { useAutoHideHeader } from '@M/core/services/auto-hide-header.js';
 
 	import HeaderSkeleton from '@M/views/profile/parts/skeletons/HeaderSkeleton.vue';
 	import ProfileAvatar from '@M/views/profile/parts/ProfileAvatar.vue';
@@ -65,6 +67,7 @@
 		setup: function(props) {
 			const route = useRoute();
 			const router = useRouter();
+			const { isHeaderHidden } = useAutoHideHeader();
 
 			const state = reactive({
 				isLoading: true
@@ -133,6 +136,7 @@
 			});
 
 			return {
+				isHeaderHidden: isHeaderHidden,
 				state: state,
 				profileData: profileData
 			};

@@ -1,7 +1,8 @@
 <template>
 	<div ref="swipeSurfaceRef">
 		<TimelineContainer>
-			<div class="mobile-safe-overlay-top sticky top-0 popup-background-tr z-10">
+			<div class="mobile-safe-overlay-top sticky top-0 popup-background-tr z-10 transition-transform duration-300 will-change-transform"
+				v-bind:class="{ '-translate-y-full': isHeaderHidden }">
 				<div class="px-4 pt-4">
 					<QuickSearch v-on:cancel="handleSearchCancel" v-model="peopleSearchQuery" v-bind:placeholder="$t('labels.search')"></QuickSearch>
 				</div>
@@ -56,6 +57,7 @@
 	import { useExplorePeopleStore } from '@M/store/explore/people.store.js';
 	import { useInfiniteScroll } from '@/kernel/vue/composables/infinite-scroll/index.js';
 	import { mobileExploreSwipeSequence, useSwipeRouteNavigation } from '@/kernel/vue/composables/swipe-route-navigation/index.js';
+	import { useAutoHideHeader } from '@M/core/services/auto-hide-header.js';
 
 	import TimelineContainer from '@M/components/timeline/feed/TimelineContainer.vue';
 	import PeopleListItem from '@M/components/people/PeopleListItem.vue';
@@ -69,6 +71,7 @@
 		setup: function() {
 			const peopleSearchQuery = ref('');
 			const swipeSurfaceRef = ref(null);
+			const { isHeaderHidden } = useAutoHideHeader();
 			let searchTimeoutId = null;
 			
 			const state = reactive({
@@ -151,6 +154,7 @@
 			});
 
 			return {
+				isHeaderHidden: isHeaderHidden,
 				people: people,
 				state: state,
 				peopleSearchQuery: peopleSearchQuery,

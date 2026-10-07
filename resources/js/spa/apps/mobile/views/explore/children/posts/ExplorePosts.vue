@@ -1,7 +1,8 @@
 <template>
 	<div ref="swipeSurfaceRef">
 		<TimelineContainer>
-			<div class="mobile-safe-overlay-top sticky top-0 popup-background-tr z-10">
+			<div class="mobile-safe-overlay-top sticky top-0 popup-background-tr z-10 transition-transform duration-300 will-change-transform"
+				v-bind:class="{ '-translate-y-full': isHeaderHidden }">
 	            <Soundbar></Soundbar>
 				<div class="px-4 pt-4">
 					<QuickSearch v-on:cancel="handleSearchCancel" v-model.lazy="postSearchQuery" v-bind:placeholder="$t('labels.search')"></QuickSearch>
@@ -58,6 +59,7 @@
 	import { useInstantRevalidation } from '@/kernel/vue/composables/instant-revalidation/index.js';
 	import { mobileExploreSwipeSequence, useSwipeRouteNavigation } from '@/kernel/vue/composables/swipe-route-navigation/index.js';
 	import BRD from '@/kernel/websockets/brd/index.js';
+	import { useAutoHideHeader } from '@M/core/services/auto-hide-header.js';
 
     import TimelineContainer from '@M/components/timeline/feed/TimelineContainer.vue';
     import TimelinePublication from '@M/components/timeline/feed/TimelinePublication.vue';
@@ -73,6 +75,7 @@
         setup: function() {
 			const postSearchQuery = ref('');
 			const swipeSurfaceRef = ref(null);
+			const { isHeaderHidden } = useAutoHideHeader();
 
 			const state = reactive({
 				isLoading: true,
@@ -220,7 +223,8 @@
 					}
 	            });
 
-            return {
+			return {
+				isHeaderHidden: isHeaderHidden,
                 state: state,
 				swipeSurfaceRef: swipeSurfaceRef,
 				posts: posts,
