@@ -109,6 +109,32 @@ public final class PushTokenBridge {
 
         prefs.edit().putLong(KEY_LAST_ATTEMPT_MS, now).apply();
 
+        final String cookieHeader = CookieManager.getInstance().getCookie(webView.getUrl());
+        if (isBlank(cookieHeader)) {
+            Log.w(TAG, "Push token sync postponed: authenticated WebView cookies are not available yet.");
+            synchronized (SYNC_LOCK) {
+                syncInFlight = false;
+            }
+            return;
+        }
+
+        if (!cookieHeader.contains("XSRF-TOKEN=")) {
+            EXECUTOR.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        postToken(context, token, cookieHeader);
+                    }
+                    finally {
+                        synchronized (SYNC_LOCK) {
+                            syncInFlight = false;
+                        }
+                    }
+                }
+            });
+            return;
+        }
+
         final String syncSignature = sha256(token + "|" + BuildConfig.VERSION_NAME);
         final String script = "(function(){try{" +
             "var token=" + jsString(token) + ";" +
