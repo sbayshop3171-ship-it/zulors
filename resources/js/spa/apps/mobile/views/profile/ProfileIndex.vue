@@ -26,8 +26,7 @@
 			<ProfileActions></ProfileActions>
 		</div>
 
-		<div v-if="! state.isLoading" class="mobile-safe-sticky-top block sticky bg-bg-pr z-20 transition-transform duration-300 will-change-transform"
-			v-bind:class="{ '-translate-y-full': isHeaderHidden }">
+		<div v-if="! state.isLoading" class="mobile-safe-sticky-top block bg-bg-pr z-20">
 			<ContentTabs>
 				<TabsLink v-bind:link="{ name: 'profile_posts' }">
 					{{ $t('labels.posts') }}
