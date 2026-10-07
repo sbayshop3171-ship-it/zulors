@@ -3,10 +3,13 @@
 		<HeaderSkeleton></HeaderSkeleton>
 	</template>
 	<template v-else>
-		<div class="mobile-safe-page-start mb-2">
+		<div class="mobile-safe-page-start sticky top-0 z-30 bg-bg-pr transition-transform duration-300 will-change-transform"
+			v-bind:class="{ '-translate-y-full': isHeaderHidden }">
 			<div class="mb-4 px-4">
 				<ProfileControls></ProfileControls>
 			</div>
+		</div>
+		<div class="mb-2">
 			<ProfileAvatar></ProfileAvatar>
 		</div>
 		<div class="mb-2 px-4">
