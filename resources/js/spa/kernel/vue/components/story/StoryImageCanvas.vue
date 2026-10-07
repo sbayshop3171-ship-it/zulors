@@ -28,7 +28,7 @@ export default defineComponent({
         const transform = computed(() => ({ ...DEFAULT_TRANSFORM, ...(props.modelValue || {}) }));
         const isDefault = computed(() => transform.value.scale === 1 && transform.value.translateX === 0 && transform.value.translateY === 0);
         const foregroundStyle = computed(() => ({
-            transform: `translate3d(${transform.value.translateX}px, ${transform.value.translateY}px, 0) scale(${transform.value.scale}) rotate(${transform.value.rotation}deg)`
+            transform: `translate(-50%, -50%) translate3d(${transform.value.translateX}px, ${transform.value.translateY}px, 0) scale(${transform.value.scale}) rotate(${transform.value.rotation}deg)`
         }));
 
         const emitTransform = (next) => emit('update:modelValue', { ...transform.value, ...next });
