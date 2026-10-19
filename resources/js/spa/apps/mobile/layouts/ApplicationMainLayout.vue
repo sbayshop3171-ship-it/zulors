@@ -158,7 +158,8 @@
 		width: 100%;
 		min-width: 0;
 		min-height: 100%;
-		overflow-x: hidden;
+		overflow-x: clip;
+		overflow-y: visible;
 	}
 
 	.mobile-route-view {

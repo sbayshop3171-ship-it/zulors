@@ -5,7 +5,7 @@
 				v-bind:class="{ '-translate-y-full pointer-events-none': isHeaderHidden, 'translate-y-0': !isHeaderHidden }">
 	            <Soundbar></Soundbar>
 				<div class="px-4 pt-4">
-					<QuickSearch v-on:cancel="handleSearchCancel" v-model.lazy="postSearchQuery" v-bind:placeholder="$t('labels.search')"></QuickSearch>
+					<QuickSearch v-on:cancel="handleSearchCancel" v-on:focus="handleSearchFocus" v-model.lazy="postSearchQuery" v-bind:placeholder="$t('labels.search')"></QuickSearch>
 				</div>
 				<ExploreTabs></ExploreTabs>
 				<FeedUpdate v-if="newPosts.length" v-bind:posts="newPosts" v-on:click="applyNewPosts"></FeedUpdate>
@@ -59,7 +59,7 @@
 	import { useInstantRevalidation } from '@/kernel/vue/composables/instant-revalidation/index.js';
 	import { mobileExploreSwipeSequence, useSwipeRouteNavigation } from '@/kernel/vue/composables/swipe-route-navigation/index.js';
 	import BRD from '@/kernel/websockets/brd/index.js';
-	import { useAutoHideHeader } from '@M/core/services/auto-hide-header.js';
+	import { scrollToTop, useAutoHideHeader } from '@M/core/services/auto-hide-header.js';
 
     import TimelineContainer from '@M/components/timeline/feed/TimelineContainer.vue';
     import TimelinePublication from '@M/components/timeline/feed/TimelinePublication.vue';
@@ -77,7 +77,7 @@
 			const swipeSurfaceRef = ref(null);
 			const { isHeaderHidden } = useAutoHideHeader({
 				isPinned: () => postSearchQuery.value.trim().length > 0,
-				scrollTarget: () => swipeSurfaceRef.value?.closest('.mobile-app-stage') || document.scrollingElement
+				scrollTarget: () => swipeSurfaceRef.value || document
 			});
 
 			const state = reactive({
@@ -228,6 +228,12 @@
 
 			return {
 				isHeaderHidden: isHeaderHidden,
+				handleSearchFocus: (event) => {
+					void scrollToTop({
+						scrollTarget: () => swipeSurfaceRef.value || document,
+						focusTarget: event?.target
+					});
+				},
                 state: state,
 				swipeSurfaceRef: swipeSurfaceRef,
 				posts: posts,

@@ -5,10 +5,13 @@ critical flow is tested on a real Android phone and at least one emulator.
 
 ## Test Modes
 
-- Wi-Fi phone test: run the Laravel server on `0.0.0.0:8000`, then open the
-  computer LAN URL on the phone.
-- USB phone test: run `adb reverse tcp:8000 tcp:8000`, then open
-  `http://127.0.0.1:8000` on the phone.
+- Local browser: run `bash scripts/start-local-mobile-server.sh`, then open
+  `http://127.0.0.1:8001/explore/posts`. The script starts Laravel and Vite so
+  frontend edits update without a production rebuild.
+- USB Android WebView: connect and authorize the device before starting the
+  server. The start script forwards ports 8001 and 5173. If the device was
+  connected later, run `bash scripts/adb-reverse-localhost.sh` and open
+  `http://127.0.0.1:8001/explore/posts` in the local preview app.
 - PWA test: open the site in Chrome, add it to the home screen, then test
   full-screen app-like behavior.
 - Browser responsive test: check 360px, 390px, 430px, tablet, and desktop.
@@ -21,13 +24,13 @@ Run checks only:
 bash scripts/local-test-doctor.sh
 ```
 
-Start local mobile server later when needed:
+Start local Laravel + Vite servers:
 
 ```sh
 bash scripts/start-local-mobile-server.sh
 ```
 
-Prepare USB localhost access later when needed:
+Prepare USB localhost access manually if the device was connected after startup:
 
 ```sh
 bash scripts/adb-reverse-localhost.sh

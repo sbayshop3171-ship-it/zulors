@@ -10,9 +10,9 @@
 				</RouterLink>
 			</div>
 			<div class="flex items-center justify-center">
-				<RouterLink v-bind:to="{ name: 'explore_index' }" class="block rounded-full transform-gpu transition-transform duration-150 ease-out active:scale-[0.94]">
+				<div v-on:click="handleExploreNavigation" class="block rounded-full transform-gpu transition-transform duration-150 ease-out active:scale-[0.94]">
 					<PrimaryIconButton buttonColor="text-lab-pr" iconName="search-lg" iconType="solid"></PrimaryIconButton>
-				</RouterLink>
+				</div>
 			</div>
 			<div class="flex items-center justify-center">
 				<PrimaryIconButton v-on:click="state.mainMenu.open" buttonColor="text-lab-pr" iconName="plus-square-dashed" iconType="line"></PrimaryIconButton>
@@ -59,8 +59,8 @@
 </template>
 
 <script>
-	import { defineComponent, computed, reactive, onMounted, onUnmounted } from 'vue';
-	import { useRoute } from 'vue-router';
+	import { defineComponent, computed, reactive, onMounted, onUnmounted, nextTick } from 'vue';
+	import { useRoute, useRouter } from 'vue-router';
 	import { useAuthStore } from '@M/store/auth/auth.store.js';
 	import { useTimelineStore } from '@M/store/timeline/timeline.store.js';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
@@ -70,6 +70,7 @@
 	import { colibriSounds } from '@/kernel/services/sounds/index.js';
 	import { makeProfileRoute } from '@/kernel/support/profile-routing/index.js';
 	import { requestHomeScrollRefresh } from '@/kernel/vue/composables/home-scroll-refresh/index.js';
+	import { requestScrollToTop } from '@M/core/services/auto-hide-header.js';
 	import BRD from '@/kernel/websockets/brd/index.js';
 
 	import PrimaryIconButton from '@M/components/inter-ui/buttons/PrimaryIconButton.vue';
@@ -83,6 +84,7 @@
 	export default defineComponent({
 		setup: function() {
 			const route = useRoute();
+			const router = useRouter();
 			const authStore = useAuthStore();
 			const inboxStore = useInboxStore();
 			const timelineStore = useTimelineStore();
@@ -318,6 +320,19 @@
 
 					event?.preventDefault();
 					requestHomeScrollRefresh();
+				},
+				handleExploreNavigation: async (event) => {
+					event?.preventDefault();
+
+					if(String(route.name || '').startsWith('explore_')) {
+						requestScrollToTop();
+
+						return;
+					}
+
+					await router.push({ name: 'explore_posts' }).catch(() => {});
+					await nextTick();
+					window.requestAnimationFrame(requestScrollToTop);
 				}
 			};
 		},

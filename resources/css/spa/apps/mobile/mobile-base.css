@@ -230,7 +230,10 @@ html.zulors-android-app .mobile-safe-chat-header {
     max-width: none;
     min-height: calc(var(--app-viewport-height, 100dvh) - var(--mobile-header-bar-height));
     padding-bottom: calc(var(--mobile-navbar-height) + var(--mobile-safe-bottom));
-    overflow-x: hidden;
+    /* Clip sideways route transitions without creating a vertical scrollport.
+       Sticky route headers must follow the document, not this auto-height box. */
+    overflow-x: clip;
+    overflow-y: visible;
     background: var(--color-bg-pr);
 }
 
@@ -352,7 +355,8 @@ html.zulors-android-app .base-publication img {
 .mobile-app-stage,
 .mobile-route-view {
     min-height: inherit;
-    overflow-x: hidden;
+    overflow-x: clip;
+    overflow-y: visible;
     background: var(--color-bg-pr);
 }
 

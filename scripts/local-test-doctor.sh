@@ -19,6 +19,11 @@ check_command composer
 check_command npm
 check_command sqlite3
 
+ANDROID_ADB="$(command -v adb 2>/dev/null || true)"
+if [ -z "$ANDROID_ADB" ]; then
+	ANDROID_ADB="${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools/adb"
+fi
+
 if [ -f ".env" ]; then
 	echo "OK: .env exists"
 else
@@ -42,23 +47,25 @@ echo "OK: Laravel boots, version $(cat /tmp/zulors-version.txt)"
 
 php artisan db:test
 
-if command -v ipconfig >/dev/null 2>&1; then
-	lan_ip="$(ipconfig getifaddr en0 2>/dev/null || true)"
-	if [ -n "$lan_ip" ]; then
-		echo "Phone Wi-Fi URL will be: http://${lan_ip}:8000"
-	fi
-fi
+echo "Local browser URL: http://127.0.0.1:8001/explore/posts"
 
-if command -v adb >/dev/null 2>&1; then
+if [ -x "$ANDROID_ADB" ]; then
 	echo "OK: adb found"
-	adb devices || true
+	"$ANDROID_ADB" devices || true
 else
 	echo "INFO: adb not found. USB reverse testing needs Android platform tools."
 fi
 
-if lsof -nP -iTCP:8000 -sTCP:LISTEN >/dev/null 2>&1; then
-	echo "INFO: Port 8000 is already in use:"
-	lsof -nP -iTCP:8000 -sTCP:LISTEN
+if lsof -nP -iTCP:8001 -sTCP:LISTEN >/dev/null 2>&1; then
+	echo "INFO: Laravel port 8001 is already in use:"
+	lsof -nP -iTCP:8001 -sTCP:LISTEN
 else
-	echo "OK: Port 8000 is free"
+	echo "OK: Laravel port 8001 is free"
+fi
+
+if lsof -nP -iTCP:5173 -sTCP:LISTEN >/dev/null 2>&1; then
+	echo "INFO: Vite port 5173 is already in use:"
+	lsof -nP -iTCP:5173 -sTCP:LISTEN
+else
+	echo "OK: Vite port 5173 is free"
 fi

@@ -7,6 +7,7 @@
 		</div>
 		<input
 			v-on:input="updateModelValue"
+			v-on:focus="focusSearch"
 			v-bind:value="modelValue"
 			class="block w-full bg-transparent placeholder:text-center outline-hidden text-par-l placeholder:text-par-l text-lab-pr px-9 h-10"
 			v-bind:placeholder="placeholder"
@@ -34,7 +35,7 @@
                 default: ''
             },
 		},
-		emits: ['cancel', 'update:modelValue'],
+		emits: ['cancel', 'focus', 'update:modelValue'],
 		setup(props, context) {
 			return {
 				modelValue: computed(() => {
@@ -43,6 +44,9 @@
 				updateModelValue: (event) => {
                     context.emit('update:modelValue', event.target.value);
                 },
+				focusSearch: (event) => {
+					context.emit('focus', event);
+				},
 				cancelSearch: () => {
 					context.emit('cancel');
 				}

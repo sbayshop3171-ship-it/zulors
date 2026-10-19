@@ -96,7 +96,7 @@ if [ "$APP_MODE" = "production" ]; then
 	USER_AGENT_SUFFIX="${USER_AGENT_SUFFIX:-ZulorsAndroidApp}"
 else
 	APP_ID="${APP_ID:-com.zulors.localpreview}"
-	APP_URL="${APP_URL:-http://127.0.0.1:8000/}"
+	APP_URL="${APP_URL:-http://127.0.0.1:8001/}"
 	APP_LABEL="${APP_LABEL:-Zulors Local}"
 	TRUSTED_HOST="${TRUSTED_HOST:-zulors.com}"
 	USES_CLEARTEXT="${USES_CLEARTEXT:-true}"
