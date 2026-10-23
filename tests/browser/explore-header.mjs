@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 
 // Run against the seeded local Laravel app and its Vite dev server. This checks
 // actual header geometry, not just its CSS class. No screenshots are needed.
@@ -7,6 +8,10 @@ const origin = process.env.EXPLORE_TEST_URL || 'http://127.0.0.1:8001';
 assert.ok(['localhost', '127.0.0.1'].includes(new URL(origin).hostname), 'Local tests only');
 const diagnose = process.argv.includes('--diagnose');
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
+const androidActivitySource = await readFile(new URL('../../android/LocalAndroidPreview/src/com/zulors/localpreview/MainActivity.java', import.meta.url), 'utf8');
+assert.ok(androidActivitySource.includes(
+    'html.zulors-android-app .mobile-app-content,html.zulors-android-app .mobile-app-stage,html.zulors-android-app .mobile-route-view,html.zulors-android-app .base-publication{overflow-x:clip!important;overflow-y:visible!important;}'
+), 'Android WebView guards keep route wrappers from becoming sticky scrollports');
 
 async function login(page) {
     await page.goto(`${origin}/auth/login`, { waitUntil: 'domcontentloaded' });
@@ -73,8 +78,15 @@ try {
 
         for (const route of ['posts', 'people']) {
             await page.goto(`${origin}/explore/${route}`, { waitUntil: 'domcontentloaded' });
+            if (mode.name === 'android-app') {
+                await page.evaluate(() => document.documentElement.classList.add('zulors-android-app'));
+            }
             const header = page.locator('.mobile-safe-overlay-top');
             await header.waitFor({ state: 'visible' });
+            if (mode.name === 'android-app') {
+                const overflowY = await page.locator('.mobile-app-content').evaluate(element => getComputedStyle(element).overflowY);
+                assert.equal(overflowY, 'visible', 'Android WebView route wrapper must not capture sticky headers');
+            }
             await page.waitForFunction(() => document.documentElement.scrollHeight > innerHeight + 1300);
             await page.waitForTimeout(600);
             // Wider viewports wrap fewer lines; keep room for repeated direction

@@ -11,6 +11,8 @@
                 v-bind:base64Image="imageItem.lqip_base64"
                 v-bind:src="imageItem.source_url"
                 v-bind:isSensitive="isSensitive"
+                v-bind:loading="isPriority && idx === 0 ? 'eager' : 'lazy'"
+                v-bind:fetchPriority="isPriority && idx === 0 ? 'high' : 'auto'"
                 v-bind:class="getImageClasses"
                 alt="Image"
             ></ProgressiveImageLoader>
@@ -34,6 +36,10 @@
                 default: () => []
             },
             isSensitive: {
+                type: Boolean,
+                default: false
+            },
+            isPriority: {
                 type: Boolean,
                 default: false
             }

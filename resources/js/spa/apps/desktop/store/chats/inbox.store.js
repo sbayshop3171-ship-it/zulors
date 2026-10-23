@@ -1,21 +1,33 @@
 import { defineStore } from 'pinia';
 import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
+import { useAuthStore } from '@D/store/auth/auth.store.js';
 
 const CACHE_TTL = 1000 * 60 * 5;
-const CACHE_NAMESPACE = 'colibri:desktop:messenger-inbox:';
+const CACHE_NAMESPACE = 'colibri:desktop:messenger-inbox:v2:';
+const LEGACY_CACHE_NAMESPACE = 'colibri:desktop:messenger-inbox:';
 let unreadStateSyncTimer = null;
 
+function currentViewerId() {
+    const viewerId = useAuthStore().userData?.id;
+
+    return viewerId ? String(viewerId) : null;
+}
+
 function cacheKey(key) {
-    return `${CACHE_NAMESPACE}${key}`;
+    const viewerId = currentViewerId();
+
+    return viewerId ? `${CACHE_NAMESPACE}viewer-${viewerId}:${key}` : null;
 }
 
 function readCache(key) {
-    if(typeof window === 'undefined' || ! window.localStorage) {
+    const storageKey = cacheKey(key);
+
+    if(typeof window === 'undefined' || ! window.localStorage || ! storageKey) {
         return null;
     }
 
     try {
-        let payload = JSON.parse(window.localStorage.getItem(cacheKey(key)));
+        let payload = JSON.parse(window.localStorage.getItem(storageKey));
 
         if(! payload || ! Object.prototype.hasOwnProperty.call(payload, 'data')) {
             return null;
@@ -29,12 +41,14 @@ function readCache(key) {
 }
 
 function writeCache(key, data) {
-    if(typeof window === 'undefined' || ! window.localStorage) {
+    const storageKey = cacheKey(key);
+
+    if(typeof window === 'undefined' || ! window.localStorage || ! storageKey) {
         return;
     }
 
     try {
-        window.localStorage.setItem(cacheKey(key), JSON.stringify({
+        window.localStorage.setItem(storageKey, JSON.stringify({
             timestamp: Date.now(),
             data: data
         }));
@@ -46,9 +60,29 @@ function isFresh(timestamp) {
     return timestamp && ((Date.now() - timestamp) < CACHE_TTL);
 }
 
+function purgeLegacyInboxCache() {
+    try {
+        if(typeof window === 'undefined' || ! window.localStorage) {
+            return;
+        }
+
+        for(let index = window.localStorage.length - 1; index >= 0; index--) {
+            const key = window.localStorage.key(index);
+
+            if(key?.startsWith(LEGACY_CACHE_NAMESPACE) && ! key.startsWith(CACHE_NAMESPACE)) {
+                window.localStorage.removeItem(key);
+            }
+        }
+    }
+    catch(error) {}
+}
+
+purgeLegacyInboxCache();
+
 const useInboxStore = defineStore('chats_inbox', {
     state: () => {
         return {
+            cacheViewerId: currentViewerId(),
             chatsHistory: [],
             chatRequests: [],
             chatsArchive: [],
@@ -76,7 +110,16 @@ const useInboxStore = defineStore('chats_inbox', {
         };
     },
     actions: {
+        ensureViewerScope: function() {
+            if(this.cacheViewerId !== currentViewerId()) {
+                this.$reset();
+            }
+        },
+        resetForViewer: function() {
+            this.$reset();
+        },
         setActiveChatId: function(chatId = null) {
+            this.ensureViewerScope();
             this.activeChatId = chatId || null;
         },
         findChatById: function(chatId) {
@@ -91,6 +134,7 @@ const useInboxStore = defineStore('chats_inbox', {
             }) || null;
         },
         hydrateChatsHistoryCache: function() {
+            this.ensureViewerScope();
             let payload = readCache('chats-history');
 
             if(! payload) {
@@ -104,6 +148,7 @@ const useInboxStore = defineStore('chats_inbox', {
             return true;
         },
         hydrateChatsArchiveCache: function() {
+            this.ensureViewerScope();
             let payload = readCache('chats-archive');
 
             if(! payload) {
@@ -117,6 +162,7 @@ const useInboxStore = defineStore('chats_inbox', {
             return true;
         },
         hydrateChatRequestsCache: function() {
+            this.ensureViewerScope();
             let payload = readCache('chat-requests');
 
             if(! payload) {
@@ -130,6 +176,7 @@ const useInboxStore = defineStore('chats_inbox', {
             return true;
         },
         hydrateChatRequestsCountCache: function() {
+            this.ensureViewerScope();
             let payload = readCache('chat-requests-count');
 
             if(! payload) {
@@ -143,6 +190,7 @@ const useInboxStore = defineStore('chats_inbox', {
             return true;
         },
         hydrateMessengerSearchCache: function() {
+            this.ensureViewerScope();
             let payload = readCache('messenger-search');
 
             if(! payload) {
@@ -159,21 +207,25 @@ const useInboxStore = defineStore('chats_inbox', {
             return true;
         },
         persistChatsHistoryCache: function() {
+            this.ensureViewerScope();
             this.chatsHistoryLoaded = true;
             this.chatsHistoryFetchedAt = Date.now();
             writeCache('chats-history', this.chatsHistory);
         },
         persistChatRequestsCache: function() {
+            this.ensureViewerScope();
             this.chatRequestsLoaded = true;
             this.chatRequestsFetchedAt = Date.now();
             writeCache('chat-requests', this.chatRequests);
         },
         persistMessengerSearchCache: function() {
+            this.ensureViewerScope();
             this.messengerSearchLoaded = true;
             this.messengerSearchFetchedAt = Date.now();
             writeCache('messenger-search', this.messengerSearch);
         },
         fetchChatRequests: async function(options = {}) {
+            this.ensureViewerScope();
             let { force = false, preferCache = true } = options;
 
             if(preferCache && ! force) {
@@ -200,6 +252,7 @@ const useInboxStore = defineStore('chats_inbox', {
             });
         },
         fetchChatRequestsCount: async function(options = {}) {
+            this.ensureViewerScope();
             let { force = false, preferCache = true } = options;
 
             if(preferCache && ! force) {
@@ -228,6 +281,7 @@ const useInboxStore = defineStore('chats_inbox', {
             });
         },
         fetchChatsHistory: async function(options = {}) {
+            this.ensureViewerScope();
             let { force = false, preferCache = true } = options;
 
             if(preferCache && ! force) {
@@ -254,6 +308,7 @@ const useInboxStore = defineStore('chats_inbox', {
             });
         },
         fetchChatsArchive: async function(options = {}) {
+            this.ensureViewerScope();
             let { force = false, preferCache = true } = options;
 
             if(preferCache && ! force) {
@@ -282,6 +337,7 @@ const useInboxStore = defineStore('chats_inbox', {
             });
         },
         fetchUnreadCount: function() {
+            this.ensureViewerScope();
             return colibriAPI().messenger().getFrom('unread/count').then((response) => {
                 this.unreadCount = response.data.data || {
                     formatted: 0,
@@ -505,6 +561,7 @@ const useInboxStore = defineStore('chats_inbox', {
             return count;
         },
         fetchSearchBootstrap: async function(options = {}) {
+            this.ensureViewerScope();
             let { force = false, preferCache = true } = options;
 
             if(preferCache && ! force) {
@@ -545,6 +602,7 @@ const useInboxStore = defineStore('chats_inbox', {
             });
         },
         storeSearchRecent: async function(userId) {
+            this.ensureViewerScope();
             return await colibriAPI().messenger().with({
                 user_id: userId
             }).sendTo('search/recent').then((response) => {
@@ -555,6 +613,7 @@ const useInboxStore = defineStore('chats_inbox', {
             });
         },
         deleteSearchRecent: async function(userId) {
+            this.ensureViewerScope();
             return await colibriAPI().messenger().delete(`search/recent/${userId}`).then((response) => {
                 this.messengerSearch.recents = response.data.data.recents;
                 this.persistMessengerSearchCache();
@@ -563,6 +622,7 @@ const useInboxStore = defineStore('chats_inbox', {
             });
         },
         clearSearchRecents: async function() {
+            this.ensureViewerScope();
             return await colibriAPI().messenger().delete('search/recent').then((response) => {
                 this.messengerSearch.recents = [];
                 this.persistMessengerSearchCache();
@@ -593,5 +653,14 @@ const useInboxStore = defineStore('chats_inbox', {
         }
     }
 });
+
+if(typeof window !== 'undefined') {
+    window.addEventListener('zulors:account-scope-changed', () => {
+        try {
+            useInboxStore().resetForViewer();
+        }
+        catch(error) {}
+    });
+}
 
 export { useInboxStore };

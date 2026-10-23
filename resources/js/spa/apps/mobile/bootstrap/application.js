@@ -13,6 +13,7 @@ import ZulorsMobile from '@M/bootstrap/boot/ZulorsMobile.vue';
 import Router from '@M/router/index.js';
 import { installNativeBackBridge } from '@M/core/services/native-back/index.js';
 import { deferStartupTask, markStartupEvent } from '@/kernel/services/startup/index.js';
+import { installPerformanceMonitoring, installRouterPerformance } from '@/kernel/services/performance/index.js';
 
 import globalProperties from '@/kernel/vue/plugins/global.properties.js';
 import globalHelpers from '@M/core/global/global.helpers.js';
@@ -24,6 +25,9 @@ if(/\bZulors(Android|Local)App\b/.test(navigator.userAgent)) {
 }
 
 const Application = createApp(ZulorsMobile);
+
+installPerformanceMonitoring();
+installRouterPerformance(Router);
 
 installViewportKeyboardGuard();
 

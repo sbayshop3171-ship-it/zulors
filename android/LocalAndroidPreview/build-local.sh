@@ -7,21 +7,20 @@ PLATFORM_API="${ANDROID_PLATFORM##*/android-}"
 APP_MODE="${APP_MODE:-local}"
 ARTIFACT_TYPE="${ARTIFACT_TYPE:-apk}"
 BUILD_TYPE="${BUILD_TYPE:-}"
-MIN_SDK="${MIN_SDK:-23}"
+MIN_SDK="${MIN_SDK:-}"
 TARGET_SDK="${TARGET_SDK:-$PLATFORM_API}"
 VERSION_CODE="${VERSION_CODE:-$(date +%s)}"
 VERSION_NAME="${VERSION_NAME:-0.5.0-${APP_MODE}}"
 JDK_HOME="${JDK_HOME:-/Applications/Android Studio.app/Contents/jbr/Contents/Home}"
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+EXTERNAL_APP_DIR="${EXTERNAL_APP_DIR:-$APP_DIR/../../../LocalAndroidPreview}"
 BUILD="$APP_DIR/build/$(date +%Y%m%d%H%M%S)"
 KEYSTORE="$APP_DIR/debug.keystore"
-RELEASE_KEYSTORE="${RELEASE_KEYSTORE:-$APP_DIR/keystores/zulors-upload.jks}"
 RELEASE_KEYSTORE_TYPE="${RELEASE_KEYSTORE_TYPE:-JKS}"
 RELEASE_KEY_ALIAS="${RELEASE_KEY_ALIAS:-zulors-upload}"
 RELEASE_CERT_DNAME="${RELEASE_CERT_DNAME:-CN=Zulors,O=Zulors,C=US}"
 RELEASE_KEY_VALIDITY_DAYS="${RELEASE_KEY_VALIDITY_DAYS:-10000}"
 CREATE_RELEASE_KEYSTORE="${CREATE_RELEASE_KEYSTORE:-false}"
-GOOGLE_SERVICES_JSON="${GOOGLE_SERVICES_JSON:-$APP_DIR/firebase/google-services.json}"
 ANDROID_GRADLE_PLUGIN_VERSION="${ANDROID_GRADLE_PLUGIN_VERSION:-8.13.2}"
 GOOGLE_SERVICES_PLUGIN_VERSION="${GOOGLE_SERVICES_PLUGIN_VERSION:-4.4.2}"
 FIREBASE_MESSAGING_VERSION="${FIREBASE_MESSAGING_VERSION:-25.0.1}"
@@ -80,6 +79,9 @@ else
 fi
 
 if [ "$APP_MODE" = "production" ]; then
+	MIN_SDK="${MIN_SDK:-24}"
+	RELEASE_KEYSTORE="${RELEASE_KEYSTORE:-$EXTERNAL_APP_DIR/keystores/zulors-upload.jks}"
+	GOOGLE_SERVICES_JSON="${GOOGLE_SERVICES_JSON:-$EXTERNAL_APP_DIR/firebase/google-services.json}"
 	APP_ID="${APP_ID:-com.zulors.app}"
 	APP_URL="${APP_URL:-https://zulors.com/}"
 	APP_LABEL="${APP_LABEL:-Zulors}"
@@ -95,6 +97,9 @@ if [ "$APP_MODE" = "production" ]; then
 	NATIVE_GOOGLE_AUTH_ENABLED="${NATIVE_GOOGLE_AUTH_ENABLED:-true}"
 	USER_AGENT_SUFFIX="${USER_AGENT_SUFFIX:-ZulorsAndroidApp}"
 else
+	MIN_SDK="${MIN_SDK:-23}"
+	RELEASE_KEYSTORE="${RELEASE_KEYSTORE:-$APP_DIR/keystores/zulors-upload.jks}"
+	GOOGLE_SERVICES_JSON="${GOOGLE_SERVICES_JSON:-$APP_DIR/firebase/google-services.json}"
 	APP_ID="${APP_ID:-com.zulors.localpreview}"
 	APP_URL="${APP_URL:-http://127.0.0.1:8001/}"
 	APP_LABEL="${APP_LABEL:-Zulors Local}"
@@ -212,7 +217,7 @@ sed \
 		r /dev/stdin
 		d
 	}" \
-	"$APP_DIR/AndroidManifest.template.xml" <<EOF > "$BUILD/AndroidManifest.partial.xml"
+	"$APP_DIR/AndroidManifest.xml" <<EOF > "$BUILD/AndroidManifest.partial.xml"
 $WEB_MEDIA_PERMISSIONS
 EOF
 
@@ -525,14 +530,16 @@ fi
 
 mkdir -p "$APP_DIR/build/latest"
 if [ "$ARTIFACT_TYPE" = "bundle" ]; then
-	OUTPUT_NAME="zulors-${APP_MODE}-${BUILD_TYPE}.aab"
+	OUTPUT_EXTENSION="aab"
 	OUTPUT_SOURCE="$GRADLE_APP/build/outputs/bundle/$BUILD_TYPE/app-$BUILD_TYPE.aab"
 else
-	OUTPUT_NAME="zulors-${APP_MODE}-${BUILD_TYPE}.apk"
+	OUTPUT_EXTENSION="apk"
 	OUTPUT_SOURCE="$GRADLE_APP/build/outputs/apk/$BUILD_TYPE/app-$BUILD_TYPE.apk"
 fi
 
+OUTPUT_NAME="zulors-${APP_MODE}-${VERSION_NAME}-${VERSION_CODE}.${OUTPUT_EXTENSION}"
+rm -f "$APP_DIR"/build/latest/*."$OUTPUT_EXTENSION"
+rm -f "$APP_DIR"/build/latest/AndroidManifest.*.xml
 cp "$OUTPUT_SOURCE" "$APP_DIR/build/latest/$OUTPUT_NAME"
-cp "$BUILD/AndroidManifest.xml" "$APP_DIR/build/latest/AndroidManifest.$APP_MODE.xml"
 
 echo "$APP_DIR/build/latest/$OUTPUT_NAME"

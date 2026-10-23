@@ -193,19 +193,26 @@
 				// Because there can be a filter applied from the previous visits.
 
 				explorePostsStore.resetFilter();
-				state.isLoading = true;
+				state.isLoading = ! posts.value.length;
 
-				try {
-					await explorePostsStore.refreshFirstPage({
-						refreshReason: 'open'
-					});
-				}
-				finally {
-					state.isLoading = false;
-				}
+				const refreshPromise = explorePostsStore.refreshFirstPage({
+					refreshReason: 'open'
+				});
 
 				setupFeedUpdateInterval();
 				setupRealtimeFeedUpdates();
+
+				if(state.isLoading) {
+					try {
+						await refreshPromise;
+					}
+					finally {
+						state.isLoading = false;
+					}
+				}
+				else {
+					refreshPromise.catch(() => {});
+				}
             });
 
 			watch(postSearchQuery, () => {

@@ -345,6 +345,15 @@ html.zulors-android-app .mobile-safe-sticky-top {
     top: var(--mobile-safe-top) !important;
 }
 
+/* Keep document scrolling as the sticky header's scrollport in Android WebView. */
+html.zulors-android-app .mobile-app-content,
+html.zulors-android-app .mobile-app-stage,
+html.zulors-android-app .mobile-route-view,
+html.zulors-android-app .base-publication {
+    overflow-x: clip !important;
+    overflow-y: visible !important;
+}
+
 html.zulors-android-app .base-publication > div > .max-w-full > .mb-2,
 html.zulors-android-app .base-publication video,
 html.zulors-android-app .base-publication canvas,

@@ -19,6 +19,12 @@ import { readMessengerCache, writeMessengerCache } from '@/kernel/services/cache
 const CHAT_CACHE_TTL = 1000 * 60 * 60 * 24;
 const MESSAGE_PAGE_SIZE = 30;
 
+function viewerChatCacheScope() {
+	const viewerId = useAuthStore().userData?.id;
+
+	return viewerId ? `viewer-${viewerId}:chat` : null;
+}
+
 function createMessagesPagination() {
 	return {
 		hasMore: false,
@@ -80,6 +86,7 @@ function mergeMessageLists(currentMessages = [], incomingMessages = []) {
 const useChatStore = defineStore('chats_chat', {
 	state: () => {
 		return {
+			cacheViewerId: useAuthStore().userData?.id ? String(useAuthStore().userData.id) : null,
 			chatId: null,
 			chatData: {},
 			chatDataChatId: null,
@@ -118,7 +125,18 @@ const useChatStore = defineStore('chats_chat', {
 		}
 	},
 	actions: {
+		ensureViewerScope: function() {
+			const viewerId = useAuthStore().userData?.id ? String(useAuthStore().userData.id) : null;
+
+			if(this.cacheViewerId !== viewerId) {
+				this.$reset();
+			}
+		},
+		resetForViewer: function() {
+			this.$reset();
+		},
 		resetChatState: function(chatId = null) {
+			this.ensureViewerScope();
 			this.chatId = chatId;
 			this.chatData = {};
 			this.chatDataChatId = null;
@@ -159,6 +177,7 @@ const useChatStore = defineStore('chats_chat', {
 			return true;
 		},
 		prepareChatForRoute: function(chatId, options = {}) {
+			this.ensureViewerScope();
 			const { preferCache = true, primeChatData = null } = options;
 
 			if(! chatId) {
@@ -184,15 +203,17 @@ const useChatStore = defineStore('chats_chat', {
 			return hasCachedChat || Boolean(primeChatData?.chat_id === chatId);
 		},
 		hydrateChatCache: function(chatId = this.chatId, options = {}) {
+			this.ensureViewerScope();
 			const { clearMissing = false } = options;
 
 			if(! chatId) {
 				return false;
 			}
 
-			const chatEntry = readMessengerCache('chat', `${chatId}:data`, null, CHAT_CACHE_TTL);
-			const messagesEntry = readMessengerCache('chat', `${chatId}:messages`, null, CHAT_CACHE_TTL);
-			const participantsEntry = readMessengerCache('chat', `${chatId}:participants`, null, CHAT_CACHE_TTL);
+			const cacheScope = viewerChatCacheScope();
+			const chatEntry = readMessengerCache(cacheScope, `${chatId}:data`, null, CHAT_CACHE_TTL);
+			const messagesEntry = readMessengerCache(cacheScope, `${chatId}:messages`, null, CHAT_CACHE_TTL);
+			const participantsEntry = readMessengerCache(cacheScope, `${chatId}:participants`, null, CHAT_CACHE_TTL);
 			let hydrated = false;
 
 			if(chatEntry?.data) {
@@ -238,23 +259,30 @@ const useChatStore = defineStore('chats_chat', {
 			return hydrated;
 		},
 		persistChatCache: function() {
+			this.ensureViewerScope();
 			if(! this.chatId) {
 				return false;
 			}
 
+			const cacheScope = viewerChatCacheScope();
+
+			if(! cacheScope) {
+				return false;
+			}
+
 			if(this.chatData?.chat_info && this.chatDataChatId === this.chatId) {
-				writeMessengerCache('chat', `${this.chatId}:data`, this.chatData);
+				writeMessengerCache(cacheScope, `${this.chatId}:data`, this.chatData);
 			}
 
 			if(this.chatMessagesChatId === this.chatId) {
-				writeMessengerCache('chat', `${this.chatId}:messages`, {
+				writeMessengerCache(cacheScope, `${this.chatId}:messages`, {
 					messages: this.chatMessages.slice(-100),
 					pagination: this.chatMessagesPagination
 				});
 			}
 
 			if(this.chatParticipantsChatId === this.chatId) {
-				writeMessengerCache('chat', `${this.chatId}:participants`, this.chatParticipants);
+				writeMessengerCache(cacheScope, `${this.chatId}:participants`, this.chatParticipants);
 			}
 
 			return true;
@@ -900,5 +928,14 @@ const useChatStore = defineStore('chats_chat', {
 		}
 	}
 });
+
+if(typeof window !== 'undefined') {
+	window.addEventListener('zulors:account-scope-changed', () => {
+		try {
+			useChatStore().resetForViewer();
+		}
+		catch(error) {}
+	});
+}
 
 export { useChatStore };

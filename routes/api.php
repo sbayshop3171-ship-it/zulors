@@ -15,6 +15,7 @@
 
 use App\Models\User;
 use App\Http\Controllers\Api\Auth\GoogleNativeAuthController;
+use App\Http\Controllers\Api\Performance\PerformanceTelemetryController;
 use App\Http\Controllers\Api\Push\PushActionController;
 use App\Http\Controllers\Api\User\Story\StoryMusicController;
 use Illuminate\Http\Request;
@@ -26,6 +27,10 @@ $lightApiThrottle = 'throttle:180,1';
 $readApiThrottle = 'throttle:300,1';
 $interactiveApiThrottle = 'throttle:240,1';
 $uploadApiThrottle = 'throttle:720,1';
+
+Route::post('/performance/events', [PerformanceTelemetryController::class, 'store'])
+    ->middleware('throttle:30,1')
+    ->name('api.performance.events');
 
 Route::post('/sanctum/token', function (Request $request) {
     $request->validate([

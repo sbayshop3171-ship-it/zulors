@@ -56,7 +56,9 @@ Play Store-এ পরবর্তী app update দিতে নতুন signed
 
 ## Signing and test notes
 
-Release signing environment এবং keystore Git-এ commit করা হয় না. Build helper এগুলো local app folder অথবা `../../../LocalAndroidPreview` থেকে নেয়:
+`AndroidManifest.xml` হলো একমাত্র manifest source; build helper local/production mode অনুযায়ী এর placeholders পূরণ করে। Generated manifest থাকে timestamped build folder-এ, upload folder-এ নয়.
+
+Production signing environment, keystore, এবং Firebase config-এর একমাত্র location `../../../LocalAndroidPreview`; এগুলো Git-এ commit করা হয় না:
 
 ```text
 .env.play-upload-key

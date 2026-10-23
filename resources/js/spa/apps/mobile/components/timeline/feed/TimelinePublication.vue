@@ -22,7 +22,7 @@
                 <div class="mb-2" v-if="PostTypeUtils.isMedia(postData.type)">
                     <template v-if="PostTypeUtils.isImage(postData.type)">
                         <div v-on:click="lightboxImages" class="cursor-pointer">
-                            <PublicationImage v-bind:isSensitive="isSensitive" v-bind:key="postData.hash_id" v-bind:postMedia="postMedia"></PublicationImage>
+                            <PublicationImage v-bind:isSensitive="isSensitive" v-bind:isPriority="position === 1" v-bind:key="postData.hash_id" v-bind:postMedia="postMedia"></PublicationImage>
                         </div>
                     </template>
                     <template v-if="PostTypeUtils.isGif(postData.type)">

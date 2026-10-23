@@ -26,8 +26,15 @@ const useAuthStore = defineStore('auth_store', {
     },
     actions: {
         setUser: function(userData) {
-           this.user = userData;
-           setPublicationAccount(userData?.id);
+            const previousUserId = this.user?.id ?? null;
+            this.user = userData;
+            setPublicationAccount(userData?.id);
+
+            if(typeof window !== 'undefined' && String(previousUserId ?? '') !== String(userData?.id ?? '')) {
+                window.dispatchEvent(new CustomEvent('zulors:account-scope-changed', {
+                    detail: { viewerId: userData?.id ?? null }
+                }));
+            }
         },
         setProperty: function(key, value) {
             this.user[key] = value;
@@ -44,7 +51,7 @@ const useAuthStore = defineStore('auth_store', {
                     evictViewerFeedSnapshots(`user:${userId}`).catch(() => {});
                 }
 
-                this.user = null;
+                this.setUser(null);
             }
         }
     }

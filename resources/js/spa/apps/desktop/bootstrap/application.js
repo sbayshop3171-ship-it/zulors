@@ -10,12 +10,16 @@ import outsideClickDirective from '@/kernel/vue/directives/click.outside.js';
 import Router from '@D/router/index.js';
 import LanguageMessages from '@/lang/index.js';
 import { deferStartupTask, markStartupEvent } from '@/kernel/services/startup/index.js';
+import { installPerformanceMonitoring, installRouterPerformance } from '@/kernel/services/performance/index.js';
 
 import ZulorsDesktop from '@D/bootstrap/boot/ZulorsDesktop.vue';
 import PrimeVue from 'primevue/config';
 import globalProperties from '@/kernel/vue/plugins/global.properties.js';
 
 const Application = createApp(ZulorsDesktop);
+
+installPerformanceMonitoring();
+installRouterPerformance(Router);
 
 function humanizeI18nKey(key) {
     return String(key)

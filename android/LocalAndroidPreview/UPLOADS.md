@@ -65,14 +65,14 @@ The build pins AndroidX WebKit `1.12.1`, WorkManager `2.10.3`, and OkHttp `4.12.
 - [WorkManager long-running workers and foreground service types](https://developer.android.com/develop/background-work/background-tasks/persistent/how-to/long-running)
 - [WorkManager 2.10.3 release](https://developer.android.com/jetpack/androidx/releases/work#2.10.3)
 
-Use the existing signing environment and keystore. The build reads release passwords from environment variables; generated Gradle files do not contain them. Set `CREATE_RELEASE_KEYSTORE=false`. Never generate a replacement upload key. Play Store upload builds should be signed AABs; the matching signed APK is only for same-signature device sanity testing.
+Use the canonical signing environment, keystore, and Firebase config from `../../../LocalAndroidPreview`. The build reads release passwords from environment variables; generated Gradle files do not contain them. Set `CREATE_RELEASE_KEYSTORE=false`. Never generate a replacement upload key. Play Store upload builds should be signed AABs; the matching signed APK is only for same-signature device sanity testing. Local preview uses its own app ID and Firebase config under `android/LocalAndroidPreview`.
 
 ```sh
 APP_MODE=production BUILD_TYPE=release ARTIFACT_TYPE=bundle RUN_UPLOAD_TESTS=true \
 CREATE_RELEASE_KEYSTORE=false bash android/LocalAndroidPreview/build-local.sh
 ```
 
-`VERSION_CODE` defaults to the build's Unix timestamp; check the resulting AAB is higher than the previous release. `RUN_UPLOAD_TESTS=true` runs the Android tests under `tests/android` before packaging. `LOCAL_MAVEN_CACHE` optionally supplies a local Maven repository when the environment cannot reach Maven through the JVM. The final Play upload file is `build/latest/zulors-production-release.aab`.
+`VERSION_CODE` defaults to the build's Unix timestamp; check the resulting AAB is higher than the previous release. Production builds default to minSdk 24. `RUN_UPLOAD_TESTS=true` runs the Android tests under `tests/android` before packaging. `LOCAL_MAVEN_CACHE` optionally supplies a local Maven repository when the environment cannot reach Maven through the JVM. Each successful build keeps one artifact per type in `build/latest`, named `zulors-production-<versionName>-<versionCode>.aab` or `.apk`; rebuilding that type replaces its previous output. Generated manifests stay in that build's timestamped folder.
 
 For the full Play helper that builds both the AAB and a matching install-test APK, run:
 

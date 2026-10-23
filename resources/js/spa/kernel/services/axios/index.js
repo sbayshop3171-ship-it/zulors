@@ -1,6 +1,7 @@
 import Axios from 'axios';
 import { normalizeRateLimitError } from '@/kernel/services/errors/index.js';
 import { evictCurrentFeedViewerSnapshots } from '@/kernel/services/cache/feed-cache.js';
+import { reportApiDuration } from '@/kernel/services/performance/index.js';
 
 
 const configuredBaseURL = import.meta.env.VITE_API_BASE_URL;
@@ -111,6 +112,22 @@ const AxiosAuth = Axios.create({
 
 AxiosAuth.defaults.withCredentials = true;
 AxiosAuth.defaults.withXSRFToken = true;
+
+AxiosAuth.interceptors.request.use((config) => {
+    config.__zulorsPerformanceStartedAt = performance.now();
+
+    return config;
+});
+
+AxiosAuth.interceptors.response.use((response) => {
+    reportApiDuration(response.config, response.config?.__zulorsPerformanceStartedAt);
+
+    return response;
+}, (error) => {
+    reportApiDuration(error.config, error.config?.__zulorsPerformanceStartedAt);
+
+    return Promise.reject(error);
+});
 
 AxiosAuth.interceptors.response.use((response) => {
     return response;

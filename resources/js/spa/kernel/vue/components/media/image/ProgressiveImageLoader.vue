@@ -13,9 +13,9 @@
             ref="imageRef"
             v-bind:src="src"
             v-bind="$attrs"
-            loading="eager"
+            v-bind:loading="loading"
             decoding="async"
-            fetchpriority="high"
+            v-bind:fetchpriority="fetchPriority"
             class="relative z-10"
         alt="Image">
     </div>
@@ -39,6 +39,16 @@
             isSensitive: {
                 type: Boolean,
                 default: false
+            },
+            loading: {
+                type: String,
+                default: 'lazy',
+                validator: (value) => ['eager', 'lazy'].includes(value)
+            },
+            fetchPriority: {
+                type: String,
+                default: 'auto',
+                validator: (value) => ['high', 'low', 'auto'].includes(value)
             }
         },
         setup: function(props) {

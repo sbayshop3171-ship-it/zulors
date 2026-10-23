@@ -69,7 +69,7 @@
 </template>
 
 <script>
-	import { defineComponent, reactive, ref, onMounted, inject } from 'vue';
+	import { defineComponent, reactive, ref, computed, watch, inject } from 'vue';
 	import { useRouter } from 'vue-router';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { useMenu } from '@/kernel/vue/composables/menu/index.js';
@@ -97,14 +97,17 @@
             const blockRelationship = ref({});
             const profileData = inject('profileData');
             const relationsStore = useRelationsStore();
+            const permissions = computed(() => profileData.value?.meta?.permissions || {});
 
-            onMounted(() => {
-                muteRelationship.value = profileData.value.meta.relationship.muting;
-                blockRelationship.value = profileData.value.meta.relationship.block;
-            });
+			watch(profileData, (data) => {
+				muteRelationship.value = data?.meta?.relationship?.muting || {};
+				blockRelationship.value = data?.meta?.relationship?.block || {};
+				state.mainMenu.close();
+				state.editProfileMenu.close();
+			}, { immediate: true });
 
 			return {
-				permissions: profileData.value.meta.permissions,
+				permissions: permissions,
 				state: state,
 				profileData: profileData,
 				muteRelationship: muteRelationship,

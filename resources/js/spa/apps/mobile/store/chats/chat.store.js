@@ -17,8 +17,32 @@ import { useInboxStore } from '@M/store/chats/inbox.store.js';
 import { useAuthStore } from '@M/store/auth/auth.store.js';
 
 const CHAT_CACHE_TTL = 1000 * 60 * 60;
-const CHAT_CACHE_NAMESPACE = 'colibri:mobile:messenger-chat:';
+const CHAT_CACHE_NAMESPACE = 'colibri:mobile:messenger-chat:v2:';
+const LEGACY_CHAT_CACHE_NAMESPACE = 'colibri:mobile:messenger-chat:';
 const MESSAGE_PAGE_SIZE = 30;
+
+function currentViewerId() {
+	const viewerId = useAuthStore().userData?.id;
+
+	return viewerId ? String(viewerId) : null;
+}
+
+function purgeLegacyChatCache() {
+	try {
+		if(typeof window === 'undefined' || ! window.localStorage) {
+			return;
+		}
+
+		for(let index = window.localStorage.length - 1; index >= 0; index--) {
+			const key = window.localStorage.key(index);
+
+			if(key?.startsWith(LEGACY_CHAT_CACHE_NAMESPACE) && ! key.startsWith(CHAT_CACHE_NAMESPACE)) {
+				window.localStorage.removeItem(key);
+			}
+		}
+	}
+	catch(error) {}
+}
 
 function createMessagesPagination() {
 	return {
@@ -62,16 +86,20 @@ function mergeMessageLists(currentMessages = [], incomingMessages = []) {
 }
 
 function chatCacheKey(chatId) {
-	return `${CHAT_CACHE_NAMESPACE}${chatId}`;
+	const viewerId = currentViewerId();
+
+	return viewerId && chatId ? `${CHAT_CACHE_NAMESPACE}viewer-${viewerId}:${chatId}` : null;
 }
 
 function readChatCache(chatId) {
-	if(typeof window === 'undefined' || ! window.localStorage || ! chatId) {
+	const storageKey = chatCacheKey(chatId);
+
+	if(typeof window === 'undefined' || ! window.localStorage || ! storageKey) {
 		return null;
 	}
 
 	try {
-		let payload = JSON.parse(window.localStorage.getItem(chatCacheKey(chatId)));
+		let payload = JSON.parse(window.localStorage.getItem(storageKey));
 
 		if(! payload || ! Object.prototype.hasOwnProperty.call(payload, 'data')) {
 			return null;
@@ -85,12 +113,14 @@ function readChatCache(chatId) {
 }
 
 function writeChatCache(chatId, data) {
-	if(typeof window === 'undefined' || ! window.localStorage || ! chatId) {
+	const storageKey = chatCacheKey(chatId);
+
+	if(typeof window === 'undefined' || ! window.localStorage || ! storageKey) {
 		return;
 	}
 
 	try {
-		window.localStorage.setItem(chatCacheKey(chatId), JSON.stringify({
+		window.localStorage.setItem(storageKey, JSON.stringify({
 			timestamp: Date.now(),
 			data: data
 		}));
@@ -99,15 +129,19 @@ function writeChatCache(chatId, data) {
 }
 
 function clearChatCache(chatId) {
-	if(typeof window === 'undefined' || ! window.localStorage || ! chatId) {
+	const storageKey = chatCacheKey(chatId);
+
+	if(typeof window === 'undefined' || ! window.localStorage || ! storageKey) {
 		return;
 	}
 
 	try {
-		window.localStorage.removeItem(chatCacheKey(chatId));
+		window.localStorage.removeItem(storageKey);
 	}
 	catch(error) {}
 }
+
+purgeLegacyChatCache();
 
 function isFresh(timestamp) {
 	return timestamp && ((Date.now() - timestamp) < CHAT_CACHE_TTL);
@@ -116,6 +150,7 @@ function isFresh(timestamp) {
 const useChatStore = defineStore('mobile_chats_chat', {
 	state: () => {
 		return {
+			cacheViewerId: currentViewerId(),
 			chatId: null,
 			chatData: {},
 			chatDataChatId: null,
@@ -142,7 +177,16 @@ const useChatStore = defineStore('mobile_chats_chat', {
 		}
 	},
 	actions: {
+		ensureViewerScope: function() {
+			if(this.cacheViewerId !== currentViewerId()) {
+				this.$reset();
+			}
+		},
+		resetForViewer: function() {
+			this.$reset();
+		},
 		resetChatState: function(chatId = null) {
+			this.ensureViewerScope();
 			this.chatId = chatId;
 			this.chatData = {};
 			this.chatDataChatId = null;
@@ -169,6 +213,7 @@ const useChatStore = defineStore('mobile_chats_chat', {
 			}
 		},
 		prepareChatForRoute: function(chatId, options = {}) {
+			this.ensureViewerScope();
 			const { preferCache = true, primeChatData = null } = options;
 
 			if(! chatId) {
@@ -194,6 +239,7 @@ const useChatStore = defineStore('mobile_chats_chat', {
 			return hasCachedChat || Boolean(primeChatData?.chat_id === chatId);
 		},
 		hydrateChatMessagesCache: function(chatId = this.chatId) {
+			this.ensureViewerScope();
 			let payload = readChatCache(chatId);
 
 			if(! payload) {
@@ -242,6 +288,7 @@ const useChatStore = defineStore('mobile_chats_chat', {
 			return true;
 		},
 		persistChatMessagesCache: function(chatId = this.chatId) {
+			this.ensureViewerScope();
 			if(! chatId) {
 				return false;
 			}
@@ -878,5 +925,14 @@ const useChatStore = defineStore('mobile_chats_chat', {
 		},
 	}
 });
+
+if(typeof window !== 'undefined') {
+	window.addEventListener('zulors:account-scope-changed', () => {
+		try {
+			useChatStore().resetForViewer();
+		}
+		catch(error) {}
+	});
+}
 
 export { useChatStore };

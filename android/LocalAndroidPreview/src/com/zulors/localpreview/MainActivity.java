@@ -178,6 +178,7 @@ public class MainActivity extends Activity {
     private String pendingColdStartNotificationUrl;
     private boolean startupAppShellReady = false;
     private boolean startupFirstVisualReady = false;
+    private boolean startupFullyDrawnReported = false;
     private boolean startupFastCacheMode = true;
     private boolean startupLaunchCoverRemoved = false;
     private boolean deferredStartupTasksStarted = false;
@@ -2208,6 +2209,11 @@ public class MainActivity extends Activity {
                 public void run() {
                     startupFirstVisualReady = true;
                     startupFastCacheMode = false;
+                    if (!startupFullyDrawnReported) {
+                        startupFullyDrawnReported = true;
+                        reportFullyDrawn();
+                        recordStartupEvent("fully_drawn_reported", "first_visual_ready");
+                    }
                     if (webView != null && !BuildConfig.NO_CACHE) {
                         webView.getSettings().setCacheMode(WebSettings.LOAD_DEFAULT);
                     }
@@ -2906,7 +2912,8 @@ public class MainActivity extends Activity {
                 "var css='html.zulors-android-app{--zulors-android-safe-left:'+safeLeft+';--zulors-android-safe-top:'+safeTop+';--zulors-android-safe-right:'+safeRight+';--zulors-android-safe-bottom:'+safeBottom+';--mobile-safe-left:max(env(safe-area-inset-left,0px),var(--zulors-android-safe-left));--mobile-safe-top:max(env(safe-area-inset-top,0px),var(--zulors-android-safe-top));--mobile-safe-right:max(env(safe-area-inset-right,0px),var(--zulors-android-safe-right));--mobile-safe-bottom:max(env(safe-area-inset-bottom,0px),var(--zulors-android-safe-bottom));overflow-x:hidden!important;overflow-y:auto!important;}'+" +
                     "'html.zulors-android-app body,html.zulors-android-app #zulors-mobile-app{overflow-x:clip!important;overflow-y:visible!important;}'+" +
                     "'html.zulors-android-app,html.zulors-android-app body,html.zulors-android-app #zulors-mobile-app,html.zulors-android-app .mobile-app-content,html.zulors-android-app .mobile-app-stage,html.zulors-android-app .mobile-route-view,html.zulors-android-app .base-publication,html.zulors-android-app .zulors-action-sheet-overlay,html.zulors-android-app .zulors-action-sheet{left:0!important;right:0!important;width:var(--zulors-android-viewport-width,100vw)!important;min-width:var(--zulors-android-viewport-width,100vw)!important;max-width:var(--zulors-android-viewport-width,100vw)!important;margin-left:0!important;margin-right:0!important;padding-left:0!important;padding-right:0!important;border-left:0!important;border-right:0!important;border-radius:0!important;box-shadow:none!important;filter:none!important;}'+" +
-                    "'html.zulors-android-app .mobile-app-content,html.zulors-android-app .mobile-app-stage,html.zulors-android-app .mobile-route-view,html.zulors-android-app .base-publication,html.zulors-android-app .zulors-action-sheet-overlay,html.zulors-android-app .zulors-action-sheet{overflow-x:hidden!important;}'+" +
+                    "'html.zulors-android-app .mobile-app-content,html.zulors-android-app .mobile-app-stage,html.zulors-android-app .mobile-route-view,html.zulors-android-app .base-publication{overflow-x:clip!important;overflow-y:visible!important;}'+" +
+                    "'html.zulors-android-app .zulors-action-sheet-overlay,html.zulors-android-app .zulors-action-sheet{overflow-x:hidden!important;}'+" +
                     "'html.zulors-android-app .zulors-action-sheet-overlay{inset:0!important;height:var(--zulors-android-viewport-height,100vh)!important;min-height:var(--zulors-android-viewport-height,100vh)!important;padding:0!important;}'+" +
                     "'html.zulors-android-app .zulors-action-sheet-group{width:100%!important;max-width:none!important;margin-left:0!important;margin-right:0!important;border-radius:0!important;box-shadow:none!important;filter:none!important;}'+" +
                     "'html.zulors-android-app .zulors-action-sheet>.flex-1{margin-bottom:0!important;padding-bottom:var(--mobile-safe-bottom)!important;}'+" +
