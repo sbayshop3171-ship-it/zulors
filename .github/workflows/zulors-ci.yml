@@ -13,11 +13,11 @@ concurrency:
 jobs:
   build:
     name: Build And Check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -27,7 +27,7 @@ jobs:
           coverage: none
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
@@ -75,7 +75,7 @@ jobs:
   deploy:
     name: Deploy Live
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     env:
       LIVE_HOST: ${{ secrets.LIVE_HOST }}
@@ -86,7 +86,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Check deploy secrets
         id: deploy_secrets
