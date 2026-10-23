@@ -9,7 +9,7 @@ import {
 	isOneShotBusinessPath,
 	shouldInterceptBusinessClick,
 } from './navigation-policy.js';
-import { hasBusinessFormChanges } from './unsaved-form.js';
+import { afterBusinessLivewireInitialization, hasBusinessFormChanges } from './unsaved-form.js';
 
 const BUSINESS_PREFETCH_LIMIT = 2;
 const businessPageCache = new BusinessPageCache();
@@ -25,6 +25,7 @@ let revertingCancelledBusinessPop = false;
 let businessApexChartsPromise = null;
 const businessFormBaselines = new Map();
 let businessFormMediaBaseline = '';
+let businessFormBaselineReady = false;
 
 function getBusinessCacheKey(path) {
 	const targetUrl = new URL(path, window.location.origin);
@@ -627,7 +628,7 @@ function askToLeaveDirtyBusinessForm() {
 }
 
 function businessFormHasUnsavedChanges() {
-	if(!isBusinessUnsavedFormPath(activeBusinessPagePathname)) return false;
+	if(!isBusinessUnsavedFormPath(activeBusinessPagePathname) || !businessFormBaselineReady) return false;
 
 	const controls = document.querySelectorAll('[data-business-refresh-region] input, [data-business-refresh-region] textarea, [data-business-refresh-region] select, [data-business-refresh-region] [contenteditable="true"]');
 	const fields = [];
@@ -695,6 +696,7 @@ function captureBusinessFormBaseline(region) {
 	for(const [componentId, fields] of nextBaselines) {
 		businessFormBaselines.set(componentId, fields);
 	}
+	businessFormBaselineReady = true;
 }
 
 function captureBusinessFormMediaState(region) {
@@ -824,7 +826,10 @@ function initBusinessShellNavigation() {
 	setBusinessHistoryEntry(initialPath, initialIndex, window.scrollY, true);
 
 	const initialPage = captureCurrentBusinessPage(initialPath);
-	captureBusinessFormBaseline(document.querySelector('[data-business-refresh-region]'));
+	afterBusinessLivewireInitialization(document, window.Livewire, () => {
+		const region = document.querySelector('[data-business-refresh-region]');
+		if(region) captureBusinessFormBaseline(region);
+	});
 	if(initialPage && !isBusinessOneShotPath(initialPath)) {
 		businessPageCache.set(getBusinessCacheKey(initialPath), initialPage);
 	}

@@ -18,3 +18,22 @@ export function hasBusinessFormChanges(fields, baselines) {
 
 	return false;
 }
+
+export function afterBusinessLivewireInitialization(document, livewire, callback) {
+	let captured = false;
+	const capture = () => {
+		if(captured) return;
+		captured = true;
+		callback();
+	};
+
+	if(livewire?.initialRenderIsFinished) {
+		capture();
+		return;
+	}
+
+	document.addEventListener('livewire:initialized', capture, { once: true });
+	document.defaultView?.setTimeout(() => {
+		if(document.defaultView?.Livewire?.initialRenderIsFinished) capture();
+	}, 0);
+}
