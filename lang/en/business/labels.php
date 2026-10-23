@@ -18,6 +18,7 @@ return [
     'about_account' => 'About account',
     'account_settings' => 'Account settings',
     'more' => 'More',
+    'unsaved_changes' => 'You have unsaved changes. Leave this page?',
     'campaign' => 'Campaign',
     'product' => 'Product',
     'job' => 'Job',

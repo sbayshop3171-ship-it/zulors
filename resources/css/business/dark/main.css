@@ -8,6 +8,7 @@
 @import "../market.css";
 @import "../jobs.css";
 @import "../ads.css";
+@import "../navigation.css";
 
 @layer components {
     :root {

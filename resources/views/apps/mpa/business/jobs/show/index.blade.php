@@ -243,7 +243,7 @@
         };
 
         window.addEventListener('load', () => {
-            new ApexCharts(document.querySelector("#chart"), {
+            window.__businessActiveChart = new ApexCharts(document.querySelector("#chart"), {
                 chart: {
                     type: 'area', // or whichever chart type you're using
                     height: 240,
@@ -277,7 +277,8 @@
                     strokeDashArray: 0, // Solid line
                     position: 'back', // Ensure grid lines are behind the chart
                 }
-            }).render();
+            });
+            window.__businessActiveChart.render();
         });
     </script>
 @endsection

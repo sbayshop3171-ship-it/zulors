@@ -21,6 +21,7 @@
             <x-sidebar.navlist-div/>
             <x-sidebar.navlist-item
                 href="{{ route('business.dashboard.index') }}"
+                data-business-tab="overview"
                 iconName="dash-02"
                 iconType="solar"
                 :current="route_is('business.dashboard.*')"
@@ -28,6 +29,7 @@
 
             <x-sidebar.navlist-item
                 href="{{ route('business.ads.index') }}"
+                data-business-tab="campaign"
                 iconName="chart-01"
                 iconType="solar"
                 :current="route_is('business.ads.*')"
@@ -35,6 +37,7 @@
 
             <x-sidebar.navlist-item
                 href="{{ route('business.market.index') }}"
+                data-business-tab="marketplace"
                 iconName="bag-01"
                 iconType="solar"
                 :current="route_is('business.market.*')"
@@ -42,6 +45,7 @@
 
             <x-sidebar.navlist-item
                 href="{{ route('business.jobs.index') }}"
+                data-business-tab="jobs"
                 iconName="case-01"
                 iconType="solar"
                 :current="route_is('business.jobs.*')"
@@ -52,6 +56,7 @@
             @if(config('features.wallet.enabled'))
                 <x-sidebar.navlist-item
                     href="{{ route('business.wallet.index') }}"
+                    data-business-tab="wallet"
                     iconName="wallet-01"
                     iconType="solar"
                     :current="route_is('business.wallet.*')"
@@ -60,6 +65,7 @@
 
             <x-sidebar.navlist-item
                 href="{{ route('business.settings.index') }}"
+                data-business-tab="settings"
                 iconName="settings-01"
                 iconType="solar"
                 :current="route_is('business.settings.*')"
@@ -67,6 +73,7 @@
 
             <x-sidebar.navlist-item
                 href="{{ route('document.help.index') }}"
+                data-business-tab="help"
                 iconName="help-01"
                 iconType="solar"
                 :current="false"

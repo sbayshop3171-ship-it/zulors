@@ -55,7 +55,7 @@
 
         <div class="flex shrink-0 items-center gap-2">
             @if($createAction)
-                <a href="{{ $createAction['href'] }}" class="business-mobile-icon-btn" aria-label="{{ $createAction['label'] }}">
+                <a href="{{ $createAction['href'] }}" class="business-mobile-icon-btn" aria-label="{{ $createAction['label'] }}" data-business-create-action>
                     <x-ui-icon name="plus" type="solid"></x-ui-icon>
                 </a>
             @endif
@@ -122,7 +122,7 @@
                 <strong>{{ __('business/labels.account_settings') }}</strong>
             </a>
 
-            <a href="{{ route('document.help.index') }}" class="business-mobile-more-item">
+            <a href="{{ route('document.help.index') }}" class="business-mobile-more-item" data-business-tab="help">
                 <span><x-ui-icon name="help-01" type="solar"></x-ui-icon></span>
                 <strong>{{ __('business/labels.help') }}</strong>
             </a>

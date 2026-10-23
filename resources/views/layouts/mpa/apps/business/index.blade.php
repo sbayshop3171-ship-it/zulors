@@ -48,6 +48,7 @@
         @class(['business-app pt-20', (theme_name() == 'dark' ? 'bg-black' : 'bg-pr')])
         data-theme="{{ theme_name() }}"
         data-business-auto-refresh="{{ $businessAutoRefresh ? 'on' : 'off' }}"
+        data-business-unsaved-confirm="{{ __('business/labels.unsaved_changes') }}"
         style="--business-safe-top: max(env(safe-area-inset-top, 0px), var(--zulors-android-safe-top, 0px)); --business-safe-right: max(env(safe-area-inset-right, 0px), var(--zulors-android-safe-right, 0px)); --business-safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--zulors-android-safe-bottom, 0px)); --business-safe-left: max(env(safe-area-inset-left, 0px), var(--zulors-android-safe-left, 0px));"
     >
         <x-main>

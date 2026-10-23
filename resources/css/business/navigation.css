@@ -1,0 +1,196 @@
+@layer components {
+	.business-route-pending {
+		min-height: min(64vh, 44rem);
+	}
+
+	.business-route-skeleton {
+		width: min(100%, 48rem);
+		margin-inline: auto;
+		padding-block: 1.5rem;
+	}
+
+	.business-route-skeleton__title,
+	.business-route-skeleton__line,
+	.business-route-skeleton__card {
+		background: var(--color-fill-qt);
+		animation: business-route-pulse 1.35s ease-in-out infinite;
+	}
+
+	.business-route-skeleton__title {
+		width: min(62%, 21rem);
+		height: 1.75rem;
+		margin-bottom: 1.5rem;
+		border-radius: 0.65rem;
+	}
+
+	.business-route-skeleton__line {
+		width: 100%;
+		height: 0.9rem;
+		margin-bottom: 0.8rem;
+		border-radius: 0.5rem;
+	}
+
+	.business-route-skeleton__line--short {
+		width: 68%;
+		margin-bottom: 1.75rem;
+	}
+
+	.business-route-skeleton__card {
+		width: 100%;
+		min-height: 13rem;
+		border: 1px solid var(--color-bord-pr);
+		border-radius: 1rem;
+	}
+
+	.business-help-content {
+		width: min(100%, 48rem);
+		margin-inline: auto;
+		padding-block: 1.5rem;
+		color: var(--color-lab-pr2);
+	}
+
+	.business-help-content .legal-doc {
+		display: grid;
+		gap: 2.5rem;
+		font-size: 1rem;
+		line-height: 1.75rem;
+	}
+
+	.business-help-content .legal-doc-hero,
+	.business-help-content .legal-doc-card,
+	.business-help-content .legal-doc-section,
+	.business-help-content .legal-doc-note {
+		border: 1px solid var(--color-bord-pr);
+		border-radius: 1.25rem;
+	}
+
+	.business-help-content .legal-doc-hero {
+		padding: 1.75rem;
+		background: var(--color-fill-qt);
+	}
+
+	.business-help-content .legal-doc-kicker {
+		display: inline-flex;
+		margin-bottom: 0.75rem;
+		padding: 0.25rem 0.75rem;
+		border-radius: 999px;
+		background: var(--color-bg-pr);
+		color: var(--color-brand-900);
+		font-size: 0.8rem;
+		font-weight: 700;
+	}
+
+	.business-help-content .legal-doc-meta {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem 1rem;
+		margin-top: 1rem;
+		color: var(--color-lab-sc);
+	}
+
+	.business-help-content .legal-doc-grid {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 1rem;
+	}
+
+	.business-help-content .legal-doc-card,
+	.business-help-content .legal-doc-section {
+		padding: 1.5rem;
+		background: var(--color-bg-pr);
+	}
+
+	.business-help-content .legal-doc-section {
+		display: grid;
+		gap: 1rem;
+	}
+
+	.business-help-content .legal-doc-note {
+		padding: 1rem 1.25rem;
+		background: var(--color-fill-qt);
+		color: var(--color-lab-sc);
+		font-size: 0.9rem;
+		line-height: 1.5rem;
+	}
+
+	.business-help-content h1 {
+		font-size: 1.75rem;
+		font-weight: 700;
+	}
+
+	.business-help-content h2 {
+		font-size: 1.4rem;
+		font-weight: 700;
+	}
+
+	.business-help-content h3,
+	.business-help-content h4 {
+		font-weight: 700;
+	}
+
+	.business-help-content .legal-doc-card h3 {
+		margin-bottom: 0.75rem;
+	}
+
+	.business-help-content ul,
+	.business-help-content ol,
+	.business-help-content li {
+		list-style: disc;
+		list-style-position: inside;
+	}
+
+	.business-help-content .legal-doc-section ul {
+		display: grid;
+		gap: 0.5rem;
+		margin-top: 0.25rem;
+	}
+
+	.business-help-content .legal-doc-anchor {
+		color: var(--color-brand-900);
+		text-decoration: underline;
+		text-underline-offset: 0.25rem;
+	}
+
+	.business-help-content pre {
+		overflow-x: auto;
+		padding: 1rem;
+		border: 1px solid var(--color-bord-pr);
+		border-radius: 1rem;
+		background: var(--color-lab-pr2);
+		color: var(--color-bg-pr);
+	}
+
+	.business-help-content code {
+		padding: 0.125rem 0.375rem;
+		border-radius: 0.375rem;
+		background: var(--color-fill-qt);
+		font-family: monospace;
+		font-size: 0.9em;
+	}
+
+	@keyframes business-route-pulse {
+		50% {
+			opacity: 0.48;
+		}
+	}
+
+	@media (max-width: 640px) {
+		.business-help-content .legal-doc-grid {
+			grid-template-columns: minmax(0, 1fr);
+		}
+
+		.business-help-content .legal-doc-hero,
+		.business-help-content .legal-doc-card,
+		.business-help-content .legal-doc-section {
+			padding: 1.25rem;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.business-route-skeleton__title,
+		.business-route-skeleton__line,
+		.business-route-skeleton__card {
+			animation: none;
+		}
+	}
+}
