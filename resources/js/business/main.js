@@ -9,6 +9,7 @@ import {
 	isOneShotBusinessPath,
 	shouldInterceptBusinessClick,
 } from './navigation-policy.js';
+import { hasBusinessFormChanges } from './unsaved-form.js';
 
 const BUSINESS_PREFETCH_LIMIT = 2;
 const businessPageCache = new BusinessPageCache();
@@ -23,7 +24,7 @@ let activeBusinessPagePathname = window.location.pathname;
 let revertingCancelledBusinessPop = false;
 let businessApexChartsPromise = null;
 const businessFormBaselines = new Map();
-const businessFormTouchedFields = new Set();
+let businessFormMediaBaseline = '';
 
 function getBusinessCacheKey(path) {
 	const targetUrl = new URL(path, window.location.origin);
@@ -629,6 +630,7 @@ function businessFormHasUnsavedChanges() {
 	if(!isBusinessUnsavedFormPath(activeBusinessPagePathname)) return false;
 
 	const controls = document.querySelectorAll('[data-business-refresh-region] input, [data-business-refresh-region] textarea, [data-business-refresh-region] select, [data-business-refresh-region] [contenteditable="true"]');
+	const fields = [];
 
 	for(const control of controls) {
 		const isLivewireControl = control.getAttributeNames().some(name => name === 'wire:model' || name.startsWith('wire:model.'));
@@ -636,16 +638,18 @@ function businessFormHasUnsavedChanges() {
 
 		const componentId = control.closest('[wire\\:id]')?.getAttribute('wire:id') || 'business-form';
 		const fieldKey = getBusinessFormFieldKey(control);
-		const baseline = businessFormBaselines.get(componentId)?.get(fieldKey);
-		const currentValue = getBusinessFormControlValue(control);
-
-		if(businessFormTouchedFields.has(`${componentId}::${fieldKey}`)
-			|| (baseline !== undefined ? !businessFormValuesEqual(currentValue, baseline) : businessFormControlDiffersFromDefault(control))) {
-			return true;
-		}
+		fields.push({
+			componentId,
+			fieldKey,
+			value: getBusinessFormControlValue(control),
+			differsFromDefault: businessFormControlDiffersFromDefault(control),
+		});
 	}
 
-	return false;
+	if(hasBusinessFormChanges(fields, businessFormBaselines)) return true;
+
+	const region = document.querySelector('[data-business-refresh-region]');
+	return region ? captureBusinessFormMediaState(region) !== businessFormMediaBaseline : false;
 }
 
 function getBusinessFormFieldKey(control) {
@@ -665,12 +669,6 @@ function getBusinessFormControlValue(control) {
 	return 'value' in control ? control.value : '';
 }
 
-function businessFormValuesEqual(left, right) {
-	return Array.isArray(left) && Array.isArray(right)
-		? left.length === right.length && left.every((value, index) => value === right[index])
-		: left === right;
-}
-
 function businessFormControlDiffersFromDefault(control) {
 	if(control.matches('[contenteditable="true"]')) return control.innerHTML !== '';
 	if(control instanceof HTMLInputElement && control.type === 'file') return Boolean(control.files?.length);
@@ -683,7 +681,7 @@ function captureBusinessFormBaseline(region) {
 	const nextBaselines = new Map();
 	const controls = region.querySelectorAll('input, textarea, select, [contenteditable="true"]');
 	businessFormBaselines.clear();
-	businessFormTouchedFields.clear();
+	businessFormMediaBaseline = captureBusinessFormMediaState(region);
 
 	for(const control of controls) {
 		const isLivewireControl = control.getAttributeNames().some(name => name === 'wire:model' || name.startsWith('wire:model.'));
@@ -699,22 +697,10 @@ function captureBusinessFormBaseline(region) {
 	}
 }
 
-function trackBusinessFormControlChange(control) {
-	if(!(control instanceof Element) || !control.closest('[data-business-refresh-region]')) return;
-	const isLivewireControl = control.getAttributeNames().some(name => name === 'wire:model' || name.startsWith('wire:model.'));
-	if(!isLivewireControl) return;
-
-	const componentId = control.closest('[wire\\:id]')?.getAttribute('wire:id') || 'business-form';
-	const fieldKey = getBusinessFormFieldKey(control);
-	const key = `${componentId}::${fieldKey}`;
-	const baseline = businessFormBaselines.get(componentId)?.get(fieldKey);
-
-	if(baseline === undefined || !businessFormValuesEqual(getBusinessFormControlValue(control), baseline)) {
-		businessFormTouchedFields.add(key);
-	}
-	else {
-		businessFormTouchedFields.delete(key);
-	}
+function captureBusinessFormMediaState(region) {
+	return [...region.querySelectorAll('.business-media-grid img')]
+		.map(image => image.currentSrc || image.getAttribute('src') || '')
+		.join('\n');
 }
 
 function saveBusinessScrollPosition() {
@@ -889,9 +875,7 @@ function initBusinessShellNavigation() {
 			prefetchBusinessTargets('.business-mobile-more-list a[href]', ['campaign', 'settings', 'help']);
 		}
 
-		trackBusinessFormControlChange(event.target);
 	});
-	document.addEventListener('input', event => trackBusinessFormControlChange(event.target));
 
 	window.addEventListener('popstate', event => {
 		const path = `${window.location.pathname}${window.location.search}${window.location.hash}`;
