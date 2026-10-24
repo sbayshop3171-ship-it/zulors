@@ -186,7 +186,12 @@ class GoogleSocialLoginFlowTest extends TestCase
         $consumeResponse->assertRedirect(route('user.onboarding.index', 'profile'));
         $this->assertAuthenticatedAs($user);
 
-        Auth::logout();
+        $user->update(['status' => UserStatus::ACTIVE]);
+        Auth::forgetGuards();
+
+        $this->get(route('user.desktop.index'))->assertOk();
+
+        Auth::guard('web')->logout();
 
         $secondConsumeResponse = $this->get($handoffPath);
 

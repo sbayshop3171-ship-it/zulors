@@ -25,9 +25,11 @@ Google Play Store listing-এর screenshot-এ **Uninstall / Open** দেখ�
 
 ## Update behavior
 
-Production build-এ Google Play flexible in-app update flow চালু। App চালু হলে এবং foreground-এ ফিরলে app Play Core-কে update check করে. Play Core eligible update জানালে app dialog দেখায়; user download-এ সম্মতি দিলে download background-এ হয়. Download শেষে app নিরাপদ সময়ে install complete করে; active call থাকলে তা defer হয়. এটি নীরবে/জোর করে update install করে না. Google Play-এর background auto-update আলাদা এবং Play Store-এর user/device setting-নির্ভর.
+Production source-এ Google Play flexible in-app update flow আগে থেকেই আছে। App চালু হলে এবং foreground-এ ফিরলে Play Core update check করে। Play Store eligible update জানালে app-এর update prompt দেখায়; user শুরু করলে download background-এ হয়, তারপর নিরাপদ সময়ে install complete হয়। Active call চললে install পিছিয়ে যায়।
 
-Flexible in-app update Play Store থেকে install করা app-এর জন্য. Sideloaded/debug APK-তে Play Store update flow কাজ করবে না. Google Play Console-এ upload করার artifact হলো signed AAB; APK শুধু local test-এর জন্য.
+Production build-এর আগে `check-play-update-setup.sh` নিশ্চিত করে update manager, availability check, flexible prompt, install completion, Play dependency এবং build flag source-এ আছে। Production build-এ flag ভুল করে `false` থাকলেও build helper এটিকে `true` করে; প্রয়োজনীয় implementation না থাকলে AAB তৈরি বন্ধ হয়।
+
+এটি Play Store-এর নীরব background auto-update-কে বাধ্য করে না। Play Store থেকে install করা eligible user-কে app update prompt দেখায়; background auto-update কখন হবে তা Play Store-এর user/device setting-এর ওপর নির্ভর করে। নতুন AAB Play Console-এ upload, review ও rollout হওয়ার পরই update eligible ব্যবহারকারীরা তা পাবে; release পৌঁছাতে সময় লাগতে পারে। Sideloaded APK-তে Play update check কাজ করে না।
 
 ## পরবর্তী release build
 

@@ -7,6 +7,8 @@ use App\Livewire\User\Auth\Signup;
 use App\Livewire\User\Auth\SignupSuccess;
 use App\Mail\User\Auth\VerifyEmailMail;
 use App\Models\EmailConfirmation;
+use App\Enums\User\UserStatus;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
@@ -95,6 +97,11 @@ class SignupOtpVerificationTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.auth.status', true)
             ->assertJsonPath('data.auth.user.id', $userId);
+
+        User::query()->findOrFail($userId)->update(['status' => UserStatus::ACTIVE]);
+        Auth::forgetGuards();
+
+        $this->get(route('user.desktop.index'))->assertOk();
     }
 
     public function test_signup_success_can_resend_a_fresh_otp_code(): void

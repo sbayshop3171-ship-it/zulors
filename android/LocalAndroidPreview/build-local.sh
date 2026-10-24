@@ -116,6 +116,15 @@ else
 	USER_AGENT_SUFFIX="${USER_AGENT_SUFFIX:-ZulorsLocalApp}"
 fi
 
+if [ "$APP_MODE" = "production" ]; then
+	if [ "$ENABLE_PLAY_FLEXIBLE_UPDATES" != "true" ]; then
+		echo "Play flexible updates were disabled; enabling them for the production build."
+		ENABLE_PLAY_FLEXIBLE_UPDATES="true"
+	fi
+	export ENABLE_PLAY_FLEXIBLE_UPDATES
+	bash "$APP_DIR/check-play-update-setup.sh"
+fi
+
 WEB_MEDIA_PERMISSIONS="${WEB_MEDIA_PERMISSIONS:-    <uses-permission android:name=\"android.permission.CAMERA\" />
     <uses-permission android:name=\"android.permission.RECORD_AUDIO\" />
     <uses-feature android:name=\"android.hardware.camera\" android:required=\"false\" />

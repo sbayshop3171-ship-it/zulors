@@ -143,6 +143,7 @@ public class MainActivity extends Activity {
     private FrameLayout startupLaunchCover;
     private boolean backNavigationPending = false;
     private boolean nativeGoogleSignInInProgress = false;
+    private boolean flushCookiesAfterAuthHandoff = false;
     private String nativeGoogleSignInSource = "google_button";
     private String nativeGoogleServerClientId = "";
     private String nativeGoogleSignInProvider = "credential_manager";
@@ -636,6 +637,9 @@ public class MainActivity extends Activity {
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
                 if (uploadBridge != null) uploadBridge.pageStarted(url);
+                if (isAccountCreationHandoffUrl(url)) {
+                    flushCookiesAfterAuthHandoff = true;
+                }
                 recordStartupEvent("page_started", url);
             }
 
@@ -662,6 +666,13 @@ public class MainActivity extends Activity {
                 recordStartupEvent("page_finished", url);
                 installAndroidViewportGuards(view);
                 syncSystemChromeWithPage(view);
+
+                if (flushCookiesAfterAuthHandoff && isTrustedWebUrl(Uri.parse(url))) {
+                    // Persist session and remember-me cookies before the user
+                    // leaves the page or the app is suspended after sign-in.
+                    CookieManager.getInstance().flush();
+                    flushCookiesAfterAuthHandoff = false;
+                }
 
                 rememberSafeRoute(url);
 
@@ -876,6 +887,24 @@ public class MainActivity extends Activity {
         }
 
         return host.equals(trustedHost) || host.endsWith("." + trustedHost);
+    }
+
+    private boolean isAccountCreationHandoffUrl(String url) {
+        if (url == null) {
+            return false;
+        }
+
+        Uri uri = Uri.parse(url);
+
+        if (!isTrustedWebUrl(uri)) {
+            return false;
+        }
+
+        String path = uri.getPath();
+
+        return path != null
+            && (path.startsWith("/auth/confirm-signup/")
+                || path.equals("/social-login/callback/google"));
     }
 
     private boolean shouldStartNativeGoogleSignIn(Uri uri) {
@@ -1263,6 +1292,7 @@ public class MainActivity extends Activity {
             public void run() {
                 nativeGoogleSignInInProgress = false;
                 dispatchNativeGoogleAuthEvent("success", "handoff", null);
+                flushCookiesAfterAuthHandoff = true;
                 webView.loadUrl(redirectUrl, noCacheHeaders());
             }
         });
