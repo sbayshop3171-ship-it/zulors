@@ -103,7 +103,7 @@
                     @foreach($adAnalytics['placements'] as $placement => $stats)
                         <x-line-table.row>
                             <x-slot:labelText>{{ ucfirst($placement) }} performance</x-slot:labelText>
-                            <x-slot:labelValue>{{ $stats['impressions'] }} impressions / {{ $stats['reach'] }} reach / {{ $stats['video_views'] }} video views / {{ $stats['three_second_views'] }} 3-second views / {{ $stats['completions'] }} completions / {{ number_format($stats['watch_seconds'], 1) }} watch seconds / {{ $stats['clicks'] }} CTA clicks / {{ number_format($stats['ctr'], 2) }}% CTR</x-slot:labelValue>
+                            <x-slot:labelValue>{{ $stats['served'] }} served / {{ $stats['viewable_impressions'] }} viewable / {{ $stats['billable_impressions'] }} billable / {{ $stats['reach'] }} reach / {{ number_format($stats['frequency'], 2) }} avg frequency / {{ $stats['video_views'] }} video views / {{ $stats['three_second_views'] }} 3-second views / {{ $stats['completions'] }} completions / {{ number_format($stats['watch_seconds'], 1) }} watch seconds / {{ $stats['clicks'] }} CTA clicks / {{ number_format($stats['ctr'], 2) }}% CTR / {{ $stats['verified_conversions'] }} verified conversions / {{ $stats['hide_report'] }} hide/report</x-slot:labelValue>
                         </x-line-table.row>
                     @endforeach
                 </x-line-table.table>

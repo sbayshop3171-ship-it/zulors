@@ -22,17 +22,19 @@ class AdShowAction
 		]);
 
 		if(empty($this->adData->last_charge_at)) {
-			$this->chargeOrFinishAd();
+			return $this->chargeOrFinishAd();
 		}
 		else {	
 			// Only charge if last charge was MORE than X minutes ago
 			if(now()->subMinutes(config('ads.charge_interval'))->gt($this->adData->last_charge_at->getTimestamp())) {
-				$this->chargeOrFinishAd(); 
+				return $this->chargeOrFinishAd();
 			}
 		}
+
+		return false;
 	}
 
-	private function chargeOrFinishAd()
+	private function chargeOrFinishAd(): bool
 	{
 		$remainingBudget = $this->getRemainingBudget();
 
@@ -40,6 +42,7 @@ class AdShowAction
 			$this->adData->update([
 				'status' => AdStatus::COMPLETED
 			]);
+			return false;
 		}
 		else {
 			$chargeAmount = min((float) $this->adData->price_per_view, $remainingBudget);
@@ -51,6 +54,7 @@ class AdShowAction
 				'spent_budget' => Money::add($this->adData->spent_budget, $chargeAmount),
 				'status' => ($spentBudget >= (float) $this->adData->total_budget) ? AdStatus::COMPLETED : $this->adData->status
 			]);
+			return true;
 		}
 	}
 

@@ -80,5 +80,17 @@ return [
 		'frequency_cap' => env('ADS_FREQUENCY_CAP', 3),
 		'topics_limit' => env('ADS_TARGET_TOPICS_LIMIT', 10),
 		'topics_max_length' => env('ADS_TARGET_TOPICS_MAX_LENGTH', 320)
+	],
+	'personalization' => [
+		'enabled' => env('ADS_PERSONALIZATION_ENABLED', true),
+		'ranking_enabled' => env('ADS_RANKING_ENABLED', false),
+		'holdout_percent' => env('ADS_RANKING_HOLDOUT_PERCENT', 10),
+		'daily_viewable_cap' => env('ADS_DAILY_VIEWABLE_CAP', 2),
+		'weekly_viewable_cap' => env('ADS_WEEKLY_VIEWABLE_CAP', 4),
+		'no_action_cooldown_days' => env('ADS_NO_ACTION_COOLDOWN_DAYS', 7),
+		'post_click_cooldown_hours' => env('ADS_POST_CLICK_COOLDOWN_HOURS', 24),
+		'post_click_reminder_cap' => env('ADS_POST_CLICK_REMINDER_CAP', 2),
+		'event_retention_days' => env('ADS_EVENT_RETENTION_DAYS', 90),
+		'consent_version' => '2026-10-v1',
 	]
 ];

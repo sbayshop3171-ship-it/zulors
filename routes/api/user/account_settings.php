@@ -55,6 +55,10 @@ Route::delete('/sessions/terminate/other', [App\Http\Controllers\Api\User\Settin
 
 Route::get('/privacy/settings', [App\Http\Controllers\Api\User\Settings\PrivacySettingsController::class, 'getPrivacySettings']);
 Route::put('/privacy/update', [App\Http\Controllers\Api\User\Settings\PrivacySettingsController::class, 'updatePrivacySettings']);
+Route::get('/ad-personalization', [App\Http\Controllers\Api\User\Settings\AdPersonalizationSettingsController::class, 'show']);
+Route::patch('/ad-personalization', [App\Http\Controllers\Api\User\Settings\AdPersonalizationSettingsController::class, 'update']);
+Route::get('/ad-interests', [App\Http\Controllers\Api\User\Settings\AdPersonalizationSettingsController::class, 'interests']);
+Route::delete('/ad-interests', [App\Http\Controllers\Api\User\Settings\AdPersonalizationSettingsController::class, 'resetInterests']);
 
 Route::get('/social/settings', [App\Http\Controllers\Api\User\Settings\SocialSettingsController::class, 'getSocialSettings']);
 Route::put('/social/update', [App\Http\Controllers\Api\User\Settings\SocialSettingsController::class, 'updateSocialSettings']);

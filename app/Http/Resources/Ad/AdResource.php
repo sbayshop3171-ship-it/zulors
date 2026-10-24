@@ -43,7 +43,11 @@ class AdResource extends JsonResource
             'content' => $this->primary_text ?: $this->display_content,
             // Deliberately never expose the advertiser's destination URL to clients.
             'target_url' => null,
-            'click_url' => $ctaEnabled ? url("/api/ads/click/{$this->id}?placement={$placement}") : null,
+            'click_url' => $ctaEnabled ? url("/api/ads/click/{$this->id}?placement={$placement}" . ($this->delivery_id ? '&delivery_id=' . urlencode($this->delivery_id) : '')) : null,
+            'delivery_id' => $this->delivery_id,
+            'selection_lane' => $this->selection_lane,
+            'model_version' => $this->selection_model_version,
+            'why_this_ad' => $this->selection_reasons ?: ['broad_reach'],
             'cta_enabled' => $ctaEnabled,
             'cta_icon' => $ctaEnabled ? $ctaIcon : null,
             'cta_text' => $ctaEnabled ? $this->cta_text : null,

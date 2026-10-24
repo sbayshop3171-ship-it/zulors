@@ -46,6 +46,7 @@ Schedule::command('media:reconcile-publications')->everyFiveMinutes()->withoutOv
 
 Schedule::command('calls:cleanup-stale --limit=200')->everyMinute()->withoutOverlapping();
 Schedule::command('ads:reset-monthly-credits')->dailyAt('00:10')->withoutOverlapping();
+Schedule::command('ads:prune-delivery-data')->dailyAt('03:45')->withoutOverlapping();
 
 Artisan::command('app:version', function () {
     $this->info(Zulors::VERSION);
@@ -108,4 +109,15 @@ Artisan::command('ads:grant-current-month-credits', function () {
         $stats['already_granted'],
         $stats['eligible']
     ));
+});
+
+Artisan::command('ads:prune-delivery-data', function () {
+    $cutoff = now()->subDays((int) config('ads.personalization.event_retention_days', 90));
+    $scrubbedEvents = \App\Models\AdEvent::query()->where('created_at', '<', $cutoff)
+        ->where(function($query) {
+            $query->whereNotNull('user_id')->orWhereNotNull('delivery_id')->orWhereNotNull('session_id');
+        })->update(['user_id' => null, 'delivery_id' => null, 'session_id' => null]);
+    $deletedDeliveries = \App\Models\AdDelivery::query()->where('served_at', '<', $cutoff)->delete();
+
+    $this->info("Scrubbed {$scrubbedEvents} old event identities and removed {$deletedDeliveries} delivery records.");
 });

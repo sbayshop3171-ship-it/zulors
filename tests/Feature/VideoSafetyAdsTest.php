@@ -174,32 +174,57 @@ class VideoSafetyAdsTest extends TestCase
 
     public function test_ads_use_interest_targeting_and_frequency_cap(): void
     {
+        config(['ads.personalization.ranking_enabled' => true]);
         $viewer = $this->createUser('ad-viewer');
-
-        app(UserInterestService::class)->applyScore($viewer->id, 'tech', 60);
+        $viewer->forceFill(['birth_year' => 1995, 'birth_month' => 1, 'birth_day' => 1])->save();
+        $viewer->adPreference()->create(['personalized_ads' => true, 'consented_at' => now(), 'consent_version' => config('ads.personalization.consent_version')]);
+        app(\App\Services\Ad\UserAdInterestService::class)->record($viewer, 'tech', 60);
 
         $techAd = $this->createAd('Tech launch', ['tech']);
         $sportsAd = $this->createAd('Sports sale', ['sports']);
 
-        $this->actingAs($viewer)
-            ->withoutMiddleware()
-            ->getJson('/api/ads/ad')
-            ->assertOk()
-            ->assertJsonPath('data.id', $techAd->id);
+        $deliveries = [];
+        foreach([0, 1] as $index) {
+            $response = $this->actingAs($viewer)->withoutMiddleware()->getJson('/api/ads/ad?placement=sidebar')->assertOk();
+            $response->assertJsonPath('data.id', $techAd->id);
+            $deliveryId = $response->json('data.delivery_id');
+            $deliveries[] = $deliveryId;
+            $this->actingAs($viewer)->withoutMiddleware()->postJson("/api/ads/deliveries/{$deliveryId}/viewable?placement=sidebar", [
+                'visible_ratio' => 0.7, 'visible_seconds' => 1, 'is_video' => false,
+            ])->assertOk();
+        }
 
-        $this->actingAs($viewer)->withoutMiddleware()->getJson('/api/ads/ad')->assertOk()->assertJsonPath('data.id', $techAd->id);
-        $this->actingAs($viewer)->withoutMiddleware()->getJson('/api/ads/ad')->assertOk()->assertJsonPath('data.id', $techAd->id);
+        $this->actingAs($viewer)->withoutMiddleware()->getJson('/api/ads/ad?placement=sidebar')
+            ->assertOk()->assertJsonPath('data.id', $sportsAd->id);
 
-        $this->actingAs($viewer)
-            ->withoutMiddleware()
-            ->getJson('/api/ads/ad')
-            ->assertOk()
-            ->assertJsonPath('data.id', $sportsAd->id);
-
-        $this->assertSame(3, AdImpression::query()
+        $this->assertSame(2, AdImpression::query()
             ->where('ad_id', $techAd->id)
             ->where('fingerprint', "user:{$viewer->id}")
             ->value('impressions_count'));
+    }
+
+    public function test_ad_personalization_requires_adult_opt_in_and_interest_reset_is_available(): void
+    {
+        config(['ads.personalization.ranking_enabled' => true]);
+        $viewer = $this->createUser('ad-consent-viewer');
+        app(\App\Services\Ad\UserAdInterestService::class)->recordSearch($viewer, 'coffee shops');
+        $this->assertDatabaseCount('user_ad_interest_scores', 0);
+
+        $this->actingAs($viewer)->withoutMiddleware()->patchJson('/api/settings/ad-personalization', [
+            'personalized_ads' => true,
+        ])->assertOk()->assertJsonPath('data.personalized_ads', false);
+
+        $viewer->forceFill(['birth_year' => 1990, 'birth_month' => 1, 'birth_day' => 1])->save();
+        $this->actingAs($viewer)->withoutMiddleware()->patchJson('/api/settings/ad-personalization', [
+            'personalized_ads' => true,
+        ])->assertOk()->assertJsonPath('data.personalized_ads', true);
+        app(\App\Services\Ad\UserAdInterestService::class)->recordSearch($viewer, 'coffee shops');
+        $this->assertDatabaseHas('user_ad_interest_scores', ['user_id' => $viewer->id, 'topic' => 'coffee shops']);
+
+        $this->actingAs($viewer)->withoutMiddleware()->getJson('/api/settings/ad-interests')
+            ->assertOk()->assertJsonPath('data.0.topic', 'coffee shops');
+        $this->actingAs($viewer)->withoutMiddleware()->deleteJson('/api/settings/ad-interests')->assertOk();
+        $this->assertDatabaseMissing('user_ad_interest_scores', ['user_id' => $viewer->id]);
     }
 
     public function test_ad_delivery_respects_requested_placement_and_schedule(): void
@@ -215,18 +240,34 @@ class VideoSafetyAdsTest extends TestCase
             'end_at' => now()->subMinute(),
         ]);
 
-        $this->actingAs($viewer)
+        $response = $this->actingAs($viewer)
             ->withoutMiddleware()
             ->getJson('/api/ads/ad?placement=feed')
             ->assertOk()
             ->assertJsonPath('data.id', $feedAd->id)
             ->assertJsonPath('data.placement_flags.0', 'feed');
 
-        $this->assertDatabaseHas('ad_impressions', [
+        $deliveryId = $response->json('data.delivery_id');
+        $this->assertDatabaseHas('ad_deliveries', ['delivery_id' => $deliveryId, 'placement' => 'feed']);
+        $this->assertEquals(0, (float) $feedAd->refresh()->spent_budget);
+        $this->assertDatabaseMissing('ad_impressions', [
             'ad_id' => $feedAd->id,
             'placement' => 'feed',
-            'device' => 'desktop',
         ]);
+        $this->actingAs($viewer)->withoutMiddleware()->postJson("/api/ads/deliveries/{$deliveryId}/viewable?placement=feed", [
+            'visible_ratio' => 0.49, 'visible_seconds' => 1, 'is_video' => false,
+        ])->assertStatus(422);
+        $this->assertEquals(0, (float) $feedAd->refresh()->spent_budget);
+        $this->actingAs($viewer)->withoutMiddleware()->postJson("/api/ads/deliveries/{$deliveryId}/viewable?placement=feed", [
+            'visible_ratio' => 0.5, 'visible_seconds' => 1, 'is_video' => false,
+        ])->assertOk();
+        $this->actingAs($viewer)->withoutMiddleware()->postJson("/api/ads/deliveries/{$deliveryId}/viewable?placement=feed", [
+            'visible_ratio' => 0.9, 'visible_seconds' => 5, 'is_video' => false,
+        ])->assertOk();
+        $this->assertDatabaseHas('ad_impressions', ['ad_id' => $feedAd->id, 'placement' => 'feed']);
+        $this->assertSame(1, (int) $feedAd->refresh()->views_count);
+        $this->assertEquals(0.01, (float) $feedAd->refresh()->spent_budget);
+        $this->assertDatabaseCount('ad_events', 2);
 
         $this->actingAs($viewer)
             ->withoutMiddleware()
@@ -261,10 +302,8 @@ class VideoSafetyAdsTest extends TestCase
         $this->assertContains('ad', array_column($data, 'type'));
         $this->assertSame($ad->id, collect($data)->firstWhere('type', 'ad')['ad']['id']);
         $this->assertGreaterThanOrEqual(4, count(array_filter($data, fn($item) => $item['type'] !== 'ad')));
-        $this->assertDatabaseHas('ad_impressions', [
-            'ad_id' => $ad->id,
-            'placement' => 'feed',
-        ]);
+        $this->assertDatabaseHas('ad_deliveries', ['ad_id' => $ad->id, 'placement' => 'feed']);
+        $this->assertDatabaseMissing('ad_impressions', ['ad_id' => $ad->id, 'placement' => 'feed']);
     }
 
     public function test_reels_feed_injects_only_reels_placement_ads(): void
@@ -287,10 +326,8 @@ class VideoSafetyAdsTest extends TestCase
             ->assertJsonPath('data.0.ad.id', $reelsAd->id)
             ->assertJsonPath('data.0.meta.placement', 'reels');
 
-        $this->assertDatabaseHas('ad_impressions', [
-            'ad_id' => $reelsAd->id,
-            'placement' => 'reels',
-        ]);
+        $this->assertDatabaseHas('ad_deliveries', ['ad_id' => $reelsAd->id, 'placement' => 'reels']);
+        $this->assertDatabaseMissing('ad_impressions', ['ad_id' => $reelsAd->id, 'placement' => 'reels']);
     }
 
     public function test_feed_sponsored_video_entry_opens_same_campaign_as_first_reel_without_duplicate_source_post(): void
@@ -332,14 +369,13 @@ class VideoSafetyAdsTest extends TestCase
         $items = $response->json('data');
         $this->assertSame(1, count(array_filter($items, fn($item) => ($item['type'] ?? null) === 'ad')));
         $this->assertNotContains($sourcePost->id, array_map(fn($item) => (int) ($item['id'] ?? 0), $items));
-        $this->assertDatabaseHas('ad_impressions', [
-            'ad_id' => $ad->id,
-            'placement' => 'reels',
-        ]);
+        $deliveryId = $response->json('data.0.ad.delivery_id');
+        $this->assertDatabaseHas('ad_deliveries', ['delivery_id' => $deliveryId, 'ad_id' => $ad->id]);
+        $this->assertDatabaseMissing('ad_impressions', ['ad_id' => $ad->id, 'placement' => 'reels']);
 
         $this->actingAs($viewer)
             ->withoutMiddleware()
-            ->postJson("/api/ads/event/{$ad->id}?placement=reels", ['event_type' => 'reel_open'])
+            ->postJson("/api/ads/event/{$ad->id}?placement=reels", ['event_type' => 'reel_open', 'delivery_id' => $deliveryId])
             ->assertOk();
         $this->assertDatabaseHas('ad_events', [
             'ad_id' => $ad->id,
@@ -352,20 +388,17 @@ class VideoSafetyAdsTest extends TestCase
             'event_type' => 'cta_click',
             'placement' => 'reels',
         ]);
-        $this->assertDatabaseHas('ad_impressions', [
-            'ad_id' => $ad->id,
-            'placement' => 'reels',
-            'clicks_count' => 0,
-        ]);
+        $this->assertDatabaseMissing('ad_events', ['ad_id' => $ad->id, 'event_type' => 'cta_click', 'placement' => 'reels']);
 
         $this->actingAs($viewer)
             ->withoutMiddleware()
-            ->get("/api/ads/click/{$ad->id}?placement=reels")
+            ->get("/api/ads/click/{$ad->id}?placement=reels&delivery_id={$deliveryId}")
             ->assertRedirect();
         $this->assertDatabaseHas('ad_events', [
             'ad_id' => $ad->id,
             'event_type' => 'cta_click',
             'placement' => 'reels',
+            'delivery_id' => $deliveryId,
         ]);
         $this->assertDatabaseHas('ad_impressions', [
             'ad_id' => $ad->id,
@@ -546,7 +579,7 @@ class VideoSafetyAdsTest extends TestCase
             'placement_flags' => ['feed'],
         ]);
 
-        $this->actingAs($viewer)
+        $response = $this->actingAs($viewer)
             ->withoutMiddleware()
             ->getJson('/api/ads/ad?placement=feed')
             ->assertOk()
@@ -611,19 +644,20 @@ class VideoSafetyAdsTest extends TestCase
             'placement_flags' => ['feed'],
         ]);
 
-        $this->actingAs($viewer)
+        $response = $this->actingAs($viewer)
             ->withoutMiddleware()
             ->getJson('/api/ads/ad?placement=feed')
             ->assertOk()
             ->assertJsonPath('data.source_post.id', $post->id)
             ->assertJsonPath('data.cta_type', 'LEARN_MORE')
             ->assertJsonPath('data.target_url', null)
-            ->assertJsonPath('data.cta_enabled', true)
-            ->assertJsonPath('data.click_url', url("/api/ads/click/{$ad->id}?placement=feed"));
+            ->assertJsonPath('data.cta_enabled', true);
+        $deliveryId = $response->json('data.delivery_id');
+        $this->assertSame(url("/api/ads/click/{$ad->id}?placement=feed&delivery_id={$deliveryId}"), $response->json('data.click_url'));
 
         $this->actingAs($viewer)
             ->withoutMiddleware()
-            ->get("/api/ads/click/{$ad->id}?placement=feed")
+            ->get("/api/ads/click/{$ad->id}?placement=feed&delivery_id={$deliveryId}")
             ->assertRedirect('https://example.com/cta-post');
 
         $this->assertDatabaseHas('ads', [
@@ -1304,6 +1338,7 @@ class VideoSafetyAdsTest extends TestCase
             'verified_at' => now(),
         ]);
         $this->createWallet($advertiser, 550);
+        app(\App\Services\Ad\AdRewardService::class)->grantCurrentMonth($advertiser->refresh());
         $ad = $this->createAd('Reward mixed funding', ['tech'], [
             'owner' => $advertiser,
             'approval' => AdApproval::PENDING,
@@ -1412,18 +1447,19 @@ class VideoSafetyAdsTest extends TestCase
         ]);
         $this->createAdMedia($ad);
 
-        $this->actingAs($viewer)
+        $response = $this->actingAs($viewer)
             ->withoutMiddleware()
             ->getJson('/api/ads/ad?placement=feed')
             ->assertOk()
             ->assertJsonPath('data.target_url', null)
             ->assertJsonPath('data.cta_enabled', true)
             ->assertJsonPath('data.cta_text', 'Chat on WhatsApp')
-            ->assertJsonPath('data.cta_icon', 'whatsapp')
-            ->assertJsonPath('data.click_url', url("/api/ads/click/{$ad->id}?placement=feed"));
+            ->assertJsonPath('data.cta_icon', 'whatsapp');
+        $deliveryId = $response->json('data.delivery_id');
+        $this->assertSame(url("/api/ads/click/{$ad->id}?placement=feed&delivery_id={$deliveryId}"), $response->json('data.click_url'));
 
         $this->actingAs($viewer)
-            ->get("/api/ads/click/{$ad->id}?placement=feed")
+            ->get("/api/ads/click/{$ad->id}?placement=feed&delivery_id={$deliveryId}")
             ->assertRedirect('https://wa.me/8801700000000?text=Hello%2C%20I%20want%20to%20learn%20more.');
     }
 
@@ -1475,12 +1511,13 @@ class VideoSafetyAdsTest extends TestCase
         ]);
         $this->createAdMedia($ad);
 
-        $this->actingAs($viewer)
+        $response = $this->actingAs($viewer)
             ->withoutMiddleware()
             ->getJson('/api/ads/ad?placement=feed')
             ->assertOk()
-            ->assertJsonPath('data.cta_type', 'VISIT_WEBSITE')
-            ->assertJsonPath('data.click_url', url("/api/ads/click/{$ad->id}?placement=feed"));
+            ->assertJsonPath('data.cta_type', 'VISIT_WEBSITE');
+        $deliveryId = $response->json('data.delivery_id');
+        $this->assertSame(url("/api/ads/click/{$ad->id}?placement=feed&delivery_id={$deliveryId}"), $response->json('data.click_url'));
     }
 
     public function test_unused_ad_budget_is_refunded_when_campaign_is_deleted(): void

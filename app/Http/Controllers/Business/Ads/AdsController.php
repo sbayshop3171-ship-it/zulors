@@ -85,6 +85,7 @@ class AdsController extends Controller
         $adData = me()->advertising()->excludeDraft()->with(['media', 'impressions', 'events'])->findOrFail($adId);
 
         $impressions = $adData->impressions;
+        $deliveries = \App\Models\AdDelivery::query()->where('ad_id', $adData->id)->get();
         $views = (int) $adData->views_count;
         $clicks = (int) $adData->clicks_count;
         $placementStats = $impressions->groupBy('placement')->map(function($rows) {
@@ -92,9 +93,32 @@ class AdsController extends Controller
                 'impressions' => (int) $rows->sum('impressions_count'),
                 'clicks' => (int) $rows->sum('clicks_count'),
                 'reach' => $rows->where('impressions_count', '>', 0)->unique('fingerprint')->count(),
+                'served' => 0,
+                'viewable_impressions' => 0,
+                'billable_impressions' => 0,
+                'verified_conversions' => 0,
+                'hide_report' => 0,
+                'frequency' => 0,
             ];
         });
         $videoEvents = $adData->events->groupBy('placement');
+        $deliveryStats = $deliveries->groupBy('placement');
+        foreach($deliveryStats as $placement => $rows) {
+            $stats = $placementStats->get($placement, [
+                'impressions' => 0, 'clicks' => 0, 'reach' => 0, 'served' => 0,
+                'viewable_impressions' => 0, 'billable_impressions' => 0, 'verified_conversions' => 0,
+                'hide_report' => 0, 'frequency' => 0, 'video_views' => 0,
+                'three_second_views' => 0, 'completions' => 0, 'watch_seconds' => 0, 'ctr' => 0,
+            ]);
+            $stats['served'] = $rows->count();
+            $stats['viewable_impressions'] = $rows->whereNotNull('viewable_at')->count();
+            $stats['billable_impressions'] = $adData->events->where('placement', $placement)->where('event_type', 'billable_impression')->count();
+            $stats['reach'] = $rows->whereNotNull('viewable_at')->unique('viewer_key')->count();
+            $stats['verified_conversions'] = $rows->whereNotNull('converted_at')->count();
+            $stats['hide_report'] = $adData->events->where('placement', $placement)->whereIn('event_type', ['hide', 'report'])->count();
+            $stats['frequency'] = $stats['reach'] > 0 ? round($stats['viewable_impressions'] / $stats['reach'], 2) : 0;
+            $placementStats->put($placement, $stats);
+        }
         $placementStats = $placementStats->map(function($stats, $placement) use ($videoEvents) {
             $events = $videoEvents->get($placement, collect());
             $stats['video_views'] = $events->where('event_type', 'video_start')->count();
@@ -115,6 +139,12 @@ class AdsController extends Controller
                     'impressions' => 0,
                     'clicks' => 0,
                     'reach' => 0,
+                    'served' => 0,
+                    'viewable_impressions' => 0,
+                    'billable_impressions' => 0,
+                    'verified_conversions' => 0,
+                    'hide_report' => 0,
+                    'frequency' => 0,
                     'video_views' => $events->where('event_type', 'video_start')->count(),
                     'three_second_views' => $events->where('event_type', 'three_second_view')->count(),
                     'completions' => $events->where('event_type', 'completed_view')->count(),
@@ -130,6 +160,12 @@ class AdsController extends Controller
                     'impressions' => 0,
                     'clicks' => 0,
                     'reach' => 0,
+                    'served' => 0,
+                    'viewable_impressions' => 0,
+                    'billable_impressions' => 0,
+                    'verified_conversions' => 0,
+                    'hide_report' => 0,
+                    'frequency' => 0,
                     'video_views' => 0,
                     'three_second_views' => 0,
                     'completions' => 0,

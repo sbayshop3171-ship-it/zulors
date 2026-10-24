@@ -4,18 +4,18 @@ namespace App\Http\Controllers\Api\Ad;
 
 use App\Models\Ad;
 use Illuminate\Http\Request;
-use App\Actions\Ad\AdShowAction;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Ad\AdResource;
 use App\Services\Ad\TargetedAdService;
 use App\Services\Ad\AdDestinationResolver;
+use App\Services\Ad\AdDeliveryService;
 use App\Traits\Http\Api\SupportsApiResponses;
 
 class AdController extends Controller
 {
     use SupportsApiResponses;
 
-    public function getAd(Request $request, TargetedAdService $targetedAdService)
+    public function getAd(Request $request, TargetedAdService $targetedAdService, AdDeliveryService $deliveries)
     {
         $adData = $targetedAdService->selectForRequest($request);
 
@@ -27,12 +27,20 @@ class AdController extends Controller
             ]);
         }
         
-        $targetedAdService->recordImpression($adData, $request);
-        (new AdShowAction($adData))->execute();
+        $delivery = $deliveries->attach($adData, $request);
+        $adData->setAttribute('delivery_id', $delivery->delivery_id);
 
         return $this->responseSuccess([
             'data' => AdResource::make($adData)
         ]);
+    }
+
+    public function viewable(string $deliveryId, Request $request, AdDeliveryService $deliveries)
+    {
+        $delivery = \App\Models\AdDelivery::query()->where('delivery_id', $deliveryId)->firstOrFail();
+        $delivery = $deliveries->markViewable($delivery, $request);
+
+        return $this->responseSuccess(['data' => ['delivery_id' => $delivery->delivery_id, 'viewable' => (bool) $delivery->viewable_at]]);
     }
 
     public function click(int $adId, Request $request, TargetedAdService $targetedAdService, AdDestinationResolver $destinationResolver)

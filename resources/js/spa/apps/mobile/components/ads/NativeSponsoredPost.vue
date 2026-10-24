@@ -1,5 +1,5 @@
 <template>
-    <div v-if="adData.source_type === 'post' && adData.source_post" class="base-publication min-h-40 border-b border-b-bord-tr">
+    <div ref="adRoot" v-if="adData.source_type === 'post' && adData.source_post" class="base-publication min-h-40 border-b border-b-bord-tr">
         <div class="flex items-center justify-between px-4 pt-3">
             <span class="inline-flex items-center rounded-full bg-fill-fv px-2.5 py-1 text-cap-l font-bold text-lab-sc">{{ $t('labels.ad') }}</span>
             <span class="text-cap-l text-lab-sc">Sponsored</span>
@@ -20,7 +20,7 @@
             </template>
         </TimelinePublication>
     </div>
-    <article v-else class="base-publication min-h-40 border-b border-b-bord-tr">
+    <article ref="adRoot" v-else class="base-publication min-h-40 border-b border-b-bord-tr">
         <div class="px-4 pt-4">
             <div class="mb-3 flex items-center gap-3">
                 <img class="size-10 rounded-full object-cover" v-bind:src="adData.advertiser?.avatar_url" v-bind:alt="adData.advertiser?.name">
@@ -51,9 +51,10 @@
 </template>
 
 <script>
-import { defineComponent } from 'vue';
+import { defineComponent, onMounted, onUnmounted, ref } from 'vue';
 import TimelinePublication from '@M/components/timeline/feed/TimelinePublication.vue';
 import SvgIcon from '@/kernel/vue/components/icons/SvgIcon.vue';
+import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 
 export default defineComponent({
     props: {
@@ -62,6 +63,37 @@ export default defineComponent({
     components: {
         TimelinePublication,
         SvgIcon
+    },
+    setup(props) {
+        const adRoot = ref(null);
+        let observer = null;
+        let timer = null;
+        let sent = false;
+        let visibleNow = false;
+        const sendViewable = () => {
+            if(sent || !props.adData.delivery_id) return;
+            const video = adRoot.value?.querySelector('video');
+            if(video && video.paused) {
+                video.addEventListener('playing', () => {
+                    if(visibleNow) timer = window.setTimeout(sendViewable, 2000);
+                }, { once: true });
+                return;
+            }
+            sent = true;
+            colibriAPI().ads().params({ placement: 'feed' }).with({ visible_ratio: 0.5, visible_seconds: video ? 2 : 1, is_video: Boolean(video) }).sendTo(`deliveries/${props.adData.delivery_id}/viewable`).catch(() => { sent = false; });
+        };
+        onMounted(() => {
+            if(!adRoot.value || !window.IntersectionObserver) return;
+            observer = new IntersectionObserver(entries => {
+                const visible = entries.some(entry => entry.isIntersecting && entry.intersectionRatio >= 0.5);
+                visibleNow = visible;
+                window.clearTimeout(timer);
+                if(visible) timer = window.setTimeout(sendViewable, props.adData.media_type === 'video' ? 2000 : 1000);
+            }, { threshold: [0.5] });
+            observer.observe(adRoot.value);
+        });
+        onUnmounted(() => { window.clearTimeout(timer); observer?.disconnect(); });
+        return { adRoot };
     }
 });
 </script>

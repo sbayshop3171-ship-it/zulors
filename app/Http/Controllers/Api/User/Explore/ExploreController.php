@@ -22,6 +22,7 @@ use Illuminate\Http\Request;
 use App\Database\Configs\Table;
 use App\Http\Controllers\Controller;
 use App\Services\Timeline\FeedService;
+use App\Services\Ad\UserAdInterestService;
 use Illuminate\Support\Facades\DB;
 use App\Traits\Http\Api\SupportsApiResponses;
 use App\Http\Resources\User\People\PeopleCollection;
@@ -127,6 +128,10 @@ class ExploreController extends Controller
             ->orderBy('quotes_count', 'desc');
 
         $timelinePosts = $feedORMQuery->simplePaginateManual(config('post.paginate_per'), $this->filter['page']);
+
+        if($timelinePosts->count() > 0 && $this->me) {
+            app(UserAdInterestService::class)->recordSearch($this->me, $this->filter['query']);
+        }
 
         return $this->responseSuccess([
             'data' => TimelineCollection::make($timelinePosts)

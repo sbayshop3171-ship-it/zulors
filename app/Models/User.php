@@ -126,6 +126,16 @@ class User extends Authenticatable
         return $this->hasMany(UserInterestScore::class, 'user_id', 'id');
     }
 
+    public function adInterestScores()
+    {
+        return $this->hasMany(UserAdInterestScore::class, 'user_id', 'id');
+    }
+
+    public function adPreference()
+    {
+        return $this->hasOne(UserAdPreference::class, 'user_id', 'id');
+    }
+
     public function safetyScore()
     {
         return $this->hasOne(UserSafetyScore::class, 'user_id', 'id');

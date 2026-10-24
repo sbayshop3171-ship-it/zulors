@@ -1,5 +1,5 @@
 <template>
-    <div v-if="isPostCreative" class="relative h-full snap-start snap-always overflow-hidden bg-black text-white">
+    <div ref="reelRoot" v-if="isPostCreative" class="relative h-full snap-start snap-always overflow-hidden bg-black text-white">
         <ReelItem
             v-bind:postData="adData.placement_creative?.source_post || adData.source_post"
             v-bind:active="active"
@@ -14,7 +14,7 @@
             <SvgIcon v-if="adData.cta_icon" v-bind:name="adData.cta_icon" v-bind:type="adData.cta_icon === 'whatsapp' ? 'social' : 'line'" classes="size-4"></SvgIcon>{{ adData.cta_text }}
         </a>
     </div>
-    <section v-else class="relative h-full snap-start snap-always overflow-hidden bg-black text-white">
+    <section ref="reelRoot" v-else class="relative h-full snap-start snap-always overflow-hidden bg-black text-white">
         <div class="absolute inset-0">
             <video
                 ref="videoRef"
@@ -73,6 +73,7 @@ export default defineComponent({
     },
     setup(props) {
         const videoRef = ref(null);
+        const reelRoot = ref(null);
         let watchTimer = null;
         let watchSeconds = 0;
         let lastWatchTick = 0;
@@ -89,7 +90,7 @@ export default defineComponent({
 
         const sendEvent = (eventType, payload = {}) => colibriAPI().ads()
             .params({ placement: 'reels' })
-            .with({ event_type: eventType, ...payload })
+            .with({ event_type: eventType, delivery_id: props.adData.delivery_id, ...payload })
             .sendTo(`event/${props.adData.id}`)
             .catch(() => {});
 
@@ -102,16 +103,28 @@ export default defineComponent({
         const mediaUrl = computed(() => placementCreative.value.media_url || props.adData.media_url);
         const thumbnailUrl = computed(() => placementCreative.value.thumbnail_url || props.adData.thumbnail_url);
 
+        const markViewable = () => {
+            if(!props.active || !props.adData.delivery_id) return;
+            const video = reelRoot.value?.querySelector('video');
+            if(video && video.paused) {
+                video.addEventListener('playing', () => window.setTimeout(markViewable, 2000), { once: true });
+                return;
+            }
+            colibriAPI().ads().params({ placement: 'reels' }).with({
+                visible_ratio: 0.5, visible_seconds: video ? 2 : 1, is_video: Boolean(video)
+            }).sendTo(`deliveries/${props.adData.delivery_id}/viewable`).catch(() => {});
+        };
+
         const activateReel = () => {
             if(! didOpenReel) {
                 didOpenReel = true;
                 sendEvent('reel_open');
-                sendEvent('impression');
             }
 
             if(! isPostCreative.value && videoRef.value) {
                 videoRef.value.play().catch(() => {});
             }
+            window.setTimeout(markViewable, 1000);
             lastWatchTick = Date.now();
             if(! isPostCreative.value && ! watchTimer) {
                 watchTimer = window.setInterval(() => {
@@ -199,7 +212,7 @@ export default defineComponent({
         onMounted(() => { if(props.active) activateReel(); });
         onUnmounted(() => deactivateReel());
 
-        return { videoRef, active: computed(() => props.active), isPostCreative, mediaType, videoUrl, mediaUrl, thumbnailUrl, handlePlaying, handlePause, handleTimeUpdate, handleEnded, recordSocialEvent, commentDraft, submitComment, engagementState };
+        return { videoRef, reelRoot, active: computed(() => props.active), isPostCreative, mediaType, videoUrl, mediaUrl, thumbnailUrl, handlePlaying, handlePause, handleTimeUpdate, handleEnded, recordSocialEvent, commentDraft, submitComment, engagementState };
     }
 });
 </script>

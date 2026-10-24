@@ -21,7 +21,6 @@ use Illuminate\Http\Response;
 use App\Enums\Post\PostStatus;
 use App\Http\Controllers\Controller;
 use App\Services\Timeline\FeedService;
-use App\Actions\Ad\AdShowAction;
 use App\Http\Resources\Ad\AdResource;
 use App\Services\Ad\TargetedAdService;
 use Illuminate\Support\Facades\Cache;
@@ -267,9 +266,8 @@ class FeedController extends Controller
                 }
             }
 
-            $adService = app(TargetedAdService::class);
-            $adService->recordImpression($ad, $request);
-            (new AdShowAction($ad))->execute();
+            $delivery = app(\App\Services\Ad\AdDeliveryService::class)->attach($ad, $request);
+            $ad->setAttribute('delivery_id', $delivery->delivery_id);
 
             $sponsored = [
                 'id' => 'ad-' . $ad->id,
@@ -278,6 +276,7 @@ class FeedController extends Controller
                 'meta' => [
                     'sponsored' => true,
                     'placement' => $placement,
+                    'delivery_id' => $delivery->delivery_id,
                 ],
             ];
             $items = $payload['data'] ?? [];

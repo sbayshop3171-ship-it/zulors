@@ -343,15 +343,14 @@ class AdRewardService
         $processed = 0;
 
         AdRewardAccount::where('period_month', '!=', $currentPeriod)
-            ->whereNull('claimed_at')
             ->whereIn('status', ['active', 'frozen'])
-            ->chunkById(200, function($accounts) {
+            ->chunkById(200, function($accounts) use (&$processed) {
                 foreach($accounts as $account) {
-                    DB::transaction(function () use ($account) {
+                    $didExpire = DB::transaction(function () use ($account) {
                         $lockedAccount = AdRewardAccount::whereKey($account->id)->lockForUpdate()->first();
 
                         if(empty($lockedAccount) || $lockedAccount->status === 'expired') {
-                            return;
+                            return false;
                         }
 
                         $expiredAmount = (float) $lockedAccount->available_amount;
@@ -374,9 +373,13 @@ class AdRewardService
                             'available_amount' => 0,
                             'status' => 'expired',
                         ]);
+                        return true;
                     });
+                    if($didExpire) $processed++;
                 }
             });
+
+        $this->grantCurrentMonthToEligibleUsers();
 
         return $processed;
     }

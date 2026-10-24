@@ -8,6 +8,17 @@
                 {{ $t('settings.forms.account_privacy.page_desc') }}
             </h6>
         </div>
+        <section class="mb-8 rounded-2xl border border-bord-pr bg-bg-pr p-4">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <h3 class="text-par-m font-bold text-lab-pr2">Personalized ads</h3>
+                    <p class="mt-1 max-w-2xl text-par-s leading-5 text-lab-sc">Allow activity from posts and searches to help select relevant ads. Turning this off clears your saved ad topics.</p>
+                </div>
+                <input v-model="adPersonalization" type="checkbox" class="mt-1 size-5 accent-current" v-on:change="saveAdPersonalization">
+            </div>
+            <p v-if="adInterests.length" class="mt-3 text-par-s text-lab-sc">Ad topics: {{ adInterests.map(item => item.topic).join(', ') }}</p>
+            <button v-if="adInterests.length" type="button" class="mt-3 text-par-s font-semibold text-lab-pr2 underline" v-on:click="resetAdInterests">Reset ad topics</button>
+        </section>
     
         <div class="mb-4">
             <h6 class="text-par-m text-lab-sc font-medium">
@@ -121,6 +132,8 @@
     export default defineComponent({
         setup: function() {
             const formData = ref({});
+            const adPersonalization = ref(false);
+            const adInterests = ref([]);
             const state = reactive({
                 isLoading: true,
                 isSubmitting: false
@@ -193,6 +206,10 @@
                 await colibriAPI().userSettings().getFrom('privacy/settings').then((response) => {
                     formData.value = response.data.data;
                 });
+                await colibriAPI().userSettings().getFrom('ad-personalization').then(response => {
+                    adPersonalization.value = Boolean(response.data.data.personalized_ads);
+                }).catch(() => {});
+                await loadAdInterests();
 
                 state.isLoading = false;
 
@@ -200,6 +217,21 @@
                     submitForm();
                 }, { deep: true });
             });
+
+            const loadAdInterests = async () => {
+                await colibriAPI().userSettings().getFrom('ad-interests').then(response => {
+                    adInterests.value = response.data.data || [];
+                }).catch(() => { adInterests.value = []; });
+            };
+            const saveAdPersonalization = async () => {
+                await colibriAPI().userSettings().with({ personalized_ads: adPersonalization.value }).patchTo('ad-personalization').then(response => {
+                    adPersonalization.value = Boolean(response.data.data.personalized_ads);
+                    if(!adPersonalization.value) adInterests.value = [];
+                }).catch(error => { adPersonalization.value = !adPersonalization.value; toastError(error.response?.data?.message || 'Could not update ad settings.'); });
+            };
+            const resetAdInterests = async () => {
+                await colibriAPI().userSettings().delete('ad-interests').then(() => { adInterests.value = []; }).catch(() => toastError('Could not reset ad topics.'));
+            };
 
             const submitForm = async () => {
                 if (state.isSubmitting === false) {
@@ -220,7 +252,11 @@
             return {
                 privacyOptions: privacyOptions,
                 state: state,
-                formData: formData
+                formData: formData,
+                adPersonalization,
+                adInterests,
+                saveAdPersonalization,
+                resetAdInterests
             }
         },
         components: {

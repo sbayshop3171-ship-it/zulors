@@ -104,6 +104,7 @@ class AdRewardCreditTest extends TestCase
 
         $user = $this->createUser('reward-ad-owner', verified: true);
         $this->createWallet($user, 550);
+        app(AdRewardService::class)->grantCurrentMonth($user);
         $ad = $this->createAd($user, [
             'total_budget' => 400,
             'spent_budget' => 250,
@@ -143,6 +144,8 @@ class AdRewardCreditTest extends TestCase
         $unverifiedUser = $this->createUser('reward-monthly-unverified', verified: false);
 
         $service = app(AdRewardService::class);
+        $this->assertTrue($service->isEnabled());
+        $this->assertSame(2, User::where('verified', true)->count());
         $stats = $service->grantCurrentMonthToEligibleUsers();
 
         $this->assertSame(2, $stats['eligible']);

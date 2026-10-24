@@ -38,6 +38,9 @@ const colibriAPI = function () {
         putTo: function (endpointUrl) {
             return this.__makeRequest(endpointUrl, 'put');
         },
+        patchTo: function (endpointUrl) {
+            return this.__makeRequest(endpointUrl, 'patch');
+        },
         delete: function (endpointUrl) {
             return this.__makeRequest(endpointUrl, 'delete');
         },

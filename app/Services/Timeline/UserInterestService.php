@@ -5,6 +5,7 @@ namespace App\Services\Timeline;
 use App\Models\Post;
 use App\Models\User;
 use App\Models\UserInterestScore;
+use App\Services\Ad\UserAdInterestService;
 use Illuminate\Support\Carbon;
 
 class UserInterestService
@@ -34,7 +35,8 @@ class UserInterestService
 
     public function __construct(
         private TopicExtractionService $topicExtractionService,
-        private PostAffinityService $postAffinityService
+        private PostAffinityService $postAffinityService,
+        private UserAdInterestService $adInterestService
     )
     {
     }
@@ -49,7 +51,9 @@ class UserInterestService
         }
 
         foreach($this->postAffinityService->weightedKeysForPost($post) as $key => $weight) {
-            $this->applyScore($userId, $key, $delta * (float) $weight);
+            $weightedDelta = $delta * (float) $weight;
+            $this->applyScore($userId, $key, $weightedDelta);
+            $this->adInterestService->record($userId, $key, $weightedDelta);
         }
     }
 
