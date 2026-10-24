@@ -42,6 +42,11 @@ class Ad extends Model
         return $this->belongsTo(Post::class, 'source_post_id', 'id');
     }
 
+    public function reelsMedia()
+    {
+        return $this->belongsTo(Media::class, 'reels_media_id', 'id');
+    }
+
     public function scopeExcludeDraft($query)
     {
         return $query->where('status', '!=', AdStatus::DRAFT);
@@ -138,13 +143,38 @@ class Ad extends Model
         return ! empty($media) && $media->status->isProcessed();
     }
 
+    public function isSourceAvailableForPlacement(string $placement): bool
+    {
+        if(! $this->isSourceAvailable()) {
+            return false;
+        }
+
+        if($placement !== 'reels') {
+            return true;
+        }
+
+        if($this->reels_media_id) {
+            $media = $this->reelsMedia;
+
+            return $media && $media->type->isVideo() && $media->status->isProcessed();
+        }
+
+        $media = $this->displayMedia();
+
+        if(! $media || ! $media->status->isProcessed()) {
+            return false;
+        }
+
+        return ! $this->isPostSourced() || $media->type->isVideo();
+    }
+
     public function displayMedia(): ?Media
     {
         if($this->isPostSourced()) {
             return $this->sourcePost?->media?->first();
         }
 
-        return $this->media->first();
+        return $this->media->first(fn(Media $media) => (int) $media->id !== (int) $this->reels_media_id);
     }
 
     public function getFormattedIdAttribute(): string

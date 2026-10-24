@@ -201,6 +201,10 @@
                 type: String,
                 default: 'for_you'
             },
+            sponsoredAdId: {
+                type: Number,
+                default: 0
+            },
             position: {
                 type: Number,
                 default: 0
@@ -400,13 +404,16 @@
                         return false;
                     }
 
-                    reelsStore.prefetchFirstPage(postData.value.hash_id).catch(() => {});
+                    if(! props.sponsoredAdId) {
+                        reelsStore.prefetchFirstPage(postData.value.hash_id).catch(() => {});
+                    }
 
                     router.push({
                         name: 'explore_reels',
                         params: {
                             hash_id: postData.value.hash_id
-                        }
+                        },
+                        query: props.sponsoredAdId ? { ad_id: String(props.sponsoredAdId) } : {}
                     });
                 },
                 copyLink: () => {

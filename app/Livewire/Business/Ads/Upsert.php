@@ -34,6 +34,7 @@ class Upsert extends Component
     public string $upsertType;
     public $formData = [];
     public $creative = null;
+    public $reelsCreative = null;
     public $adMedia = null;
     public string $boostPostSearch = '';
     public bool $boostPostPickerOpen = false;
@@ -45,7 +46,7 @@ class Upsert extends Component
 
     public function mount()
     {
-        $this->adMedia = $this->adData->media;
+        $this->refreshAdMedia();
         $sourceType = $this->adData->source_type ?: 'creative';
         $ctaType = $this->adData->cta_type ?: ($sourceType === 'post'
             ? (filled($this->adData->target_url) ? 'VISIT_WEBSITE' : 'NO_BUTTON')
@@ -85,6 +86,20 @@ class Upsert extends Component
     {
         if($this->creative) {
             $this->uploadCreative();
+        }
+    }
+
+    public function updatedReelsCreative()
+    {
+        if($this->reelsCreative) {
+            if(! in_array('reels', $this->formData['placement_flags'] ?? [], true)) {
+                $this->addError('reelsCreative', 'Enable the Reels placement before adding a Reels video.');
+                $this->reelsCreative = null;
+
+                return;
+            }
+
+            $this->uploadVideoCreative('reelsCreative', true);
         }
     }
 
@@ -296,6 +311,10 @@ class Upsert extends Component
 
         $this->adData->update($updateData);
 
+        if(! in_array('reels', $updateData['placement_flags'], true) && $this->adData->reels_media_id) {
+            $this->deleteReelsCreative((int) $this->adData->reels_media_id);
+        }
+
         return redirect()->route('business.ads.index');
     }
 
@@ -363,10 +382,11 @@ class Upsert extends Component
         }
     }
 
-    private function uploadVideoCreative()
+    private function uploadVideoCreative(string $property = 'creative', bool $forReels = false)
     {
+        $errorField = $property;
         $this->validate(rules: [
-            'creative' => [
+            $property => [
                 'required',
                 'file',
                 XRule::join('mimes', config('ads.ad.validation.video.mimes')),
@@ -374,7 +394,7 @@ class Upsert extends Component
                 XRule::join('max', config('ads.ad.validation.video.max'))
             ]
         ], attributes: [
-            'creative' => __('business/ads.form.creative')
+            $property => $forReels ? 'Reels video' : __('business/ads.form.creative')
         ]);
 
         $videoUploadService = app(VideoUploadService::class);
@@ -388,15 +408,27 @@ class Upsert extends Component
         try {
             $videoData = $videoUploadService
                 ->setStorageDisk($videoStorageDisk)
-                ->tempSaveLocally($this->creative);
+                ->tempSaveLocally($this->{$property});
 
             $maxDuration = (int) config('ads.ad.validation.video.max_duration_seconds', 30);
+
+            if($forReels) {
+                $aspectRatio = (float) ($videoData['aspect_ratio'] ?? 0);
+
+                if(empty($videoData['is_portrait']) || $aspectRatio < 0.48 || $aspectRatio > 0.68) {
+                    Storage::disk('local')->delete($videoData['video_path']);
+
+                    throw ValidationException::withMessages([
+                        $errorField => 'Use a vertical video close to 9:16 for Reels.'
+                    ]);
+                }
+            }
 
             if((int) $videoData['seconds'] > $maxDuration) {
                 Storage::disk('local')->delete($videoData['video_path']);
 
                 throw ValidationException::withMessages([
-                    'creative' => __('business/ads.form.video_duration_limit', ['seconds' => $maxDuration])
+                    $errorField => __('business/ads.form.video_duration_limit', ['seconds' => $maxDuration])
                 ]);
             }
 
@@ -409,7 +441,7 @@ class Upsert extends Component
                 ->compress()
                 ->upload();
 
-            $extension = $this->creative->getClientOriginalExtension() ?: 'mp4';
+            $extension = $this->{$property}->getClientOriginalExtension() ?: 'mp4';
             $videoOutputData = $videoUploadService
                 ->setStorageDisk($videoStorageDisk)
                 ->setNamespace(Filesystem::mediaNamespace('ads/videos'))
@@ -420,13 +452,13 @@ class Upsert extends Component
                 unlink($videoThumbnailPath);
             }
 
-            $this->adData->media()->create([
+            $media = $this->adData->media()->create([
                 'source_path' => $videoOutputData['video_path'],
                 'type' => MediaType::VIDEO,
                 'status' => MediaStatus::PROCESSED,
                 'disk' => $videoOutputData['disk'],
                 'extension' => $extension,
-                'mime' => $this->creative->getClientMimeType(),
+                'mime' => $this->{$property}->getClientMimeType(),
                 'size' => $videoOutputData['video_size'],
                 'thumbnail_path' => $imageData['image_path'],
                 'thumbnail_size' => $imageData['image_size'],
@@ -440,8 +472,15 @@ class Upsert extends Component
                 ]
             ]);
 
-            $this->refreshAdMedia();
-            $this->creative = null;
+            if($forReels) {
+                $this->adData->reels_media_id = $media->id;
+                $this->adData->unsetRelation('reelsMedia');
+                $this->adData->save();
+            }
+            else {
+                $this->refreshAdMedia();
+            }
+            $this->{$property} = null;
 
             return true;
         }
@@ -457,7 +496,7 @@ class Upsert extends Component
                 unlink($videoThumbnailPath);
             }
 
-            $this->addError('creative', $th->getMessage());
+            $this->addError($errorField, $th->getMessage());
 
             return false;
         }
@@ -691,6 +730,27 @@ class Upsert extends Component
         }
     }
 
+    public function deleteReelsCreative(int $mediaId): void
+    {
+        if((int) $this->adData->reels_media_id !== $mediaId) {
+            return;
+        }
+
+        try {
+            $media = $this->adData->reelsMedia;
+            $this->adData->reels_media_id = null;
+            $this->adData->unsetRelation('reelsMedia');
+            $this->adData->save();
+
+            if($media) {
+                (new DeleteMediaAction($media))->execute();
+            }
+        }
+        catch (Throwable $th) {
+            $this->addError('reelsCreative', $th->getMessage());
+        }
+    }
+
     private function boostablePosts(?string $search = null, int $limit = 3, ?string $sort = null)
     {
         $search = trim((string) ($search ?? ''));
@@ -834,6 +894,9 @@ class Upsert extends Component
                 'media_type' => $media?->type->value ?: ($post?->type->value ?: 'text'),
                 'media_url' => $media?->source_url,
                 'thumbnail_url' => $media?->thumbnail_url,
+                'reels_media_type' => $this->adData->reelsMedia?->type->value ?: ($media?->type->value ?: 'video'),
+                'reels_media_url' => $this->adData->reelsMedia?->source_url ?: $media?->source_url,
+                'reels_thumbnail_url' => $this->adData->reelsMedia?->thumbnail_url ?: $media?->thumbnail_url,
             ];
         }
 
@@ -849,6 +912,9 @@ class Upsert extends Component
             'media_type' => $media?->type->value ?: ($this->formData['media_type'] ?? MediaType::IMAGE->value),
             'media_url' => $media?->source_url,
             'thumbnail_url' => $media?->thumbnail_url,
+            'reels_media_type' => $this->adData->reelsMedia?->type->value ?: ($media?->type->value ?: 'video'),
+            'reels_media_url' => $this->adData->reelsMedia?->source_url ?: $media?->source_url,
+            'reels_thumbnail_url' => $this->adData->reelsMedia?->thumbnail_url ?: $media?->thumbnail_url,
         ];
     }
 
@@ -865,7 +931,9 @@ class Upsert extends Component
     {
         $this->adData->unsetRelation('media');
 
-        return $this->adData->media()->get();
+        return $this->adData->media()->get()
+            ->reject(fn($mediaItem) => (int) $mediaItem->id === (int) $this->adData->reels_media_id)
+            ->values();
     }
 
     private function refreshAdMedia(): void

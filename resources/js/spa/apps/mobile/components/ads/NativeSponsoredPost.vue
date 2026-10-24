@@ -8,6 +8,7 @@
             v-bind:postData="adData.source_post"
             source="sponsored_ad"
             feedType="for_you"
+            v-bind:sponsoredAdId="Number(adData.id)"
         >
             <template #sponsored-cta>
                 <div v-if="adData.cta_enabled && adData.click_url" class="mx-4 mb-3 flex items-center justify-between gap-3 rounded-lg border border-bord-pr bg-fill-fv px-3 py-2">

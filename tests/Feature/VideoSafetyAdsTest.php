@@ -293,6 +293,212 @@ class VideoSafetyAdsTest extends TestCase
         ]);
     }
 
+    public function test_feed_sponsored_video_entry_opens_same_campaign_as_first_reel_without_duplicate_source_post(): void
+    {
+        $viewer = $this->createUser('sponsored-entry-viewer');
+        $advertiser = $this->createUser('sponsored-entry-advertiser');
+        $sourcePost = $this->createPost($advertiser, 'Sponsored source video #campaign', now(), [
+            'type' => PostType::VIDEO,
+        ]);
+        $sourceMedia = $this->createVideoMedia($sourcePost, 18);
+        $ad = $this->createAd('Sponsored entry campaign', [], [
+            'owner' => $advertiser,
+            'source_type' => 'post',
+            'source_post_id' => $sourcePost->id,
+            'type' => 'video',
+            'cta_type' => 'SIGN_UP',
+            'cta_text' => 'Sign Up',
+            'placement_flags' => ['feed', 'reels'],
+        ]);
+
+        $response = $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/timeline/feed?' . http_build_query([
+                'type' => 'reels',
+                'filter' => [
+                    'page' => 1,
+                    'seed_hash_id' => $sourcePost->hash_id,
+                    'sponsored_ad_id' => $ad->id,
+                ],
+            ]))
+            ->assertOk()
+            ->assertJsonPath('data.0.type', 'ad')
+            ->assertJsonPath('data.0.ad.id', $ad->id)
+            ->assertJsonPath('data.0.ad.placement', 'reels')
+            ->assertJsonPath('data.0.ad.placement_creative.kind', 'post')
+            ->assertJsonPath('data.0.ad.placement_creative.source_post.id', $sourcePost->id)
+            ->assertJsonPath('data.0.ad.cta_text', 'Sign Up');
+
+        $items = $response->json('data');
+        $this->assertSame(1, count(array_filter($items, fn($item) => ($item['type'] ?? null) === 'ad')));
+        $this->assertNotContains($sourcePost->id, array_map(fn($item) => (int) ($item['id'] ?? 0), $items));
+        $this->assertDatabaseHas('ad_impressions', [
+            'ad_id' => $ad->id,
+            'placement' => 'reels',
+        ]);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->postJson("/api/ads/event/{$ad->id}?placement=reels", ['event_type' => 'reel_open'])
+            ->assertOk();
+        $this->assertDatabaseHas('ad_events', [
+            'ad_id' => $ad->id,
+            'campaign_id' => $ad->id,
+            'event_type' => 'reel_open',
+            'placement' => 'reels',
+        ]);
+        $this->assertDatabaseMissing('ad_events', [
+            'ad_id' => $ad->id,
+            'event_type' => 'cta_click',
+            'placement' => 'reels',
+        ]);
+        $this->assertDatabaseHas('ad_impressions', [
+            'ad_id' => $ad->id,
+            'placement' => 'reels',
+            'clicks_count' => 0,
+        ]);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->get("/api/ads/click/{$ad->id}?placement=reels")
+            ->assertRedirect();
+        $this->assertDatabaseHas('ad_events', [
+            'ad_id' => $ad->id,
+            'event_type' => 'cta_click',
+            'placement' => 'reels',
+        ]);
+        $this->assertDatabaseHas('ad_impressions', [
+            'ad_id' => $ad->id,
+            'placement' => 'reels',
+            'clicks_count' => 1,
+        ]);
+    }
+
+    public function test_reels_entry_uses_optional_video_asset_and_ineligible_campaign_falls_back_without_impression(): void
+    {
+        $viewer = $this->createUser('sponsored-asset-viewer');
+        $advertiser = $this->createUser('sponsored-asset-advertiser');
+        $sourcePost = $this->createPost($advertiser, 'Fallback source video #campaign', now(), [
+            'type' => PostType::VIDEO,
+        ]);
+        $this->createVideoMedia($sourcePost, 18);
+        $ad = $this->createAd('Reels asset campaign', [], [
+            'owner' => $advertiser,
+            'source_type' => 'post',
+            'source_post_id' => $sourcePost->id,
+            'type' => 'video',
+            'placement_flags' => ['feed', 'reels'],
+            'cta_type' => 'LEARN_MORE',
+        ]);
+        $reelsMedia = $ad->media()->create([
+            'source_path' => "ads/videos/reels-{$ad->id}.mp4",
+            'thumbnail_path' => "ads/video_thumbnails/reels-{$ad->id}.jpg",
+            'type' => MediaType::VIDEO,
+            'status' => MediaStatus::PROCESSED,
+            'disk' => 'public',
+            'thumbnail_disk' => 'public',
+            'extension' => 'mp4',
+            'mime' => 'video/mp4',
+            'size' => '100',
+            'thumbnail_size' => '10',
+            'metadata' => ['duration_seconds' => 15, 'is_portrait' => true, 'aspect_ratio' => 0.5625],
+        ]);
+        $ad->update(['reels_media_id' => $reelsMedia->id]);
+
+        $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/timeline/feed?' . http_build_query([
+                'type' => 'reels',
+                'filter' => ['page' => 1, 'seed_hash_id' => $sourcePost->hash_id, 'sponsored_ad_id' => $ad->id],
+            ]))
+            ->assertOk()
+            ->assertJsonPath('data.0.ad.placement_creative.kind', 'asset')
+            ->assertJsonPath('data.0.ad.placement_creative.media_type', 'video')
+            ->assertJsonPath('data.0.ad.placement_creative.video_url', $reelsMedia->source_url);
+
+        $invalidMediaAd = $this->createAd('Invalid Reels media campaign', [], [
+            'owner' => $advertiser,
+            'source_type' => 'post',
+            'source_post_id' => $sourcePost->id,
+            'type' => 'video',
+            'placement_flags' => ['feed', 'reels'],
+        ]);
+        $invalidImage = $this->createAdMedia($invalidMediaAd);
+        $invalidMediaAd->update(['reels_media_id' => $invalidImage->id]);
+
+        $invalidResponse = $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/timeline/feed?' . http_build_query([
+                'type' => 'reels',
+                'filter' => ['page' => 1, 'sponsored_ad_id' => $invalidMediaAd->id],
+            ]))
+            ->assertOk();
+        $this->assertSame([], array_values(array_filter($invalidResponse->json('data'), fn($item) => ($item['type'] ?? null) === 'ad')));
+        $this->assertDatabaseMissing('ad_impressions', ['ad_id' => $invalidMediaAd->id, 'placement' => 'reels']);
+
+        $pausedAd = $this->createAd('Paused Reels campaign', [], [
+            'owner' => $advertiser,
+            'source_type' => 'post',
+            'source_post_id' => $sourcePost->id,
+            'type' => 'video',
+            'status' => AdStatus::PAUSED,
+            'placement_flags' => ['feed', 'reels'],
+        ]);
+        $fallback = $this->actingAs($viewer)
+            ->withoutMiddleware()
+            ->getJson('/api/timeline/feed?' . http_build_query([
+                'type' => 'reels',
+                'filter' => ['page' => 1, 'seed_hash_id' => $sourcePost->hash_id, 'sponsored_ad_id' => $pausedAd->id],
+            ]))
+            ->assertOk();
+
+        $this->assertSame([], array_values(array_filter($fallback->json('data'), fn($item) => ($item['type'] ?? null) === 'ad')));
+        $this->assertDatabaseMissing('ad_impressions', ['ad_id' => $pausedAd->id, 'placement' => 'reels']);
+    }
+
+    public function test_campaign_detail_reports_video_metrics_by_placement(): void
+    {
+        $advertiser = $this->createUser('placement-analytics-owner');
+        $ad = $this->createAd('Placement analytics campaign', [], [
+            'owner' => $advertiser,
+            'placement_flags' => ['feed', 'reels'],
+        ]);
+        AdImpression::query()->create([
+            'ad_id' => $ad->id,
+            'fingerprint' => 'user:feed-viewer',
+            'placement' => 'feed',
+            'impressions_count' => 4,
+            'clicks_count' => 1,
+        ]);
+        AdImpression::query()->create([
+            'ad_id' => $ad->id,
+            'fingerprint' => 'user:reels-viewer',
+            'placement' => 'reels',
+            'impressions_count' => 6,
+            'clicks_count' => 2,
+        ]);
+        $ad->events()->createMany([
+            ['campaign_id' => $ad->id, 'event_type' => 'video_start', 'placement' => 'reels'],
+            ['campaign_id' => $ad->id, 'event_type' => 'three_second_view', 'placement' => 'reels'],
+            ['campaign_id' => $ad->id, 'event_type' => 'completed_view', 'placement' => 'reels'],
+            ['campaign_id' => $ad->id, 'event_type' => 'video_watch', 'placement' => 'reels', 'watch_time_seconds' => 3],
+        ]);
+
+        $this->actingAs($advertiser)
+            ->withoutMiddleware()
+            ->get(route('business.ads.show', $ad->id))
+            ->assertOk()
+            ->assertViewHas('adAnalytics', function(array $analytics) {
+                return $analytics['placements']['feed']['impressions'] === 4
+                    && $analytics['placements']['feed']['ctr'] === 25.0
+                    && $analytics['placements']['reels']['video_views'] === 1
+                    && $analytics['placements']['reels']['three_second_views'] === 1
+                    && $analytics['placements']['reels']['completions'] === 1
+                    && $analytics['placements']['reels']['watch_seconds'] === 3.0
+                    && $analytics['placements']['reels']['ctr'] === 33.33;
+            });
+    }
+
     public function test_no_button_ad_has_no_resolvable_destination(): void
     {
         $ad = $this->createAd('No button campaign', [], ['cta_type' => 'NO_BUTTON']);
@@ -612,6 +818,7 @@ class VideoSafetyAdsTest extends TestCase
             ->set('formData.destination_type', 'external_url')
             ->set('formData.objective', 'offer')
             ->set('formData.placement_flags', ['feed', 'reels'])
+            ->assertSee('Reels video (optional)')
             ->set('formData.frequency_cap', 2)
             ->set('formData.target_url', 'https://example.com/offer')
             ->set('formData.total_budget', 10)
@@ -905,6 +1112,8 @@ class VideoSafetyAdsTest extends TestCase
             ->call('setSourceType', 'post')
             ->call('chooseBoostPost', $post->id)
             ->assertSet('formData.source_post_id', $post->id)
+            ->assertSee('See all previews')
+            ->assertSee('Full-screen Reels')
             ->assertSet('formData.cta_type', 'NO_BUTTON')
             ->assertSet('formData.cta_text', 'No Button')
             ->assertSet('formData.target_url', null)

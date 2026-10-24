@@ -34,11 +34,9 @@
                         <h3 class="text-par-l font-bold text-lab-pr2">{{ __('business/ads.preview.title') }}</h3>
                         <p class="text-par-s text-lab-sc">{{ __('business/ads.preview.caption') }}</p>
                     </div>
-                    @if(($formData['source_type'] ?? 'creative') !== 'post')
-                        <button type="button" x-on:click="previewOpen = true" class="w-full max-w-full rounded-lg bg-fill-qt px-3 py-2 text-cap-l font-bold text-lab-pr2 transition-opacity hover:opacity-80 sm:w-auto sm:shrink-0">
-                            See all previews
-                        </button>
-                    @endif
+                    <button type="button" x-on:click="previewOpen = true" class="w-full max-w-full rounded-lg bg-fill-qt px-3 py-2 text-cap-l font-bold text-lab-pr2 transition-opacity hover:opacity-80 sm:w-auto sm:shrink-0">
+                        See all previews
+                    </button>
                 </div>
 
                 @if(($formData['source_type'] ?? 'creative') === 'post')
@@ -561,6 +559,33 @@
                     </div>
                 </fieldset>
 
+                @if(in_array('reels', $formData['placement_flags'] ?? [], true))
+                    <div class="mb-6 rounded-xl border border-bord-pr bg-fill-fv p-4">
+                        <h4 class="mb-2 text-par-s font-bold text-lab-pr2">Reels video (optional)</h4>
+                        <p class="mb-3 text-cap-l leading-relaxed text-lab-sc">Upload a vertical 9:16 video for full-screen Reels. If you skip this, the campaign uses the selected post or main creative. Keep text away from the top and bottom interface areas.</p>
+                        <div class="flex flex-wrap items-start gap-3">
+                            @if($adData->reels_media_id && $adData->reelsMedia)
+                                <div class="group relative h-64 w-36 overflow-hidden rounded-xl border border-bord-pr bg-black">
+                                    <video class="size-full object-cover" src="{{ $adData->reelsMedia->source_url }}" poster="{{ $adData->reelsMedia->thumbnail_url ?: asset(config('ads.ad.default_preview')) }}" muted controls playsinline></video>
+                                    <div class="absolute right-2 top-2">
+                                        <x-trash-btn wire:click="deleteReelsCreative({{ $adData->reels_media_id }})"></x-trash-btn>
+                                    </div>
+                                </div>
+                            @else
+                                <label class="flex h-64 w-36 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-fill-pr px-3 text-center text-cap-l font-semibold text-brand-900 hover:border-brand-900">
+                                    <x-ui-icon name="plus" type="solid"></x-ui-icon>
+                                    <span class="mt-2">Upload Reels video</span>
+                                    <input wire:model="reelsCreative" type="file" accept="video/mp4,video/webm,video/quicktime" class="hidden">
+                                </label>
+                            @endif
+                            <div class="max-w-md text-cap-l leading-relaxed text-lab-sc">
+                                {!! __('business/ads.form.video_helper', ['seconds' => config('ads.ad.validation.video.max_duration_seconds'), 'size' => (int) (config('ads.ad.validation.video.max') / 1024)]) !!}
+                                @error('reelsCreative')<x-form.valerr>{{ $message }}</x-form.valerr>@enderror
+                            </div>
+                        </div>
+                    </div>
+                @endif
+
                 <div class="mb-6">
                     <label for="formDataDestinationType" class="mb-1 block text-par-s font-normal text-lab-pr3">{{ __('business/ads.form.destination_type') }} *</label>
                     <select id="formDataDestinationType" wire:model="formData.destination_type" class="h-11 w-full rounded-xl border border-bord-pr bg-bg-pr px-3 text-par-s text-lab-pr2">
@@ -836,8 +861,7 @@
         </form>
     </div>
 
-    @if(($formData['source_type'] ?? 'creative') !== 'post')
-        <button type="button" x-on:click="previewOpen = true" class="fixed bottom-20 right-4 z-30 rounded-full bg-lab-pr2 px-4 py-3 text-par-s font-bold text-bg-pr shadow-lg lg:hidden">
+    <button type="button" x-on:click="previewOpen = true" class="fixed bottom-20 right-4 z-30 rounded-full bg-lab-pr2 px-4 py-3 text-par-s font-bold text-bg-pr shadow-lg lg:hidden">
             View preview
         </button>
 
@@ -886,23 +910,41 @@
                         </div>
                     </div>
                     <div class="rounded-xl border border-bord-pr bg-fill-fv p-3">
-                        <p class="mb-2 text-cap-l font-bold text-lab-sc">Stories</p>
-                        <div class="mx-auto max-w-[190px] overflow-hidden rounded-xl bg-bg-pr">
-                            @if($previewData['media_type'] === 'video' && $previewData['media_url'])
-                                <video class="aspect-[9/16] w-full object-cover" src="{{ $previewData['media_url'] }}" poster="{{ $previewData['thumbnail_url'] ?: asset(config('ads.ad.default_preview')) }}" controls muted playsinline></video>
-                            @elseif($previewData['media_url'])
-                                <img loading="lazy" class="aspect-[9/16] w-full object-cover" src="{{ $previewData['media_url'] }}" alt="{{ $previewData['title'] }}">
+                        <p class="mb-2 text-cap-l font-bold text-lab-sc">Full-screen Reels</p>
+                        <div class="relative mx-auto aspect-[9/16] max-w-[190px] overflow-hidden rounded-xl bg-black text-white">
+                            @if($previewData['reels_media_type'] === 'video' && $previewData['reels_media_url'])
+                                <video class="absolute inset-0 size-full object-cover" src="{{ $previewData['reels_media_url'] }}" poster="{{ $previewData['reels_thumbnail_url'] ?: asset(config('ads.ad.default_preview')) }}" controls muted playsinline></video>
+                            @elseif($previewData['reels_media_url'])
+                                <img loading="lazy" class="absolute inset-0 size-full object-cover" src="{{ $previewData['reels_media_url'] }}" alt="{{ $previewData['title'] }}">
                             @else
-                                <div class="flex aspect-[9/16] items-center justify-center p-4 text-center text-cap-l text-lab-sc">{{ __('business/ads.preview.media_placeholder') }}</div>
+                                <div class="absolute inset-0 flex items-center justify-center p-4 text-center text-cap-l text-white/75">Select a post or upload a campaign video to preview Reels.</div>
                             @endif
-                            <div class="p-3"><h4 class="line-clamp-2 text-par-m font-bold text-lab-pr2">{{ $previewData['title'] }}</h4><p class="mt-1 line-clamp-3 text-cap-l text-lab-sc">{{ $previewData['content'] }}</p></div>
+                            <div class="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-1/2 bg-gradient-to-t from-black/90 via-black/35 to-transparent"></div>
+                            <span class="absolute left-2 top-2 z-20 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-white">Ad · Sponsored</span>
+                            <div class="pointer-events-none absolute inset-x-7 top-[18%] bottom-[32%] z-10 rounded border border-dashed border-white/65">
+                                <span class="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[9px] font-semibold text-white">Text safe area</span>
+                            </div>
+                            <div class="pointer-events-none absolute right-1.5 bottom-20 z-20 flex flex-col items-center gap-2 text-white drop-shadow">
+                                <span class="text-xl leading-none">♡</span><span class="text-[9px]">0</span>
+                                <span class="text-base leading-none">◯</span><span class="text-[9px]">0</span>
+                                <span class="text-base leading-none">↗</span>
+                            </div>
+                            <div class="pointer-events-none absolute left-2 right-12 bottom-3 z-20 text-white drop-shadow">
+                                <div class="mb-1 flex items-center gap-1.5">
+                                    <img src="{{ me()->avatar_url }}" alt="" class="size-5 rounded-full object-cover">
+                                    <span class="truncate text-[10px] font-bold">{{ me()->name }}</span>
+                                </div>
+                                <p class="line-clamp-2 text-[10px] leading-3">{{ $previewData['content'] ?: $previewData['title'] }}</p>
+                            </div>
+                            @if(($formData['cta_type'] ?? 'NO_BUTTON') !== 'NO_BUTTON')
+                                <span class="absolute bottom-[18%] left-2 right-12 z-30 rounded-lg bg-white px-2 py-2 text-center text-[11px] font-bold text-black">{{ $previewData['cta_text'] }}</span>
+                            @endif
                         </div>
+                        <p class="mt-2 text-[11px] text-lab-sc">Keep important text away from the top, caption and action rail.</p>
                     </div>
                 </div>
             </div>
         </div>
-    @endif
-
     <div wire:loading.flex wire:target="submitForm,setSourceType,setMediaType,setCtaText" class="fixed left-4 right-4 top-4 z-[80] items-center justify-center gap-2 rounded-full bg-lab-pr2 px-4 py-2 text-center text-cap-l font-bold text-bg-pr shadow-lg sm:left-auto sm:right-4">
         <span class="size-3 animate-spin rounded-full border-2 border-bg-pr/40 border-t-bg-pr"></span>
         Updating...

@@ -29,6 +29,9 @@ class AdResource extends JsonResource
             'profile', 'internal_post' => 'arrow-up-right',
             default => 'arrow-up-right',
         };
+        $useReelsAsset = $placement === 'reels' && $this->reels_media_id && $this->reelsMedia;
+        $placementMedia = $useReelsAsset ? $this->reelsMedia : $this->displayMedia();
+        $placementSourceType = $useReelsAsset ? 'asset' : ($sourceType === 'post' ? 'post' : 'asset');
 
         return [
             'id' => $this->id,
@@ -50,6 +53,16 @@ class AdResource extends JsonResource
             'source_post' => $sourceType === 'post' && $this->sourcePost
                 ? TimelineResource::make($this->sourcePost)
                 : null,
+            'placement_creative' => [
+                'kind' => $placementSourceType,
+                'source_post' => $placementSourceType === 'post' && $this->sourcePost
+                    ? TimelineResource::make($this->sourcePost)
+                    : null,
+                'media_type' => $placementMedia?->type->value ?: $this->type,
+                'media_url' => $placementMedia?->source_url,
+                'video_url' => $placementMedia?->type->isVideo() ? $placementMedia->source_url : null,
+                'thumbnail_url' => $placementMedia?->thumbnail_url ?: $this->preview_image_url,
+            ],
             'advertiser' => UserPreviewResource::make($this->user),
             'objective' => $this->objective,
             'placement_flags' => $this->placement_flags ?: ['sidebar'],

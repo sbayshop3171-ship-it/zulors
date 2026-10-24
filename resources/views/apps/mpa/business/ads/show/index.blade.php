@@ -103,7 +103,7 @@
                     @foreach($adAnalytics['placements'] as $placement => $stats)
                         <x-line-table.row>
                             <x-slot:labelText>{{ ucfirst($placement) }} performance</x-slot:labelText>
-                            <x-slot:labelValue>{{ $stats['impressions'] }} impressions / {{ $stats['clicks'] }} clicks / {{ $stats['reach'] }} reach</x-slot:labelValue>
+                            <x-slot:labelValue>{{ $stats['impressions'] }} impressions / {{ $stats['reach'] }} reach / {{ $stats['video_views'] }} video views / {{ $stats['three_second_views'] }} 3-second views / {{ $stats['completions'] }} completions / {{ number_format($stats['watch_seconds'], 1) }} watch seconds / {{ $stats['clicks'] }} CTA clicks / {{ number_format($stats['ctr'], 2) }}% CTR</x-slot:labelValue>
                         </x-line-table.row>
                     @endforeach
                 </x-line-table.table>

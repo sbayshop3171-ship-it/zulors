@@ -123,6 +123,10 @@
 			position: {
 				type: Number,
 				default: 0
+			},
+			sponsoredAdId: {
+				type: Number,
+				default: 0
 			}
 		},
 		setup: function(props, context) {
@@ -156,6 +160,20 @@
 			let tapTimer = null;
 			let hlsInstance = null;
 			let unsubscribeNetworkProfile = null;
+			let sponsoredVideoStarted = false;
+			let sponsoredThreeSecondView = false;
+			let sponsoredCompletedView = false;
+
+			const recordSponsoredEvent = (eventType, payload = {}) => {
+				if(! props.sponsoredAdId) {
+					return;
+				}
+
+				colibriAPI().ads().params({ placement: 'reels' }).with({
+					event_type: eventType,
+					...payload
+				}).sendTo(`event/${props.sponsoredAdId}`).catch(() => {});
+			};
 
 			const playbackSource = computed(() => {
 				return buildAdaptiveVideoSource(props.mediaItem);
@@ -320,6 +338,14 @@
 				state.durationSeconds = videoDurationSeconds();
 				state.playbackTime = currentTime;
 				syncBuffered();
+				if(props.sponsoredAdId && props.active && currentTime >= 3 && ! sponsoredThreeSecondView) {
+					sponsoredThreeSecondView = true;
+					recordSponsoredEvent('three_second_view', { watch_time_seconds: currentTime });
+				}
+				if(props.sponsoredAdId && props.active && state.durationSeconds > 0 && currentTime / state.durationSeconds >= 0.95 && ! sponsoredCompletedView) {
+					sponsoredCompletedView = true;
+					recordSponsoredEvent('completed_view', { watch_time_seconds: currentTime, completion_rate: currentTime / state.durationSeconds });
+				}
 
 				if(state.durationSeconds && state.lastPlaybackTime > 1 && currentTime < (state.lastPlaybackTime - 0.75)) {
 					state.loopCount += 1;
@@ -415,6 +441,12 @@
 					}
 
 					return false;
+				}
+				if(props.sponsoredAdId && eventType === 'video_watch') {
+					recordSponsoredEvent('video_watch', {
+						watch_time_seconds: watchSeconds,
+						completion_rate: completionRate
+					});
 				}
 
 				colibriAPI().userTimeline().with({
@@ -656,6 +688,10 @@
 					updatePlaybackReadiness(true);
 				startWatchSession();
 				startTelemetryTimer();
+					if(props.sponsoredAdId && ! sponsoredVideoStarted) {
+						sponsoredVideoStarted = true;
+						recordSponsoredEvent('video_start');
+					}
 			};
 
 			const handleWaiting = () => {

@@ -29,6 +29,7 @@
 				<SponsoredReel
 					v-if="postData.type === 'ad'"
 					v-bind:adData="postData.ad"
+					v-bind:active="activeIndex === (visibleWindow.start + index)"
 				></SponsoredReel>
 				<ReelItem
 					v-else
@@ -58,7 +59,7 @@
 
 <script>
 	import { computed, defineComponent, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
-	import { useRouter } from 'vue-router';
+	import { useRoute, useRouter } from 'vue-router';
 	import { buildViewportWindow } from '@/kernel/services/feed-session/index.js';
 	import { getNetworkProfileSnapshot, subscribeNetworkProfile } from '@/kernel/services/network/index.js';
 	import { prefetchReelsPlaybackWindow } from '@/kernel/services/media-prefetch/index.js';
@@ -79,6 +80,7 @@
 			}
 		},
 		setup: function(props) {
+			const route = useRoute();
 			const router = useRouter();
 			const reelsStore = useExploreReelsStore();
 			const swipeSurfaceRef = ref(null);
@@ -232,7 +234,7 @@
 				state.noMoreContent = false;
 				activeIndex.value = 0;
 
-				await reelsStore.initialLoad(props.hash_id).finally(() => {
+				await reelsStore.initialLoad(props.hash_id, route.query.ad_id).finally(() => {
 					state.isLoading = false;
 
 					nextTick(() => {
@@ -271,7 +273,7 @@
 				}
 			});
 
-				watch(() => props.hash_id, async () => {
+				watch(() => [props.hash_id, route.query.ad_id], async () => {
 					await loadReels();
 				});
 

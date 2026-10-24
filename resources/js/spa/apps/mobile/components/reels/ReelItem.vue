@@ -13,6 +13,7 @@
 			v-bind:blocked="isPlaybackBlocked"
 			v-bind:feedSessionId="feedSessionId"
 			v-bind:position="position"
+			v-bind:sponsoredAdId="sponsoredAdId"
 			v-on:double-tap="handleDoubleTap"
 			v-on:interaction="handlePlaybackInteraction"
 		></ReelVideoPlayer>
@@ -198,6 +199,10 @@
 			feedSessionId: {
 				type: String,
 				default: ''
+			},
+			sponsoredAdId: {
+				type: Number,
+				default: 0
 			}
 		},
 		setup: function(props, context) {

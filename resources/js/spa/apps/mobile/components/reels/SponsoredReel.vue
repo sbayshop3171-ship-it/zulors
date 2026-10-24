@@ -1,15 +1,16 @@
 <template>
-    <div v-if="adData.source_type === 'post' && adData.source_post" class="relative h-full snap-start snap-always overflow-hidden bg-black text-white">
+    <div v-if="isPostCreative" class="relative h-full snap-start snap-always overflow-hidden bg-black text-white">
         <ReelItem
-            v-bind:postData="adData.source_post"
-            active
+            v-bind:postData="adData.placement_creative?.source_post || adData.source_post"
+            v-bind:active="active"
             isNear
             v-bind:distanceFromActive="0"
             v-bind:position="0"
             v-bind:feedSessionId="''"
+            v-bind:sponsoredAdId="Number(adData.id)"
         ></ReelItem>
         <span class="pointer-events-none absolute left-4 top-16 z-40 rounded-full bg-black/55 px-2.5 py-1 text-cap-l font-semibold backdrop-blur">{{ $t('labels.ad') }} · Sponsored</span>
-        <a v-if="adData.cta_enabled && adData.click_url" v-bind:href="adData.click_url" target="_blank" rel="noopener" class="absolute bottom-5 left-4 right-20 z-40 inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-par-s font-bold text-black">
+        <a v-if="adData.cta_enabled && adData.click_url" v-bind:href="adData.click_url" target="_blank" rel="noopener" class="absolute bottom-40 left-4 right-20 z-40 inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-par-s font-bold text-black">
             <SvgIcon v-if="adData.cta_icon" v-bind:name="adData.cta_icon" v-bind:type="adData.cta_icon === 'whatsapp' ? 'social' : 'line'" classes="size-4"></SvgIcon>{{ adData.cta_text }}
         </a>
     </div>
@@ -17,18 +18,21 @@
         <div class="absolute inset-0">
             <video
                 ref="videoRef"
-                v-if="adData.media_type === 'video' && adData.video_url"
+                v-if="mediaType === 'video' && videoUrl"
                 class="size-full object-cover"
-                v-bind:src="adData.video_url"
-                v-bind:poster="adData.thumbnail_url || adData.preview_image_url"
+                v-bind:src="videoUrl"
+                v-bind:poster="thumbnailUrl || adData.preview_image_url"
                 preload="metadata"
-                autoplay
+                v-bind:autoplay="active"
                 muted
                 loop
                 playsinline
+                v-on:playing="handlePlaying"
+                v-on:pause="handlePause"
+                v-on:waiting="handlePause"
                 v-on:timeupdate="handleTimeUpdate"
                 v-on:ended="handleEnded"></video>
-            <img v-else class="size-full object-cover" v-bind:src="adData.preview_image_url" v-bind:alt="adData.title">
+            <img v-else class="size-full object-cover" v-bind:src="mediaUrl || adData.preview_image_url" v-bind:alt="adData.title">
         </div>
         <div class="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-1/2 bg-gradient-to-t from-black/85 via-black/35 to-transparent"></div>
         <div class="absolute left-4 right-20 bottom-16 z-20">
@@ -55,7 +59,7 @@
 </template>
 
 <script>
-import { defineComponent, onMounted, onUnmounted, ref } from 'vue';
+import { computed, defineComponent, onMounted, onUnmounted, ref, watch } from 'vue';
 import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 import ReelItem from '@M/components/reels/ReelItem.vue';
 
@@ -64,12 +68,17 @@ export default defineComponent({
         ReelItem
     },
     props: {
-        adData: { type: Object, required: true }
+        adData: { type: Object, required: true },
+        active: { type: Boolean, default: false }
     },
     setup(props) {
         const videoRef = ref(null);
         let watchTimer = null;
         let watchSeconds = 0;
+        let lastWatchTick = 0;
+        let didOpenReel = false;
+        let didStartVideo = false;
+        let isVideoPlaying = false;
         let sentThreeSecondView = false;
         let sentCompletedView = false;
         const commentDraft = ref('');
@@ -83,6 +92,63 @@ export default defineComponent({
             .with({ event_type: eventType, ...payload })
             .sendTo(`event/${props.adData.id}`)
             .catch(() => {});
+
+        const placementCreative = computed(() => props.adData.placement_creative || {});
+        const isPostCreative = computed(() => placementCreative.value.kind === 'post'
+            ? Boolean(placementCreative.value.source_post || props.adData.source_post)
+            : ! placementCreative.value.kind && props.adData.source_type === 'post' && Boolean(props.adData.source_post));
+        const mediaType = computed(() => placementCreative.value.media_type || props.adData.media_type);
+        const videoUrl = computed(() => placementCreative.value.video_url || (mediaType.value === 'video' ? props.adData.video_url : null));
+        const mediaUrl = computed(() => placementCreative.value.media_url || props.adData.media_url);
+        const thumbnailUrl = computed(() => placementCreative.value.thumbnail_url || props.adData.thumbnail_url);
+
+        const activateReel = () => {
+            if(! didOpenReel) {
+                didOpenReel = true;
+                sendEvent('reel_open');
+                sendEvent('impression');
+            }
+
+            if(! isPostCreative.value && videoRef.value) {
+                videoRef.value.play().catch(() => {});
+            }
+            lastWatchTick = Date.now();
+            if(! isPostCreative.value && ! watchTimer) {
+                watchTimer = window.setInterval(() => {
+                    if(isVideoPlaying && videoRef.value && ! videoRef.value.paused) {
+                        const now = Date.now();
+                        const watchDelta = Math.max(0, Math.round(((now - (lastWatchTick || now)) / 1000) * 10) / 10);
+                        lastWatchTick = now;
+                        watchSeconds += watchDelta;
+                        if(watchDelta > 0) sendEvent('video_watch', { watch_time_seconds: watchDelta });
+                    } else {
+                        lastWatchTick = 0;
+                    }
+                }, 3000);
+            }
+        };
+
+        const deactivateReel = () => {
+            if(videoRef.value && ! isPostCreative.value) {
+                videoRef.value.pause();
+            }
+            isVideoPlaying = false;
+            lastWatchTick = 0;
+            if(watchTimer) {
+                window.clearInterval(watchTimer);
+                watchTimer = null;
+            }
+        };
+
+        const handlePlaying = () => {
+            isVideoPlaying = true;
+            if(! didStartVideo) {
+                didStartVideo = true;
+                sendEvent('video_start');
+            }
+        };
+
+        const handlePause = () => { isVideoPlaying = false; };
 
         const recordSocialEvent = (eventType) => {
             if (eventType === 'like' || eventType === 'save') {
@@ -126,17 +192,14 @@ export default defineComponent({
             }
         };
 
-        onMounted(() => {
-            sendEvent('impression');
-            watchTimer = window.setInterval(() => {
-                if(videoRef.value && ! videoRef.value.paused) {
-                    sendEvent('video_watch', { watch_time_seconds: watchSeconds });
-                }
-            }, 3000);
-        });
-        onUnmounted(() => window.clearInterval(watchTimer));
+        watch(() => props.active, (isActive) => {
+            if(isActive) activateReel();
+            else deactivateReel();
+        }, { immediate: true });
+        onMounted(() => { if(props.active) activateReel(); });
+        onUnmounted(() => deactivateReel());
 
-        return { videoRef, handleTimeUpdate, handleEnded, recordSocialEvent, commentDraft, submitComment, engagementState };
+        return { videoRef, active: computed(() => props.active), isPostCreative, mediaType, videoUrl, mediaUrl, thumbnailUrl, handlePlaying, handlePause, handleTimeUpdate, handleEnded, recordSocialEvent, commentDraft, submitComment, engagementState };
     }
 });
 </script>

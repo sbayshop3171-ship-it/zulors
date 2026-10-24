@@ -82,7 +82,7 @@ class AdsController extends Controller
 
     public function show($adId)
     {
-        $adData = me()->advertising()->excludeDraft()->with(['media', 'impressions'])->findOrFail($adId);
+        $adData = me()->advertising()->excludeDraft()->with(['media', 'impressions', 'events'])->findOrFail($adId);
 
         $impressions = $adData->impressions;
         $views = (int) $adData->views_count;
@@ -91,9 +91,53 @@ class AdsController extends Controller
             return [
                 'impressions' => (int) $rows->sum('impressions_count'),
                 'clicks' => (int) $rows->sum('clicks_count'),
-                'reach' => $rows->count(),
+                'reach' => $rows->where('impressions_count', '>', 0)->unique('fingerprint')->count(),
             ];
         });
+        $videoEvents = $adData->events->groupBy('placement');
+        $placementStats = $placementStats->map(function($stats, $placement) use ($videoEvents) {
+            $events = $videoEvents->get($placement, collect());
+            $stats['video_views'] = $events->where('event_type', 'video_start')->count();
+            $stats['three_second_views'] = $events->where('event_type', 'three_second_view')->count();
+            $stats['completions'] = $events->where('event_type', 'completed_view')->count();
+            $stats['watch_seconds'] = round((float) $events->where('event_type', 'video_watch')->sum('watch_time_seconds'), 1);
+            $stats['ctr'] = $stats['impressions'] > 0
+                ? round(($stats['clicks'] / $stats['impressions']) * 100, 2)
+                : 0;
+
+            return $stats;
+        });
+
+        foreach($videoEvents->keys() as $placement) {
+            if($placement && ! $placementStats->has($placement)) {
+                $events = $videoEvents->get($placement, collect());
+                $placementStats->put($placement, [
+                    'impressions' => 0,
+                    'clicks' => 0,
+                    'reach' => 0,
+                    'video_views' => $events->where('event_type', 'video_start')->count(),
+                    'three_second_views' => $events->where('event_type', 'three_second_view')->count(),
+                    'completions' => $events->where('event_type', 'completed_view')->count(),
+                    'watch_seconds' => round((float) $events->where('event_type', 'video_watch')->sum('watch_time_seconds'), 1),
+                    'ctr' => 0,
+                ]);
+            }
+        }
+
+        foreach($adData->placement_flags ?: [] as $placement) {
+            if(! $placementStats->has($placement)) {
+                $placementStats->put($placement, [
+                    'impressions' => 0,
+                    'clicks' => 0,
+                    'reach' => 0,
+                    'video_views' => 0,
+                    'three_second_views' => 0,
+                    'completions' => 0,
+                    'watch_seconds' => 0,
+                    'ctr' => 0,
+                ]);
+            }
+        }
 
         return view('business::ads.show.index', [
             'adData' => $adData,

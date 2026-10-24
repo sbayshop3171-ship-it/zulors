@@ -20,6 +20,7 @@ class TargetedAdService
         $user = $request->user() ?: auth()->user();
         $fingerprint = $this->fingerprint($request, $user);
         $prevAdId = $request->integer('prev_ad_id');
+        $sponsoredAdId = $request->integer('sponsored_ad_id');
         $userTopics = $this->userTopics($user);
         $frequencyCap = (int) config('ads.targeting.frequency_cap', 3);
         $placement = $this->placement($request);
@@ -30,12 +31,14 @@ class TargetedAdService
             ->with([
                 'user',
                 'media',
+                'reelsMedia',
                 'sourcePost' => fn($query) => $query->timelineFormatPosts(),
                 'impressions' => function($query) use ($fingerprint, $placement) {
                     $query->where('fingerprint', $fingerprint)
                         ->where('placement', $placement);
                 },
             ])
+            ->when($sponsoredAdId > 0, fn($query) => $query->whereKey($sponsoredAdId))
             ->when($prevAdId, fn($query) => $query->where('id', '!=', $prevAdId))
             ->whereColumn('spent_budget', '<', 'total_budget')
             ->get()
@@ -52,7 +55,7 @@ class TargetedAdService
                     return false;
                 }
 
-                if(! $ad->isSourceAvailable()) {
+                if(! $ad->isSourceAvailableForPlacement($placement)) {
                     return false;
                 }
 
@@ -127,7 +130,7 @@ class TargetedAdService
     {
         $eventType = $request->string('event_type')->toString();
 
-        abort_unless(in_array($eventType, ['impression', 'unique_impression', 'click', 'cta_click', 'like', 'comment', 'share', 'save', 'report', 'video_start', 'three_second_view', 'six_second_view', 'video_watch', 'completed_view', 'landing_visit', 'lead', 'conversion'], true), 422);
+        abort_unless(in_array($eventType, ['impression', 'unique_impression', 'click', 'cta_click', 'reel_open', 'like', 'comment', 'share', 'save', 'report', 'video_start', 'three_second_view', 'six_second_view', 'video_watch', 'completed_view', 'landing_visit', 'lead', 'conversion'], true), 422);
 
         $user = $request->user() ?: auth()->user();
 

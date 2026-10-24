@@ -37,12 +37,16 @@ class AdController extends Controller
 
     public function click(int $adId, Request $request, TargetedAdService $targetedAdService, AdDestinationResolver $destinationResolver)
     {
-        $adData = Ad::published()->approved()->with(['media', 'sourcePost.media', 'user'])->findOrFail($adId);
+        $adData = Ad::published()->approved()->with(['media', 'reelsMedia', 'sourcePost.media', 'user'])->findOrFail($adId);
 
-        abort_unless($adData->isSourceAvailable(), 404);
+        $placement = in_array($request->query('placement'), ['feed', 'reels', 'sidebar'], true)
+            ? $request->query('placement')
+            : 'sidebar';
+        abort_unless($adData->isSourceAvailableForPlacement($placement), 404);
         abort_if(blank($destination = $destinationResolver->resolve($adData)), 404);
 
         $targetedAdService->recordClick($adData, $request);
+        $targetedAdService->recordEvent($adData, $request->merge(['event_type' => 'cta_click']));
 
         return redirect()->away($destination);
     }

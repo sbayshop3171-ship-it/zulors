@@ -186,6 +186,10 @@ class FeedController extends Controller
             }
         }
 
+        if(request()->filled('filter.sponsored_ad_id')) {
+            $filter['sponsored_ad_id'] = request()->integer('filter.sponsored_ad_id');
+        }
+
         return $filter;
     }
 
@@ -227,7 +231,7 @@ class FeedController extends Controller
         return $payload;
     }
 
-    private function withNativeSponsoredAd(array $payload, ?string $placement): array
+    private function withNativeSponsoredAd(array $payload, ?string $placement, int $sponsoredAdId = 0): array
     {
         if(! $placement) {
             return $payload;
@@ -236,10 +240,31 @@ class FeedController extends Controller
         try {
             $request = request();
             $request->query->set('placement', $placement);
+            $sponsoredAdId = $sponsoredAdId ?: data_get_integer(request()->array('filter'), 'sponsored_ad_id');
+            $isSponsoredEntry = $placement === 'reels'
+                && $sponsoredAdId > 0
+                && (int) data_get_integer(request()->array('filter'), 'page', 1) === 1;
+
+            if($sponsoredAdId > 0 && ! $isSponsoredEntry) {
+                return $payload;
+            }
+
+            if($isSponsoredEntry) {
+                $request->query->set('sponsored_ad_id', $sponsoredAdId);
+            }
+
             $ad = app(TargetedAdService::class)->selectForRequest($request);
 
             if(! $ad) {
                 return $payload;
+            }
+
+            if($isSponsoredEntry) {
+                $seedHashId = trim((string) data_get(request()->array('filter'), 'seed_hash_id', ''));
+
+                if(! $ad->isPostSourced() || blank($seedHashId) || $ad->sourcePost?->hash_id !== $seedHashId) {
+                    return $payload;
+                }
             }
 
             $adService = app(TargetedAdService::class);
@@ -256,9 +281,21 @@ class FeedController extends Controller
                 ],
             ];
             $items = $payload['data'] ?? [];
-            // MVP delivery inserts one frequency-capped ad after the first three organic items.
-            $insertAt = min(3, count($items));
-            array_splice($items, $insertAt, 0, [$sponsored]);
+            if($isSponsoredEntry) {
+                $sourcePostId = (int) ($ad->source_post_id ?? 0);
+                if($sourcePostId > 0) {
+                    $items = array_values(array_filter(
+                        $items,
+                        fn($item) => (int) data_get($item, 'id', 0) !== $sourcePostId
+                    ));
+                }
+                array_unshift($items, $sponsored);
+            }
+            else {
+                // MVP delivery inserts one frequency-capped ad after the first three organic items.
+                $insertAt = min(3, count($items));
+                array_splice($items, $insertAt, 0, [$sponsored]);
+            }
             $payload['data'] = $items;
         }
         catch(\Throwable) {

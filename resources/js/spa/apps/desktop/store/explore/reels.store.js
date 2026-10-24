@@ -32,11 +32,17 @@ const getExploreReelsViewerKey = function() {
 };
 
 const prioritizeIncomingPosts = function(posts = [], seedHashId = '') {
-	return prioritizeReelsByRecentSignals(posts, {
+	const organicPosts = posts.filter((postData) => postData?.type !== 'ad');
+	const prioritizedOrganicPosts = prioritizeReelsByRecentSignals(organicPosts, {
 		viewerKey: getExploreReelsViewerKey(),
 		seedHashId: normalizeSeedHash(seedHashId),
 		minimumFresh: 14
 	});
+	let organicIndex = 0;
+
+	return posts.map((postData) => postData?.type === 'ad'
+		? postData
+		: (prioritizedOrganicPosts[organicIndex++] || postData));
 };
 
 const buildWarmRequestFilter = function(seedHashId = '', refreshReason = 'warm') {
@@ -65,16 +71,31 @@ const useExploreReelsStore = defineStore('desktop_explore_reels_store', {
 			swipeCount: 0,
 			lastTailRerankAt: 0,
 			isTailReranking: false,
+			directSponsoredEntry: false,
 			warmPromise: null,
 			filter: {
 				page: 1,
-				seed_hash_id: ''
+				seed_hash_id: '',
+				sponsored_ad_id: 0
 			}
 		};
 	},
 	actions: {
-		initialLoad: async function(seedHashId = '') {
+		initialLoad: async function(seedHashId = '', sponsoredAdId = 0) {
 			const nextSeedHashId = normalizeSeedHash(seedHashId);
+			const nextSponsoredAdId = Math.max(0, Number(sponsoredAdId) || 0);
+
+			if(nextSponsoredAdId > 0) {
+				this.reset(nextSeedHashId, false);
+				this.filter.sponsored_ad_id = nextSponsoredAdId;
+				this.directSponsoredEntry = true;
+				await this.refreshFirstPage({ refreshReason: 'sponsored_entry' }).finally(() => {
+					this.filter.sponsored_ad_id = 0;
+					this.directSponsoredEntry = false;
+				});
+
+				return;
+			}
 
 			if(this.filter.seed_hash_id !== nextSeedHashId) {
 				this.reset(nextSeedHashId);
@@ -102,18 +123,20 @@ const useExploreReelsStore = defineStore('desktop_explore_reels_store', {
 				});
 			}
 		},
-		reset: function(seedHashId = '') {
+		reset: function(seedHashId = '', hydrateCache = true) {
 			this.filter = {
 				page: 1,
-				seed_hash_id: normalizeSeedHash(seedHashId)
+				seed_hash_id: normalizeSeedHash(seedHashId),
+				sponsored_ad_id: 0
 			};
+			this.directSponsoredEntry = false;
 
 			this.startFeedSession('initial');
 			this.swipeCount = 0;
 			this.lastTailRerankAt = 0;
 			this.isTailReranking = false;
 
-			if(! this.hydrateCachedFirstPage()) {
+			if(! hydrateCache || ! this.hydrateCachedFirstPage()) {
 				this.posts = [];
 			}
 		},
@@ -292,7 +315,7 @@ const useExploreReelsStore = defineStore('desktop_explore_reels_store', {
 			return false;
 		},
 		persistFirstPage: function() {
-			if(this.filter.page !== 1) {
+			if(this.filter.page !== 1 || this.directSponsoredEntry) {
 				return;
 			}
 
@@ -385,13 +408,19 @@ const useExploreReelsStore = defineStore('desktop_explore_reels_store', {
 			return this.feedMeta;
 		},
 		requestFilter: function() {
-			return {
+			const filter = {
 				page: this.filter.page,
 				type: 'reels',
 				session_id: this.feedSessionId,
 				refresh_reason: this.refreshReason,
 				seed_hash_id: this.filter.seed_hash_id
 			};
+
+			if(this.filter.page === 1 && this.filter.sponsored_ad_id > 0) {
+				filter.sponsored_ad_id = this.filter.sponsored_ad_id;
+			}
+
+			return filter;
 		}
 	}
 });
