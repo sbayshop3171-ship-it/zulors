@@ -12,7 +12,17 @@ fi
 
 git add -A
 
-BLOCKED_FILES="$(git diff --cached --name-only | grep -E '(^|/)(\\.env|auth\\.json|database/database\\.sqlite|testing)$|\\.sqlite$|\\.sql$|\\.key$' || true)"
+BLOCKED_FILES="$(git diff --cached --name-only | awk '
+{
+	path = $0
+	base = path
+	sub(/^.*\//, "", base)
+	if (base == ".env" || (base ~ /^\.env\./ && base != ".env.example") ||
+		base == "auth.json" || path == "database/database.sqlite" || path == "testing" ||
+		base == "google-services.json" || path ~ /\.(sqlite|sql|key|pem|p12|pfx|jks|keystore)$/) {
+		print path
+	}
+}')"
 
 if [ -n "$BLOCKED_FILES" ]; then
 	echo "Blocked sensitive/runtime files from being committed:"
@@ -30,10 +40,4 @@ fi
 echo "Pushing to GitHub..."
 git push origin main
 
-if [ "${SKIP_DEPLOY:-0}" = "1" ]; then
-	echo "SKIP_DEPLOY=1, live deployment skipped."
-	exit 0
-fi
-
-echo "Deploying to live server..."
-bash deploy/rsync-live.sh
+echo "Push complete. GitHub Actions handles the live deployment after the build passes."

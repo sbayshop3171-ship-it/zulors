@@ -25,6 +25,7 @@
 Homestead.json
 Homestead.yaml
 auth.json
+**/google-services.json
 npm-debug.log
 yarn-error.log
 /storage/frontend/*
@@ -49,6 +50,13 @@ yarn-error.log
 /resources/js/spa/client_secret_*.apps.googleusercontent.com.json
 /docker/database
 /services/ffmpeg/bin
+/certificates/
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
 /refactor
 /plugins/
 pack.sh
