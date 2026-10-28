@@ -10,6 +10,12 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 	exit 1
 fi
 
+CURRENT_BRANCH="$(git branch --show-current)"
+if [ "$CURRENT_BRANCH" != "main" ]; then
+	echo "Switch to the main branch before committing and pushing."
+	exit 1
+fi
+
 git add -A
 
 BLOCKED_FILES="$(git diff --cached --name-only | awk '
@@ -40,4 +46,5 @@ fi
 echo "Pushing to GitHub..."
 git push origin main
 
-echo "Push complete. GitHub Actions handles the live deployment after the build passes."
+echo "Push complete. GitHub Actions will run CI only; live deployment remains manual."
+echo "When you are ready to publish the latest main commit, run: bash scripts/deploy-live.sh"

@@ -2,7 +2,7 @@
 
 This project is deployed from the `main` branch.
 
-## Commit And Push
+## Push Changes Without Publishing Live
 
 Run this from the project root:
 
@@ -16,13 +16,21 @@ The script:
 - blocks local environment files, Firebase config, signing keys, and runtime database files from being committed;
 - commits and pushes to GitHub.
 
-Pushing to `main` starts the `Zulors CI` workflow. After the build passes, its deploy job publishes that commit to the live server. The commit helper does not also deploy from the Mac, which avoids deploying the same commit twice.
+Pushing to `main` starts the `Zulors CI` build and checks. It does not deploy to the live server. You can push several changes and publish them together later.
 
-To make a change without deploying it, push a feature branch and merge it to `main` after review.
+## Publish The Latest `main` Commit
+
+When the pushed changes are ready for production, run:
+
+```bash
+bash scripts/deploy-live.sh
+```
+
+The script verifies that the local `main` branch is clean and matches `origin/main`, dispatches the workflow with live deployment enabled, and waits for the build and deployment to finish. The workflow checks the selected `main` commit again before deploying it. All commits already pushed to `main` are included in that release.
 
 ## GitHub Actions
 
-The `Zulors CI` workflow runs on every push to `main`. It installs PHP and Node dependencies, builds assets, runs migrations on SQLite, and checks that Laravel boots.
+The `Zulors CI` workflow runs on every push to `main`. It installs PHP and Node dependencies, builds assets, runs migrations on SQLite, and checks that Laravel boots. The live deploy job only runs from a manual workflow dispatch when `deploy_live` is set to `true`; it is `false` by default.
 
 The deploy job uses these repository Actions secrets:
 
@@ -34,7 +42,7 @@ The deploy job uses these repository Actions secrets:
 
 The SSH user must be allowed to write to `LIVE_PATH` and run the deployment commands. Use a dedicated SSH key: add its public key to that server account's `authorized_keys`, then save the private key as `LIVE_SSH_PRIVATE_KEY`. Do not use a server password in GitHub Actions or commit passwords, `.env`, database dumps, SQLite files, private keys, Firebase configuration, or uploaded user media.
 
-`deploy/rsync-live.sh` remains available for an intentional manual deployment. Do not run it for a commit that GitHub Actions is already deploying.
+`deploy/rsync-live.sh` remains an internal workflow step. Use `scripts/deploy-live.sh` for a manual live release so CI and deployment checks run in GitHub Actions.
 
 This workflow deploys the Laravel/Vue website. Android Play releases are separate: a native app change needs a signed AAB build and Play Console upload as described in [the Android release guide](../android/LocalAndroidPreview/PLAY_RELEASE_GUIDE_BN.md). A website-only change served by the web app reaches the webview when that site deploys.
 

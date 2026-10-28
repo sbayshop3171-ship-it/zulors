@@ -5,10 +5,16 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      deploy_live:
+        description: Deploy the latest main commit to production after checks pass.
+        required: true
+        default: false
+        type: boolean
 
 concurrency:
-  group: zulors-${{ github.ref }}
-  cancel-in-progress: true
+  group: zulors-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
   build:
@@ -73,6 +79,7 @@ jobs:
         run: php artisan about
 
   deploy:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.deploy_live == true
     name: Deploy Live
     needs: build
     runs-on: ubuntu-24.04
