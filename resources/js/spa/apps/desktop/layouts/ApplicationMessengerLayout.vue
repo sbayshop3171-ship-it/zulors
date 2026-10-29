@@ -1,24 +1,27 @@
 <template>
-	<RouterView v-slot="{ Component }">
-		<component v-bind:is="Component"></component>
-	</RouterView>
+	<MessengerRenderError v-if="renderFailed" v-on:retry="retryMessengerView" v-on:back="returnToInbox"></MessengerRenderError>
+	<template v-else>
+		<RouterView v-slot="{ Component }">
+			<component v-bind:is="Component" v-bind:key="renderGeneration"></component>
+		</RouterView>
 
-	<AccountSwitcherModal></AccountSwitcherModal>
+		<AccountSwitcherModal></AccountSwitcherModal>
 
-	<ConfirmationModal></ConfirmationModal>
+		<ConfirmationModal></ConfirmationModal>
 
-	<ReportModal></ReportModal>
+		<ReportModal></ReportModal>
 
-	<ToastNotification></ToastNotification>
+		<ToastNotification></ToastNotification>
 
-    <LightboxPlayer></LightboxPlayer>
+		<LightboxPlayer></LightboxPlayer>
 
-    <CallOverlay v-bind:callStore="callStore"></CallOverlay>
+		<CallOverlay v-bind:callStore="callStore"></CallOverlay>
+	</template>
 </template>
 
 <script>
-	import { defineComponent, onMounted, onUnmounted, watch } from 'vue';
-	import { useRoute } from 'vue-router';
+	import { defineComponent, onErrorCaptured, onMounted, onUnmounted, ref, watch } from 'vue';
+	import { useRoute, useRouter } from 'vue-router';
 	import { useAuthStore } from '@D/store/auth/auth.store.js';
 	import { useInboxStore } from '@D/store/chats/inbox.store.js';
 	import { useCallStore } from '@D/store/calls/call.store.js';
@@ -26,6 +29,7 @@
 	import { colibriSounds } from '@/kernel/services/sounds/index.js';
 	import { routeRealtimeNotification } from '@/kernel/services/realtime/notification-router.js';
 	import BRD from '@/kernel/websockets/brd/index.js';
+	import { markStartupEvent } from '@/kernel/services/startup/index.js';
 
 	import ReportModal from '@D/components/reports/ReportModal.vue';
 	import ConfirmationModal from '@D/components/general/modals/prompt/ConfirmationModal.vue';
@@ -33,6 +37,7 @@
 	import AccountSwitcherModal from '@D/components/accounts/AccountSwitcherModal.vue';
     import LightboxPlayer from '@D/components/lightbox/LightboxPlayer.vue';
     import CallOverlay from '@/kernel/vue/components/calls/CallOverlay.vue';
+	import MessengerRenderError from '@/kernel/vue/components/chat/MessengerRenderError.vue';
 
 	export default defineComponent({
 		setup: function() {
@@ -41,8 +46,42 @@
 			const callStore = useCallStore();
 			const toastStore = useToastNotificationStore();
 			const route = useRoute();
+			const router = useRouter();
+			const renderFailed = ref(false);
+			const renderGeneration = ref(0);
 			let isListening = false;
 			let unreadRefreshTimer = null;
+
+			onErrorCaptured((error, instance, info) => {
+				if(! renderFailed.value) {
+					renderFailed.value = true;
+					markStartupEvent('messenger_view_render_failed', {
+						variant: 'desktop',
+						route: route.name ?? null,
+						component: instance?.$options?.name ?? null,
+						phase: String(info ?? 'unknown').slice(0, 80),
+						errorType: String(error?.name ?? 'Error').slice(0, 40)
+					});
+				}
+
+				return false;
+			});
+
+			const retryMessengerView = () => {
+				renderGeneration.value++;
+				renderFailed.value = false;
+			};
+
+			const returnToInbox = async () => {
+				renderGeneration.value++;
+				renderFailed.value = false;
+
+				try {
+					await router.push({ name: 'messenger_inbox' });
+				} catch(error) {
+					renderFailed.value = true;
+				}
+			};
 
 			const getAuthChannel = () => {
 				return BRD.getChannel('AUTH_USER', [authStore.userData.id]);
@@ -182,7 +221,11 @@
 			});
 
 			return {
-				callStore: callStore
+				callStore: callStore,
+				renderFailed: renderFailed,
+				renderGeneration: renderGeneration,
+				retryMessengerView: retryMessengerView,
+				returnToInbox: returnToInbox
 			};
 		},
 		components: {
@@ -192,6 +235,7 @@
 			ToastNotification: ToastNotification,
             LightboxPlayer: LightboxPlayer,
             CallOverlay: CallOverlay,
+			MessengerRenderError: MessengerRenderError,
 		}
 	});
 </script>
