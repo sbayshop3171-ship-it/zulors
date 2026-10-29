@@ -122,7 +122,9 @@ class TargetedAdService
         $session = $request->hasSession() ? (string) $request->session()->getId() : '';
         $fallback = hash('sha256', (string) $request->ip() . '|' . substr((string) $request->userAgent(), 0, 160));
         $stable = $device !== '' ? $device : ($session !== '' ? $session : ((string) $request->header('X-Client-Session') ?: $fallback));
-        return 'guest:' . hash('sha256', substr($stable, 0, 200));
+        // ad_deliveries.viewer_key is VARCHAR(64), so keep guest fingerprints
+        // to a bare SHA-256 digest (the "guest:" prefix made them 70 chars).
+        return hash('sha256', 'guest|' . substr($stable, 0, 200));
     }
 
     private function eligible(Ad $ad, string $placement): bool

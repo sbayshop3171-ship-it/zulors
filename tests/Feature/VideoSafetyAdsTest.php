@@ -206,6 +206,49 @@ class VideoSafetyAdsTest extends TestCase
             ->value('impressions_count'));
     }
 
+    public function test_guest_ad_delivery_fingerprint_fits_database_column_and_keeps_post_cta(): void
+    {
+        $advertiser = $this->createUser('guest-ad-owner');
+        $post = $this->createPost($advertiser, 'Guest campaign post #sale', now(), [
+            'title' => 'Guest campaign sale',
+            'type' => PostType::IMAGE,
+        ]);
+        $this->createImageMedia($post);
+        $ad = $this->createAd('Guest campaign', [], [
+            'owner' => $advertiser,
+            'source_type' => 'post',
+            'source_post_id' => $post->id,
+            'cta_type' => 'LEARN_MORE',
+            'cta_text' => 'Shop Now',
+            'destination_type' => 'external_url',
+            'target_url' => 'https://example.com/guest-campaign',
+            'placement_flags' => ['feed'],
+        ]);
+
+        $response = $this->withoutMiddleware()
+            ->getJson('/api/ads/ad?placement=feed')
+            ->assertOk()
+            ->assertJsonPath('data.id', $ad->id)
+            ->assertJsonPath('data.placement', 'feed')
+            ->assertJsonPath('data.placement_creative.kind', 'post')
+            ->assertJsonPath('data.placement_creative.source_post.id', $post->id)
+            ->assertJsonPath('data.cta_enabled', true)
+            ->assertJsonPath('data.cta_text', 'Shop Now');
+
+        $delivery = \App\Models\AdDelivery::query()
+            ->where('delivery_id', $response->json('data.delivery_id'))
+            ->firstOrFail();
+
+        $this->assertSame(64, strlen($delivery->viewer_key));
+        $this->assertNull($delivery->viewable_at);
+        $this->assertSame(0, (int) $ad->refresh()->views_count);
+        $this->assertSame(0.0, (float) $ad->refresh()->spent_budget);
+        $this->assertDatabaseMissing('ad_impressions', [
+            'ad_id' => $ad->id,
+            'placement' => 'feed',
+        ]);
+    }
+
     public function test_hiding_an_ad_marks_delivery_and_suppresses_it_for_viewer(): void
     {
         $viewer = $this->createUser('hide-ad-viewer');
