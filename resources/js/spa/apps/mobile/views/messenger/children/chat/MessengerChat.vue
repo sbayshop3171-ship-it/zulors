@@ -40,7 +40,7 @@
 	</div>
 	<ForwardMessageDialog
 		v-bind:isOpen="Boolean(state.forwardSource)"
-		v-bind:chats="chatStore.inboxStore.chatsHistory"
+		v-bind:chats="chatsHistory"
 		v-bind:sourceMessage="state.forwardSource"
 		v-bind:isSubmitting="state.isForwarding"
 		v-on:close="state.forwardSource = null"
@@ -145,6 +145,10 @@
 			const chatMessages = computed(() => {
                 return chatStore.chatMessages;
             });
+
+			const chatsHistory = computed(() => {
+				return chatStore.inboxStore.chatsHistory;
+			});
 
 			const chatData = computed(() => {
                 return chatStore.chatData;
@@ -610,6 +614,7 @@
 
 			return {
 				chatMessages: chatMessages,
+				chatsHistory: chatsHistory,
 				state: state,
 				chatData: chatData,
 				hasChatData: hasChatData,
