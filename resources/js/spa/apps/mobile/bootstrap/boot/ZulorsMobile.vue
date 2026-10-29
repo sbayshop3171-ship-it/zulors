@@ -16,7 +16,7 @@
 </template>
 
 <script>
-	import { defineComponent, computed, ref, onMounted, onUnmounted, nextTick } from 'vue';
+	import { defineComponent, computed, ref, onMounted, onUnmounted, nextTick, watch } from 'vue';
 	import { useAppStore } from '@M/store/app/app.store.js';
 	import { useAuthStore } from '@M/store/auth/auth.store.js';
 	import { useTimelineStore } from '@M/store/timeline/timeline.store.js';
@@ -45,9 +45,13 @@
 			const hasCachedBootstrap = appStore.hydrateCachedBootstrap();
 			const timelineStore = useTimelineStore();
 			const reelsStore = useExploreReelsStore();
-			const appLoading = ref(! hasCachedBootstrap);
+			// Keep the boot shell visible until the initial async route has resolved.
+			// A cached bootstrap can be ready before the Messenger route chunks are.
+			const appLoading = ref(true);
 			let realtimeChannel = null;
 			let appShellReady = false;
+			let initialRouteReady = false;
+			let appShellRevealPending = false;
 			let bootDeadlineTimer = null;
 			let postVisualStartupHandle = null;
 			let reelsWarmupHandle = null;
@@ -130,6 +134,11 @@
 
 			const revealAppShell = () => {
 				if(appShellReady) {
+					return;
+				}
+
+				if(! initialRouteReady) {
+					appShellRevealPending = true;
 					return;
 				}
 
@@ -223,6 +232,49 @@
 			};
 
 			onMounted(async () => {
+				const finishInitialRoute = () => {
+					if(initialRouteReady) {
+						return;
+					}
+
+					initialRouteReady = true;
+
+					if(appShellRevealPending) {
+						revealAppShell();
+					}
+				};
+
+				watch(() => route.name, (routeName) => {
+					if(routeName === 'bootstrap_error') {
+						finishInitialRoute();
+					}
+				});
+
+				router.isReady().then(finishInitialRoute).catch(() => {
+					const recoveryMode = window.__zulorsMobileRouteRecoveryMode;
+
+					if(recoveryMode === 'reload' || recoveryMode === 'fallback') {
+						return;
+					}
+
+					if(router.currentRoute.value.name === 'bootstrap_error') {
+						finishInitialRoute();
+						return;
+					}
+
+					const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+					router.replace({
+						name: 'bootstrap_error',
+						query: {
+							reason: 'route_load',
+							return_to: returnTo
+						}
+					}).then(finishInitialRoute).catch(() => {
+						window.location.replace('/');
+					});
+				});
+
 				if(hasCachedBootstrap || authStore.authCheck) {
 					markStartupEvent('bootstrap_cache_reused', {
 						variant: 'mobile',

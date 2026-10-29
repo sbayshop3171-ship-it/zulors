@@ -75,6 +75,7 @@ test('mobile route recovery reloads a failed deep link once, then exposes a retr
 
 	first.error(new TypeError('Failed to fetch dynamically imported module'), failedRoute);
 	assert.equal(firstWindow.location.replaced.length, 1);
+	assert.equal(firstWindow.__zulorsMobileRouteRecoveryMode, 'reload');
 	assert.equal(new URL(firstWindow.location.replaced[0]).pathname, '/messenger/c/chat-42');
 	assert.equal(entries.get(MOBILE_ROUTE_LOAD_RETRY_KEY), failedRoute.fullPath);
 
@@ -83,6 +84,7 @@ test('mobile route recovery reloads a failed deep link once, then exposes a retr
 	installMobileRouteLoadRecovery(second.router, secondWindow);
 	second.error(new TypeError('Failed to fetch dynamically imported module'), failedRoute);
 	assert.equal(secondWindow.location.replaced.length, 0);
+	assert.equal(secondWindow.__zulorsMobileRouteRecoveryMode, 'fallback');
 	assert.deepEqual(second.router.replacements, [{
 		name: 'bootstrap_error',
 		query: { reason: 'route_load', return_to: failedRoute.fullPath },
@@ -105,6 +107,22 @@ test('Vite preload errors use the same single-retry recovery path', () => {
 
 	assert.equal(prevented, true);
 	assert.equal(browserWindow.location.replaced.length, 1);
+});
+
+test('unrelated Vite preload errors keep the browser default behavior', () => {
+	const browserWindow = createBrowserWindow();
+	const { router } = createRouter();
+	installMobileRouteLoadRecovery(router, browserWindow);
+	let prevented = false;
+
+	browserWindow.dispatch('vite:preloadError', {
+		payload: new Error('Request failed with status code 500'),
+		preventDefault() { prevented = true; },
+	});
+
+	assert.equal(prevented, false);
+	assert.equal(browserWindow.location.replaced.length, 0);
+	assert.equal(router.replacements.length, 0);
 });
 
 test('successful deep-link load removes the temporary retry query from the address', () => {

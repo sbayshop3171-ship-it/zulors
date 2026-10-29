@@ -151,6 +151,11 @@ Router.isReady().then(() => {
         variant: 'mobile',
         route: Router.currentRoute.value?.name ?? null
     });
+}).catch((error) => {
+    markStartupEvent('router_ready_failed', {
+        variant: 'mobile',
+        message: String(error?.message ?? 'unknown')
+    });
 });
 
 deferStartupTask(() => {

@@ -53,6 +53,7 @@ export const installMobileRouteLoadRecovery = (router, browserWindow = window) =
 		if(! alreadyRetried) {
 			try {
 				browserWindow.sessionStorage.setItem(MOBILE_ROUTE_LOAD_RETRY_KEY, routePath);
+				browserWindow.__zulorsMobileRouteRecoveryMode = 'reload';
 				browserWindow.location.replace(buildMobileRouteRetryUrl(routePath, browserWindow.location.origin));
 
 				return true;
@@ -61,6 +62,8 @@ export const installMobileRouteLoadRecovery = (router, browserWindow = window) =
 				// Fall through to the in-app error screen when storage or navigation is blocked.
 			}
 		}
+
+		browserWindow.__zulorsMobileRouteRecoveryMode = 'fallback';
 
 		if(targetRoute?.name !== 'bootstrap_error') {
 			router.replace({
@@ -98,8 +101,9 @@ export const installMobileRouteLoadRecovery = (router, browserWindow = window) =
 		}
 	});
 	const handleVitePreloadError = (event) => {
-		event.preventDefault();
-		recoverRoute(event.payload || event, router.currentRoute.value);
+		if(recoverRoute(event.payload || event, router.currentRoute.value)) {
+			event.preventDefault();
+		}
 	};
 
 	browserWindow.addEventListener('vite:preloadError', handleVitePreloadError);
