@@ -34,6 +34,7 @@
                             <NativeSponsoredPost
                                 v-if="postData.type === 'ad'"
                                 v-bind:adData="postData.ad"
+                                v-on:hide="timelineStore.removePost(postData.id)"
                             ></NativeSponsoredPost>
                             <TimelinePublication
                                 v-else
@@ -70,7 +71,6 @@
         <template v-slot:sidebar>
             <FollowRecommendationList></FollowRecommendationList>
 
-            <AdGridItem></AdGridItem>
         </template>
     </SidedContentLayout>
     <ScrollTopButton></ScrollTopButton>
@@ -97,7 +97,6 @@
     import TimelineContainer from '@D/components/layout/TimelineContainer.vue';
     import ScrollTopButton from '@D/components/inter-ui/buttons/ScrollTopButton.vue';
     import FollowRecommendationList from '@D/components/recommend/follow/list/FollowRecommendationList.vue';
-    import AdGridItem from '@D/components/ads/AdGridItem.vue';
     import NativeSponsoredPost from '@D/components/ads/NativeSponsoredPost.vue';
     import SidedContentLayout from '@D/components/layout/SidedContentLayout.vue';
     import HomeHeader from '@D/views/home/parts/HomeHeader.vue';
@@ -339,6 +338,7 @@
                     useStoriesStore().fetchStoriesFeed().catch(() => {});
                 },
                 timelinePosts: timelinePosts,
+                timelineStore: timelineStore,
                 timelineFeedSessionId: timelineFeedSessionId,
                 timelineFeedType: timelineFeedType,
                 timelineRefreshReason: timelineRefreshReason,
@@ -361,7 +361,6 @@
             PublicationEditorTrigger: PublicationEditorTrigger,
             TimelineContainer: TimelineContainer,
             FollowRecommendationList: FollowRecommendationList,
-            AdGridItem: AdGridItem,
             NativeSponsoredPost: NativeSponsoredPost,
             ScrollTopButton: ScrollTopButton,
             HomeHeader: HomeHeader,

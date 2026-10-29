@@ -7,6 +7,7 @@
             v-bind:class="getTileClasses(idx)"
         >
 
+            <img v-if="sponsoredFeed && mediaCount === 1 && !isSensitive" v-bind:src="imageItem.source_url" alt="" aria-hidden="true" class="pointer-events-none absolute inset-0 size-full scale-110 object-cover blur-2xl opacity-60">
             <ProgressiveImageLoader
                 v-bind:base64Image="imageItem.lqip_base64"
                 v-bind:src="imageItem.source_url"
@@ -39,6 +40,7 @@
                 type: Boolean,
                 default: false
             },
+            sponsoredFeed: { type: Boolean, default: false },
             isPriority: {
                 type: Boolean,
                 default: false
@@ -85,6 +87,7 @@
 
             const getTileClasses = (idx) => {
                 if(mediaCount.value === 1) {
+                    if(props.sponsoredFeed) return 'aspect-square';
                     return 'max-h-[70vh]';
                 }
 
@@ -106,9 +109,11 @@
             return {
                 previewMedia: previewMedia,
                 extraCount: extraCount,
+                mediaCount: mediaCount,
                 gridClasses: gridClasses,
                 getTileClasses: getTileClasses,
                 getImageClasses: computed(() => {
+                    if(props.sponsoredFeed && mediaCount.value === 1) return 'relative block size-full object-contain';
                     return mediaCount.value === 1 ? 'block w-full max-h-[70vh] object-contain' : 'block size-full object-cover';
                 }),
                 shouldShowMoreOverlay: shouldShowMoreOverlay

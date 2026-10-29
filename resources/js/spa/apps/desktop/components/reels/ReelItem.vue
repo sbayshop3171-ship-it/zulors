@@ -1,10 +1,10 @@
 <template>
 	<section
 		class="reel-desktop-slide"
-		v-bind:class="slideOrientationClass"
+		v-bind:class="[slideOrientationClass, { 'reel-desktop-slide--sponsored': sponsoredAd }]"
 	>
 		<div class="reel-desktop-grid">
-			<div class="reel-info-desktop">
+			<div v-if="!sponsoredAd" class="reel-info-desktop">
 				<RouterLink v-bind:to="{ name: 'profile_index', params: { id: postUser.username } }" class="inline-flex max-w-full items-center gap-2.5">
 					<img v-bind:src="postUser.avatar_url" v-bind:alt="postUser.username" class="size-10 rounded-full border border-white/20 object-cover">
 					<div class="min-w-0 leading-4">
@@ -83,10 +83,11 @@
 				<div v-if="state.showHeartBurst" class="pointer-events-none absolute inset-0 z-30 inline-flex-center">
 					<SvgIcon name="heart-rounded" type="line" classes="reel-heart-burst text-white"></SvgIcon>
 				</div>
+				<AdReelOverlay v-if="sponsoredAd" v-bind:adData="sponsoredAd" v-on:hide="$emit('hide-ad')"></AdReelOverlay>
 
 				<div class="pointer-events-none absolute inset-x-0 bottom-0 z-10 hidden h-1/2 bg-gradient-to-t from-black/85 via-black/35 to-transparent reel-info-gradient"></div>
 
-				<div class="reel-info-mobile absolute left-5 right-5 bottom-7 z-20">
+				<div v-if="!sponsoredAd" class="reel-info-mobile absolute left-5 right-5 bottom-7 z-20">
 					<RouterLink v-bind:to="{ name: 'profile_index', params: { id: postUser.username } }" class="inline-flex max-w-full items-center gap-2 mb-3">
 						<img v-bind:src="postUser.avatar_url" v-bind:alt="postUser.username" class="size-9 rounded-full border border-white/30 object-cover">
 						<span class="min-w-0 truncate text-par-m font-bold text-white">
@@ -110,7 +111,7 @@
 					<span>{{ reactionCountLabel }}</span>
 				</button>
 
-				<RouterLink v-bind:to="{ name: 'publication_index', params: { hash_id: postData.hash_id }}" class="reel-action-button">
+				<RouterLink v-bind:to="{ name: 'publication_index', params: { hash_id: postData.hash_id }, query: sponsoredAd ? { ad_id: sponsoredAd.id, delivery_id: sponsoredAd.delivery_id, ad_placement: 'reels' } : {} }" class="reel-action-button">
 					<SvgIcon name="message-circle-02" type="line" classes="size-8 text-white"></SvgIcon>
 					<span>{{ postData.comments_count.formatted || 0 }}</span>
 				</RouterLink>
@@ -132,7 +133,7 @@
 				</button>
 
 				<div class="relative">
-					<button type="button" v-on:click.stop="toggleMenu" class="reel-action-button">
+					<button v-if="!sponsoredAd" type="button" v-on:click.stop="toggleMenu" class="reel-action-button">
 						<SvgIcon name="dots-horizontal" type="solid" classes="size-8 text-white"></SvgIcon>
 					</button>
 
@@ -183,6 +184,7 @@
 <script>
 	import { computed, defineComponent, defineAsyncComponent, onMounted, onUnmounted, reactive } from 'vue';
 	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
+    import { recordSponsoredSocialEvent } from '@/kernel/services/ads/sponsored-social.js';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { applyOptimisticReaction } from '@/kernel/services/reactions/optimistic.js';
 	import { MediaStatusUtils } from '@/kernel/enums/post/media.status.js';
@@ -193,6 +195,7 @@
 	import ReelVideoPlayer from '@D/components/reels/ReelVideoPlayer.vue';
 	import SvgIcon from '@/kernel/vue/components/icons/SvgIcon.vue';
 	import VerificationBadge from '@/kernel/vue/components/general/badges/VerificationBadge.vue';
+	import AdReelOverlay from '@/kernel/vue/components/ads/AdReelOverlay.vue';
 
 	const defaultReactionId = '2764-fe0f';
 	const minReelAspectRatio = 9 / 16;
@@ -209,7 +212,7 @@
 	};
 
 	export default defineComponent({
-		emits: ['interaction'],
+		emits: ['interaction', 'hide-ad'],
 		props: {
 			postData: {
 				type: Object,
@@ -238,6 +241,10 @@
 			sponsoredAdId: {
 				type: Number,
 				default: 0
+			},
+			sponsoredAd: {
+				type: Object,
+				default: null
 			}
 		},
 		setup: function(props, context) {
@@ -292,6 +299,7 @@
 			});
 
 			const mediaAspectRatio = computed(() => {
+				if(props.sponsoredAd) return minReelAspectRatio;
 				const metadata = mediaPresentationMetadata.value;
 				const dimensions = normalizeVideoDimensions(metadata);
 
@@ -323,8 +331,8 @@
 				const maxHeight = Math.max(280, Math.min(viewportHeight - 40, 900));
 				const orientation = stageOrientation.value;
 
-				let reserveWidth = 560;
-				let preferredWidth = 560;
+				let reserveWidth = props.sponsoredAd ? 240 : 560;
+				let preferredWidth = props.sponsoredAd ? 520 : 560;
 
 				if(orientation === 'landscape') {
 					reserveWidth = 320;
@@ -429,6 +437,7 @@
 					post_id: postData.value.id
 				}).sendTo('post/reaction/add').then((response) => {
 					postData.value.relations.reactions = response.data.data;
+                    if(response.data.data?.some?.(item => item.has_reacted)) recordSponsoredSocialEvent(props.sponsoredAd, 'reels', 'like');
 					colibriEventBus.emit('timeline:post-updated', postData.value);
 				}).catch((error) => {
 					rollbackReaction();
@@ -557,6 +566,7 @@
 						id: postData.value.id
 					}).sendTo('post/share/add').then((response) => {
 						postData.value.shares_count = response.data.data.shares_count;
+                        recordSponsoredSocialEvent(props.sponsoredAd, 'reels', 'share');
 					}).catch((error) => {
 						if(error.response) {
 							toastError(error.response.data.message);
@@ -573,6 +583,7 @@
 						id: postData.value.id
 					}).sendTo('post/bookmarks/add').then((response) => {
 						postData.value.meta.activity.bookmarked = response.data.data.bookmarked;
+                        if(response.data.data.bookmarked) recordSponsoredSocialEvent(props.sponsoredAd, 'reels', 'save');
 
 						if(response.data.data.bookmarked) {
 							toastSuccess(__t('toast.post.bookmarked'));
@@ -625,6 +636,7 @@
 			ReelVideoPlayer: ReelVideoPlayer,
 			SvgIcon: SvgIcon,
 			VerificationBadge: VerificationBadge,
+			AdReelOverlay: AdReelOverlay,
 			PublicationShare: defineAsyncComponent(() => {
 				return import('@D/components/timeline/feed/parts/share/PublicationShare.vue');
 			})
@@ -713,6 +725,10 @@
 		grid-template-columns: minmax(0, auto) 84px;
 		width: min(1320px, calc(100vw - 176px));
 	}
+	.reel-desktop-slide--sponsored .reel-desktop-grid {
+		grid-template-columns: minmax(0, auto) 84px;
+		width: min(720px, calc(100vw - 176px));
+	}
 
 	.reel-desktop-slide--landscape .reel-info-desktop {
 		display: none;
@@ -770,6 +786,10 @@
 			grid-template-columns: minmax(0, 1fr) 68px;
 			width: 100%;
 			column-gap: 16px;
+		}
+
+		.reel-desktop-slide--sponsored .reel-desktop-grid {
+			width: calc(100vw - 128px);
 		}
 
 		.reel-stage {

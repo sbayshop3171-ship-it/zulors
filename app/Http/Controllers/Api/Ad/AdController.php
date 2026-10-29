@@ -130,6 +130,10 @@ class AdController extends Controller
             $active = true;
         }
 
+        if($active && in_array($type, ['like', 'save', 'comment'], true)) {
+            $targetedAdService->recordEvent($ad, $request->merge(['event_type' => $type]));
+        }
+
         return $this->responseSuccess(['data' => [
             'active' => $active,
             'engagement' => $engagement,

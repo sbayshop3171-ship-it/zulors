@@ -53,14 +53,14 @@
 	import LoadmoreButton from '@M/components/inter-ui/buttons/LoadmoreButton.vue';
 
 	export default defineComponent({
-		emits: ['close'],
+		emits: ['close', 'created'],
 		props: {
 			postData: {
 				type: Object,
 				required: true,
 			},
 		},
-		setup: (props) => {
+		setup: (props, context) => {
 			const postData = computed(() => {
 				return props.postData;
 			});
@@ -157,6 +157,7 @@
                     postComments.value.unshift(commentData.comment);
 
                     postData.value.comments_count = commentData.post.comments_count;
+                    context.emit('created');
                 },
 				handleLoadMoreComments: async () => {
 					await fetchComments();

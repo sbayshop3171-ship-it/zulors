@@ -14,7 +14,8 @@
 	            <FeedUpdate v-if="timelineNewPosts.length" v-bind:posts="timelineNewPosts" v-on:click="applyTimelineUpdate"></FeedUpdate>
 				<div v-if="timelinePosts.length">
                     <template v-for="(postData, index) in timelinePosts" v-bind:key="postData.type === 'ad' ? postData.id : postData.hash_id">
-                        <NativeSponsoredPost v-if="postData.type === 'ad'" v-bind:adData="postData.ad"></NativeSponsoredPost>
+                        <NativeSponsoredPost v-if="postData.type === 'ad'" v-bind:adData="postData.ad"
+                                v-on:hide="timelineStore.removePost(postData.id)"></NativeSponsoredPost>
 	                    <TimelinePublication
                             v-else
 	                        v-bind:postData="postData"
@@ -309,6 +310,7 @@
                 },
                 swipeSurfaceRef: swipeSurfaceRef,
                 timelinePosts: timelinePosts,
+                timelineStore: timelineStore,
                 timelineFeedSessionId: timelineFeedSessionId,
                 timelineFeedType: timelineFeedType,
                 timelineRefreshReason: timelineRefreshReason,

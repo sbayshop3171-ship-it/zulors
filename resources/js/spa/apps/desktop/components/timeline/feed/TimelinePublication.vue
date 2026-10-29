@@ -21,7 +21,7 @@
                                     </span>
                                 </h3>
                                 <span class="text-par-n text-lab-sc truncate">
-                                    {{ postUserCaption }} · {{ postData.date.time_ago }}
+                                    {{ sponsoredAdData ? 'Ad' : `${postUserCaption} · ${postData.date.time_ago}` }}
                                     <template v-if="postData.meta.is_edited">
                                         · {{ $t('labels.edited') }}
                                     </template>
@@ -54,10 +54,10 @@
 							</div>
                         </div>
                     </template>
-                    <div class="overflow-hidden mb-2" v-if="postHasMedia">
+                    <div v-bind:class="sponsoredAdData ? 'overflow-hidden mb-0' : 'overflow-hidden mb-2'" v-if="postHasMedia">
                         <template v-if="PostTypeUtils.isImage(postData.type)">
                             <div v-on:click="lightboxImages" class="block cursor-pointer rounded-2xl overflow-hidden border border-bord-card">
-                                <PublicationImage v-bind:key="postData.hash_id" v-bind:isSensitive="isSensitive" v-bind:isPriority="position === 1" v-bind:postMedia="postMedia"></PublicationImage>
+                                <PublicationImage v-bind:key="postData.hash_id" v-bind:isSensitive="isSensitive" v-bind:isPriority="position === 1" v-bind:postMedia="postMedia" v-bind:sponsoredFeed="Boolean(sponsoredAdData)"></PublicationImage>
                             </div>
                         </template>
                         <template v-if="PostTypeUtils.isGif(postData.type)">
@@ -66,7 +66,8 @@
                         <template v-else-if="PostTypeUtils.isVideo(postData.type)">
                             <PublicationVideo
                                 v-bind:postMedia="postMedia"
-                                v-bind:openReelsOnTap="true"
+                                v-bind:sponsoredFeed="Boolean(sponsoredAdData)"
+                            v-bind:openReelsOnTap="true"
                                 v-on:open-reels="openReelsViewer"
                             v-bind:key="postData.id"></PublicationVideo>
                         </template>
@@ -133,7 +134,7 @@
                                     </div>
 
                                     <div class="flex-1 overflow-hidden ml-2">
-                                        <RouterLink v-bind:to="{ name: 'publication_index', params: { hash_id: postData.hash_id }}" class="text-par-s text-lab-sc truncate block hover:text-brand-900">
+                                        <RouterLink v-bind:to="{ name: 'publication_index', params: { hash_id: postData.hash_id }, query: sponsoredAdData ? { ad_id: sponsoredAdData.id, delivery_id: sponsoredAdData.delivery_id, ad_placement: 'feed' } : {} }" class="text-par-s text-lab-sc truncate block hover:text-brand-900">
                                             <template v-if="postData.relations.comments.length">
                                                 {{ $t('labels.show_all_comments') }} ({{ postData.comments_count.formatted }})
                                             </template>
@@ -154,7 +155,8 @@
         </div>
 
         <div class="absolute top-2 right-2.5">
-            <div class="relative leading-none">
+            <AdDisclosureMenu v-if="sponsoredAdData" v-bind:adData="sponsoredAdData" placement="feed" v-on:hide="$emit('hide-ad')"></AdDisclosureMenu>
+            <div v-else class="relative leading-none">
                 <div class="opacity-30 hover:opacity-100">
                     <DropdownButton v-on:click.stop="toggleMenu"></DropdownButton>
                 </div>
@@ -214,6 +216,7 @@
     import { PostTypeUtils } from '@/kernel/enums/post/post.type.js';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
+    import { recordSponsoredSocialEvent } from '@/kernel/services/ads/sponsored-social.js';
     import { useLightboxStore } from '@D/store/lightbox/lightbox.store.js';
     import { colibriTranslator } from '@/kernel/services/translator/index.js';
     import { applyOptimisticReaction } from '@/kernel/services/reactions/optimistic.js';
@@ -221,6 +224,7 @@
 
     import AvatarSmall from '@D/components/general/avatars/AvatarSmall.vue';
     import DropdownButton from '@D/components/general/dropdowns/parts/DropdownButton.vue';
+    import AdDisclosureMenu from '@/kernel/vue/components/ads/AdDisclosureMenu.vue';
     import DropdownMenu from '@D/components/general/dropdowns/parts/DropdownMenu.vue';
     import DropdownMenuItem from '@D/components/general/dropdowns/parts/DropdownMenuItem.vue';
     import DropdownReactions from '@D/components/general/dropdowns/parts/DropdownReactions.vue';
@@ -236,6 +240,7 @@
     // Changes to this component will affect the timeline feed and the bookmarks page.
 
     export default defineComponent({
+        emits: ['hide-ad'],
         props: {
             isPinned: {
                 type: Boolean,
@@ -253,6 +258,8 @@
                 type: String,
                 default: 'for_you'
             },
+            sponsoredAdData: { type: Object, default: null },
+            campaignTracking: { type: Object, default: null },
             sponsoredAdId: {
                 type: Number,
                 default: 0
@@ -361,6 +368,7 @@
                         post_id: postData.value.id
                     }).sendTo('post/reaction/add').then((response) => {
                         postData.value.relations.reactions = response.data.data;
+                    if(response.data.data?.some?.(item => item.has_reacted)) recordSponsoredSocialEvent(props.campaignTracking || props.sponsoredAdData, props.campaignTracking?.placement || 'feed', 'like');
                         colibriEventBus.emit('timeline:post-updated', postData.value);
                     }).catch((error) => {
                         rollbackReaction();
@@ -435,6 +443,7 @@
                         id: postData.value.id
                     }).sendTo('post/bookmarks/add').then((response) => {
                         postData.value.meta.activity.bookmarked = response.data.data.bookmarked;
+                        if(response.data.data.bookmarked) recordSponsoredSocialEvent(props.campaignTracking || props.sponsoredAdData, props.campaignTracking?.placement || 'feed', 'save');
 
                         if(response.data.data.bookmarked) {
                             toastSuccess(__t('toast.post.bookmarked'));
@@ -493,6 +502,7 @@
                         id: postData.value.id
                     }).sendTo('post/share/add').then((response) => {
                         postData.value.shares_count = response.data.data.shares_count;
+                        recordSponsoredSocialEvent(props.campaignTracking || props.sponsoredAdData, props.campaignTracking?.placement || 'feed', 'share');
                     }).catch((error) => {
                         if (error.response) {
                             toastError(error.response.data.message);
@@ -514,6 +524,7 @@
         components: {
             AvatarSmall: AvatarSmall,
             DropdownButton: DropdownButton,
+            AdDisclosureMenu: AdDisclosureMenu,
             DropdownMenu: DropdownMenu,
             DropdownMenuItem: DropdownMenuItem,
             DropdownReactions: DropdownReactions,

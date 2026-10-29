@@ -16,7 +16,7 @@
                 </div>
                 <div v-else class="block">
                     <div class="block">
-                        <TimelinePublication v-bind:postData="postData" v-on:delete="handlePostDelete"></TimelinePublication>
+                        <TimelinePublication v-bind:postData="postData" v-bind:campaignTracking="campaignTracking" v-on:delete="handlePostDelete"></TimelinePublication>
                     </div>
                     <Border></Border>
                     <div v-if="! state.isLoading" class="sticky top-0 bg-bg-pr z-10">
@@ -65,6 +65,7 @@
 
     import { useRoute, useRouter } from 'vue-router';
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
+    import { recordSponsoredSocialEvent } from '@/kernel/services/ads/sponsored-social.js';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
     import { useInfiniteScroll } from '@/kernel/vue/composables/infinite-scroll/index.js';
     import { useDeletePost } from '@/kernel/vue/composables/delete-post/index.js';
@@ -98,6 +99,14 @@
             const postData = ref({});
             const postAuthor = ref({});
             const postComments = ref([]);
+            const campaignTracking = computed(() => {
+                if(!route.query.ad_id || !route.query.delivery_id) return null;
+                return {
+                    id: route.query.ad_id,
+                    delivery_id: route.query.delivery_id,
+                    placement: route.query.ad_placement === 'reels' ? 'reels' : 'feed'
+                };
+            });
 
             const fetchComments = async () => {
                 if (postComments.value.length && ! state.noMoreComments && ! state.isLoadingComments) {
@@ -161,6 +170,7 @@
             return {
                 state: state,
                 postData: postData,
+                    campaignTracking: campaignTracking,
                 postAuthor: postAuthor,
                 postComments: computed(() => {
                     return postComments.value
@@ -216,6 +226,7 @@
                     postComments.value.unshift(commentData.comment);
 
                     postData.value.comments_count = commentData.post.comments_count;
+                    recordSponsoredSocialEvent(campaignTracking.value, campaignTracking.value?.placement || 'feed', 'comment');
                 },
                 handlePostDelete: (postData) => {
                     postDeleter(postData, () => {

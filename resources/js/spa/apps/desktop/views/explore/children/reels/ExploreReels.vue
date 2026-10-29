@@ -57,6 +57,7 @@
 						v-if="postData.type === 'ad'"
 						v-bind:adData="postData.ad"
 						v-bind:active="state.activeIndex === (visibleWindow.start + index)"
+						v-on:hide="hideSponsoredAd(postData)"
 					></SponsoredReel>
 					<ReelItem
 						v-else
@@ -207,6 +208,14 @@
 					threshold: normalizedSignal.immediateRerank ? 2.5 : 4,
 					minIntervalMs: normalizedSignal.immediateRerank ? 1600 : 2500
 				}).catch(() => {});
+			};
+			const hideSponsoredAd = async (postData) => {
+				const removed = reelsStore.removePost(postData.id);
+				if(!removed) return;
+				state.activeIndex = Math.max(0, Math.min(removed.index, posts.value.length - 1));
+				await nextTick();
+				if(scrollerRef.value) scrollerRef.value.scrollTop = state.activeIndex * scrollerRef.value.clientHeight;
+				warmPlaybackWindow();
 			};
 
 			const scrollToIndex = (index) => {
@@ -377,6 +386,7 @@
 				reelsStore: reelsStore,
 				nearRadius: nearRadius,
 				handleReelInteraction: handleReelInteraction,
+				hideSponsoredAd: hideSponsoredAd,
 				handleScroll: handleScroll,
 				canGoPrevious: canGoPrevious,
 				canGoNext: canGoNext,

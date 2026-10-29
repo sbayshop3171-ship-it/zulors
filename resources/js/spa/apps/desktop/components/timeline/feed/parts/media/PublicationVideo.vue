@@ -16,6 +16,7 @@
 			v-bind:isPortrait="isPortrait"
 			v-bind:metadata="mediaItem.metadata"
 			v-bind:aspectRatio="mediaAspectRatio"
+			v-bind:sponsoredFeed="sponsoredFeed"
 			v-bind:surfaceClickAction="openReelsOnTap ? 'emit' : 'toggle'"
 			v-on:surface-click="$emit('open-reels')"
 		v-bind:videoUrl="mediaItem.preview_url || mediaItem.source_url"></VideoPlayer>
@@ -41,6 +42,7 @@
                 type: Object,
                 default: {}
             },
+			sponsoredFeed: { type: Boolean, default: false },
 			openReelsOnTap: {
 				type: Boolean,
 				default: false

@@ -52,10 +52,11 @@
 		<div v-if="state.showHeartBurst" class="pointer-events-none absolute inset-0 z-30 inline-flex-center">
 			<SvgIcon name="heart-rounded" type="line" classes="reel-heart-burst text-white"></SvgIcon>
 		</div>
+		<AdReelOverlay v-if="sponsoredAd" v-bind:adData="sponsoredAd" v-on:hide="$emit('hide-ad')"></AdReelOverlay>
 
 		<div class="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-1/2 bg-gradient-to-t from-black/85 via-black/35 to-transparent"></div>
 
-		<div class="absolute left-4 right-20 bottom-5 z-20">
+		<div v-if="!sponsoredAd" class="absolute left-4 right-20 bottom-5 z-20">
 			<RouterLink v-bind:to="{ name: 'profile_index', params: { id: postUser.username } }" class="inline-flex max-w-full items-center gap-2 mb-3">
 				<img v-bind:src="postUser.avatar_url" v-bind:alt="postUser.username" class="size-9 rounded-full object-cover border border-white/30">
 				<span class="min-w-0 truncate text-par-m font-bold text-white">
@@ -97,7 +98,7 @@
 				<span class="text-cap-l font-semibold leading-none">{{ postData.bookmarks_count.formatted || 0 }}</span>
 			</button>
 
-			<button type="button" v-on:click.stop="state.mainMenu.open" class="size-11 rounded-full bg-black/30 backdrop-blur inline-flex-center text-white">
+			<button v-if="!sponsoredAd" type="button" v-on:click.stop="state.mainMenu.open" class="size-11 rounded-full bg-black/30 backdrop-blur inline-flex-center text-white">
 				<SvgIcon name="dots-horizontal" type="solid" classes="size-7"></SvgIcon>
 			</button>
 		</div>
@@ -119,6 +120,7 @@
 		v-if="state.commentsMenu.status"
 		v-bind:postData="postData"
 		v-on:close="state.commentsMenu.close"
+		v-on:created="recordSponsoredSocialEvent(sponsoredAd, 'reels', 'comment')"
 	></PublicationComments>
 
 	<ActionSheet v-if="state.mainMenu.status" v-on:close="state.mainMenu.close" v-bind:isMuted="true">
@@ -156,6 +158,7 @@
 <script>
 	import { computed, defineAsyncComponent, defineComponent, reactive } from 'vue';
 	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
+    import { recordSponsoredSocialEvent } from '@/kernel/services/ads/sponsored-social.js';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { applyOptimisticReaction } from '@/kernel/services/reactions/optimistic.js';
 	import { MediaStatusUtils } from '@/kernel/enums/post/media.status.js';
@@ -166,6 +169,7 @@
 	import ReelVideoPlayer from '@M/components/reels/ReelVideoPlayer.vue';
 	import SvgIcon from '@/kernel/vue/components/icons/SvgIcon.vue';
 	import VerificationBadge from '@/kernel/vue/components/general/badges/VerificationBadge.vue';
+	import AdReelOverlay from '@/kernel/vue/components/ads/AdReelOverlay.vue';
 	import ActionSheet from '@M/components/general/sheets/ActionSheet.vue';
 	import ActionSheetItem from '@M/components/general/sheets/ActionSheetItem.vue';
 	import ActionSheetGroup from '@M/components/general/sheets/ActionSheetGroup.vue';
@@ -174,7 +178,7 @@
 	const defaultReactionId = '2764-fe0f';
 
 	export default defineComponent({
-		emits: ['interaction'],
+		emits: ['interaction', 'hide-ad'],
 		props: {
 			postData: {
 				type: Object,
@@ -203,6 +207,10 @@
 			sponsoredAdId: {
 				type: Number,
 				default: 0
+			},
+			sponsoredAd: {
+				type: Object,
+				default: null
 			}
 		},
 		setup: function(props, context) {
@@ -307,6 +315,7 @@
 					post_id: postData.value.id
 				}).sendTo('post/reaction/add').then((response) => {
 					postData.value.relations.reactions = response.data.data;
+                    if(response.data.data?.some?.(item => item.has_reacted)) recordSponsoredSocialEvent(props.sponsoredAd, 'reels', 'like');
 					colibriEventBus.emit('timeline:post-updated', postData.value);
 				}).catch((error) => {
 					rollbackReaction();
@@ -370,6 +379,7 @@
 			};
 
 			return {
+				recordSponsoredSocialEvent: recordSponsoredSocialEvent,
 				state: state,
 				postData: postData,
 				mediaItem: mediaItem,
@@ -413,6 +423,7 @@
 						id: postData.value.id
 					}).sendTo('post/share/add').then((response) => {
 						postData.value.shares_count = response.data.data.shares_count;
+                        recordSponsoredSocialEvent(props.sponsoredAd, 'reels', 'share');
 					}).catch((error) => {
 						if(error.response) {
 							toastError(error.response.data.message);
@@ -426,6 +437,7 @@
 						id: postData.value.id
 					}).sendTo('post/bookmarks/add').then((response) => {
 						postData.value.meta.activity.bookmarked = response.data.data.bookmarked;
+                        if(response.data.data.bookmarked) recordSponsoredSocialEvent(props.sponsoredAd, 'reels', 'save');
 
 						if(response.data.data.bookmarked) {
 							toastSuccess(__t('toast.post.bookmarked'));
@@ -477,6 +489,7 @@
 			ReelVideoPlayer: ReelVideoPlayer,
 			SvgIcon: SvgIcon,
 			VerificationBadge: VerificationBadge,
+			AdReelOverlay: AdReelOverlay,
 			ActionSheet: ActionSheet,
 			ActionSheetItem: ActionSheetItem,
 			ActionSheetGroup: ActionSheetGroup,

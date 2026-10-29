@@ -15,6 +15,7 @@ use App\Enums\Report\ReportType;
 use App\Enums\User\UserRole;
 use App\Enums\User\UserStatus;
 use App\Enums\User\UserType;
+use App\Enums\User\FollowStatus;
 use App\Enums\Wallet\TransactionType;
 use App\Enums\Wallet\TransactionStatus;
 use App\Enums\Wallet\TransactionDirection;
@@ -23,11 +24,13 @@ use App\Models\AdImpression;
 use App\Models\Media;
 use App\Models\Post;
 use App\Models\User;
+use App\Models\Follow;
 use App\Actions\Ad\AdShowAction;
 use App\Actions\Ad\DeleteAdAction;
 use App\Livewire\Business\Ads\Upsert as AdUpsert;
 use App\Models\UserNotificationSettings;
 use App\Services\Timeline\UserInterestService;
+use App\Services\Relations\FollowService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Livewire\Livewire;
@@ -201,6 +204,44 @@ class VideoSafetyAdsTest extends TestCase
             ->where('ad_id', $techAd->id)
             ->where('fingerprint', "user:{$viewer->id}")
             ->value('impressions_count'));
+    }
+
+    public function test_hiding_an_ad_marks_delivery_and_suppresses_it_for_viewer(): void
+    {
+        $viewer = $this->createUser('hide-ad-viewer');
+        $firstAd = $this->createAd('First hideable campaign', [], ['placement_flags' => ['feed']]);
+        $secondAd = $this->createAd('Second hideable campaign', [], ['placement_flags' => ['feed']]);
+        $this->createAdMedia($firstAd);
+        $this->createAdMedia($secondAd);
+
+        $firstResponse = $this->actingAs($viewer)->withoutMiddleware()
+            ->getJson('/api/ads/ad?placement=feed')
+            ->assertOk();
+        $hiddenAdId = $firstResponse->json('data.id');
+        $deliveryId = $firstResponse->json('data.delivery_id');
+        $this->assertContains($hiddenAdId, [$firstAd->id, $secondAd->id]);
+
+        $this->actingAs($viewer)->withoutMiddleware()
+            ->postJson("/api/ads/event/{$hiddenAdId}?placement=feed", [
+                'event_type' => 'hide',
+                'delivery_id' => $deliveryId,
+            ])
+            ->assertOk();
+
+        $this->assertDatabaseHas('ad_deliveries', [
+            'delivery_id' => $deliveryId,
+            'ad_id' => $hiddenAdId,
+        ]);
+        $this->assertNotNull(\App\Models\AdDelivery::query()->where('delivery_id', $deliveryId)->value('negative_feedback_at'));
+        $this->assertDatabaseHas('ad_events', [
+            'delivery_id' => $deliveryId,
+            'event_type' => 'hide',
+        ]);
+
+        $nextResponse = $this->actingAs($viewer)->withoutMiddleware()
+            ->getJson('/api/ads/ad?placement=feed')
+            ->assertOk();
+        $this->assertNotSame($hiddenAdId, $nextResponse->json('data.id'));
     }
 
     public function test_ad_personalization_requires_adult_opt_in_and_interest_reset_is_available(): void
@@ -590,6 +631,49 @@ class VideoSafetyAdsTest extends TestCase
             ->assertJsonPath('data.click_url', null)
             ->assertJsonPath('data.target_url', null)
             ->assertJsonPath('data.cta_type', 'NO_BUTTON');
+    }
+
+    public function test_advertiser_follow_state_and_requested_follow_cancellation(): void
+    {
+        $advertiser = $this->createUser('ad-follow-owner');
+        $follower = $this->createUser('ad-follow-viewer');
+        $requester = $this->createUser('ad-request-viewer');
+        $ad = $this->createAd('Follow campaign', [], [
+            'owner' => $advertiser,
+            'placement_flags' => ['feed'],
+        ]);
+
+        Follow::create([
+            'follower_id' => $follower->id,
+            'following_id' => $advertiser->id,
+            'status' => FollowStatus::FOLLOWING->value,
+        ]);
+        Follow::create([
+            'follower_id' => $requester->id,
+            'following_id' => $advertiser->id,
+            'status' => FollowStatus::REQUESTED->value,
+        ]);
+
+        $this->actingAs($follower)->withoutMiddleware()
+            ->getJson('/api/ads/ad?placement=feed')
+            ->assertOk()
+            ->assertJsonPath('data.id', $ad->id)
+            ->assertJsonPath('data.advertiser.meta.relationship.follow.following', true)
+            ->assertJsonPath('data.advertiser.meta.relationship.follow.requested', false)
+            ->assertJsonPath('data.advertiser.meta.relationship.follow.can_follow', true);
+
+        $this->actingAs($requester)->withoutMiddleware()
+            ->getJson('/api/ads/ad?placement=feed')
+            ->assertOk()
+            ->assertJsonPath('data.advertiser.meta.relationship.follow.following', false)
+            ->assertJsonPath('data.advertiser.meta.relationship.follow.requested', true);
+
+        (new FollowService($requester, $advertiser))->unfollow();
+        $this->assertDatabaseMissing('follows', [
+            'follower_id' => $requester->id,
+            'following_id' => $advertiser->id,
+        ]);
+        $this->assertSame(0, $requester->fresh()->following_count);
     }
 
     public function test_home_feed_injects_post_sourced_ad_with_native_post_payload(): void
@@ -1498,6 +1582,10 @@ class VideoSafetyAdsTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.active', false)
             ->assertJsonPath('data.counts.likes', 0);
+
+        $this->assertSame(1, $ad->events()->where('event_type', 'like')->count());
+        $this->assertSame(1, $ad->events()->where('event_type', 'comment')->count());
+        $this->assertSame(1, $ad->events()->where('event_type', 'save')->count());
     }
 
     public function test_ad_resource_preserves_legacy_cta_and_click_placement(): void

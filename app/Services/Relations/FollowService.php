@@ -80,14 +80,22 @@ class FollowService
 
     public function unfollow(): void
     {
-        Follow::where([
+        $following = Follow::where([
             'follower_id' => $this->followerData->id,
             'following_id' => $this->followingData->id,
             'status' => FollowStatus::FOLLOWING
         ])->delete();
 
-        User::where('id', $this->followingData->id)->where('followers_count', '>', 0)->decrement('followers_count');
-        User::where('id', $this->followerData->id)->where('following_count', '>', 0)->decrement('following_count');
+        Follow::where([
+            'follower_id' => $this->followerData->id,
+            'following_id' => $this->followingData->id,
+            'status' => FollowStatus::REQUESTED
+        ])->delete();
+
+        if ($following) {
+            User::where('id', $this->followingData->id)->where('followers_count', '>', 0)->decrement('followers_count');
+            User::where('id', $this->followerData->id)->where('following_count', '>', 0)->decrement('following_count');
+        }
     }
 
     public function followRequested(): bool

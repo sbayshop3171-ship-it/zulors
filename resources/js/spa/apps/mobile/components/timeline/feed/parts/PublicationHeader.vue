@@ -2,7 +2,7 @@
 	<AvatarRightSided v-bind:linkRoute="{ name: 'profile_index', params: { id: postData.relations.user.username } }"
 			v-bind:avatarSrc="postData.relations.user.avatar_url"
 			v-bind:name="postData.relations.user.name"
-			v-bind:caption="postUserCaption"
+			v-bind:caption="sponsored ? 'Ad' : postUserCaption"
 		v-bind:verified="postData.relations.user.verified"></AvatarRightSided>
 </template>
 
@@ -13,6 +13,7 @@
 
 	export default defineComponent({
 		props: {
+			sponsored: { type: Boolean, default: false },
 			postData: {
 				type: Object,
 				required: true

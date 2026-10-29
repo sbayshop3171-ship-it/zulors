@@ -443,6 +443,9 @@
                             name="formData.headline"
                             placeholder="Short headline for Feed/Reels">
                         </x-form.text-input>
+                        @if(mb_strlen(trim((string) (($formData['headline'] ?? '') ?: ($formData['title'] ?? '')))) < 8)
+                            <p class="mt-2 text-xs font-semibold text-amber-600">Add a clear headline of at least 8 characters so it reads well beside the Feed button.</p>
+                        @endif
                     </div>
 
                     <div class="mb-6">
@@ -882,65 +885,67 @@
                     </div>
                     <button type="button" x-on:click="previewOpen = false" class="size-10 rounded-full bg-fill-qt text-par-l font-bold text-lab-pr2" aria-label="Close previews">&times;</button>
                 </div>
+                @if(mb_strlen(trim((string) $previewData['headline'])) < 8)
+                    <p class="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-700">The headline is too short to explain your offer clearly. Add a specific headline before publishing.</p>
+                @endif
                 <div class="grid gap-4 md:grid-cols-3">
-                    <div class="rounded-xl border border-bord-pr bg-fill-fv p-3">
-                        <p class="mb-2 text-cap-l font-bold text-lab-sc">Desktop feed</p>
-                        <div class="overflow-hidden rounded-lg bg-bg-pr">
-                            @if($previewData['media_type'] === 'video' && $previewData['media_url'])
-                                <video class="aspect-video w-full object-cover" src="{{ $previewData['media_url'] }}" poster="{{ $previewData['thumbnail_url'] ?: asset(config('ads.ad.default_preview')) }}" controls muted playsinline></video>
-                            @elseif(in_array($previewData['media_type'], ['image', 'gif'], true) && $previewData['media_url'])
-                                <img class="aspect-video w-full object-cover" src="{{ $previewData['media_url'] }}" alt="{{ $previewData['title'] }}">
-                            @else
-                                <div class="flex aspect-video items-center justify-center p-4 text-center text-cap-l text-lab-sc">{{ __('business/ads.preview.media_placeholder') }}</div>
-                            @endif
-                            <div class="p-3"><h4 class="line-clamp-2 text-par-m font-bold text-lab-pr2">{{ $previewData['title'] }}</h4><p class="mt-1 line-clamp-3 text-cap-l text-lab-sc">{{ $previewData['content'] }}</p></div>
+                    @foreach(['Desktop feed', 'Mobile feed'] as $feedPreview)
+                        <div class="rounded-xl border border-bord-pr bg-fill-fv p-3">
+                            <p class="mb-2 text-cap-l font-bold text-lab-sc">{{ $feedPreview }}</p>
+                            <div class="mx-auto overflow-hidden rounded-xl border border-bord-pr bg-bg-pr {{ $feedPreview === 'Desktop feed' ? 'max-w-[420px]' : 'max-w-[230px]' }}">
+                                <div class="flex items-center gap-2 px-3 py-2">
+                                    <img src="{{ me()->avatar_url }}" alt="" class="size-8 rounded-full object-cover">
+                                    <div class="min-w-0"><strong class="block truncate text-xs text-lab-pr2">{{ me()->name }}</strong><span class="block text-[10px] text-lab-sc">Ad</span></div>
+                                    <span class="ml-auto text-lab-sc">⋯</span>
+                                </div>
+                                <p class="line-clamp-2 px-3 pb-2 text-xs text-lab-pr2">{{ $previewData['primary_text'] }}</p>
+                                <div class="relative aspect-square overflow-hidden bg-black">
+                                    @if($previewData['media_url'])
+                                        <img src="{{ $previewData['thumbnail_url'] ?: $previewData['media_url'] }}" alt="" class="absolute inset-0 size-full scale-110 object-cover opacity-45 blur-xl">
+                                        @if($previewData['media_type'] === 'video')
+                                            <video class="relative size-full object-contain" src="{{ $previewData['media_url'] }}" poster="{{ $previewData['thumbnail_url'] ?: asset(config('ads.ad.default_preview')) }}" muted playsinline></video>
+                                        @else
+                                            <img class="relative size-full object-contain" src="{{ $previewData['media_url'] }}" alt="{{ $previewData['title'] }}">
+                                        @endif
+                                    @else
+                                        <div class="flex size-full items-center justify-center p-4 text-center text-xs text-white/70">{{ __('business/ads.preview.media_placeholder') }}</div>
+                                    @endif
+                                </div>
+                                @if($previewData['cta_type'] !== 'NO_BUTTON')
+                                    <div class="flex min-h-14 items-center justify-between gap-2 border-y border-bord-pr bg-fill-fv px-3 py-2">
+                                        <strong class="line-clamp-2 min-w-0 flex-1 text-xs text-lab-pr2">{{ $previewData['headline'] }}</strong>
+                                        <span class="inline-flex min-h-11 shrink-0 items-center rounded-xl bg-brand-900 px-3 text-[11px] font-bold text-white">{{ $previewData['cta_text'] }}</span>
+                                    </div>
+                                @endif
+                                <div class="flex gap-4 px-3 py-2 text-lab-sc"><span>♡ 0</span><span>◯ 0</span><span>↗</span></div>
+                            </div>
                         </div>
-                    </div>
-                    <div class="rounded-xl border border-bord-pr bg-fill-fv p-3">
-                        <p class="mb-2 text-cap-l font-bold text-lab-sc">Mobile feed</p>
-                        <div class="mx-auto max-w-[230px] overflow-hidden rounded-xl bg-bg-pr">
-                            @if($previewData['media_type'] === 'video' && $previewData['media_url'])
-                                <video class="aspect-[4/5] w-full object-cover" src="{{ $previewData['media_url'] }}" poster="{{ $previewData['thumbnail_url'] ?: asset(config('ads.ad.default_preview')) }}" controls muted playsinline></video>
-                            @elseif($previewData['media_url'])
-                                <img loading="lazy" class="aspect-[4/5] w-full object-cover" src="{{ $previewData['media_url'] }}" alt="{{ $previewData['title'] }}">
-                            @else
-                                <div class="flex aspect-[4/5] items-center justify-center p-4 text-center text-cap-l text-lab-sc">{{ __('business/ads.preview.media_placeholder') }}</div>
-                            @endif
-                            <div class="p-3"><h4 class="line-clamp-2 text-par-m font-bold text-lab-pr2">{{ $previewData['title'] }}</h4><p class="mt-1 line-clamp-3 text-cap-l text-lab-sc">{{ $previewData['content'] }}</p></div>
-                        </div>
-                    </div>
+                    @endforeach
                     <div class="rounded-xl border border-bord-pr bg-fill-fv p-3">
                         <p class="mb-2 text-cap-l font-bold text-lab-sc">Full-screen Reels</p>
-                        <div class="relative mx-auto aspect-[9/16] max-w-[190px] overflow-hidden rounded-xl bg-black text-white">
-                            @if($previewData['reels_media_type'] === 'video' && $previewData['reels_media_url'])
-                                <video class="absolute inset-0 size-full object-cover" src="{{ $previewData['reels_media_url'] }}" poster="{{ $previewData['reels_thumbnail_url'] ?: asset(config('ads.ad.default_preview')) }}" controls muted playsinline></video>
-                            @elseif($previewData['reels_media_url'])
-                                <img loading="lazy" class="absolute inset-0 size-full object-cover" src="{{ $previewData['reels_media_url'] }}" alt="{{ $previewData['title'] }}">
+                        <div class="relative mx-auto aspect-[9/16] w-full max-w-[190px] overflow-hidden rounded-xl bg-black text-white">
+                            @if($previewData['reels_media_url'])
+                                <img src="{{ $previewData['reels_thumbnail_url'] ?: $previewData['reels_media_url'] }}" alt="" class="absolute inset-0 size-full scale-110 object-cover opacity-40 blur-xl">
+                                @if($previewData['reels_media_type'] === 'video')
+                                    <video class="absolute inset-0 size-full object-contain" src="{{ $previewData['reels_media_url'] }}" poster="{{ $previewData['reels_thumbnail_url'] ?: asset(config('ads.ad.default_preview')) }}" muted playsinline></video>
+                                @else
+                                    <img class="absolute inset-0 size-full object-contain" src="{{ $previewData['reels_media_url'] }}" alt="{{ $previewData['title'] }}">
+                                @endif
                             @else
-                                <div class="absolute inset-0 flex items-center justify-center p-4 text-center text-cap-l text-white/75">Select a post or upload a campaign video to preview Reels.</div>
+                                <div class="absolute inset-0 flex items-center justify-center p-4 text-center text-xs text-white/70">Select a post or upload a campaign video.</div>
                             @endif
-                            <div class="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-1/2 bg-gradient-to-t from-black/90 via-black/35 to-transparent"></div>
-                            <span class="absolute left-2 top-2 z-20 rounded-full bg-black/60 px-2 py-1 text-[10px] font-bold text-white">Ad · Sponsored</span>
-                            <div class="pointer-events-none absolute inset-x-7 top-[18%] bottom-[32%] z-10 rounded border border-dashed border-white/65">
-                                <span class="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[9px] font-semibold text-white">Text safe area</span>
+                            <div class="pointer-events-none absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/95 via-black/40 to-transparent"></div>
+                            <div class="absolute bottom-3 left-2 right-11 space-y-1.5">
+                                @if($previewData['cta_type'] !== 'NO_BUTTON')
+                                    <div class="flex min-h-12 items-center justify-between rounded-lg bg-brand-900 px-2.5 text-[11px] font-bold text-white"><span class="truncate">{{ $previewData['cta_text'] }}</span><span>›</span></div>
+                                @endif
+                                <div class="flex items-center gap-1.5"><img src="{{ me()->avatar_url }}" alt="" class="size-5 rounded-full object-cover"><span class="truncate text-[10px] font-bold">{{ me()->name }}</span><span class="rounded border border-white/70 px-1 py-0.5 text-[9px]">Follow</span></div>
+                                <p class="line-clamp-2 text-[10px] leading-3">{{ $previewData['primary_text'] }}</p>
+                                <span class="text-[9px] text-white/75">Ad · ⋯</span>
                             </div>
-                            <div class="pointer-events-none absolute right-1.5 bottom-20 z-20 flex flex-col items-center gap-2 text-white drop-shadow">
-                                <span class="text-xl leading-none">♡</span><span class="text-[9px]">0</span>
-                                <span class="text-base leading-none">◯</span><span class="text-[9px]">0</span>
-                                <span class="text-base leading-none">↗</span>
-                            </div>
-                            <div class="pointer-events-none absolute left-2 right-12 bottom-3 z-20 text-white drop-shadow">
-                                <div class="mb-1 flex items-center gap-1.5">
-                                    <img src="{{ me()->avatar_url }}" alt="" class="size-5 rounded-full object-cover">
-                                    <span class="truncate text-[10px] font-bold">{{ me()->name }}</span>
-                                </div>
-                                <p class="line-clamp-2 text-[10px] leading-3">{{ $previewData['content'] ?: $previewData['title'] }}</p>
-                            </div>
-                            @if(($formData['cta_type'] ?? 'NO_BUTTON') !== 'NO_BUTTON')
-                                <span class="absolute bottom-[18%] left-2 right-12 z-30 rounded-lg bg-white px-2 py-2 text-center text-[11px] font-bold text-black">{{ $previewData['cta_text'] }}</span>
-                            @endif
+                            <div class="absolute bottom-16 right-1.5 flex flex-col gap-3 text-lg">♡<span>◯</span><span>↗</span></div>
                         </div>
-                        <p class="mt-2 text-[11px] text-lab-sc">Keep important text away from the top, caption and action rail.</p>
+                        <p class="mt-2 text-[11px] text-lab-sc">Keep important text clear of the caption and actions.</p>
                     </div>
                 </div>
             </div>

@@ -7,6 +7,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
 use App\Http\Resources\User\User\UserPreviewResource;
 use App\Http\Resources\User\Timeline\TimelineResource;
 use App\Services\Ad\AdDestinationResolver;
+use App\Services\Relations\FollowService;
 
 class AdResource extends JsonResource
 {
@@ -22,6 +23,16 @@ class AdResource extends JsonResource
             : 'sidebar';
         $ctaEnabled = $legacyCtaType !== 'NO_BUTTON' && filled($destination);
         $viewer = $request->user();
+        $advertiser = $this->user;
+        $follow = ['following' => false, 'requested' => false, 'can_follow' => false];
+        if ($viewer && $advertiser && $viewer->id !== $advertiser->id) {
+            $followService = new FollowService($viewer, $advertiser);
+            $follow = [
+                'following' => $followService->isFollowing(),
+                'requested' => $followService->followRequested(),
+                'can_follow' => $followService->canFollow(),
+            ];
+        }
         $ctaIcon = match ($this->destination_type) {
             'whatsapp' => 'whatsapp',
             'phone' => 'phone',
@@ -67,7 +78,7 @@ class AdResource extends JsonResource
                 'video_url' => $placementMedia?->type->isVideo() ? $placementMedia->source_url : null,
                 'thumbnail_url' => $placementMedia?->thumbnail_url ?: $this->preview_image_url,
             ],
-            'advertiser' => UserPreviewResource::make($this->user),
+            'advertiser' => new UserPreviewResource($advertiser, ['meta' => ['relationship' => ['follow' => $follow]]]),
             'objective' => $this->objective,
             'placement_flags' => $this->placement_flags ?: ['sidebar'],
             'placement' => $placement,

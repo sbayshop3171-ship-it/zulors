@@ -2,9 +2,10 @@
 	<div
 		v-bind:style="playerFrameStyle"
 	class="relative flex w-full justify-center cursor-pointer group bg-black overflow-hidden">
+		<img v-if="sponsoredFeed && thumbnailUrl" v-bind:src="thumbnailUrl" alt="" aria-hidden="true" class="pointer-events-none absolute inset-0 size-full scale-110 object-cover blur-2xl opacity-70">
 		<video
 			v-on:click="handleVideoSurfaceClick"
-			class="size-full object-cover"
+			v-bind:class="sponsoredFeed ? 'relative z-10 size-full object-contain' : 'size-full object-cover'"
 			ref="videoPlayerRef"
 			v-bind:poster="thumbnailUrl"
 			preload="metadata"
@@ -116,6 +117,7 @@
 				type: Object,
 				default: () => ({})
 			},
+			sponsoredFeed: { type: Boolean, default: false },
 			thumbnailUrl: {
 				type: String,
 				required: true
@@ -190,6 +192,7 @@
 			const scrubSeekIntervalMs = 90;
 
 			const playerFrameStyle = computed(() => {
+                if(props.sponsoredFeed) return { aspectRatio: '1 / 1' };
 				return videoFrameAspectStyle({
 					...(props.metadata || {}),
 					...(state.presentationMetadata || {}),

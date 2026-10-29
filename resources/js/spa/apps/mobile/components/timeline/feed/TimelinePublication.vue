@@ -1,12 +1,13 @@
 <template>
     <div ref="publicationRootRef" class="base-publication min-h-40 border-b border-b-bord-tr">
         <div class="pt-4 max-w-full">
-            <div class="flex overflow-hidden mb-2 px-4">
+            <div v-bind:class="sponsoredAdData ? 'overflow-visible' : 'overflow-hidden'" class="relative z-20 flex mb-2 px-4">
                 <div class="flex-1 pr-2">
-                    <PublicationHeader v-bind:postData="postData"></PublicationHeader>
+                    <PublicationHeader v-bind:postData="postData" v-bind:sponsored="Boolean(sponsoredAdData)"></PublicationHeader>
                 </div>
                 <div class="shrink-0">
-                    <div class="relative leading-none">
+                    <AdDisclosureMenu v-if="sponsoredAdData" v-bind:adData="sponsoredAdData" placement="feed" v-on:hide="$emit('hide-ad')"></AdDisclosureMenu>
+                    <div v-else class="relative leading-none">
                         <div class="opacity-30 hover:opacity-100">
                             <DropdownButton v-on:click.stop="state.mainMenu.open"></DropdownButton>
                         </div>
@@ -19,10 +20,10 @@
                         <PublicationText v-bind:postContent="postContent"></PublicationText>
                     </div>
                 </template>
-                <div class="mb-2" v-if="PostTypeUtils.isMedia(postData.type)">
+                <div v-bind:class="sponsoredAdData ? 'mb-0' : 'mb-2'" v-if="PostTypeUtils.isMedia(postData.type)">
                     <template v-if="PostTypeUtils.isImage(postData.type)">
                         <div v-on:click="lightboxImages" class="cursor-pointer">
-                            <PublicationImage v-bind:isSensitive="isSensitive" v-bind:isPriority="position === 1" v-bind:key="postData.hash_id" v-bind:postMedia="postMedia"></PublicationImage>
+                            <PublicationImage v-bind:isSensitive="isSensitive" v-bind:isPriority="position === 1" v-bind:key="postData.hash_id" v-bind:postMedia="postMedia" v-bind:sponsoredFeed="Boolean(sponsoredAdData)"></PublicationImage>
                         </div>
                     </template>
                     <template v-if="PostTypeUtils.isGif(postData.type)">
@@ -31,6 +32,7 @@
                     <template v-else-if="PostTypeUtils.isVideo(postData.type)">
                         <PublicationVideo
                             v-bind:postMedia="postMedia"
+                            v-bind:sponsoredFeed="Boolean(sponsoredAdData)"
                             v-bind:openReelsOnTap="true"
                         v-on:open-reels="openReelsViewer"></PublicationVideo>
                     </template>
@@ -98,7 +100,7 @@
         v-bind:postLink="postLink"
         v-on:close="state.shareMenu.close"></PublicationShare>
 
-    <PublicationComments v-bind:postData="postData" v-if="state.commentsMenu.status" v-on:close="state.commentsMenu.close"></PublicationComments>
+    <PublicationComments v-bind:postData="postData" v-if="state.commentsMenu.status" v-on:close="state.commentsMenu.close" v-on:created="recordSponsoredSocialEvent(campaignTracking || sponsoredAdData, campaignTracking?.placement || 'feed', 'comment')"></PublicationComments>
 
     <ActionSheet v-if="state.mainMenu.status" v-on:close="state.mainMenu.close" v-bind:isMuted="true">
         <div v-on:click.stop="state.mainMenu.close" class="h-full overflow-y-auto">
@@ -158,6 +160,7 @@
     import { PostStatusUtils } from '@/kernel/enums/post/post.status.js';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
+    import { recordSponsoredSocialEvent } from '@/kernel/services/ads/sponsored-social.js';
     import { colibriTranslator } from '@/kernel/services/translator/index.js';
     import { applyOptimisticReaction } from '@/kernel/services/reactions/optimistic.js';
     import { useLightboxStore } from '@M/store/lightbox/lightbox.store.js';
@@ -166,6 +169,7 @@
 
 	// Mobile components
 	import PublicationHeader from '@M/components/timeline/feed/parts/PublicationHeader.vue';
+    import AdDisclosureMenu from '@/kernel/vue/components/ads/AdDisclosureMenu.vue';
     import PublicationText from '@M/components/timeline/feed/parts/text/PublicationText.vue';
     import PublicationImage from '@M/components/timeline/feed/parts/media/PublicationImage.vue';
     import PublicationVideo from '@M/components/timeline/feed/parts/media/PublicationVideo.vue';
@@ -188,6 +192,7 @@
     // Changes to this component will affect the timeline feed and the bookmarks page.
 
     export default defineComponent({
+        emits: ['delete', 'hide-ad'],
         props: {
             postData: {
                 type: Object,
@@ -201,6 +206,8 @@
                 type: String,
                 default: 'for_you'
             },
+            sponsoredAdData: { type: Object, default: null },
+            campaignTracking: { type: Object, default: null },
             sponsoredAdId: {
                 type: Number,
                 default: 0
@@ -218,7 +225,6 @@
                 default: ''
             }
         },
-        emits: ['delete'],
         setup: function(props) {
             const router = useRouter();
             const lightboxStore = useLightboxStore();
@@ -239,6 +245,7 @@
             useFeedPostTelemetry({
                 targetRef: publicationRootRef,
                 postData: postData,
+                recordSponsoredSocialEvent: recordSponsoredSocialEvent,
                 feedSessionId: computed(() => props.feedSessionId),
                 feedType: computed(() => props.feedType),
                 position: computed(() => props.position),
@@ -325,6 +332,7 @@
                         post_id: postData.value.id
                     }).sendTo('post/reaction/add').then((response) => {
                         postData.value.relations.reactions = response.data.data;
+                    if(response.data.data?.some?.(item => item.has_reacted)) recordSponsoredSocialEvent(props.campaignTracking || props.sponsoredAdData, props.campaignTracking?.placement || 'feed', 'like');
                         colibriEventBus.emit('timeline:post-updated', postData.value);
                     }).catch((error) => {
                         rollbackReaction();
@@ -359,6 +367,7 @@
                         id: postData.value.id
                     }).sendTo('post/share/add').then((response) => {
                         postData.value.shares_count = response.data.data.shares_count;
+                        recordSponsoredSocialEvent(props.campaignTracking || props.sponsoredAdData, props.campaignTracking?.placement || 'feed', 'share');
                     }).catch((error) => {
                         if (error.response) {
                             toastError(error.response.data.message);
@@ -376,6 +385,7 @@
                         id: postData.value.id
                     }).sendTo('post/bookmarks/add').then((response) => {
                         postData.value.meta.activity.bookmarked = response.data.data.bookmarked;
+                        if(response.data.data.bookmarked) recordSponsoredSocialEvent(props.campaignTracking || props.sponsoredAdData, props.campaignTracking?.placement || 'feed', 'save');
 
                         if(response.data.data.bookmarked) {
                             toastSuccess(__t('toast.post.bookmarked'));
@@ -438,6 +448,7 @@
         },
         components: {
 			PublicationHeader: PublicationHeader,
+            AdDisclosureMenu: AdDisclosureMenu,
             PublicationText: PublicationText,
             PublicationImage: PublicationImage,
             PublicationVideo: PublicationVideo,

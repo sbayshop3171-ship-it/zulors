@@ -887,6 +887,8 @@ class Upsert extends Component
             return [
                 'source_type' => 'post',
                 'title' => $this->postPreviewTitle($post) ?: __('business/ads.preview.title_placeholder'),
+                'headline' => $this->formData['headline'] ?: ($this->postPreviewTitle($post) ?: __('business/ads.preview.title_placeholder')),
+                'primary_text' => $this->formData['primary_text'] ?: ($post?->content ?: __('business/ads.preview.content_placeholder')),
                 'content' => $post?->content ?: __('business/ads.preview.content_placeholder'),
                 'cta_type' => $this->formData['cta_type'] ?? 'NO_BUTTON',
                 'cta_text' => $ctaText,
@@ -905,6 +907,8 @@ class Upsert extends Component
         return [
             'source_type' => 'creative',
             'title' => $this->formData['title'] ?: __('business/ads.preview.title_placeholder'),
+            'headline' => $this->formData['headline'] ?: ($this->formData['title'] ?: __('business/ads.preview.title_placeholder')),
+            'primary_text' => $this->formData['primary_text'] ?: ($this->formData['content'] ?: __('business/ads.preview.content_placeholder')),
             'content' => $this->formData['content'] ?: __('business/ads.preview.content_placeholder'),
             'cta_type' => $this->formData['cta_type'] ?? 'SEND_MESSAGE',
             'cta_text' => $ctaText,
