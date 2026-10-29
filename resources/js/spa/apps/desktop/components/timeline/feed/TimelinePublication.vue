@@ -342,7 +342,10 @@
                     }
 
                     if(! props.sponsoredAdId) {
-                        reelsStore.prefetchFirstPage(postData.value.hash_id).catch(() => {});
+						reelsStore.primeWithPost(postData.value);
+						reelsStore.prefetchFirstPage(postData.value.hash_id, {
+							refreshReason: 'post_entry'
+						}).catch(() => {});
                     }
 
                     router.push({

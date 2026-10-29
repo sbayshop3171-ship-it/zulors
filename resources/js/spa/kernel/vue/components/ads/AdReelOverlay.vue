@@ -2,7 +2,7 @@
     <div class="ad-reel-overlay pointer-events-none absolute inset-x-0 bottom-0 z-30 text-white">
         <div class="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/95 via-black/50 to-transparent"></div>
         <div class="ad-reel-overlay-content relative min-w-0 space-y-2.5 px-4 pb-4 pt-12">
-            <a v-if="adData.cta_enabled && adData.click_url" class="ad-reel-cta pointer-events-auto flex min-h-12 w-full items-center justify-between gap-3 rounded-xl bg-brand-900 px-4 py-2 text-sm font-bold text-white shadow-lg shadow-black/25" v-bind:href="adData.click_url" target="_blank" rel="noopener" v-on:click.stop>
+            <a v-if="adData.cta_enabled && adData.click_url" class="ad-reel-cta pointer-events-auto flex min-h-12 w-full items-center justify-between gap-3 rounded-xl bg-brand-900 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-black/25" v-bind:href="adData.click_url" target="_blank" rel="noopener" v-on:click.stop>
                 <span class="min-w-0 truncate">{{ adData.cta_text }}</span>
                 <span aria-hidden="true" class="shrink-0 text-xl leading-none">›</span>
             </a>

@@ -327,19 +327,23 @@
 				state.noMoreContent = false;
 				state.activeIndex = 0;
 
-				await reelsStore.initialLoad(props.hash_id, route.query.ad_id);
+				try {
+					await reelsStore.initialLoad(props.hash_id, route.query.ad_id);
+				} catch(error) {
+					state.noMoreContent = true;
+				} finally {
+					state.isLoading = false;
 
-				state.isLoading = false;
+					nextTick(() => {
+						if(scrollerRef.value) {
+							scrollerRef.value.scrollTop = 0;
+						}
 
-				nextTick(() => {
-					if(scrollerRef.value) {
-						scrollerRef.value.scrollTop = 0;
-					}
-
-					syncViewportHeight();
+						syncViewportHeight();
 						updateActiveIndex();
 						warmPlaybackWindow();
 					});
+				}
 				};
 
 				onMounted(() => {

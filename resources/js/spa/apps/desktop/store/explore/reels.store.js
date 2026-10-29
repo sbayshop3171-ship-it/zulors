@@ -73,6 +73,7 @@ const useExploreReelsStore = defineStore('desktop_explore_reels_store', {
 			isTailReranking: false,
 			directSponsoredEntry: false,
 			warmPromise: null,
+			entryPostHashId: '',
 			filter: {
 				page: 1,
 				seed_hash_id: '',
@@ -99,6 +100,29 @@ const useExploreReelsStore = defineStore('desktop_explore_reels_store', {
 
 			if(this.filter.seed_hash_id !== nextSeedHashId) {
 				this.reset(nextSeedHashId);
+			}
+
+			if(this.entryPostHashId === nextSeedHashId && this.posts.length) {
+				const entryPost = this.posts.find((postData) => postData?.hash_id === nextSeedHashId) || this.posts[0];
+				this.entryPostHashId = '';
+
+				const warmedPosts = await this.prefetchFirstPage(nextSeedHashId, {
+					refreshReason: 'post_entry'
+				}).catch(() => []);
+
+				if(warmedPosts.length) {
+					const refreshedEntryPost = warmedPosts.find((postData) => postData?.id == entryPost?.id) || entryPost;
+					this.posts = [
+						refreshedEntryPost,
+						...warmedPosts.filter((postData) => postData?.id != refreshedEntryPost?.id)
+					].slice(0, reelsCacheLimit);
+					this.persistFirstPage();
+				} else {
+					// Keep the tapped post visible if the background feed request fails.
+					this.filter.page = 0;
+				}
+
+				return;
 			}
 
 			if(! this.posts.length) {
@@ -130,6 +154,7 @@ const useExploreReelsStore = defineStore('desktop_explore_reels_store', {
 				sponsored_ad_id: 0
 			};
 			this.directSponsoredEntry = false;
+			this.entryPostHashId = '';
 
 			this.startFeedSession('initial');
 			this.swipeCount = 0;
@@ -139,6 +164,20 @@ const useExploreReelsStore = defineStore('desktop_explore_reels_store', {
 			if(! hydrateCache || ! this.hydrateCachedFirstPage()) {
 				this.posts = [];
 			}
+		},
+		primeWithPost: function(postData) {
+			const seedHashId = normalizeSeedHash(postData?.hash_id);
+
+			if(! seedHashId || ! postData?.id) {
+				return false;
+			}
+
+			this.reset(seedHashId, false);
+			this.posts = [postData];
+			this.entryPostHashId = seedHashId;
+			prefetchReelsPlaybackWindow(this.posts, 0);
+
+			return true;
 		},
 		refreshFirstPage: async function(options = {}) {
 			this.startFeedSession(options.refreshReason || 'refresh');
