@@ -175,8 +175,7 @@ public class MainActivity extends Activity {
     private boolean appInForeground = false;
     private boolean startupSplashVisible = true;
     private boolean startupSplashReleased = false;
-    private boolean startupFirstPageCommitted = false;
-    private String pendingColdStartNotificationUrl;
+    private boolean startupNotificationHomeFallback = false;
     private boolean startupAppShellReady = false;
     private boolean startupFirstVisualReady = false;
     private boolean startupFullyDrawnReported = false;
@@ -297,21 +296,21 @@ public class MainActivity extends Activity {
         configureBackNavigation();
         scheduleStartupSplashTimeout();
         scheduleStartupLaunchCoverFallback();
-        String launchUrl = BuildConfig.APP_URL;
+        String requestedLaunchUrl = hasLaunchUrl(getIntent())
+            ? resolveLaunchUrl(getIntent())
+            : null;
+        boolean googleCallbackLaunch = requestedLaunchUrl != null
+            && isGoogleCallbackUrl(Uri.parse(requestedLaunchUrl));
+        StartupNavigationPolicy.LaunchPlan launchPlan = StartupNavigationPolicy.forColdStart(
+            BuildConfig.APP_URL,
+            requestedLaunchUrl,
+            googleCallbackLaunch
+        );
+        String launchUrl = launchPlan.initialUrl;
+        startupNotificationHomeFallback = launchPlan.homeFallbackAvailable;
 
-        // A process restart always starts from the stable Home route. A push
-        // target is opened only after Home commits so WebView back navigation
-        // has a predictable Home -> target history.
-        if (hasLaunchUrl(getIntent())) {
-            String requestedUrl = resolveLaunchUrl(getIntent());
-            Uri requestedUri = Uri.parse(requestedUrl);
-
-            if (isGoogleCallbackUrl(requestedUri)) {
-                launchUrl = requestedUrl;
-            }
-            else {
-                pendingColdStartNotificationUrl = requestedUrl;
-            }
+        if (requestedLaunchUrl != null) {
+            recordStartupEvent("launch_target_selected", launchUrl);
         }
 
         if (isGoogleCallbackUrl(Uri.parse(launchUrl))) {
@@ -646,18 +645,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageCommitVisible(WebView view, String url) {
                 super.onPageCommitVisible(view, url);
-                startupFirstPageCommitted = true;
                 recordStartupEvent("page_commit_visible", url);
-
-                if (pendingColdStartNotificationUrl != null
-                    && !pendingColdStartNotificationUrl.equals(url)
-                    && isTrustedWebUrl(Uri.parse(url))
-                    && Uri.parse(url).getPath() != null
-                    && (Uri.parse(url).getPath().equals("/") || Uri.parse(url).getPath().isEmpty())) {
-                    String targetUrl = pendingColdStartNotificationUrl;
-                    pendingColdStartNotificationUrl = null;
-                    mainHandler.post(() -> webView.loadUrl(targetUrl, noCacheHeaders()));
-                }
             }
 
             @Override
@@ -2729,6 +2717,8 @@ public class MainActivity extends Activity {
                 webView.loadUrl(launchUrl, noCacheHeaders());
             }
             else if (shouldHandleNotificationLaunch(launchUrl)) {
+                startupNotificationHomeFallback = StartupNavigationPolicy
+                    .hasHomeFallback(BuildConfig.APP_URL, launchUrl);
                 webView.loadUrl(launchUrl, noCacheHeaders());
             }
         }
@@ -3094,6 +3084,19 @@ public class MainActivity extends Activity {
             webView.goBack();
             return;
         }
+
+        if (StartupNavigationPolicy.shouldLoadHomeFallback(
+            BuildConfig.APP_URL,
+            webView.getUrl(),
+            startupNotificationHomeFallback
+        )) {
+            startupNotificationHomeFallback = false;
+            recordStartupEvent("notification_back_fallback_to_home");
+            webView.loadUrl(BuildConfig.APP_URL, noCacheHeaders());
+            return;
+        }
+
+        startupNotificationHomeFallback = false;
 
         moveTaskToBack(true);
     }
