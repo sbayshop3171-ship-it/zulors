@@ -15,11 +15,13 @@ import {
 
 import { useInboxStore } from '@M/store/chats/inbox.store.js';
 import { useAuthStore } from '@M/store/auth/auth.store.js';
+import { createChatClientUid } from '@/kernel/helpers/chat/client-uid.js';
 
 const CHAT_CACHE_TTL = 1000 * 60 * 60;
 const CHAT_CACHE_NAMESPACE = 'colibri:mobile:messenger-chat:v2:';
 const LEGACY_CHAT_CACHE_NAMESPACE = 'colibri:mobile:messenger-chat:';
 const MESSAGE_PAGE_SIZE = 30;
+const messengerPrefetchRequests = new Map();
 
 function currentViewerId() {
 	const viewerId = useAuthStore().userData?.id;
@@ -237,6 +239,44 @@ const useChatStore = defineStore('mobile_chats_chat', {
 			}
 
 			return hasCachedChat || Boolean(primeChatData?.chat_id === chatId);
+		},
+		prefetchChatForRoute: function(chatId) {
+			this.ensureViewerScope();
+
+			if(! chatId || ! currentViewerId()) {
+				return Promise.resolve(false);
+			}
+
+			const cached = readChatCache(chatId);
+
+			if(cached?.data?.chatData?.chat_info && Array.isArray(cached.data.messages)) {
+				return Promise.resolve(true);
+			}
+
+			const requestKey = `viewer-${currentViewerId()}:${chatId}`;
+
+			if(messengerPrefetchRequests.has(requestKey)) {
+				return messengerPrefetchRequests.get(requestKey);
+			}
+
+			const request = Promise.all([
+				colibriAPI().messenger().getFrom(`chat/${chatId}`),
+				colibriAPI().messenger().params({ limit: MESSAGE_PAGE_SIZE }).getFrom(`chat/${chatId}/messages`),
+			]).then(([chatResponse, messagesResponse]) => {
+				writeChatCache(chatId, {
+					chatData: chatResponse.data.data,
+					messages: messagesResponse.data.data || [],
+					pagination: messagesResponse.data.meta?.pagination || createMessagesPagination(),
+				});
+
+				return true;
+			}).catch(() => false).finally(() => {
+				messengerPrefetchRequests.delete(requestKey);
+			});
+
+			messengerPrefetchRequests.set(requestKey, request);
+
+			return request;
 		},
 		hydrateChatMessagesCache: function(chatId = this.chatId) {
 			this.ensureViewerScope();
@@ -466,7 +506,7 @@ const useChatStore = defineStore('mobile_chats_chat', {
 		},
 		sendMessage: async function(messageData = {}) {
 			const targetChatId = this.chatId;
-			const clientUid = messageData.client_uid || `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+			const clientUid = messageData.client_uid || createChatClientUid();
 			const optimisticMessage = createOptimisticOutgoingMessage({
 				chatId: targetChatId,
 				userData: useAuthStore().userData || {},
@@ -491,7 +531,7 @@ const useChatStore = defineStore('mobile_chats_chat', {
 						this.upsertMessage(response.data.data);
 					}
 					else {
-						this.inboxStore.updateChatFromMessage(response.data.data, useAuthStore().userData.id, this.chatId);
+						this.inboxStore.updateChatFromMessage(response.data.data, useAuthStore().userData.id, targetChatId);
 					}
 				}
 			}
@@ -507,18 +547,54 @@ const useChatStore = defineStore('mobile_chats_chat', {
 				throw error;
 			}
 		},
+		forwardMessage: async function(sourceMessage, destinationChatId) {
+			if(! sourceMessage?.id || ! destinationChatId) {
+				throw new Error('Choose a valid message and destination conversation.');
+			}
+
+			const targetChatId = destinationChatId;
+			const clientUid = createChatClientUid();
+
+			try {
+				const response = await colibriAPI().messenger().with({
+					destination_chat_id: targetChatId,
+					client_uid: clientUid,
+				}).sendTo(`chat/message/${sourceMessage.id}/forward`);
+				const forwardedMessage = response.data.data;
+
+				if(this.chatId === targetChatId) {
+					this.upsertMessage(forwardedMessage);
+				} else {
+					this.inboxStore.updateChatFromMessage(
+						forwardedMessage,
+						useAuthStore().userData.id,
+						this.inboxStore.activeChatId
+					);
+				}
+
+				return forwardedMessage;
+			} catch(error) {
+				if(error.response) {
+					throw new Error(error.response.data.message);
+				}
+
+				throw error;
+			}
+		},
         sendMediaMessage: async function(mediaData) {
+            const clientUid = mediaData.client_uid || createChatClientUid();
             if(mediaData.type === 'video') {
                 const targetChatId = this.chatId;
                 const updateMessage = message => {
                     if(this.chatId === targetChatId) this.upsertMessage(message);
-                    else this.inboxStore.updateChatFromMessage(message, useAuthStore().userData.id, this.chatId);
+                    else this.inboxStore.updateChatFromMessage(message, useAuthStore().userData.id, targetChatId);
                 };
                 let pendingMessage = null;
                 try {
                     const result = await directVideoUpload({
                         file: mediaData.file,
                         options: {
+                            client_uid: clientUid,
                             name: mediaData.name,
                             extension: mediaData.extension,
                             duration: mediaData.duration,
@@ -548,6 +624,7 @@ const useChatStore = defineStore('mobile_chats_chat', {
             const targetChatId = this.chatId;
 
             formData.append('chat_id', targetChatId);
+            formData.append('client_uid', clientUid);
             formData.append('media_type', mediaData.type);
 
             // In case if it's audio or video, we need to add the duration.
@@ -569,7 +646,7 @@ const useChatStore = defineStore('mobile_chats_chat', {
                         this.upsertMessage(response.data.data);
                     }
                     else {
-                        this.inboxStore.updateChatFromMessage(response.data.data, useAuthStore().userData.id, this.chatId);
+						this.inboxStore.updateChatFromMessage(response.data.data, useAuthStore().userData.id, targetChatId);
                     }
                 }
             }).catch(function(error) {
@@ -584,7 +661,7 @@ const useChatStore = defineStore('mobile_chats_chat', {
             const durationSeconds = Math.max(1, Math.ceil(Number(audioData.duration) || 1));
             const extension = audioData.extension || 'webm';
             const fileName = audioData.name || `voice-note-${Date.now()}.${extension}`;
-            const clientUid = `audio-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            const clientUid = audioData.client_uid || createChatClientUid();
             const localMessageId = `local-${clientUid}`;
             const pendingState = buildPendingAudioLocalState({
                 stage: 'uploading',
@@ -610,6 +687,7 @@ const useChatStore = defineStore('mobile_chats_chat', {
                 const initResponse = await colibriAPI().messenger().with({
                     chat_id: targetChatId,
                     parent_id: audioData.parent_id || null,
+                    client_uid: clientUid,
                     duration_seconds: durationSeconds,
                     extension: extension,
                     mime_type: audioData.mime_type || audioData.file?.type || `audio/${extension}`,

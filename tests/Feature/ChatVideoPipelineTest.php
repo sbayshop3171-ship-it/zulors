@@ -166,10 +166,21 @@ class ChatVideoPipelineTest extends TestCase
         [$sender, $recipient, $chat] = $this->createDirectChat();
         Sanctum::actingAs($sender);
         $base = '/api/v1/chats/' . $chat->chat_id . '/media/video/direct/';
+        $clientUid = (string) Str::uuid();
+        $createPayload = [
+            'name' => 'sample.mp4', 'size' => 1024, 'duration_seconds' => 10,
+            'extension' => 'mp4', 'client_uid' => $clientUid,
+        ];
         $created = $this->postJson($base . 'create', [
-            'name' => 'sample.mp4', 'size' => 1024, 'duration_seconds' => 10, 'extension' => 'mp4',
+            ...$createPayload,
         ])->assertCreated()->assertJsonPath('data.direct_upload', true);
         $upload = $created->json('data');
+        $duplicateCreate = $this->postJson($base . 'create', $createPayload)
+            ->assertOk()
+            ->assertJsonPath('data.already_received', true);
+        $this->assertSame($upload['message']['id'], $duplicateCreate->json('data.result.message.id'));
+        $this->assertSame(1, $chat->messages()->where('client_uid', $clientUid)->count());
+        $this->postJson($base . 'create', [...$createPayload, 'name' => 'different.mp4'])->assertStatus(409);
         $payload = ['media_id' => $upload['media_id'], 'uid' => $upload['uid'],
             'upload_id' => $upload['upload_id'], 'parts' => [['part_number' => 1, 'etag' => 'test']]];
         Sanctum::actingAs($recipient);
@@ -183,6 +194,8 @@ class ChatVideoPipelineTest extends TestCase
             ->assertJsonPath('data.media.metadata.processing_state', 'queued')
             ->assertJsonPath('data.media.source_url', null);
         $this->postJson($base . 'complete', $payload)->assertOk();
+        \Illuminate\Support\Facades\Event::assertDispatchedTimes(\App\Events\User\Chat\MessageReceivedEvent::class, 1);
+        Notification::assertSentToTimes($recipient, \App\Notifications\User\Chat\MessageReceivedNotification::class, 1);
         Bus::assertDispatchedTimes(ProcessChatVideo::class, 1);
         Bus::assertNotDispatchedAfterResponse(ProcessChatVideo::class);
     }

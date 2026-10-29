@@ -125,6 +125,7 @@
     import PublicationOutbox from '@/kernel/vue/components/media/publications/PublicationOutbox.vue';
 	import { useInputHandlers } from '@/kernel/vue/composables/input/index.js';
 	import { colibriSounds } from '@/kernel/services/sounds/index.js';
+	import { createChatClientUid } from '@/kernel/helpers/chat/client-uid.js';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
     import { inferAudioExtension } from '@/kernel/helpers/media/audio/index.js';
 
@@ -158,6 +159,7 @@
                 attachments: {
                     open: false,
                 },
+				retry: null,
 			});
 
 			onMounted(() => {
@@ -200,14 +202,28 @@
                 payload.parent_id = repliedMessage.value.id;
             }
 
+			const parentId = payload.parent_id || null;
+			payload.client_uid = state.retry?.content === content && state.retry?.parent_id === parentId
+				? state.retry.client_uid
+				: createChatClientUid();
+
             state.isSubmitting = true;
             messageContent.value = '';
-            repliedMessage.value = null;
 
             preserveInputFocus(messageContentField.value, '');
             autoResize(messageContentField.value);
             colibriSounds.chatMessageSent();
-            chatStore.sendMessage(payload).catch((error) => {
+			chatStore.sendMessage(payload).then(() => {
+				state.retry = null;
+				repliedMessage.value = null;
+			}).catch((error) => {
+				state.retry = { content, parent_id: parentId, client_uid: payload.client_uid };
+				if(! messageContent.value) {
+					messageContent.value = content;
+				}
+				if(payload.parent_message) {
+					repliedMessage.value = payload.parent_message;
+				}
                 alert(error);
             }).finally(() => {
                 state.isSubmitting = false;

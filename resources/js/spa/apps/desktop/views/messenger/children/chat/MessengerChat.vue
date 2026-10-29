@@ -31,6 +31,7 @@
                                             v-on:delete="handleMessageDelete"
                                             v-on:reply="handleMessageReply"
                                             v-on:copy="handleMessageCopy"
+                                            v-on:forward="handleMessageForward"
                                             v-bind:isCompacted="isCompacted(messageIndex)"
                                         v-bind:messageData="messageData"></ChatMessage>
                                     </div>
@@ -67,6 +68,13 @@
 
         </div>
     </div>
+    <ForwardMessageDialog
+        v-bind:isOpen="Boolean(state.forwardSource)"
+        v-bind:chats="inboxStore.chatsHistory"
+        v-bind:sourceMessage="state.forwardSource"
+        v-bind:isSubmitting="state.isForwarding"
+        v-on:close="state.forwardSource = null"
+        v-on:confirm="forwardToChat"></ForwardMessageDialog>
 </template>
 
 <script>
@@ -74,6 +82,7 @@
     import { colibriSounds } from '@/kernel/services/sounds/index.js';
     import { useRoute, useRouter } from 'vue-router';
     import { useChatStore } from '@D/store/chats/chat.store.js';
+    import { useInboxStore } from '@D/store/chats/inbox.store.js';
     import { useAuthStore } from '@D/store/auth/auth.store.js';
     import { useCallStore } from '@D/store/calls/call.store.js';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
@@ -85,6 +94,7 @@
     import ChatMessageTyping from '@D/views/messenger/children/chat/parts/ChatMessageTyping.vue';
     import ChatForm from '@D/views/messenger/children/chat/parts/ChatForm.vue';
     import ChatFormLock from '@D/views/messenger/children/chat/parts/ChatFormLock.vue';
+    import ForwardMessageDialog from '@/kernel/vue/components/chat/ForwardMessageDialog.vue';
 
     import BRD from '@/kernel/websockets/brd/index.js';
 
@@ -93,11 +103,14 @@
             const state = reactive({
                 isLoading: true,
                 typing: BRD.createEmptyTypingState(),
-                realtimeReady: false
+                realtimeReady: false,
+                forwardSource: null,
+                isForwarding: false
             });
 
             const authStore = useAuthStore();
             const chatStore = useChatStore();
+            const inboxStore = useInboxStore();
             const callStore = useCallStore();
             const router = useRouter();
             const route = useRoute();
@@ -553,6 +566,33 @@
                         toastSuccess(__t('toast.chat.message_text_copied'), 1000);
                     });
                 },
+                inboxStore: inboxStore,
+                handleMessageForward: (messageData) => {
+                    if(! Number.isFinite(Number(messageData?.id)) || messageData?.meta?.local_outgoing?.pending) {
+                        return;
+                    }
+
+                    inboxStore.hydrateChatsHistoryCache();
+                    state.forwardSource = messageData;
+                    inboxStore.fetchChatsHistory().catch(() => {});
+                },
+                forwardToChat: async (destinationChatId) => {
+                    if(state.isForwarding || ! state.forwardSource) {
+                        return;
+                    }
+
+                    state.isForwarding = true;
+
+                    try {
+                        await chatStore.forwardMessage(state.forwardSource, destinationChatId);
+                        state.forwardSource = null;
+                        toastSuccess(__t('chat.message_forwarded'), 1000);
+                    } catch(error) {
+                        alert(error?.message || __t('chat.forwarding_failed'));
+                    } finally {
+                        state.isForwarding = false;
+                    }
+                },
                 handleMessageTyping: () => {
                     if(window.ColibriBRConnected) {
                         outgoingTyping.bump({
@@ -584,6 +624,7 @@
             ChatMessageTyping: ChatMessageTyping,
             ChatForm: ChatForm,
             ChatFormLock: ChatFormLock,
+            ForwardMessageDialog: ForwardMessageDialog,
         }
     });
 </script>

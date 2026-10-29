@@ -1,5 +1,5 @@
 <template>
-		<RouterLink v-on:click="handleChatClick" v-bind:to="{ name: 'messenger_chat', params: {chat_id: chatData.chat_id } }" class="flex gap-3 items-center pl-4 h-18" v-bind:class="[isSelectedChat ? 'bg-brand-900/5' : '', hasUnread ? 'bg-green-50/40' : '']">
+		<RouterLink v-on:click="handleChatClick" v-on:pointerenter="prefetchChat" v-on:focusin="prefetchChat" v-on:touchstart.passive="prefetchChat" v-bind:to="{ name: 'messenger_chat', params: {chat_id: chatData.chat_id } }" class="flex gap-3 items-center pl-4 h-18" v-bind:class="[isSelectedChat ? 'bg-brand-900/5' : '', hasUnread ? 'bg-green-50/40' : '']">
 			<div class="shrink-0 relative">
 				<AvatarNormal v-bind:avatarSrc="chatData.chat_info.avatar_url"></AvatarNormal>
 				<span v-if="presence?.is_online" class="absolute right-0 bottom-0 size-3 rounded-full bg-green-500 ring-2 ring-bg-pr"></span>
@@ -96,6 +96,9 @@
 					isTyping: computed(() => {
 	                    return state.typing.is_typing;
 	                }),
+				prefetchChat: () => {
+					chatStore.prefetchChatForRoute(chatData.value.chat_id);
+				},
 				handleChatClick: (event) => {
 					if(route.name === 'messenger_chat' && route.params.chat_id === chatData.value.chat_id) {
 						event?.preventDefault();

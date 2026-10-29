@@ -51,12 +51,13 @@ class MessageResource extends JsonResource
             ],
             'meta' => [
                 'is_deleted' => $this->is_deleted,
+                'forwarded_from' => $this->forwarded_from,
                 'permissions' => [
                     'can_edit' => true,
                     'can_delete' => true
                 ],
                 'is_translatable' => $this->isMessageTranslatable(),
-                'client_uid' => $this->client_uid ?? null,
+                'client_uid' => $this->client_uid ?? data_get($this->media?->metadata, 'client_uid'),
             ]
         ];
 

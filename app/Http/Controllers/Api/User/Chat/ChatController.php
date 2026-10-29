@@ -52,6 +52,7 @@ use App\Notifications\User\Chat\MessageReceivedNotification;
 use App\Rules\X\XRule;
 use App\Services\Reaction\ReactionService;
 use App\Services\Media\Cloudflare\R2DirectUploadService;
+use App\Services\Chat\ForwardMessageMediaService;
 use App\Services\Relations\BlockService;
 use App\Services\Relations\FollowService;
 use App\Support\Num;
@@ -60,9 +61,11 @@ use App\Traits\Http\Controllers\Api\User\Chat\WithMediaUpload;
 use Carbon\Carbon;
 use Exception;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -203,6 +206,24 @@ class ChatController extends Controller
             'upload_concurrency' => $uploadData['upload_concurrency'] ?? null,
             'expires_at' => $uploadData['expires_at'],
         ];
+    }
+
+    private function existingDirectVideoUploadResponse(Message $message)
+    {
+        $message = $this->loadMessageRealtimeRelations($message);
+
+        return $this->responseSuccess([
+            'data' => [
+                'direct_upload' => false,
+                'already_received' => true,
+                'result' => [
+                    'message' => MessageResource::make($message),
+                    'media' => $message->media
+                        ? \App\Http\Resources\User\Media\MediaResource::make($message->media)
+                        : null,
+                ],
+            ],
+        ]);
     }
 
     private function isPendingAudioMessage(?Message $messageData): bool
@@ -703,9 +724,26 @@ class ChatController extends Controller
             $chatId = $request->input('chat_id');
             $messageContent = $request->input('content');
             $parentId = $request->integer('parent_id');
+            $clientUid = $request->input('client_uid');
             $chatData = Chat::participatedChats()->where('chat_id', $chatId)->first();
 
             if($chatData) {
+                $payloadHash = filled($clientUid) ? $this->messagePayloadHash($request) : null;
+
+                if(filled($clientUid)) {
+                    $existingMessage = $this->findIdempotentMessage($chatData->id, me()->id, $clientUid);
+
+                    if($existingMessage) {
+                        if(! hash_equals((string) $existingMessage->client_payload_hash, (string) $payloadHash)) {
+                            return $this->idempotencyConflictResponse();
+                        }
+
+                        return $this->responseSuccess([
+                            'data' => MessageResource::make($this->loadMessageRealtimeRelations($existingMessage))
+                        ]);
+                    }
+                }
+
                 $participantData = $chatData->participants()->where('user_id', me()->id)->first();
                 $otherParticipants = $chatData->participants()->whereNot('user_id', me()->id)->get();
                 $messageContentLanguage = '';
@@ -719,7 +757,9 @@ class ChatController extends Controller
                     'user_id' => me()->id,
                     'chat_uuid' => $chatId,
                     'participant_id' => $participantData->id,
-                    'text_language' => $messageContentLanguage
+                    'text_language' => $messageContentLanguage,
+                    'client_uid' => filled($clientUid) ? $clientUid : null,
+                    'client_payload_hash' => $payloadHash,
                 ];
 
                 if($request->input('message_type') === MessageType::LOCATION->value) {
@@ -736,7 +776,25 @@ class ChatController extends Controller
                     $messageInsertData['parent_id'] = $parentId;
                 }
 
-                $messageData = $chatData->messages()->create($messageInsertData);
+                try {
+                    $messageData = $chatData->messages()->create($messageInsertData);
+                } catch (QueryException $exception) {
+                    $existingMessage = filled($clientUid)
+                        ? $this->findIdempotentMessage($chatData->id, me()->id, $clientUid)
+                        : null;
+
+                    if(! $existingMessage) {
+                        throw $exception;
+                    }
+
+                    if(! hash_equals((string) $existingMessage->client_payload_hash, (string) $payloadHash)) {
+                        return $this->idempotencyConflictResponse();
+                    }
+
+                    return $this->responseSuccess([
+                        'data' => MessageResource::make($this->loadMessageRealtimeRelations($existingMessage))
+                    ]);
+                }
 
                 $participantData->update([
                     'last_read_message_id' => $messageData->id,
@@ -755,8 +813,6 @@ class ChatController extends Controller
                 }
 
                 $messageData = $this->loadMessageRealtimeRelations($messageData);
-                $clientUid = $request->input('client_uid');
-
                 if(! empty($clientUid)) {
                     $messageData->setAttribute('client_uid', $clientUid);
                 }
@@ -796,6 +852,183 @@ class ChatController extends Controller
         }
     }
 
+    public function forwardMessage(Request $request, int $messageId, ForwardMessageMediaService $mediaForwarder)
+    {
+        $validator = Validator::make($request->all(), [
+            'destination_chat_id' => ['required', 'uuid'],
+            'client_uid' => ['required', 'uuid'],
+        ]);
+
+        if(! $validator->passes()) {
+            return $this->throwValidationError($validator);
+        }
+
+        $destinationChatId = $request->string('destination_chat_id')->toString();
+        $destinationChat = Chat::participatedChats()->where('chat_id', $destinationChatId)->first();
+
+        if(! $destinationChat) {
+            return $this->responseResourceNotFoundError('Chat', $destinationChatId);
+        }
+
+        $clientUid = $request->string('client_uid')->toString();
+        $payloadHash = hash('sha256', json_encode([
+            'source_message_id' => $messageId,
+            'destination_chat_id' => $destinationChatId,
+        ], JSON_THROW_ON_ERROR));
+        $existingMessage = $this->findIdempotentMessage($destinationChat->id, me()->id, $clientUid);
+
+        if($existingMessage) {
+            if(! hash_equals((string) $existingMessage->client_payload_hash, $payloadHash)) {
+                return $this->idempotencyConflictResponse();
+            }
+
+            return $this->responseSuccess([
+                'data' => MessageResource::make($this->loadMessageRealtimeRelations($existingMessage))
+            ]);
+        }
+
+        $sourceMessage = Message::query()
+            ->whereKey($messageId)
+            ->where('is_deleted', false)
+            ->whereHas('chat.participants', function ($query): void {
+                $query->where('user_id', me()->id);
+            })
+            ->with(['media', 'linkSnapshot', 'user:id,first_name,last_name,username,avatar,verified'])
+            ->first();
+
+        if(! $sourceMessage) {
+            return $this->responseResourceNotFoundError('Message', $messageId);
+        }
+
+        if($sourceMessage->type->isCall()) {
+            return $this->responseError([
+                'message' => 'This message cannot be forwarded.',
+                'errors' => ['message' => 'Call messages cannot be forwarded.'],
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        if($sourceMessage->media && (! $sourceMessage->media->status->isProcessed() || blank($sourceMessage->media->source_path))) {
+            return $this->responseError([
+                'message' => 'This media is still processing.',
+                'errors' => ['media' => 'Wait until media processing has finished before forwarding.'],
+            ], Response::HTTP_CONFLICT);
+        }
+
+        $destinationParticipant = $destinationChat->participants()->where('user_id', me()->id)->first();
+        $otherParticipants = $destinationChat->participants()->whereNot('user_id', me()->id)->with('user')->get();
+        $sourceUser = $sourceMessage->user;
+        $forwardedFrom = [
+            'message_id' => (int) $sourceMessage->id,
+            'user' => [
+                'id' => $sourceUser?->id,
+                'name' => $sourceUser?->name ?: 'Deleted account',
+                'username' => $sourceUser?->username,
+                'avatar_url' => $sourceUser?->avatar_url,
+                'verified' => (bool) $sourceUser?->verified,
+            ],
+        ];
+
+        try {
+            $forwardedMessage = DB::transaction(function () use (
+                $destinationChat,
+                $destinationParticipant,
+                $sourceMessage,
+                $forwardedFrom,
+                $clientUid,
+                $payloadHash,
+                $mediaForwarder
+            ): Message {
+                $message = $destinationChat->messages()->create([
+                    'chat_uuid' => $destinationChat->chat_id,
+                    'user_id' => me()->id,
+                    'participant_id' => $destinationParticipant->id,
+                    'content' => $sourceMessage->content,
+                    'text_language' => $sourceMessage->text_language,
+                    'type' => $sourceMessage->type,
+                    'client_uid' => $clientUid,
+                    'client_payload_hash' => $payloadHash,
+                    'forwarded_from' => $forwardedFrom,
+                ]);
+
+                $mediaForwarder->attach($sourceMessage, $message);
+
+                if($sourceMessage->linkSnapshot) {
+                    $message->linkSnapshot()->create([
+                        'url' => $sourceMessage->linkSnapshot->url,
+                        'domain' => $sourceMessage->linkSnapshot->domain,
+                        'title' => $sourceMessage->linkSnapshot->title,
+                        'description' => $sourceMessage->linkSnapshot->description,
+                        'metadata' => $sourceMessage->linkSnapshot->metadata,
+                        'expires_at' => $sourceMessage->linkSnapshot->expires_at,
+                    ]);
+                }
+
+                $destinationParticipant->update([
+                    'last_read_message_id' => $message->id,
+                    'last_read_at' => now(),
+                ]);
+
+                $this->touchChatAfterMessage($destinationChat);
+
+                return $this->loadMessageRealtimeRelations($message);
+            });
+        } catch (QueryException $exception) {
+            $existingMessage = $this->findIdempotentMessage($destinationChat->id, me()->id, $clientUid);
+
+            if(! $existingMessage) {
+                throw $exception;
+            }
+
+            if(! hash_equals((string) $existingMessage->client_payload_hash, $payloadHash)) {
+                return $this->idempotencyConflictResponse();
+            }
+
+            return $this->responseSuccess([
+                'data' => MessageResource::make($this->loadMessageRealtimeRelations($existingMessage))
+            ]);
+        }
+
+        $this->notifyChatParticipants($forwardedMessage, $otherParticipants);
+
+        return $this->responseSuccess([
+            'data' => MessageResource::make($forwardedMessage)
+        ]);
+    }
+
+    private function findIdempotentMessage(int $chatId, int $userId, string $clientUid): ?Message
+    {
+        return Message::query()
+            ->where('chat_id', $chatId)
+            ->where('user_id', $userId)
+            ->where('client_uid', $clientUid)
+            ->first();
+    }
+
+    private function messagePayloadHash(Request $request): string
+    {
+        $media = $request->file('media');
+        $mediaHash = $media && $media->getRealPath() && is_file($media->getRealPath())
+            ? hash_file('sha256', $media->getRealPath())
+            : null;
+
+        return hash('sha256', json_encode([
+            'content' => (string) $request->input('content', ''),
+            'parent_id' => $request->integer('parent_id') ?: null,
+            'media_type' => $request->input('media_type'),
+            'media_hash' => $mediaHash,
+            'media_duration' => $request->input('media_duration'),
+            'message_type' => $request->input('message_type'),
+        ], JSON_THROW_ON_ERROR));
+    }
+
+    private function idempotencyConflictResponse()
+    {
+        return $this->responseError([
+            'message' => 'This message send key has already been used for different content.',
+            'errors' => ['client_uid' => 'A new client_uid is required for a different message.'],
+        ], Response::HTTP_CONFLICT);
+    }
+
     public function createDirectVideoUpload(Request $request, string $chatId, R2DirectUploadService $r2DirectUploadService)
     {
         $this->requireDirectVideoService($r2DirectUploadService);
@@ -826,6 +1059,30 @@ class ChatController extends Controller
             return $this->responseResourceNotFoundError('Chat', $chatId);
         }
 
+        $clientUid = $request->input('client_uid');
+        $payloadHash = filled($clientUid) ? hash('sha256', json_encode([
+            'parent_id' => $request->integer('parent_id') ?: null,
+            'name' => (string) $request->input('name'),
+            'size' => $request->integer('size', 0),
+            'mime' => (string) $request->input('mime', 'video/mp4'),
+            'extension' => (string) $request->input('extension', 'mp4'),
+            'duration_seconds' => $request->integer('duration_seconds'),
+            'width' => $request->integer('width') ?: null,
+            'height' => $request->integer('height') ?: null,
+        ], JSON_THROW_ON_ERROR)) : null;
+
+        if(filled($clientUid)) {
+            $existingMessage = $this->findIdempotentMessage($chatData->id, me()->id, $clientUid);
+
+            if($existingMessage) {
+                if(! hash_equals((string) $existingMessage->client_payload_hash, (string) $payloadHash)) {
+                    return $this->idempotencyConflictResponse();
+                }
+
+                return $this->existingDirectVideoUploadResponse($existingMessage);
+            }
+        }
+
         $parentId = $request->integer('parent_id');
 
         if($parentId && ! $chatData->messages()->where('id', $parentId)->exists()) {
@@ -841,15 +1098,33 @@ class ChatController extends Controller
                 'extension' => (string) $request->input('extension', 'mp4'),
             ]);
 
-            $messageData = $chatData->messages()->create([
-                'content' => null,
-                'user_id' => me()->id,
-                'chat_uuid' => $chatId,
-                'participant_id' => $participantData->id,
-                'parent_id' => $parentId ?: null,
-                'text_language' => '',
-                'type' => MessageType::VIDEO,
-            ]);
+            try {
+                $messageData = $chatData->messages()->create([
+                    'content' => null,
+                    'user_id' => me()->id,
+                    'chat_uuid' => $chatId,
+                    'participant_id' => $participantData->id,
+                    'parent_id' => $parentId ?: null,
+                    'text_language' => '',
+                    'type' => MessageType::VIDEO,
+                    'client_uid' => filled($clientUid) ? $clientUid : null,
+                    'client_payload_hash' => $payloadHash,
+                ]);
+            } catch (QueryException $exception) {
+                $existingMessage = filled($clientUid)
+                    ? $this->findIdempotentMessage($chatData->id, me()->id, $clientUid)
+                    : null;
+
+                if(! $existingMessage) {
+                    throw $exception;
+                }
+
+                if(! hash_equals((string) $existingMessage->client_payload_hash, (string) $payloadHash)) {
+                    return $this->idempotencyConflictResponse();
+                }
+
+                return $this->existingDirectVideoUploadResponse($existingMessage);
+            }
 
             $participantData->update([
                 'last_read_message_id' => $messageData->id,
@@ -1029,23 +1304,65 @@ class ChatController extends Controller
             ]);
         }
 
-        $metadata = array_merge($metadata, [
-            'upload_state' => 'uploaded',
-            'upload_progress' => 100,
-            'upload_completed_at' => now()->toIso8601String(),
-            'processing_progress' => max(1, (int) data_get($metadata, 'processing_progress', 0)),
-            'processing_state' => 'queued',
-            'processing_dispatched_at' => now()->toIso8601String(),
-            'processing_updated_at' => now()->toIso8601String(),
-            'original_size' => (int) ($media->size ?: data_get($metadata, 'original_size', 0)),
-        ]);
+        $completion = DB::transaction(function () use ($media): ?array {
+            $lockedMedia = $media->newQuery()
+                ->whereKey($media->getKey())
+                ->lockForUpdate()
+                ->first();
 
-        $media->metadata = $metadata;
-        $media->status = MediaStatus::PROCESSING;
-        $media->save();
+            if(! $lockedMedia) {
+                return null;
+            }
 
-        $messageData = $this->loadMessageRealtimeRelations($media->mediaable->fresh());
+            $metadata = $lockedMedia->metadata ?? [];
+
+            if(data_get($metadata, 'upload_state') === 'uploaded' || $lockedMedia->status->isProcessed()) {
+                return [
+                    'should_dispatch' => false,
+                    'media' => $lockedMedia,
+                    'message' => $this->loadMessageRealtimeRelations($lockedMedia->mediaable->fresh()),
+                ];
+            }
+
+            $metadata = array_merge($metadata, [
+                'upload_state' => 'uploaded',
+                'upload_progress' => 100,
+                'upload_completed_at' => now()->toIso8601String(),
+                'processing_progress' => max(1, (int) data_get($metadata, 'processing_progress', 0)),
+                'processing_state' => 'queued',
+                'processing_dispatched_at' => now()->toIso8601String(),
+                'processing_updated_at' => now()->toIso8601String(),
+                'original_size' => (int) ($lockedMedia->size ?: data_get($metadata, 'original_size', 0)),
+            ]);
+
+            $lockedMedia->metadata = $metadata;
+            $lockedMedia->status = MediaStatus::PROCESSING;
+            $lockedMedia->save();
+
+            return [
+                'should_dispatch' => true,
+                'media' => $lockedMedia->refresh(),
+                'message' => $this->loadMessageRealtimeRelations($lockedMedia->mediaable->fresh()),
+            ];
+        });
+
+        if(! $completion) {
+            return $this->responseNotFoundError();
+        }
+
+        $media = $completion['media'];
+        $messageData = $completion['message'];
+        $metadata = $media->metadata ?? [];
         $clientUid = (string) data_get($metadata, 'client_uid', $request->input('client_uid'));
+
+        if(! $completion['should_dispatch']) {
+            return $this->responseSuccess([
+                'data' => [
+                    'message' => MessageResource::make($messageData),
+                    'media' => \App\Http\Resources\User\Media\MediaResource::make($media),
+                ],
+            ]);
+        }
 
         ProcessChatVideo::dispatch($messageData)->onQueue(config('media.queues.video_high'));
 
@@ -1082,6 +1399,7 @@ class ChatController extends Controller
         $validator = Validator::make([
             'chat_id' => $request->input('chat_id'),
             'parent_id' => $request->input('parent_id'),
+            'client_uid' => $request->input('client_uid'),
             'duration_seconds' => $request->input('duration_seconds'),
             'extension' => $request->input('extension'),
             'mime_type' => $request->input('mime_type'),
@@ -1089,6 +1407,7 @@ class ChatController extends Controller
         ], [
             'chat_id' => ['required', 'uuid'],
             'parent_id' => ['nullable', 'integer'],
+            'client_uid' => ['nullable', 'string', 'max:100'],
             'duration_seconds' => ['required', 'integer', 'min:1', 'max:120'],
             'extension' => ['required', 'string', Rule::in(['m4a', 'mp4', 'mp3', 'mpeg', 'wav', 'wave', 'aac', 'ogg', 'webm'])],
             'mime_type' => ['required', 'string', 'max:120'],
@@ -1107,6 +1426,29 @@ class ChatController extends Controller
             return $this->responseResourceNotFoundError('Chat', $chatId);
         }
 
+        $clientUid = $request->input('client_uid');
+        $payloadHash = filled($clientUid) ? hash('sha256', json_encode([
+            'parent_id' => $request->integer('parent_id') ?: null,
+            'duration_seconds' => $request->integer('duration_seconds'),
+            'extension' => $request->input('extension'),
+            'mime_type' => $request->input('mime_type'),
+            'file_name' => $request->input('file_name'),
+        ], JSON_THROW_ON_ERROR)) : null;
+
+        if(filled($clientUid)) {
+            $existingMessage = $this->findIdempotentMessage($chatData->id, me()->id, $clientUid);
+
+            if($existingMessage) {
+                if(! hash_equals((string) $existingMessage->client_payload_hash, (string) $payloadHash)) {
+                    return $this->idempotencyConflictResponse();
+                }
+
+                return $this->responseSuccess([
+                    'data' => MessageResource::make($this->loadMessageRealtimeRelations($existingMessage))
+                ]);
+            }
+        }
+
         $participantData = $chatData->participants()->where('user_id', me()->id)->first();
         $otherParticipants = $chatData->participants()->whereNot('user_id', me()->id)->get();
 
@@ -1117,6 +1459,8 @@ class ChatController extends Controller
             'participant_id' => $participantData->id,
             'text_language' => '',
             'type' => MessageType::AUDIO,
+            'client_uid' => filled($clientUid) ? $clientUid : null,
+            'client_payload_hash' => $payloadHash,
         ];
 
         if($parentId) {
@@ -1129,7 +1473,25 @@ class ChatController extends Controller
             $messageInsertData['parent_id'] = $parentId;
         }
 
-        $messageData = $chatData->messages()->create($messageInsertData);
+        try {
+            $messageData = $chatData->messages()->create($messageInsertData);
+        } catch (QueryException $exception) {
+            $existingMessage = filled($clientUid)
+                ? $this->findIdempotentMessage($chatData->id, me()->id, $clientUid)
+                : null;
+
+            if(! $existingMessage) {
+                throw $exception;
+            }
+
+            if(! hash_equals((string) $existingMessage->client_payload_hash, (string) $payloadHash)) {
+                return $this->idempotencyConflictResponse();
+            }
+
+            return $this->responseSuccess([
+                'data' => MessageResource::make($this->loadMessageRealtimeRelations($existingMessage))
+            ]);
+        }
 
         $participantData->update([
             'last_read_message_id' => $messageData->id,

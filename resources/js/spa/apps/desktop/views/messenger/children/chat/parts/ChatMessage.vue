@@ -1,5 +1,5 @@
 <template>
-	<div v-on:dblclick.stop="replyToMessage" v-bind:title="$t('chat.double_click_to_reply')" class="group px-4 sm:px-6" v-bind:class="[displayMessageControls ? 'bg-brand-900/5' : 'hover:bg-fill-fv', isCompacted ? 'py-0.5' : 'py-1.5']" v-on:contextmenu.prevent="toggleMainDropdown">
+	<div data-testid="chat-message" v-on:dblclick.stop="replyToMessage" v-bind:title="$t('chat.double_click_to_reply')" class="group px-4 sm:px-6" v-bind:class="[displayMessageControls ? 'bg-brand-900/5' : 'focus-within:bg-fill-fv', isCompacted ? 'py-0.5' : 'py-1.5']" v-on:contextmenu.prevent="toggleMainDropdown">
 		<div class="flex items-end gap-2" v-bind:class="[isSender ? 'justify-end' : 'justify-start']">
 			<div v-if="! isSender" class="shrink-0 w-small-avatar">
 				<AvatarSmall v-if="! isCompacted" v-bind:avatarSrc="messageUser.avatar_url"></AvatarSmall>
@@ -13,6 +13,9 @@
 				</div>
 
 				<div class="overflow-hidden rounded-2xl" v-bind:class="[isSender ? 'bg-brand-900 text-white rounded-br-md' : 'bg-fill-qt border border-bord-pr rounded-bl-md', hasMedia || hasLinkSnapshot || isLocationMessage ? 'p-1' : 'px-3 py-2']">
+					<div v-if="messageData.meta?.forwarded_from?.user" class="mb-1 px-1 text-cap-m font-medium" v-bind:class="[isSender ? 'text-white/75' : 'text-lab-sc']">
+						{{ $t('chat.forwarded_from', { name: messageData.meta.forwarded_from.user.name }) }}
+					</div>
 					<template v-if="messageData.has_parent">
 						<div class="mb-1">
 							<ChatMessageReply v-bind:replyData="replyData"></ChatMessageReply>
@@ -108,7 +111,7 @@
 				</div>
 			</div>
 
-			<div v-if="isNotDeleted" class="shrink-0 inline-flex items-center leading-none self-center" v-bind:class="[isSender ? 'order-first' : '']">
+			<div v-if="isNotDeleted" class="shrink-0 inline-flex items-center leading-none self-center transition-opacity" v-bind:class="[isSender ? 'order-first' : '', displayMessageControls ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto']">
 				<div class="inline-flex items-center" v-bind:class="[displayMessageControls ? 'visible' : 'invisible group-hover:visible']">
 					<div class="shrink-0 transform -scale-x-100">
 						<PrimaryIconButton v-on:click.stop="replyToMessage" iconName="share-06" iconSize="icon-small" iconType="line"></PrimaryIconButton>
@@ -125,7 +128,7 @@
 						</PrimaryTransition>
 					</div>
 				</div>
-				<div class="shrink-0 relative">
+				<div data-testid="message-actions-dropdown" class="shrink-0 relative">
 					<div class="opacity-80 hover:opacity-100">
 						<DropdownButton v-on:click.stop="toggleMainDropdown"></DropdownButton>
 					</div>
@@ -141,6 +144,7 @@
 
 							<DropdownMenuItem v-on:click="replyToMessage" iconName="pencil-line" v-bind:textLabel="$t('dd.message.reply', { name: messageUser.name })"></DropdownMenuItem>
 							<DropdownMenuItem v-on:click="copyMessageText" iconName="type-01" v-bind:textLabel="$t('dd.copy_text')"></DropdownMenuItem>
+							<DropdownMenuItem v-on:click="forwardMessage" iconName="share-06" v-bind:textLabel="$t('chat.forward_message')"></DropdownMenuItem>
 							<Border/>
 							<DropdownMenuItem v-on:click="deleteMessage" itemColor="text-red-900" iconName="trash-04" v-bind:textLabel="$t('dd.message.delete_message')"></DropdownMenuItem>
 						</DropdownMenu>
@@ -184,7 +188,7 @@
 				required: true
 			}
 		},
-		emits: ['delete', 'reply', 'copy'],
+		emits: ['delete', 'reply', 'copy', 'forward'],
 		setup: function (props, context) {
 			const state = reactive({
 				isDropdownOpen: false,
@@ -306,6 +310,9 @@
 				},
 				copyMessageText: () => {
 					context.emit('copy', messageData.value);
+				},
+				forwardMessage: () => {
+					context.emit('forward', messageData.value);
 				},
 				isMessageSeen: computed(() => {
 					if(! isSender.value || ! chatStore.otherParticipants?.length) {

@@ -78,6 +78,38 @@ jobs:
       - name: Laravel boot check
         run: php artisan about
 
+      - name: Check isolated Messenger staging test configuration
+        id: messenger_staging
+        env:
+          MESSENGER_STAGING_URL: ${{ secrets.MESSENGER_STAGING_URL }}
+          MESSENGER_STAGING_USER: ${{ secrets.MESSENGER_STAGING_USER }}
+          MESSENGER_STAGING_PASSWORD: ${{ secrets.MESSENGER_STAGING_PASSWORD }}
+          MESSENGER_STAGING_SOURCE_CHAT_ID: ${{ secrets.MESSENGER_STAGING_SOURCE_CHAT_ID }}
+          MESSENGER_STAGING_DESTINATION_CHAT_ID: ${{ secrets.MESSENGER_STAGING_DESTINATION_CHAT_ID }}
+          MESSENGER_STAGING_DESTINATION_CHAT_NAME: ${{ secrets.MESSENGER_STAGING_DESTINATION_CHAT_NAME }}
+        run: |
+          if [ -n "$MESSENGER_STAGING_URL" ] && [ -n "$MESSENGER_STAGING_USER" ] && [ -n "$MESSENGER_STAGING_PASSWORD" ] && [ -n "$MESSENGER_STAGING_SOURCE_CHAT_ID" ] && [ -n "$MESSENGER_STAGING_DESTINATION_CHAT_ID" ] && [ -n "$MESSENGER_STAGING_DESTINATION_CHAT_NAME" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Isolated Messenger staging secrets are not configured; browser tests are skipped."
+          fi
+
+      - name: Install Chromium for staging Messenger checks
+        if: steps.messenger_staging.outputs.ready == 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Run staging Messenger browser checks
+        if: steps.messenger_staging.outputs.ready == 'true'
+        env:
+          MESSENGER_E2E_BASE_URL: ${{ secrets.MESSENGER_STAGING_URL }}
+          MESSENGER_E2E_USER: ${{ secrets.MESSENGER_STAGING_USER }}
+          MESSENGER_E2E_PASSWORD: ${{ secrets.MESSENGER_STAGING_PASSWORD }}
+          MESSENGER_E2E_SOURCE_CHAT_ID: ${{ secrets.MESSENGER_STAGING_SOURCE_CHAT_ID }}
+          MESSENGER_E2E_DESTINATION_CHAT_ID: ${{ secrets.MESSENGER_STAGING_DESTINATION_CHAT_ID }}
+          MESSENGER_E2E_DESTINATION_CHAT_NAME: ${{ secrets.MESSENGER_STAGING_DESTINATION_CHAT_NAME }}
+        run: npm run test:e2e
+
   deploy:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.deploy_live == true
     name: Deploy Live

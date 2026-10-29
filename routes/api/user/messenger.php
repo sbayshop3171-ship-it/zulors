@@ -63,6 +63,7 @@ Route::post('/audio/init', [App\Http\Controllers\Api\User\Chat\ChatController::c
 Route::post('/audio/{messageId}/upload', [App\Http\Controllers\Api\User\Chat\ChatController::class, 'uploadAudioMessage']);
 Route::post('/audio/{messageId}/fail', [App\Http\Controllers\Api\User\Chat\ChatController::class, 'failAudioMessage']);
 Route::post('/send', [App\Http\Controllers\Api\User\Chat\ChatController::class, 'sendMessage']);
+Route::post('/chat/message/{messageId}/forward', [App\Http\Controllers\Api\User\Chat\ChatController::class, 'forwardMessage']);
 Route::get('/chat/{chatId}', [App\Http\Controllers\Api\User\Chat\ChatController::class, 'getChatData']);
 Route::post('/chat/message/add-reaction', [App\Http\Controllers\Api\User\Chat\ChatController::class, 'addReaction']);
 Route::delete('/chat/message/delete', [App\Http\Controllers\Api\User\Chat\ChatController::class, 'deleteMessage']);

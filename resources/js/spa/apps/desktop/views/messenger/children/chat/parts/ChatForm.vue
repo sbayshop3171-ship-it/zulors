@@ -88,6 +88,7 @@
     import PublicationOutbox from '@/kernel/vue/components/media/publications/PublicationOutbox.vue';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { colibriSounds } from '@/kernel/services/sounds/index.js';
+	import { createChatClientUid } from '@/kernel/helpers/chat/client-uid.js';
 
 	import MessageReplyPreview from '@D/views/messenger/children/chat/parts/form/MessageReplyPreview.vue';
     import IconButton from '@D/views/messenger/children/chat/parts/ui/IconButton.vue';
@@ -118,6 +119,7 @@
                 attachments: {
                     open: false,
                 },
+				retry: null,
 			});
 
             const messageInputHandler = function() {
@@ -136,19 +138,16 @@
 				});
 			});
 
-            const sendMessage = function(payload = null) {
+            const sendMessage = async function(payload = null) {
                 if(payload !== null) {
 					if(repliedMessage.value) {
 						payload.parent_id = repliedMessage.value.id;
 						payload.parent_message = repliedMessage.value;
 					}
 
-					state.isSubmitting = false;
+					await chatStore.sendMessage(payload);
 					repliedMessage.value = null;
 					colibriSounds.chatMessageSent();
-					chatStore.sendMessage(payload).catch((error) => {
-						alert(error);
-					});
                 }
             }
 
@@ -168,10 +167,28 @@
 					else{
 						event.preventDefault();
 						state.isEmojisPickerOpen = false;
+						const submittedText = inputMessageText.value;
+						if(! submittedText) {
+							return;
+						}
+						const parentId = repliedMessage.value?.id || null;
+						const clientUid = state.retry?.content === submittedText && state.retry?.parent_id === parentId
+							? state.retry.client_uid
+							: createChatClientUid();
+						state.isSubmitting = true;
 
-                        sendMessage({
-                            content: inputMessageText.value,
-                        });
+						sendMessage({ content: submittedText, client_uid: clientUid })
+							.then(() => { state.retry = null; })
+							.catch((error) => {
+								state.retry = { content: submittedText, parent_id: parentId, client_uid: clientUid };
+								if(! inputMessageText.value) {
+									inputMessageText.value = submittedText;
+								}
+								alert(error?.message || error);
+							})
+							.finally(() => {
+								state.isSubmitting = false;
+							});
 
                         preserveInputFocus(messageInputField.value, '');
                         autoResize(messageInputField.value);
@@ -374,14 +391,15 @@
                     const longitude = position.coords.longitude;
 
                     try {
-                        await sendMessage({
+						await sendMessage({
                             content: `https://www.google.com/maps?q=${latitude},${longitude}`,
                             message_type: 'location',
                         });
                     }
                     catch(error) {
-                        state.isSubmitting = false;
                         alert(error);
+					} finally {
+						state.isSubmitting = false;
                     }
                 }, (error) => {
                     state.isSubmitting = false;

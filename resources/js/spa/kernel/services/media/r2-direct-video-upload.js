@@ -75,7 +75,7 @@ export async function uploadR2DirectVideo(upload, file, onProgress = () => {}) {
 export async function directVideoUpload({ file, options, request, onProgress, onCreated }) {
     const response = await request('create', await directVideoMetadata(file, options));
     const upload = response.data.data;
-    if(! upload.direct_upload) return null;
+    if(! upload.direct_upload) return upload.already_received ? upload.result : null;
     const identity = { media_id: upload.media_id || upload.id || upload.media?.id, uid: upload.uid };
     onCreated?.(upload);
     let pendingProgress = Promise.resolve();

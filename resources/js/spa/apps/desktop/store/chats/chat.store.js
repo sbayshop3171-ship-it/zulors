@@ -15,9 +15,11 @@ import {
 	findPendingOutgoingMessageIndex,
 } from '@/kernel/helpers/chat/pending-outgoing-message.js';
 import { readMessengerCache, writeMessengerCache } from '@/kernel/services/cache/messenger-cache.js';
+import { createChatClientUid } from '@/kernel/helpers/chat/client-uid.js';
 
 const CHAT_CACHE_TTL = 1000 * 60 * 60 * 24;
 const MESSAGE_PAGE_SIZE = 30;
+const messengerPrefetchRequests = new Map();
 
 function viewerChatCacheScope() {
 	const viewerId = useAuthStore().userData?.id;
@@ -201,6 +203,46 @@ const useChatStore = defineStore('chats_chat', {
 			}
 
 			return hasCachedChat || Boolean(primeChatData?.chat_id === chatId);
+		},
+		prefetchChatForRoute: function(chatId) {
+			this.ensureViewerScope();
+			const cacheScope = viewerChatCacheScope();
+
+			if(! chatId || ! cacheScope) {
+				return Promise.resolve(false);
+			}
+
+			const cachedChat = readMessengerCache(cacheScope, `${chatId}:data`, null, CHAT_CACHE_TTL);
+			const cachedMessages = readMessengerCache(cacheScope, `${chatId}:messages`, null, CHAT_CACHE_TTL);
+
+			if(cachedChat?.data && cachedMessages?.data) {
+				return Promise.resolve(true);
+			}
+
+			const requestKey = `${cacheScope}:${chatId}`;
+
+			if(messengerPrefetchRequests.has(requestKey)) {
+				return messengerPrefetchRequests.get(requestKey);
+			}
+
+			const request = Promise.all([
+				colibriAPI().messenger().getFrom(`chat/${chatId}`),
+				colibriAPI().messenger().params({ limit: MESSAGE_PAGE_SIZE }).getFrom(`chat/${chatId}/messages`),
+			]).then(([chatResponse, messagesResponse]) => {
+				writeMessengerCache(cacheScope, `${chatId}:data`, chatResponse.data.data);
+				writeMessengerCache(cacheScope, `${chatId}:messages`, {
+					messages: messagesResponse.data.data || [],
+					pagination: messagesResponse.data.meta?.pagination || createMessagesPagination(),
+				});
+
+				return true;
+			}).catch(() => false).finally(() => {
+				messengerPrefetchRequests.delete(requestKey);
+			});
+
+			messengerPrefetchRequests.set(requestKey, request);
+
+			return request;
 		},
 		hydrateChatCache: function(chatId = this.chatId, options = {}) {
 			this.ensureViewerScope();
@@ -438,7 +480,7 @@ const useChatStore = defineStore('chats_chat', {
 		},
 		sendMessage: async function(messageData = {}) {
 			const targetChatId = this.chatId;
-			const clientUid = messageData.client_uid || `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+			const clientUid = messageData.client_uid || createChatClientUid();
 			const optimisticMessage = createOptimisticOutgoingMessage({
 				chatId: targetChatId,
 				userData: useAuthStore().userData || {},
@@ -463,7 +505,7 @@ const useChatStore = defineStore('chats_chat', {
 						this.upsertMessage(response.data.data);
 					}
 					else {
-						this.inboxStore.updateChatFromMessage(response.data.data, useAuthStore().userData.id, this.chatId);
+						this.inboxStore.updateChatFromMessage(response.data.data, useAuthStore().userData.id, targetChatId);
 					}
 				}
 			}
@@ -479,7 +521,42 @@ const useChatStore = defineStore('chats_chat', {
 				throw error;
 			}
 		},
+		forwardMessage: async function(sourceMessage, destinationChatId) {
+			if(! sourceMessage?.id || ! destinationChatId) {
+				throw new Error('Choose a valid message and destination conversation.');
+			}
+
+			const targetChatId = destinationChatId;
+			const clientUid = createChatClientUid();
+
+			try {
+				const response = await colibriAPI().messenger().with({
+					destination_chat_id: targetChatId,
+					client_uid: clientUid,
+				}).sendTo(`chat/message/${sourceMessage.id}/forward`);
+				const forwardedMessage = response.data.data;
+
+				if(this.chatId === targetChatId) {
+					this.upsertMessage(forwardedMessage);
+				} else {
+					this.inboxStore.updateChatFromMessage(
+						forwardedMessage,
+						useAuthStore().userData.id,
+						this.inboxStore.activeChatId
+					);
+				}
+
+				return forwardedMessage;
+			} catch(error) {
+				if(error.response) {
+					throw new Error(error.response.data.message);
+				}
+
+				throw error;
+			}
+		},
         sendMediaMessage: async function(mediaData) {
+            const clientUid = mediaData.client_uid || createChatClientUid();
             if(mediaData.type === 'video') {
                 const targetChatId = this.chatId;
                 const updateMessage = message => {
@@ -491,6 +568,7 @@ const useChatStore = defineStore('chats_chat', {
                     const result = await directVideoUpload({
                         file: mediaData.file,
                         options: {
+                            client_uid: clientUid,
                             name: mediaData.name,
                             extension: mediaData.extension,
                             duration: mediaData.duration,
@@ -520,6 +598,7 @@ const useChatStore = defineStore('chats_chat', {
             const targetChatId = this.chatId;
 
             formData.append('chat_id', targetChatId);
+            formData.append('client_uid', clientUid);
             formData.append('media_type', mediaData.type);
 
             // In case if it's audio or video, we need to add the duration.
@@ -556,7 +635,7 @@ const useChatStore = defineStore('chats_chat', {
             const durationSeconds = Math.max(1, Math.ceil(Number(audioData.duration) || 1));
             const extension = audioData.extension || 'webm';
             const fileName = audioData.name || `voice-note-${Date.now()}.${extension}`;
-            const clientUid = `audio-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+            const clientUid = audioData.client_uid || createChatClientUid();
             const localMessageId = `local-${clientUid}`;
             const pendingState = buildPendingAudioLocalState({
                 stage: 'uploading',
@@ -582,6 +661,7 @@ const useChatStore = defineStore('chats_chat', {
                 const initResponse = await colibriAPI().messenger().with({
                     chat_id: targetChatId,
                     parent_id: audioData.parent_id || null,
+                    client_uid: clientUid,
                     duration_seconds: durationSeconds,
                     extension: extension,
                     mime_type: audioData.mime_type || audioData.file?.type || `audio/${extension}`,

@@ -1,5 +1,5 @@
 <template>
-	<div class="px-4 py-0.5" v-on:dblclick.stop="reply" v-bind:title="$t('chat.double_click_to_reply')">
+	<div data-testid="chat-message" class="px-4 py-0.5" v-on:dblclick.stop="reply" v-bind:title="$t('chat.double_click_to_reply')">
 		<div class="flex-1 group">
 			<div class="flex gap-2.5 items-end" v-bind:class="{ 'flex-row-reverse': isSender }">
 				<div v-if="! isSender" class="shrink-0">
@@ -71,6 +71,9 @@
 								</div>
 							</template>
 							<div class="px-1">
+								<p v-if="messageData.meta?.forwarded_from?.user" class="mb-1 text-cap-m font-medium" v-bind:class="[isSender ? 'text-white/75' : 'text-lab-sc']">
+									{{ $t('chat.forwarded_from', { name: messageData.meta.forwarded_from.user.name }) }}
+								</p>
 								<p class="text-par-l break-words" v-bind:class="[isSender ? 'text-white' : 'text-lab-pr']">
 									<template v-if="isNotDeleted && messageData.content && ! isLocationMessage">
 										<span v-html="$mdInline(messageData.content)"></span>
@@ -94,7 +97,7 @@
 						</div>
 					</div>
 				</div>
-				<div v-if="isNotDeleted" class="shrink-0 w-x-small-avatar self-center">
+				<div v-if="isNotDeleted" data-testid="message-actions-dropdown" class="shrink-0 w-x-small-avatar self-center">
 					<DropdownButton v-on:click="state.mainMenu.open"></DropdownButton>
 				</div>
 			</div>
@@ -117,6 +120,7 @@
 				<ActionSheetItem v-on:click="state.reactionMenu.open" iconName="heart-rounded" v-bind:textLabel="$t('dd.add_reaction')"></ActionSheetItem>
 
 				<ActionSheetItem v-on:click="reply" iconName="pencil-line" v-bind:textLabel="$t('dd.message.reply', { name: messageUser.name })"></ActionSheetItem>
+				<ActionSheetItem v-on:click="forwardMessage" iconName="share-06" v-bind:textLabel="$t('chat.forward_message')"></ActionSheetItem>
 
 				<ActionSheetItem v-on:click="deleteMessage" itemColor="text-red-900" iconName="trash-04" v-bind:textLabel="$t('dd.message.delete_message')"></ActionSheetItem>
 
@@ -159,7 +163,7 @@
 				required: true
 			}
 		},
-		emits: ['delete', 'reply', 'copy'],
+		emits: ['delete', 'reply', 'copy', 'forward'],
 		setup: function (props, context) {
 			const chatStore = useChatStore();
 			const authStore = useAuthStore();
@@ -229,6 +233,9 @@
 				},
 				copyContent: function() {
 					context.emit('copy', messageData.value);
+				},
+				forwardMessage: function() {
+					context.emit('forward', messageData.value);
 				},
 				addReaction: (reactionId) => {
 					if (isNotDeleted.value) {

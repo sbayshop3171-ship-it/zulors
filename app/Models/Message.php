@@ -14,6 +14,7 @@ class Message extends Model
 
     public $casts = [
         'is_deleted' => 'boolean',
+        'forwarded_from' => 'array',
         'type' => MessageType::class,
         'created_at' => ModelTimestampCast::class
     ];

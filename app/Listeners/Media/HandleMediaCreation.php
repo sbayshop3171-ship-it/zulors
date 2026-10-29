@@ -19,6 +19,10 @@ class HandleMediaCreation
 
     public function handle(MediaCreatedEvent $event): void
     {
+        if(data_get($event->mediaItem->metadata, 'forwarded_shared_asset')) {
+            return;
+        }
+
         if($event->mediaItem->disk != Filesystem::EXTERNAL_DISK_NAME) {
             try {
                 if($event->mediaItem->type->isVideo()) {

@@ -17,10 +17,14 @@
 				<div v-for="messageData in chatMessages" v-bind:key="messageData.id" class="block">
 					<ChatMessage v-on:delete="handleMessageDelete"
 						v-on:copy="handleMessageCopy"
+						v-on:forward="handleMessageForward"
 					v-bind:messageData="messageData"
 					></ChatMessage>
 				</div>
 				<ChatMessageTyping v-bind:typingUser="state.typing"></ChatMessageTyping>
+			</div>
+			<div v-else-if="state.isLoading" class="flex h-full items-center justify-center py-4">
+				<p class="text-par-s text-lab-sc">{{ $t('labels.loading') }}...</p>
 			</div>
 			<div v-else class="flex h-full items-center justify-center py-4">
 				<p class="text-par-s text-lab-sc">
@@ -34,6 +38,13 @@
 			<div v-else class="relative z-20 pb-3 px-4 pt-3"></div>
 		</div>
 	</div>
+	<ForwardMessageDialog
+		v-bind:isOpen="Boolean(state.forwardSource)"
+		v-bind:chats="chatStore.inboxStore.chatsHistory"
+		v-bind:sourceMessage="state.forwardSource"
+		v-bind:isSubmitting="state.isForwarding"
+		v-on:close="state.forwardSource = null"
+		v-on:confirm="forwardToChat"></ForwardMessageDialog>
 </template>
 
 <style scoped>
@@ -108,6 +119,7 @@
 	import ChatMessageTyping from '@M/views/messenger/children/chat/parts/ChatMessageTyping.vue';
 	import Soundbar from '@M/components/soundbar/Soundbar.vue';
 	import ChatEditorLock from '@M/views/messenger/children/chat/parts/ChatEditorLock.vue';
+	import ForwardMessageDialog from '@/kernel/vue/components/chat/ForwardMessageDialog.vue';
 
 	export default defineComponent({
 		setup: function() {
@@ -141,7 +153,9 @@
 			const state = reactive({
                 isLoading: true,
                 typing: BRD.createEmptyTypingState(),
-                realtimeReady: false
+				realtimeReady: false,
+				forwardSource: null,
+				isForwarding: false
             });
 			const remoteTyping = BRD.createIncomingTypingController((nextState) => {
 				state.typing = nextState;
@@ -450,12 +464,12 @@
 				state.typing = BRD.createEmptyTypingState();
 				remoteTyping.stop();
 
-				const hasCachedMessages = chatStore.prepareChatForRoute(chatId, {
+				chatStore.prepareChatForRoute(chatId, {
 					preferCache: true,
 					primeChatData: chatStore.inboxStore.findChatById(chatId)
 				});
 
-				state.isLoading = ! hasChatData.value && ! hasCachedMessages;
+				state.isLoading = ! (chatStore.chatMessagesLoaded && chatStore.chatMessagesChatId === chatId);
 				shouldStickToBottom.value = true;
 				nextTick(() => {
 					observeHistorySize();
@@ -637,6 +651,32 @@
 						toastError(error);
 					}
 				},
+				handleMessageForward: (messageData) => {
+					if(! Number.isFinite(Number(messageData?.id)) || messageData?.meta?.local_outgoing?.pending) {
+						return;
+					}
+
+					chatStore.inboxStore.hydrateChatsHistoryCache();
+					state.forwardSource = messageData;
+					chatStore.inboxStore.fetchChatsHistory().catch(() => {});
+				},
+				forwardToChat: async (destinationChatId) => {
+					if(state.isForwarding || ! state.forwardSource) {
+						return;
+					}
+
+					state.isForwarding = true;
+
+					try {
+						await chatStore.forwardMessage(state.forwardSource, destinationChatId);
+						state.forwardSource = null;
+						toastSuccess(__t('chat.message_forwarded'), 1000);
+					} catch(error) {
+						toastError(error?.message || __t('chat.forwarding_failed'));
+					} finally {
+						state.isForwarding = false;
+					}
+				},
 				handleMessageTyping: () => {
                     if(window.ColibriBRConnected) {
                         outgoingTyping.bump({
@@ -654,6 +694,7 @@
 			ChatEditor: ChatEditor,
             Soundbar: Soundbar,
             ChatEditorLock: ChatEditorLock,
+			ForwardMessageDialog: ForwardMessageDialog,
 		}
 	});
 </script>
