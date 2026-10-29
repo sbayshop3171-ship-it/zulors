@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router';
 
 import { Layouts } from '@M/core/constants/layouts.js';
 import { syncMobileRouteTransition } from '@M/core/services/route-transition/index.js';
+import { installMobileRouteLoadRecovery } from '@M/core/services/route-load-recovery/index.js';
 import HomeIndex from '@M/views/home/HomeIndex.vue';
 import BootstrapErrorView from '@M/views/errors/bootstrap/BootstrapError.vue';
 
@@ -519,5 +520,7 @@ Router.beforeEach((to, from, next) => {
 	syncMobileRouteTransition(to, from);
 	next();
 });
+
+installMobileRouteLoadRecovery(Router);
 
 export default Router;
