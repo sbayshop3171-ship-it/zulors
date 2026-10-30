@@ -51,6 +51,17 @@ export const videoFrameAspectStyle = (metadata = {}, fallbackIsPortrait = false)
     };
 };
 
+export const videoEditorPreviewFrameStyle = (metadata = {}, fallbackIsPortrait = false, maxHeightVh = 40) => {
+    const aspectRatio = normalizeVideoAspectRatio(metadata, fallbackIsPortrait);
+    const heightVh = Math.max(24, Math.min(60, Number(maxHeightVh) || 40));
+
+    return {
+        aspectRatio: String(aspectRatio),
+        maxHeight: `${heightVh}dvh`,
+        width: `min(100%, ${(aspectRatio * heightVh).toFixed(3)}dvh)`
+    };
+};
+
 export const isVideoPortrait = (metadata = {}, fallback = false) => {
     const dimensions = normalizeVideoDimensions(metadata);
 

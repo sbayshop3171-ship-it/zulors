@@ -4,7 +4,7 @@
 		v-bind:key="mediaItem.preview_key || mediaItem.id || mediaItem.preview_url || mediaItem.source_url"
 		v-bind:class="[(mediaItem.deleted ? 'opacity-20' : '')]"
 		v-bind:style="frameStyle(mediaItem)"
-	class="post-video-preview-frame bg-black flex justify-center overflow-hidden relative">
+	class="post-video-preview-frame mx-auto max-w-full bg-black flex justify-center overflow-hidden relative">
 		<div v-if="canDelete" class="absolute top-3 right-3 z-10 inline-block">
 			<MediaDeleteButton v-on:click="$emit('delete', mediaItem)"></MediaDeleteButton>
 		</div>
@@ -55,7 +55,7 @@
 
 <script>
 	import { defineComponent, computed, ref } from 'vue';
-	import { applyVideoPresentationMetadata, buildVideoPresentationMetadata, isVideoPortrait, videoFrameAspectStyle } from '@/kernel/services/media/video-metadata.js';
+	import { applyVideoPresentationMetadata, buildVideoPresentationMetadata, isVideoPortrait, videoEditorPreviewFrameStyle } from '@/kernel/services/media/video-metadata.js';
 
 	import MediaDeleteButton from '@M/views/editors/post/parts/buttons/MediaDeleteButton.vue';
 	import VideoDurationTime from '@/kernel/vue/components/media/video/VideoDurationTime.vue';
@@ -138,7 +138,7 @@
 					playPreview,
 					togglePreviewPlayback,
 					frameStyle: (mediaItem) => {
-						return videoFrameAspectStyle(mediaItem.metadata, isVideoPortrait(mediaItem.metadata));
+						return videoEditorPreviewFrameStyle(mediaItem.metadata, isVideoPortrait(mediaItem.metadata), 48);
 					},
 					captureVideoMetadata: (mediaItem, event) => {
 						const videoElement = event.currentTarget;

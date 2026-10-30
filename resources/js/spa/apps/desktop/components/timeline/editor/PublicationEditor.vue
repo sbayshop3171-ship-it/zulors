@@ -1,5 +1,5 @@
 <template>
-    <div class="flex max-h-[calc(100dvh-2rem)] min-h-0 flex-col overflow-hidden leading-none"
+    <div class="flex max-h-[calc(100dvh-3rem)] min-h-0 flex-col overflow-hidden leading-none"
         v-on:drop.prevent="handleFileDrop"
 		v-on:dragenter.prevent="state.isDragging = true"
 		v-on:dragover.prevent="state.isDragging = true">
@@ -49,7 +49,7 @@
                     <MediaFileDropper v-on:click="state.isDragging = false"></MediaFileDropper>
                 </template>
                 <template v-else>
-                    <div v-if="postHasMedia" class="mb-3 min-h-0 max-h-[42dvh] shrink-0 overflow-hidden">
+                    <div v-if="postHasMedia" class="mb-3 min-h-0 max-h-[46dvh] shrink-0 overflow-hidden">
                         <template v-if="PostTypeUtils.isImage(currentPostType)">
                             <div class="overflow-hidden">
                                 <div class="grid grid-cols-3 gap-1">

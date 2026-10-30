@@ -2,7 +2,7 @@
 	<div
 		v-bind:class="frameWidthClass"
 		v-bind:style="frameStyle"
-	class="post-video-preview-frame bg-black border border-bord-card flex justify-center rounded-2xl overflow-hidden relative">
+		class="post-video-preview-frame mx-auto max-w-full bg-black border border-bord-card flex justify-center rounded-2xl overflow-hidden relative">
 		<template v-if="mediaItem.deleted">
 			<MediaBlurOverlay></MediaBlurOverlay>
 		</template>
@@ -61,7 +61,7 @@
 
 <script>
 	import { defineComponent, computed, ref } from 'vue';
-	import { applyVideoPresentationMetadata, buildVideoPresentationMetadata, isVideoPortrait, videoFrameAspectStyle } from '@/kernel/services/media/video-metadata.js';
+	import { applyVideoPresentationMetadata, buildVideoPresentationMetadata, isVideoPortrait, videoEditorPreviewFrameStyle } from '@/kernel/services/media/video-metadata.js';
 
 	import MediaBlurOverlay from '@D/components/timeline/editor/animations/MediaBlurOverlay.vue';
 	import MediaDeleteButton from '@D/components/timeline/editor/buttons/MediaDeleteButton.vue';
@@ -146,7 +146,7 @@
 					return 'w-full';
 				}),
 				frameStyle: computed(() => {
-					return videoFrameAspectStyle(props.mediaItem.metadata, isVideoPortrait(props.mediaItem.metadata));
+					return videoEditorPreviewFrameStyle(props.mediaItem.metadata, isVideoPortrait(props.mediaItem.metadata), 46);
 				}),
 				captureVideoMetadata: (event) => {
 					const videoElement = event.currentTarget;
