@@ -12,11 +12,11 @@
 			<video
 				v-if="videoUrl(mediaItem)"
 				v-on:loadedmetadata="captureVideoMetadata(mediaItem, $event)"
+				v-on:click="togglePreviewPlayback(mediaItem, $event)"
 				v-on:play="setPreviewPlaying(mediaItem, true)"
 				v-on:pause="setPreviewPlaying(mediaItem, false)"
 				v-on:ended="setPreviewPlaying(mediaItem, false)"
 				v-on:error="captureVideoError(mediaItem)"
-				controls
 				playsinline
 				webkit-playsinline
 				preload="metadata"
@@ -27,6 +27,13 @@
 			<div v-else class="size-full flex-center text-white" role="status" aria-label="Video preview unavailable">
 				<span class="size-icon-large"><SvgIcon name="video-recorder" type="line"></SvgIcon></span>
 			</div>
+		</div>
+		<div v-if="videoUrl(mediaItem)" class="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full bg-black/60 px-2.5 py-1 text-xs font-semibold text-white" aria-live="polite">
+			{{ playbackSpeedLabel(mediaItem) }}
+		</div>
+		<div v-if="videoUrl(mediaItem)" class="pointer-events-none absolute inset-y-0 left-2 right-2 z-10 flex items-center justify-between">
+			<button type="button" class="pointer-events-auto flex size-10 items-center justify-center rounded-full bg-black/60 text-lg font-semibold text-white shadow ring-1 ring-white/60 hover:bg-black/75 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Decrease video speed" v-bind:disabled="!canChangePlaybackSpeed(mediaItem, -1)" v-on:click="changePlaybackSpeed(mediaItem, -1, $event)">−</button>
+			<button type="button" class="pointer-events-auto flex size-10 items-center justify-center rounded-full bg-black/60 text-lg font-semibold text-white shadow ring-1 ring-white/60 hover:bg-black/75 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Increase video speed" v-bind:disabled="!canChangePlaybackSpeed(mediaItem, 1)" v-on:click="changePlaybackSpeed(mediaItem, 1, $event)">+</button>
 		</div>
 		<button
 			v-if="videoUrl(mediaItem) && !isPreviewPlaying(mediaItem)"
@@ -67,13 +74,37 @@
 			emits: ['delete'],
 			setup: function(props) {
 				const previewState = ref({});
+				const playbackRates = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3];
 				const previewKey = (mediaItem) => String(mediaItem.preview_key || mediaItem.client_uid || mediaItem.id || mediaItem.preview_url || mediaItem.source_url || 'video');
 				const stateFor = (mediaItem) => previewState.value[previewKey(mediaItem)] || {};
 				const setPreviewPlaying = (mediaItem, playing) => {
 					previewState.value[previewKey(mediaItem)] = { ...stateFor(mediaItem), playing, error: playing ? false : stateFor(mediaItem).error };
 				};
-				const playPreview = async (mediaItem, event) => {
-					const video = event.currentTarget.closest('.post-video-preview-frame')?.querySelector('video');
+				const videoFrom = (source) => {
+					const element = source?.currentTarget || source;
+					if (typeof element?.play === 'function' && 'paused' in element) return element;
+					return element?.closest('.post-video-preview-frame')?.querySelector('video') || null;
+				};
+				const playbackSpeed = (mediaItem) => stateFor(mediaItem).speed || 1;
+				const playbackSpeedIndex = (mediaItem) => playbackRates.reduce((best, rate, index) => Math.abs(rate - playbackSpeed(mediaItem)) < Math.abs(playbackRates[best] - playbackSpeed(mediaItem)) ? index : best, 0);
+				const canChangePlaybackSpeed = (mediaItem, direction) => {
+					const next = playbackSpeedIndex(mediaItem) + direction;
+					return next >= 0 && next < playbackRates.length;
+				};
+				const playbackSpeedLabel = (mediaItem) => `${playbackSpeed(mediaItem)}×`;
+				const changePlaybackSpeed = (mediaItem, direction, event) => {
+					event.stopPropagation();
+					const video = videoFrom(event);
+					if (!video || !canChangePlaybackSpeed(mediaItem, direction)) return;
+					const nextSpeed = playbackRates[playbackSpeedIndex(mediaItem) + direction];
+					try {
+						video.playbackRate = nextSpeed;
+						previewState.value[previewKey(mediaItem)] = { ...stateFor(mediaItem), speed: nextSpeed };
+					}
+					catch { /* Keep the current rate when the device does not support the requested speed. */ }
+				};
+				const playPreview = async (mediaItem, source) => {
+					const video = videoFrom(source);
 					if (!video) return;
 					previewState.value[previewKey(mediaItem)] = { playing: false, error: false };
 					try {
@@ -84,6 +115,12 @@
 						previewState.value[previewKey(mediaItem)] = { playing: false, error: true };
 					}
 				};
+				const togglePreviewPlayback = (mediaItem, event) => {
+					const video = event.currentTarget;
+					if (video.paused) return playPreview(mediaItem, video);
+					video.pause();
+					setPreviewPlaying(mediaItem, false);
+				};
 				return {
 					canDelete: computed(() => {
 						return props.canDelete;
@@ -91,16 +128,21 @@
 					videoUrl: (mediaItem) => {
 						return mediaItem.preview_url || mediaItem.source_url;
 					},
+					playbackSpeedLabel,
+					canChangePlaybackSpeed,
+					changePlaybackSpeed,
 					previewKey,
 					isPreviewPlaying: (mediaItem) => Boolean(stateFor(mediaItem).playing),
 					playbackError: (mediaItem) => Boolean(stateFor(mediaItem).error),
 					setPreviewPlaying,
 					playPreview,
+					togglePreviewPlayback,
 					frameStyle: (mediaItem) => {
 						return videoFrameAspectStyle(mediaItem.metadata, isVideoPortrait(mediaItem.metadata));
 					},
 					captureVideoMetadata: (mediaItem, event) => {
 						const videoElement = event.currentTarget;
+						videoElement.playbackRate = playbackSpeed(mediaItem);
 						const width = mediaItem.native_file_id && mediaItem.width ? mediaItem.width : videoElement.videoWidth;
 						const height = mediaItem.native_file_id && mediaItem.height ? mediaItem.height : videoElement.videoHeight;
 						const presentation = buildVideoPresentationMetadata(width, height, videoElement.duration);

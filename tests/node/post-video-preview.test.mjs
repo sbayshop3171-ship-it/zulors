@@ -180,12 +180,18 @@ async function videoPreviewHarness(platform, play = async () => {}) {
     const item = { id: 'video-preview', preview_url: 'blob:video-preview', type: 'video', metadata: {} };
     const props = platform === 'mobile' ? { postMedia: [item], canDelete: false } : { mediaItem: item, canDelete: false };
     const preview = component.setup(props, { emit() {} });
-    const video = { play };
-    const event = { currentTarget: { closest: selector => {
+    const video = {
+        paused: true,
+        playbackRate: 1,
+        play: async () => { await play(); video.paused = false; },
+        pause: () => { video.paused = true; },
+    };
+    const event = { stopPropagation() {}, currentTarget: { closest: selector => {
         assert.equal(selector, '.post-video-preview-frame');
         return { querySelector: query => { assert.equal(query, 'video'); return video; } };
     } } };
-    return { descriptor, preview, item, video, event };
+    const videoEvent = { currentTarget: video };
+    return { descriptor, preview, item, video, event, videoEvent };
 }
 
 for(const platform of Object.keys(previewPaths)) {
@@ -205,6 +211,37 @@ for(const platform of Object.keys(previewPaths)) {
         else await h.preview.playPreview(h.event);
         assert.equal(platform === 'mobile' ? h.preview.playbackError(h.item) : h.preview.playbackError.value, true);
         assert.equal(platform === 'mobile' ? h.preview.isPreviewPlaying(h.item) : h.preview.isPreviewPlaying.value, false);
+    });
+
+    test(`${platform}: tapping video toggles playback and side controls change speed up to 3x`, async () => {
+        const h = await videoPreviewHarness(platform);
+        const toggle = () => platform === 'mobile'
+            ? h.preview.togglePreviewPlayback(h.item, h.videoEvent)
+            : h.preview.togglePreviewPlayback(h.videoEvent);
+        const canChange = direction => platform === 'mobile'
+            ? h.preview.canChangePlaybackSpeed(h.item, direction)
+            : h.preview.canChangePlaybackSpeed(direction);
+        const changeSpeed = direction => platform === 'mobile'
+            ? h.preview.changePlaybackSpeed(h.item, direction, h.event)
+            : h.preview.changePlaybackSpeed(direction, h.event);
+
+        await toggle();
+        assert.equal(h.video.paused, false);
+        assert.equal(platform === 'mobile' ? h.preview.isPreviewPlaying(h.item) : h.preview.isPreviewPlaying.value, true);
+        await toggle();
+        assert.equal(h.video.paused, true);
+        assert.equal(platform === 'mobile' ? h.preview.isPreviewPlaying(h.item) : h.preview.isPreviewPlaying.value, false);
+
+        changeSpeed(1);
+        assert.equal(h.video.playbackRate, 1.25);
+        changeSpeed(-1);
+        assert.equal(h.video.playbackRate, 1);
+        while(canChange(1)) changeSpeed(1);
+        assert.equal(h.video.playbackRate, 3);
+        assert.equal(canChange(1), false);
+        while(canChange(-1)) changeSpeed(-1);
+        assert.equal(h.video.playbackRate, 0.5);
+        assert.equal(canChange(-1), false);
     });
 }
 
