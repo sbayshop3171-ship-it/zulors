@@ -1,5 +1,5 @@
 <template>
-    <div v-bind:class="postHasMedia && PostTypeUtils.isVideo(currentPostType) ? 'h-[calc(100dvh-3rem)] max-h-[56rem]' : 'max-h-[calc(100dvh-3rem)]'" class="flex min-h-0 flex-col overflow-hidden leading-none"
+    <div v-bind:class="postHasMedia && (PostTypeUtils.isVideo(currentPostType) || PostTypeUtils.isImage(currentPostType)) ? 'h-[calc(100dvh-3rem)] max-h-[56rem]' : 'max-h-[calc(100dvh-3rem)]'" class="flex min-h-0 flex-col overflow-hidden leading-none"
         v-on:drop.prevent="handleFileDrop"
 		v-on:dragenter.prevent="state.isDragging = true"
 		v-on:dragover.prevent="state.isDragging = true">
@@ -49,20 +49,18 @@
                     <MediaFileDropper v-on:click="state.isDragging = false"></MediaFileDropper>
                 </template>
                 <template v-else>
-                    <div v-if="postHasMedia" v-bind:class="PostTypeUtils.isVideo(currentPostType) ? 'mb-3 min-h-0 flex-1 overflow-hidden bg-black' : 'mb-3 min-h-0 max-h-[46dvh] shrink-0 overflow-hidden'">
+                    <div v-if="postHasMedia" v-bind:class="[PostTypeUtils.isVideo(currentPostType) ? 'bg-black' : '', (PostTypeUtils.isVideo(currentPostType) || PostTypeUtils.isImage(currentPostType)) ? '-mx-5 mb-3 min-h-0 flex-1 overflow-hidden' : 'mb-3 min-h-0 max-h-[46dvh] shrink-0 overflow-hidden']">
                         <template v-if="PostTypeUtils.isImage(currentPostType)">
-                            <div class="overflow-hidden">
-                                <div class="grid grid-cols-3 gap-1">
-                                    <div v-for="mediaItem in postMedia" v-bind:key="mediaItem.id" class="relative rounded-md overflow-hidden border border-bord-card">
+                            <div class="post-image-preview-stage grid h-full min-h-0 w-full grid-cols-2 overflow-hidden" v-bind:style="imagePreviewGridStyle">
+                                    <div v-for="(mediaItem, index) in postMedia" v-bind:key="mediaItem.preview_key || mediaItem.id || mediaItem.source_url" v-bind:class="isWideImageTile(index)" class="relative min-h-0 min-w-0 overflow-hidden">
                                         <MediaBlurOverlay v-if="mediaItem.deleted"></MediaBlurOverlay>
 
                                         <div v-else-if="! isEditingPost" class="absolute top-2 right-2 inline-block">
                                             <MediaDeleteButton v-on:click="deletePostMedia(mediaItem)"></MediaDeleteButton>
                                         </div>
 
-                                        <img v-bind:src="mediaItem.source_url" class="w-full aspect-square h-full object-cover bg-fill-tr" alt="Image">
+                                        <img v-bind:src="mediaItem.preview_url || mediaItem.source_url" class="size-full object-cover bg-fill-tr" alt="Image">
                                     </div>
-                                </div>
                             </div>
                         </template>
                         <template v-else-if="PostTypeUtils.isVideo(currentPostType)">
@@ -297,6 +295,21 @@
                 gifMenu: useMenu(),
                 mainMenu: useMenu()
             });
+
+            const postMedia = computed(() => {
+                if(publication.selections.value.length) return publication.selections.value;
+                const serverMedia = postData.value.relations?.media || [];
+
+                return mergePostMediaPreviews(serverMedia, state.localMediaPreviews);
+            });
+            const imagePreviewGridStyle = computed(() => {
+                const count = postMedia.value.length;
+                return {
+                    gridTemplateColumns: count === 1 ? 'minmax(0, 1fr)' : 'repeat(2, minmax(0, 1fr))',
+                    gridTemplateRows: `repeat(${Math.max(1, Math.ceil(count / 2))}, minmax(0, 1fr))`,
+                };
+            });
+            const isWideImageTile = (index) => postMedia.value.length > 1 && postMedia.value.length % 2 === 1 && index === postMedia.value.length - 1 ? 'col-span-2' : '';
 
             const updateMainMenuPosition = () => {
                 if(typeof window === 'undefined' || ! state.mainMenu.status || ! mainMenuAnchor.value || ! mainMenuPanel.value) return;
@@ -1235,6 +1248,8 @@
                 postTextInputField: postTextInputField,
                 PostTypeUtils: PostTypeUtils,
                 PostType: PostType,
+                imagePreviewGridStyle: imagePreviewGridStyle,
+                isWideImageTile: isWideImageTile,
                 openCheatSheetPanel: openCheatSheetPanel,
                 submitButtonStatus: submitButtonStatus,
                 onImageSelect: (event) => {
@@ -1340,12 +1355,7 @@
                 postHasQuotedPost: computed(() => {
                     return postEditorStore.quotedPost !== null;
                 }),
-                postMedia: computed(() => {
-                    if (publication.selections.value.length) return publication.selections.value;
-                    const serverMedia = postData.value.relations?.media || [];
-
-                    return mergePostMediaPreviews(serverMedia, state.localMediaPreviews);
-                }),
+                postMedia: postMedia,
                 currentPostType: computed(() => {
                     if (publication.selections.value.length) return publication.selections.value[0].type;
                     if(state.localMediaPreviews.length) {

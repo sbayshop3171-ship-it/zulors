@@ -1,6 +1,6 @@
 <template>
 	<div
-		class="post-video-preview-frame relative h-full min-h-0 w-full min-w-0 max-h-full max-w-full bg-black border border-bord-card flex justify-center rounded-2xl overflow-hidden">
+		class="post-video-preview-frame relative h-full min-h-0 w-full min-w-0 max-h-full max-w-full bg-black flex justify-center overflow-hidden">
 		<template v-if="mediaItem.deleted">
 			<MediaBlurOverlay></MediaBlurOverlay>
 		</template>
@@ -25,8 +25,8 @@
 				preload="metadata"
 				v-bind:poster="mediaItem.thumbnail_url"
 				v-bind:src="videoUrl"
-			class="w-full h-full object-contain"></video>
-			<img v-else-if="mediaItem.thumbnail_url" v-bind:src="mediaItem.thumbnail_url" class="size-full object-contain" alt="Video thumbnail">
+			class="w-full h-full object-cover"></video>
+			<img v-else-if="mediaItem.thumbnail_url" v-bind:src="mediaItem.thumbnail_url" class="size-full object-cover" alt="Video thumbnail">
 			<div v-else class="size-full flex-center text-white" role="status" aria-label="Video preview unavailable">
 				<span class="size-icon-large"><SvgIcon name="video-recorder" type="line"></SvgIcon></span>
 			</div>

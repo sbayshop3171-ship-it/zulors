@@ -1,9 +1,10 @@
 <template>
-	<div class="w-full overflow-x-auto hidden-scroll flex gap-px items-center">
-		<div v-for="mediaItem in postMedia"
-			v-bind:class="[width, (mediaItem.deleted ? 'opacity-20' : '')]"
-		class="shrink-0 relative aspect-square bg-fill-tr overflow-hidden">
-			<img v-bind:src="mediaItem.preview_url || mediaItem.source_url" class="size-full object-cover">
+	<div class="post-image-preview-stage grid h-full min-h-0 w-full min-w-0 grid-cols-2 overflow-hidden bg-fill-tr" v-bind:style="gridStyle">
+		<div v-for="(mediaItem, index) in postMedia"
+			v-bind:key="mediaItem.preview_key || mediaItem.id || mediaItem.preview_url || mediaItem.source_url"
+			v-bind:class="[isWideTile(index), (mediaItem.deleted ? 'opacity-20' : '')]"
+		class="relative min-h-0 min-w-0 overflow-hidden">
+			<img v-bind:src="mediaItem.preview_url || mediaItem.source_url" class="size-full object-cover" alt="Image">
 
 			<div v-if="canDelete && ! mediaItem.deleted" class="absolute top-3 right-3 inline-block z-10">
 				<MediaDeleteButton v-on:click="$emit('delete', mediaItem)"></MediaDeleteButton>
@@ -30,17 +31,14 @@
 			},
 		setup: function(props) {
 			return {
-				width: computed(() => {
-					if(props.postMedia.length === 1) {
-						return 'w-full';
-					}
-					else if(props.postMedia.length === 2) {
-						return 'w-1/2';
-					}
-					else {
-						return 'w-40';
-					}
-					}),
+				gridStyle: computed(() => {
+					const count = props.postMedia.length;
+					return {
+						gridTemplateColumns: count === 1 ? 'minmax(0, 1fr)' : 'repeat(2, minmax(0, 1fr))',
+						gridTemplateRows: `repeat(${Math.max(1, Math.ceil(count / 2))}, minmax(0, 1fr))`,
+					};
+				}),
+				isWideTile: (index) => props.postMedia.length > 1 && props.postMedia.length % 2 === 1 && index === props.postMedia.length - 1 ? 'col-span-2' : '',
 					canDelete: computed(() => {
 						return props.canDelete;
 					})

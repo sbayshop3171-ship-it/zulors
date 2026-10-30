@@ -62,6 +62,7 @@ try {
             const data = { sameElement: video === window.originalVideo, duration: video.duration, time: video.currentTime,
                 src: video.currentSrc, count: document.querySelectorAll('video').length, colors: colors.size,
                 width: video.getBoundingClientRect().width, viewport: innerWidth,
+                objectFit: getComputedStyle(video).objectFit,
                 frameWidth: frame.getBoundingClientRect().width, frameHeight: frame.getBoundingClientRect().height,
                 stageWidth: stage.getBoundingClientRect().width, stageHeight: stage.getBoundingClientRect().height,
                 error: video.error?.message || null };
@@ -74,6 +75,7 @@ try {
         assert.ok(result.duration >= 3.9 && result.time > 0.2);
         assert.ok(result.colors > 20, 'decoded video frame must not be blank');
         assert.ok(result.width > 100 && result.width <= result.viewport);
+        assert.equal(result.objectFit, 'cover', `${name}/${fixture.orientation}: video fills the preview without side bars`);
         assert.ok(Math.abs(result.frameWidth - result.stageWidth) < 2, `${name}: preview fills the available media width`);
         assert.ok(Math.abs(result.frameHeight - result.stageHeight) < 2, `${name}: preview fills the available media height`);
         assert.equal(await page.getByRole('button', { name: /video speed/i }).count(), 0, `${name}: speed +/- controls stay hidden`);

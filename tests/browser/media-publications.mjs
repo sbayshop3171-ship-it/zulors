@@ -100,6 +100,21 @@ try {
             });
             assert.ok(pixels > 20, 'selected video renders a decoded frame');
         }
+        else if (kind === 'post') {
+            const layout = await page.evaluate(() => {
+                const stage = document.querySelector('.post-image-preview-stage')?.getBoundingClientRect();
+                const image = document.querySelector('.post-image-preview-stage img');
+                const imageBounds = image?.getBoundingClientRect();
+                return stage && imageBounds ? { stageWidth: stage.width, stageHeight: stage.height,
+                    imageWidth: imageBounds.width, imageHeight: imageBounds.height, objectFit: getComputedStyle(image).objectFit,
+                    stageBottom: stage.bottom, viewportHeight: innerHeight } : null;
+            });
+            assert.ok(layout && layout.stageWidth > 100 && layout.stageHeight > 100, `${platform}: image preview has a visible full media stage (${JSON.stringify(layout)})`);
+            assert.ok(Math.abs(layout.imageWidth - layout.stageWidth) < 2 && Math.abs(layout.imageHeight - layout.stageHeight) < 2,
+                `${platform}: image fills the preview stage edge to edge (${JSON.stringify(layout)})`);
+            assert.equal(layout.objectFit, 'cover');
+            assert.ok(layout.stageBottom <= layout.viewportHeight + 1, `${platform}: image stage and editor controls fit in the viewport`);
+        }
         assert.equal(requests.some(request => request.method !== 'GET'), false, `${platform}/${kind}: selecting media must be local`);
         await page.locator('textarea').first().fill('Durable caption');
         await page.evaluate(() => {

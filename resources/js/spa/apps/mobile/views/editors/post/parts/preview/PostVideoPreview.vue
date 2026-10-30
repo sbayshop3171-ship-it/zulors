@@ -21,8 +21,8 @@
 				preload="metadata"
 				v-bind:poster="mediaItem.thumbnail_url"
 				v-bind:src="videoUrl(mediaItem)"
-			class="w-full h-full object-contain"></video>
-			<img v-else-if="mediaItem.thumbnail_url" v-bind:src="mediaItem.thumbnail_url" class="size-full object-contain" alt="Video thumbnail">
+			class="w-full h-full object-cover"></video>
+			<img v-else-if="mediaItem.thumbnail_url" v-bind:src="mediaItem.thumbnail_url" class="size-full object-cover" alt="Video thumbnail">
 			<div v-else class="size-full flex-center text-white" role="status" aria-label="Video preview unavailable">
 				<span class="size-icon-large"><SvgIcon name="video-recorder" type="line"></SvgIcon></span>
 			</div>
