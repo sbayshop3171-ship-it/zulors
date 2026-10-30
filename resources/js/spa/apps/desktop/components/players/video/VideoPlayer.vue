@@ -12,9 +12,9 @@
 			playsinline
 			muted
 			loop="loop"
+			v-bind:src="videoUrl"
 		class="size-full object-contain"
 		>
-			<source v-bind:src="videoUrl" type="video/mp4">
 		</video>
 		<div class="opacity-0 group-hover:opacity-100 transition-opacity duration-300 from-black/60 to-transparent bg-linear-to-t absolute bottom-0 left-0 right-0 px-2 pb-2 pt-6">
             <div

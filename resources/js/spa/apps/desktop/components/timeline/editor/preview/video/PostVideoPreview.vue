@@ -1,16 +1,16 @@
 <template>
-	<div class="post-video-preview-shell relative flex min-h-0 w-full min-w-0 justify-center overflow-hidden">
-		<img v-if="videoBackdropUrl" v-bind:src="videoBackdropUrl" class="post-video-preview-backdrop pointer-events-none absolute inset-0 size-full scale-110 object-cover opacity-45 blur-2xl" alt="" aria-hidden="true">
+	<div class="post-video-preview-shell relative flex min-h-0 w-full min-w-0 overflow-hidden bg-black">
 		<div
 			ref="previewFrame"
 			v-bind:style="frameStyle"
+		v-on:pointermove="showPlaybackControls"
 		class="post-video-preview-frame relative z-0 min-h-0 min-w-0 max-h-full max-w-full flex-none overflow-hidden">
 		<template v-if="mediaItem.deleted">
 			<MediaBlurOverlay></MediaBlurOverlay>
 		</template>
 
 		<template v-else>
-			<div v-if="canDelete" class="absolute top-4 right-4 z-10 inline-block">
+			<div v-if="canDelete" v-bind:class="playbackControlsHidden ? 'pointer-events-none opacity-0' : 'opacity-100'" v-bind:aria-hidden="playbackControlsHidden" v-bind:inert="playbackControlsHidden" class="absolute top-4 right-4 z-10 inline-block transition-opacity duration-300">
 				<MediaDeleteButton v-on:click="$emit('delete', mediaItem)"></MediaDeleteButton>
 			</div>
 		</template>
@@ -19,7 +19,6 @@
 			<video
 				v-if="videoUrl"
 				v-on:loadedmetadata="captureVideoMetadata"
-				v-on:loadeddata="captureVideoBackdrop"
 				v-on:click="togglePreviewPlayback"
 				v-on:play="setPreviewPlaying(true)"
 				v-on:pause="setPreviewPlaying(false)"
@@ -30,13 +29,13 @@
 				preload="metadata"
 				v-bind:poster="mediaItem.thumbnail_url"
 				v-bind:src="videoUrl"
-			class="w-full h-full object-contain"></video>
-			<img v-else-if="mediaItem.thumbnail_url" v-bind:src="mediaItem.thumbnail_url" class="size-full object-contain" alt="Video thumbnail">
+			class="size-full object-cover"></video>
+			<img v-else-if="mediaItem.thumbnail_url" v-bind:src="mediaItem.thumbnail_url" class="size-full object-cover" alt="Video thumbnail">
 			<div v-else class="size-full flex-center text-white" role="status" aria-label="Video preview unavailable">
 				<span class="size-icon-large"><SvgIcon name="video-recorder" type="line"></SvgIcon></span>
 			</div>
 		</div>
-		<div v-if="videoUrl" class="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full bg-black/60 px-2.5 py-1 text-xs font-semibold text-white" aria-live="polite">
+		<div v-if="videoUrl" v-bind:class="playbackControlsHidden ? 'opacity-0' : 'opacity-100'" class="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full bg-black/60 px-2.5 py-1 text-xs font-semibold text-white transition-opacity duration-300" aria-live="polite">
 			{{ playbackSpeedLabel }}
 		</div>
 		<div v-if="videoUrl" class="hidden pointer-events-none absolute inset-y-0 left-2 right-2 z-10 flex items-center justify-between">
@@ -52,11 +51,11 @@
 			<svg v-if="!playbackError" viewBox="0 0 24 24" class="ml-1 size-7 fill-current" aria-hidden="true"><path d="M7 4.75v14.5L19 12 7 4.75Z"></path></svg>
 			<svg v-else viewBox="0 0 24 24" class="size-7 fill-current" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm1 15h-2v-2h2v2Zm0-4h-2V7h2v6Z"></path></svg>
 		</button>
-		<div v-if="mediaItem.metadata?.preview_unavailable || playbackError" class="pointer-events-none absolute inset-x-3 bottom-14 z-10 rounded-lg bg-black/75 px-3 py-2 text-center text-xs text-white" role="status">
-			This video cannot play in this preview on your device. You can still publish it; try a supported MP4 video for an in-editor preview.
+		<div v-if="mediaItem.metadata?.preview_unavailable || playbackError" class="pointer-events-none absolute inset-x-3 bottom-3 z-10 rounded-lg bg-black/75 px-3 py-2 text-center text-xs text-white" role="status">
+			Preview playback couldn't start. You can still publish this video.
 		</div>
 
-		<div v-if="mediaDuration" class="pointer-events-none absolute left-4 top-4 rounded-full bg-black/60 px-2.5 py-1">
+		<div v-if="mediaDuration" v-bind:class="playbackControlsHidden ? 'opacity-0' : 'opacity-100'" class="pointer-events-none absolute left-4 top-4 rounded-full bg-black/60 px-2.5 py-1 transition-opacity duration-300">
 			<VideoDurationTime v-bind:videoDuration="mediaDuration"></VideoDurationTime>
 		</div>
 		</div>
@@ -64,9 +63,8 @@
 </template>
 
 <script>
-	import { defineComponent, computed, ref } from 'vue';
+	import { defineComponent, computed, onBeforeUnmount, ref } from 'vue';
 	import { applyVideoPresentationMetadata, buildVideoPresentationMetadata } from '@/kernel/services/media/video-metadata.js';
-	import { fitMediaPreviewAspectRatio, fitMediaPreviewSize } from '@/kernel/services/media/media-preview-sizing.js';
 	import { useMediaPreviewBounds } from '@/kernel/vue/composables/media-preview-bounds.js';
 
 	import MediaBlurOverlay from '@D/components/timeline/editor/animations/MediaBlurOverlay.vue';
@@ -88,16 +86,20 @@
 		setup: function(props, context) {
 			const isPreviewPlaying = ref(false);
 			const playbackError = ref(false);
+			const playbackControlsVisible = ref(true);
+			let playbackControlsTimer = null;
 			const previewFrame = ref(null);
 			const { bounds, refresh } = useMediaPreviewBounds(previewFrame, 320);
 			const videoDimensions = ref(null);
-			const videoBackdropUrl = ref(props.mediaItem.thumbnail_url || null);
 			const frameStyle = computed(() => {
 				const dimensions = videoDimensions.value || props.mediaItem;
-				const size = fitMediaPreviewSize(Number(dimensions.width || 0), Number(dimensions.height || 0), bounds.value.width, bounds.value.height);
-				if(size.width && size.height) return { width: `${size.width}px`, height: `${size.height}px` };
-				const fallback = fitMediaPreviewAspectRatio(16 / 9, bounds.value.width, bounds.value.height);
-				return fallback.width && fallback.height ? { width: `${fallback.width}px`, height: `${fallback.height}px` } : { width: '100%', aspectRatio: '16 / 9' };
+				const width = Number(bounds.value.width || 0);
+				const maxHeight = Number(bounds.value.height || 0);
+				const sourceWidth = Number(dimensions.width || 0);
+				const sourceHeight = Number(dimensions.height || 0);
+				if(width <= 0 || maxHeight <= 0) return { width: '100%', aspectRatio: '16 / 9' };
+				const aspectRatio = sourceWidth > 0 && sourceHeight > 0 ? sourceWidth / sourceHeight : 16 / 9;
+				return { width: `${width}px`, height: `${Math.min(maxHeight, width / aspectRatio)}px` };
 			});
 			const playbackSpeed = ref(1);
 			const playbackRates = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3];
@@ -119,7 +121,19 @@
 			};
 			const setPreviewPlaying = (playing) => {
 				isPreviewPlaying.value = playing;
-				if (playing) playbackError.value = false;
+				playbackControlsVisible.value = true;
+				clearTimeout(playbackControlsTimer);
+				if (playing) {
+					playbackError.value = false;
+					applyVideoPresentationMetadata(props.mediaItem, { preview_unavailable: false });
+					playbackControlsTimer = setTimeout(() => { playbackControlsVisible.value = false; }, 2200);
+				}
+			};
+			const showPlaybackControls = () => {
+				if(! isPreviewPlaying.value) return;
+				playbackControlsVisible.value = true;
+				clearTimeout(playbackControlsTimer);
+				playbackControlsTimer = setTimeout(() => { playbackControlsVisible.value = false; }, 2200);
 			};
 			const videoFrom = (source) => {
 				const element = source?.currentTarget || source;
@@ -129,6 +143,11 @@
 			const playPreview = async (source) => {
 				const video = videoFrom(source);
 				if (!video) return;
+				if(playbackError.value && video.src) {
+					const sourceUrl = video.currentSrc || video.src;
+					video.src = sourceUrl;
+					video.load?.();
+				}
 				playbackError.value = false;
 				try {
 					await video.play();
@@ -144,27 +163,14 @@
 				video.pause();
 				setPreviewPlaying(false);
 			};
-			const captureVideoBackdrop = (event) => {
-				if(videoBackdropUrl.value) return;
-				const videoElement = event.currentTarget;
-				if(! videoElement.videoWidth || ! videoElement.videoHeight || typeof document === 'undefined') return;
-				const size = fitMediaPreviewSize(videoElement.videoWidth, videoElement.videoHeight, 320, 320);
-				if(! size.width || ! size.height) return;
-				try {
-					const canvas = document.createElement('canvas');
-					canvas.width = size.width;
-					canvas.height = size.height;
-					canvas.getContext('2d')?.drawImage(videoElement, 0, 0, size.width, size.height);
-					videoBackdropUrl.value = canvas.toDataURL('image/jpeg', 0.72);
-				}
-				catch { /* A cross-origin video may not allow a canvas poster; keep the aspect-fit frame. */ }
-			};
+			onBeforeUnmount(() => clearTimeout(playbackControlsTimer));
 			return {
 				previewFrame,
 				frameStyle,
-				videoBackdropUrl,
 				isPreviewPlaying,
 				playbackError,
+				playbackControlsHidden: computed(() => isPreviewPlaying.value && ! playbackControlsVisible.value),
+				showPlaybackControls,
 				playbackSpeedLabel: computed(() => `${playbackSpeed.value}×`),
 				canChangePlaybackSpeed,
 				changePlaybackSpeed,
@@ -202,8 +208,8 @@
 						applyVideoPresentationMetadata(props.mediaItem, { preview_unavailable: false });
 					}
 				},
-				captureVideoBackdrop,
 				captureVideoError: () => {
+					clearTimeout(playbackControlsTimer);
 					applyVideoPresentationMetadata(props.mediaItem, { preview_unavailable: true });
 					playbackError.value = true;
 					isPreviewPlaying.value = false;

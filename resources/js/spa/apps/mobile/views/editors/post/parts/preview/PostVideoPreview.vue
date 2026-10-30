@@ -1,19 +1,18 @@
 <template>
-	<div v-for="mediaItem in postMedia" v-bind:key="mediaItem.preview_key || mediaItem.id || mediaItem.preview_url || mediaItem.source_url" class="post-video-preview-shell relative flex min-h-0 w-full min-w-0 justify-center overflow-hidden">
-		<img v-if="videoBackdropUrl(mediaItem)" v-bind:src="videoBackdropUrl(mediaItem)" class="post-video-preview-backdrop pointer-events-none absolute inset-0 size-full scale-110 object-cover opacity-45 blur-2xl" alt="" aria-hidden="true">
+	<div v-for="mediaItem in postMedia" v-bind:key="mediaItem.preview_key || mediaItem.id || mediaItem.preview_url || mediaItem.source_url" class="post-video-preview-shell relative flex min-h-0 w-full min-w-0 overflow-hidden bg-black">
 		<div
 			ref="previewFrame"
 			v-bind:class="[(mediaItem.deleted ? 'opacity-20' : '')]"
 			v-bind:style="frameStyle(mediaItem)"
+		v-on:pointermove="showPlaybackControls(mediaItem)"
 		class="post-video-preview-frame relative z-0 min-h-0 min-w-0 max-h-full max-w-full flex-none overflow-hidden">
-		<div v-if="canDelete" class="absolute top-3 right-3 z-10 inline-block">
+		<div v-if="canDelete" v-bind:class="playbackControlsHidden(mediaItem) ? 'pointer-events-none opacity-0' : 'opacity-100'" v-bind:aria-hidden="playbackControlsHidden(mediaItem)" v-bind:inert="playbackControlsHidden(mediaItem)" class="absolute top-3 right-3 z-10 inline-block transition-opacity duration-300">
 			<MediaDeleteButton v-on:click="$emit('delete', mediaItem)"></MediaDeleteButton>
 		</div>
 		<div class="absolute inset-0">
 			<video
 				v-if="videoUrl(mediaItem)"
 				v-on:loadedmetadata="captureVideoMetadata(mediaItem, $event)"
-				v-on:loadeddata="captureVideoBackdrop(mediaItem, $event)"
 				v-on:click="togglePreviewPlayback(mediaItem, $event)"
 				v-on:play="setPreviewPlaying(mediaItem, true)"
 				v-on:pause="setPreviewPlaying(mediaItem, false)"
@@ -24,13 +23,13 @@
 				preload="metadata"
 				v-bind:poster="mediaItem.thumbnail_url"
 				v-bind:src="videoUrl(mediaItem)"
-			class="w-full h-full object-contain"></video>
-			<img v-else-if="mediaItem.thumbnail_url" v-bind:src="mediaItem.thumbnail_url" class="size-full object-contain" alt="Video thumbnail">
+			class="size-full object-cover"></video>
+			<img v-else-if="mediaItem.thumbnail_url" v-bind:src="mediaItem.thumbnail_url" class="size-full object-cover" alt="Video thumbnail">
 			<div v-else class="size-full flex-center text-white" role="status" aria-label="Video preview unavailable">
 				<span class="size-icon-large"><SvgIcon name="video-recorder" type="line"></SvgIcon></span>
 			</div>
 		</div>
-		<div v-if="videoUrl(mediaItem)" class="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full bg-black/60 px-2.5 py-1 text-xs font-semibold text-white" aria-live="polite">
+		<div v-if="videoUrl(mediaItem)" v-bind:class="playbackControlsHidden(mediaItem) ? 'opacity-0' : 'opacity-100'" class="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full bg-black/60 px-2.5 py-1 text-xs font-semibold text-white transition-opacity duration-300" aria-live="polite">
 			{{ playbackSpeedLabel(mediaItem) }}
 		</div>
 		<div v-if="videoUrl(mediaItem)" class="hidden pointer-events-none absolute inset-y-0 left-2 right-2 z-10 flex items-center justify-between">
@@ -46,20 +45,19 @@
 			<svg v-if="!playbackError(mediaItem)" viewBox="0 0 24 24" class="ml-1 size-7 fill-current" aria-hidden="true"><path d="M7 4.75v14.5L19 12 7 4.75Z"></path></svg>
 			<svg v-else viewBox="0 0 24 24" class="size-7 fill-current" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm1 15h-2v-2h2v2Zm0-4h-2V7h2v6Z"></path></svg>
 		</button>
-		<div v-if="mediaItem.metadata && mediaItem.metadata.duration" class="pointer-events-none absolute left-4 top-4 rounded-full bg-black/60 px-2.5 py-1">
+		<div v-if="mediaItem.metadata && mediaItem.metadata.duration" v-bind:class="playbackControlsHidden(mediaItem) ? 'opacity-0' : 'opacity-100'" class="pointer-events-none absolute left-4 top-4 rounded-full bg-black/60 px-2.5 py-1 transition-opacity duration-300">
 			<VideoDurationTime v-bind:videoDuration="mediaItem.metadata.duration"></VideoDurationTime>
 		</div>
-		<div v-if="mediaItem.metadata?.preview_unavailable || playbackError(mediaItem)" class="pointer-events-none absolute inset-x-3 bottom-14 z-10 rounded-lg bg-black/75 px-3 py-2 text-center text-xs text-white" role="status">
-			This video cannot play in this preview on your device. You can still publish it; try a supported MP4 video for an in-editor preview.
+		<div v-if="mediaItem.metadata?.preview_unavailable || playbackError(mediaItem)" class="pointer-events-none absolute inset-x-3 bottom-3 z-10 rounded-lg bg-black/75 px-3 py-2 text-center text-xs text-white" role="status">
+			Preview playback couldn't start. You can still publish this video.
 		</div>
 		</div>
 	</div>
 </template>
 
 <script>
-	import { defineComponent, computed, ref } from 'vue';
+	import { defineComponent, computed, onBeforeUnmount, ref } from 'vue';
 	import { applyVideoPresentationMetadata, buildVideoPresentationMetadata } from '@/kernel/services/media/video-metadata.js';
-	import { fitMediaPreviewAspectRatio, fitMediaPreviewSize } from '@/kernel/services/media/media-preview-sizing.js';
 	import { useMediaPreviewBounds } from '@/kernel/vue/composables/media-preview-bounds.js';
 
 	import MediaDeleteButton from '@M/views/editors/post/parts/buttons/MediaDeleteButton.vue';
@@ -82,13 +80,38 @@
 					const { bounds, refresh } = useMediaPreviewBounds(previewFrame, 350);
 				const previewState = ref({});
 				const videoDimensions = ref({});
-				const videoBackdrops = ref({});
+				const playbackTimers = new Map();
 				const playbackRates = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3];
 				const previewKey = (mediaItem) => String(mediaItem.preview_key || mediaItem.client_uid || mediaItem.id || mediaItem.preview_url || mediaItem.source_url || 'video');
 				const stateFor = (mediaItem) => previewState.value[previewKey(mediaItem)] || {};
-				const setPreviewPlaying = (mediaItem, playing) => {
-					previewState.value[previewKey(mediaItem)] = { ...stateFor(mediaItem), playing, error: playing ? false : stateFor(mediaItem).error };
+					const clearPlaybackTimer = (key) => {
+						if(playbackTimers.has(key)) clearTimeout(playbackTimers.get(key));
+						playbackTimers.delete(key);
+					};
+					const schedulePlaybackControlsHide = (mediaItem) => {
+						const key = previewKey(mediaItem);
+						clearPlaybackTimer(key);
+						playbackTimers.set(key, setTimeout(() => {
+							previewState.value[key] = { ...stateFor(mediaItem), playing: true, controlsVisible: false };
+							playbackTimers.delete(key);
+						}, 2200));
+					};
+					const setPreviewPlaying = (mediaItem, playing) => {
+						const key = previewKey(mediaItem);
+						clearPlaybackTimer(key);
+						previewState.value[key] = { ...stateFor(mediaItem), playing, controlsVisible: true, error: playing ? false : stateFor(mediaItem).error };
+						if(playing) {
+							applyVideoPresentationMetadata(mediaItem, { preview_unavailable: false });
+							schedulePlaybackControlsHide(mediaItem);
+						}
 				};
+					const showPlaybackControls = (mediaItem) => {
+						if(! stateFor(mediaItem).playing) return;
+						previewState.value[previewKey(mediaItem)] = { ...stateFor(mediaItem), controlsVisible: true };
+						schedulePlaybackControlsHide(mediaItem);
+					};
+					const playbackControlsHidden = (mediaItem) => Boolean(stateFor(mediaItem).playing && stateFor(mediaItem).controlsVisible === false);
+					onBeforeUnmount(() => playbackTimers.forEach(timer => clearTimeout(timer)));
 				const videoFrom = (source) => {
 					const element = source?.currentTarget || source;
 					if (typeof element?.play === 'function' && 'paused' in element) return element;
@@ -103,26 +126,13 @@
 				const playbackSpeedLabel = (mediaItem) => `${playbackSpeed(mediaItem)}×`;
 				const frameStyle = (mediaItem) => {
 					const dimensions = videoDimensions.value[previewKey(mediaItem)] || mediaItem;
-					const size = fitMediaPreviewSize(Number(dimensions.width || 0), Number(dimensions.height || 0), bounds.value.width, bounds.value.height);
-					if(size.width && size.height) return { width: `${size.width}px`, height: `${size.height}px` };
-					const fallback = fitMediaPreviewAspectRatio(16 / 9, bounds.value.width, bounds.value.height);
-					return fallback.width && fallback.height ? { width: `${fallback.width}px`, height: `${fallback.height}px` } : { width: '100%', aspectRatio: '16 / 9' };
-				};
-				const videoBackdropUrl = (mediaItem) => videoBackdrops.value[previewKey(mediaItem)] || mediaItem.thumbnail_url || null;
-				const captureVideoBackdrop = (mediaItem, event) => {
-					if(videoBackdropUrl(mediaItem)) return;
-					const videoElement = event.currentTarget;
-					if(! videoElement.videoWidth || ! videoElement.videoHeight || typeof document === 'undefined') return;
-					const size = fitMediaPreviewSize(videoElement.videoWidth, videoElement.videoHeight, 320, 320);
-					if(! size.width || ! size.height) return;
-					try {
-						const canvas = document.createElement('canvas');
-						canvas.width = size.width;
-						canvas.height = size.height;
-						canvas.getContext('2d')?.drawImage(videoElement, 0, 0, size.width, size.height);
-						videoBackdrops.value = { ...videoBackdrops.value, [previewKey(mediaItem)]: canvas.toDataURL('image/jpeg', 0.72) };
-					}
-					catch { /* A cross-origin video may not allow a canvas poster; keep the aspect-fit frame. */ }
+					const width = Number(bounds.value.width || 0);
+					const maxHeight = Number(bounds.value.height || 0);
+					const sourceWidth = Number(dimensions.width || 0);
+					const sourceHeight = Number(dimensions.height || 0);
+						if(width <= 0 || maxHeight <= 0) return { width: '100%', aspectRatio: '16 / 9' };
+						const aspectRatio = sourceWidth > 0 && sourceHeight > 0 ? sourceWidth / sourceHeight : 16 / 9;
+						return { width: `${width}px`, height: `${Math.min(maxHeight, width / aspectRatio)}px` };
 				};
 				const changePlaybackSpeed = (mediaItem, direction, event) => {
 					event.stopPropagation();
@@ -138,6 +148,11 @@
 				const playPreview = async (mediaItem, source) => {
 					const video = videoFrom(source);
 					if (!video) return;
+					if(stateFor(mediaItem).error && video.src) {
+						const sourceUrl = video.currentSrc || video.src;
+						video.src = sourceUrl;
+						video.load?.();
+					}
 					previewState.value[previewKey(mediaItem)] = { playing: false, error: false };
 					try {
 						await video.play();
@@ -156,7 +171,8 @@
 				return {
 					previewFrame,
 					frameStyle,
-					videoBackdropUrl,
+					showPlaybackControls,
+					playbackControlsHidden,
 					canDelete: computed(() => {
 						return props.canDelete;
 					}),
@@ -197,8 +213,8 @@
 							applyVideoPresentationMetadata(mediaItem, { preview_unavailable: false });
 						}
 					},
-					captureVideoBackdrop,
 					captureVideoError: (mediaItem) => {
+						clearPlaybackTimer(previewKey(mediaItem));
 						applyVideoPresentationMetadata(mediaItem, { preview_unavailable: true });
 						previewState.value[previewKey(mediaItem)] = { playing: false, error: true };
 					}

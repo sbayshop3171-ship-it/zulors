@@ -17,6 +17,10 @@ const previewPaths = {
     mobile: 'resources/js/spa/apps/mobile/views/editors/post/parts/preview/PostVideoPreview.vue',
     desktop: 'resources/js/spa/apps/desktop/components/timeline/editor/preview/video/PostVideoPreview.vue',
 };
+const feedVideoPlayerPaths = {
+    mobile: 'resources/js/spa/apps/mobile/components/players/video/VideoPlayer.vue',
+    desktop: 'resources/js/spa/apps/desktop/components/players/video/VideoPlayer.vue',
+};
 const waitFor = async predicate => {
     for(let attempt = 0; attempt < 100; attempt++) {
         if(predicate()) return;
@@ -157,7 +161,7 @@ async function videoPreviewHarness(platform, play = async () => {}) {
     const descriptor = parse(source).descriptor;
     const ast = babelParse(descriptor.script.content, { sourceType: 'module' });
     const imports = new Map([
-        ['vue', vue],
+        ['vue', { ...vue, onBeforeUnmount: () => {}, onMounted: () => {} }],
         ['@/kernel/services/media/media-preview-sizing.js', previewSizing],
         ['@/kernel/vue/composables/media-preview-bounds.js', {
             useMediaPreviewBounds: () => ({ bounds: vue.ref({ width: 390, height: 600 }), refresh() {} }),
@@ -186,21 +190,25 @@ async function videoPreviewHarness(platform, play = async () => {}) {
     let body = descriptor.script.content;
     for(const edit of replacements.reverse()) body = body.slice(0, edit.start) + edit.text + body.slice(edit.end);
     const component = new Function('imports', body)(imports);
-    const item = { id: 'video-preview', preview_url: 'blob:video-preview', type: 'video', metadata: {} };
+    const item = { id: 'video-preview', preview_url: 'blob:video-preview', type: 'video', width: 360, height: 640, metadata: {} };
     const props = platform === 'mobile' ? { postMedia: [item], canDelete: false } : { mediaItem: item, canDelete: false };
     const preview = component.setup(props, { emit() {} });
+    let loadCalls = 0;
     const video = {
         paused: true,
         playbackRate: 1,
+        src: 'blob:video-preview',
+        currentSrc: 'blob:video-preview',
         play: async () => { await play(); video.paused = false; },
         pause: () => { video.paused = true; },
+        load: () => { loadCalls++; },
     };
     const event = { stopPropagation() {}, currentTarget: { closest: selector => {
         assert.equal(selector, '.post-video-preview-frame');
         return { querySelector: query => { assert.equal(query, 'video'); return video; } };
     } } };
     const videoEvent = { currentTarget: video };
-    return { descriptor, preview, item, video, event, videoEvent };
+    return { descriptor, preview, item, video, event, videoEvent, get loadCalls() { return loadCalls; } };
 }
 
 for(const platform of Object.keys(previewPaths)) {
@@ -220,6 +228,51 @@ for(const platform of Object.keys(previewPaths)) {
         else await h.preview.playPreview(h.event);
         assert.equal(platform === 'mobile' ? h.preview.playbackError(h.item) : h.preview.playbackError.value, true);
         assert.equal(platform === 'mobile' ? h.preview.isPreviewPlaying(h.item) : h.preview.isPreviewPlaying.value, false);
+        assert.match(h.descriptor.template.content, /Preview playback couldn't start\. You can still publish this video\./);
+        assert.doesNotMatch(h.descriptor.template.content, /try a supported MP4 video/);
+    });
+
+    test(`${platform}: retries reload the failed video source`, async () => {
+        let playCalls = 0;
+        const h = await videoPreviewHarness(platform, async () => {
+            if(++playCalls === 1) throw new Error('temporary media load failure');
+        });
+        if(platform === 'mobile') await h.preview.playPreview(h.item, h.event);
+        else await h.preview.playPreview(h.event);
+        if(platform === 'mobile') await h.preview.playPreview(h.item, h.event);
+        else await h.preview.playPreview(h.event);
+        assert.equal(h.loadCalls, 1);
+        assert.equal(platform === 'mobile' ? h.preview.isPreviewPlaying(h.item) : h.preview.isPreviewPlaying.value, true);
+    });
+
+    test(`${platform}: video fills the available width while keeping the preview height bounded`, async () => {
+        const h = await videoPreviewHarness(platform);
+        const style = platform === 'mobile' ? h.preview.frameStyle(h.item) : h.preview.frameStyle.value;
+        assert.deepEqual(style, { width: '390px', height: '600px' });
+        assert.match(h.descriptor.template.content, /class="size-full object-cover"><\/video>/);
+        assert.match(h.descriptor.template.content, /overflow-hidden bg-black/);
+        assert.doesNotMatch(h.descriptor.template.content, /post-video-preview-backdrop/);
+    });
+
+    test(`${platform}: playback overlays hide after play and return on interaction or pause`, async () => {
+        const h = await videoPreviewHarness(platform);
+        const setPlaying = playing => platform === 'mobile'
+            ? h.preview.setPreviewPlaying(h.item, playing)
+            : h.preview.setPreviewPlaying(playing);
+        const hidden = () => platform === 'mobile'
+            ? h.preview.playbackControlsHidden(h.item)
+            : h.preview.playbackControlsHidden.value;
+        const show = () => platform === 'mobile'
+            ? h.preview.showPlaybackControls(h.item)
+            : h.preview.showPlaybackControls();
+
+        setPlaying(true);
+        await delay(2300);
+        assert.equal(hidden(), true);
+        show();
+        assert.equal(hidden(), false);
+        setPlaying(false);
+        assert.equal(hidden(), false);
     });
 
     test(`${platform}: tapping video toggles playback and side controls change speed up to 3x`, async () => {
@@ -251,6 +304,15 @@ for(const platform of Object.keys(previewPaths)) {
         while(canChange(-1)) changeSpeed(-1);
         assert.equal(h.video.playbackRate, 0.5);
         assert.equal(canChange(-1), false);
+    });
+}
+
+for(const platform of Object.keys(feedVideoPlayerPaths)) {
+    test(`${platform}: published video player lets the browser detect the uploaded container`, async () => {
+        const source = (await readFile(new URL(`../../${feedVideoPlayerPaths[platform]}`, import.meta.url))).toString();
+        const template = parse(source).descriptor.template.content;
+        assert.match(template, /<video[\s\S]*?v-bind:src="videoUrl"/);
+        assert.doesNotMatch(template, /<source[^>]+type="video\/mp4"/);
     });
 }
 
