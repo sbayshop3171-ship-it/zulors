@@ -13,8 +13,9 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3ioAAAAASUVORK5CYII=', 'base64');
 const scratch = await mkdtemp(path.join(tmpdir(), 'zulors-publications-'));
 const videoPath = path.join(scratch, 'video.mp4');
-execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=12', '-t', '2', '-c:v', 'libx264', '-threads', '1', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', videoPath]);
-const video = await readFile(videoPath);
+const imagesOnly = process.env.PUBLICATION_IMAGES_ONLY === '1';
+if (!imagesOnly) execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=12', '-t', '2', '-c:v', 'libx264', '-threads', '1', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', videoPath]);
+const video = imagesOnly ? Buffer.alloc(0) : await readFile(videoPath);
 const server = await createServer({ configFile: false, root, cacheDir: path.join(scratch, 'vite-cache'), plugins: [vue(), tailwindcss()],
     optimizeDeps: { noDiscovery: true, include: ['vue', 'pinia', 'vue-router', 'vue-i18n', 'axios', 'howler', 'mitt', 'autolinker', 'hotkeys-js', 'hls.js', 'recordrtc', '@giphy/js-fetch-api', '@headlessui/vue'] },
     resolve: { alias: { '@': path.join(root, 'resources/js/spa'), '@M': path.join(root, 'resources/js/spa/apps/mobile'), '@D': path.join(root, 'resources/js/spa/apps/desktop') } },
@@ -25,7 +26,7 @@ try {
     await server.listen();
     const origin = `http://127.0.0.1:${server.httpServer.address().port}`;
     browser = await chromium.launch({ channel: 'chrome', headless: true });
-    for (const platform of (process.env.PUBLICATION_WORKER_ONLY ? [] : process.env.PUBLICATION_PLATFORM ? [process.env.PUBLICATION_PLATFORM] : ['mobile', 'desktop'])) for (const kind of ['post', 'story', 'chat']) for (const media of ['image', 'video']) {
+    for (const platform of (process.env.PUBLICATION_WORKER_ONLY ? [] : process.env.PUBLICATION_PLATFORM ? [process.env.PUBLICATION_PLATFORM] : ['mobile', 'desktop'])) for (const kind of (imagesOnly ? ['post'] : ['post', 'story', 'chat'])) for (const media of (imagesOnly ? ['image'] : ['image', 'video'])) {
         const bytes = media === 'image' ? png : video;
         const mime = media === 'image' ? 'image/png' : 'video/mp4';
         let expectedFileSize = bytes.length;
@@ -67,7 +68,13 @@ try {
         }
         if (kind === 'story') await page.evaluate(({ bytes, mime }) => window.publicationTest.selectStory(bytes, mime), { bytes: [...bytes], mime });
         else if (kind === 'post' && media === 'image') {
-            const dimensions = platform === 'mobile' ? [[1200, 3200]] : [[320, 120], [120, 320], [200, 200], [320, 240]];
+            const sampleImages = [[1200, 3200], [320, 120], [200, 200], [320, 240]];
+            const requestedImageCount = Number(process.env.PUBLICATION_IMAGE_COUNT || 0);
+            const dimensions = requestedImageCount > 0
+                ? Array.from({ length: requestedImageCount }, (_, index) => sampleImages[index % sampleImages.length])
+                : platform === 'mobile'
+                    ? sampleImages.slice(0, 3)
+                    : Array.from({ length: 10 }, (_, index) => sampleImages[index % sampleImages.length]);
             const photos = (await page.evaluate(async dimensions => Promise.all(dimensions.map(async ([width, height], index) => {
                 const canvas = document.createElement('canvas');
                 canvas.width = width; canvas.height = height;
@@ -83,7 +90,7 @@ try {
             expectedFileSize = photos[0].buffer.length;
             expectedItems = photos.length;
             await page.locator('input[type=file][accept^="image/"]').first().setInputFiles(photos);
-            await page.waitForFunction(count => document.querySelectorAll('.post-image-preview-content').length === count, photos.length);
+            await page.waitForFunction(count => document.querySelectorAll('.post-image-preview-content').length === count, Math.min(photos.length, 5));
         }
         else await page.locator(`input[type=file][accept^="${media}/"]`).first().setInputFiles({ name: media === 'image' ? 'photo.png' : 'video.mp4', mimeType: mime, buffer: bytes });
         const preview = media === 'image' ? 'img' : 'video';
@@ -127,7 +134,7 @@ try {
             assert.ok(pixels > 20, 'selected video renders a decoded frame');
         }
         else if (kind === 'post') {
-            const layout = await page.evaluate(platform => {
+            const layout = await page.evaluate(({ platform, expectedItems }) => {
                 const stageElement = document.querySelector('.post-image-preview-stage');
                 const stage = stageElement?.getBoundingClientRect();
                 const singleBackdrop = stageElement?.querySelector(':scope > img');
@@ -137,17 +144,24 @@ try {
                     width: image.getBoundingClientRect().width, height: image.getBoundingClientRect().height,
                     cellWidth: image.parentElement.getBoundingClientRect().width, cellHeight: image.parentElement.getBoundingClientRect().height }));
                 const action = document.querySelector(platform === 'mobile' ? '[aria-label="Add image"]' : '[aria-label="Add media"]');
-                return stage ? { stageWidth: stage.width, stageHeight: stage.height, count: images.length, heroTiles: stageElement.querySelectorAll('.row-span-2').length, cells,
+                return stage ? { stageWidth: stage.width, stageHeight: stage.height, count: images.length, heroTiles: stageElement.querySelectorAll('.row-span-2').length,
+                    wideTiles: stageElement.querySelectorAll('.col-span-3').length,
+                    extraBadge: [...stageElement.querySelectorAll('div')].some(element => element.textContent.trim() === `+${Math.max(expectedItems - 5, 0)}` && element.className.includes('bg-black/55')),
+                    blurredTileImages: stageElement.querySelectorAll('div > img.blur-xl').length, cells,
                     singleBackdrop: Boolean(singleBackdrop),
                     stageBottom: stage.bottom, actionTop: action?.getBoundingClientRect().top ?? null, viewportHeight: innerHeight } : null;
-            }, platform);
+            }, { platform, expectedItems });
             assert.ok(layout && layout.stageWidth > 100 && layout.stageHeight > 100, `${platform}: image preview has a visible full media stage (${JSON.stringify(layout)})`);
-            assert.equal(layout.count, expectedItems, `${platform}: all selected images remain in the responsive grid`);
+            assert.equal(layout.count, Math.min(expectedItems, 5), `${platform}: composer shows the same visible gallery items as the published feed`);
             assert.equal(layout.heroTiles, expectedItems === 3 ? 1 : 0, `${platform}: three-image layouts emphasize the first image`);
+            assert.equal(layout.wideTiles, expectedItems >= 5 ? 2 : 0, `${platform}: 5+ image layouts use the published gallery's balanced top row`);
+            assert.equal(layout.extraBadge, expectedItems > 5, `${platform}: additional selected images use the published +N overlay`);
             if(expectedItems === 1) assert.equal(layout.singleBackdrop, true, `${platform}: a narrow single image fills surrounding bars without cropping the image`);
-            assert.ok(layout.cells.every(cell => cell.objectFit === 'contain' && cell.naturalWidth > 0 && cell.naturalHeight > 0 &&
+            assert.equal(layout.blurredTileImages, 0, `${platform}: multi-image tiles do not create blurry blank bands`);
+            const expectedFit = expectedItems === 1 ? 'contain' : 'cover';
+            assert.ok(layout.cells.every(cell => cell.objectFit === expectedFit && cell.naturalWidth > 0 && cell.naturalHeight > 0 &&
                 Math.abs(cell.width - cell.cellWidth) < 2 && Math.abs(cell.height - cell.cellHeight) < 2),
-                `${platform}: every image keeps its full aspect ratio inside its tile (${JSON.stringify(layout)})`);
+                `${platform}: images fill the same gallery tiles used by published posts (${JSON.stringify(layout)})`);
             assert.ok(layout.stageBottom <= layout.viewportHeight + 1, `${platform}: image stage and editor controls fit in the viewport`);
             assert.ok(layout.actionTop === null || layout.actionTop - layout.stageBottom < 80,
                 `${platform}: media sizing does not leave a large gap before the editor controls (${JSON.stringify(layout)})`);

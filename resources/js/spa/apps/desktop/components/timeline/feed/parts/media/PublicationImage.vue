@@ -27,8 +27,7 @@
 <script>
     import { defineComponent, computed } from 'vue';
     import ProgressiveImageLoader from '@/kernel/vue/components/media/image/ProgressiveImageLoader.vue';
-
-    const MAX_GRID_IMAGES = 5;
+    import { PUBLICATION_IMAGE_GALLERY_LIMIT, getPublicationImageGalleryLayout, getPublicationImageTileClasses, isPublicationImageGalleryMoreTile } from '@/kernel/services/media/publication-image-gallery.js';
 
     export default defineComponent({
         props: {
@@ -58,59 +57,27 @@
             });
 
             const previewMedia = computed(() => {
-                return postMedia.value.slice(0, MAX_GRID_IMAGES);
+                return postMedia.value.slice(0, PUBLICATION_IMAGE_GALLERY_LIMIT);
             });
 
             const mediaCount = computed(() => {
                 return previewMedia.value.length;
             });
 
-            const extraCount = computed(() => {
-                return Math.max(postMedia.value.length - MAX_GRID_IMAGES, 0);
-            });
-
-            const gridClasses = computed(() => {
-                if(mediaCount.value === 1) {
-                    return 'block';
-                }
-
-                if(mediaCount.value === 2 || mediaCount.value === 4) {
-                    return 'grid grid-cols-2 gap-0.5';
-                }
-
-                if(mediaCount.value === 3) {
-                    return 'grid grid-cols-3 gap-0.5';
-                }
-
-                return 'grid grid-cols-6 gap-0.5';
-            });
-
             const getTileClasses = (idx) => {
-                if(mediaCount.value === 1) {
-                    if(props.sponsoredFeed) return 'aspect-square';
-                    return 'max-h-[620px]';
-                }
-
-                if(mediaCount.value === 3 && idx === 0) {
-                    return 'col-span-2 row-span-2 aspect-square';
-                }
-
-                if(mediaCount.value >= 5) {
-                    return idx < 2 ? 'col-span-3 aspect-square' : 'col-span-2 aspect-square';
-                }
-
-                return 'aspect-square';
+                const singleTileClass = props.sponsoredFeed ? 'aspect-square' : 'max-h-[620px]';
+                return getPublicationImageTileClasses(mediaCount.value, idx, singleTileClass);
             };
 
             const shouldShowMoreOverlay = (idx) => {
-                return extraCount.value > 0 && idx === previewMedia.value.length - 1;
+                return isPublicationImageGalleryMoreTile(postMedia.value.length, idx);
             };
 
             return {
                 previewMedia: previewMedia,
-                extraCount: extraCount,
+                extraCount: computed(() => getPublicationImageGalleryLayout(postMedia.value.length).extraCount),
                 mediaCount: mediaCount,
-                gridClasses: gridClasses,
+                gridClasses: computed(() => getPublicationImageGalleryLayout(mediaCount.value).gridClasses),
                 getTileClasses: getTileClasses,
                 getImageClasses: computed(() => {
                     if(props.sponsoredFeed && mediaCount.value === 1) return 'relative block size-full object-contain';

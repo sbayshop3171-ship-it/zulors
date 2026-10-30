@@ -51,17 +51,17 @@
                 <template v-else>
                     <div v-if="postHasMedia" v-bind:class="(PostTypeUtils.isVideo(currentPostType) || PostTypeUtils.isImage(currentPostType)) ? '-mx-5 mb-3 flex w-[calc(100%+2.5rem)] flex-none justify-center overflow-hidden' : 'mb-3 min-h-0 max-h-[46dvh] shrink-0 overflow-hidden'">
                         <template v-if="PostTypeUtils.isImage(currentPostType)">
-                            <div ref="imagePreviewStage" class="post-image-preview-stage relative isolate grid min-h-0 w-full grid-cols-2 overflow-hidden bg-fill-tr" v-bind:style="imagePreviewStageStyle">
+                            <div ref="imagePreviewStage" class="post-image-preview-stage relative isolate min-h-0 w-full min-w-0 overflow-hidden bg-fill-pr" v-bind:style="imagePreviewStageStyle">
                                     <img v-if="postMedia.length === 1 && (postMedia[0].preview_url || postMedia[0].source_url)" v-bind:src="postMedia[0].preview_url || postMedia[0].source_url" class="pointer-events-none absolute inset-0 size-full scale-110 object-cover opacity-45 blur-2xl" alt="" aria-hidden="true">
-                                    <div v-for="(mediaItem, index) in postMedia" v-bind:key="mediaItem.preview_key || mediaItem.id || mediaItem.source_url" v-bind:class="[isHeroImageTile(index), isWideImageTile(index)]" v-bind:style="imageFrameStyle(mediaItem)" class="relative z-0 isolate min-h-0 min-w-0 overflow-hidden bg-fill-tr">
+                                    <div v-for="(mediaItem, index) in visibleImageMedia" v-bind:key="mediaItem.preview_key || mediaItem.id || mediaItem.source_url" v-bind:class="[getPublicationImageTileClasses(postMedia.length, index), (mediaItem.deleted ? 'opacity-20' : '')]" v-bind:style="imageFrameStyle(mediaItem)" class="relative z-0 isolate min-h-0 min-w-0 overflow-hidden bg-fill-pr">
                                         <MediaBlurOverlay v-if="mediaItem.deleted"></MediaBlurOverlay>
 
                                         <div v-else-if="! isEditingPost" class="absolute top-2 right-2 inline-block">
                                             <MediaDeleteButton v-on:click="deletePostMedia(mediaItem)"></MediaDeleteButton>
                                         </div>
 
-                                        <img v-if="postMedia.length > 1 && (mediaItem.preview_url || mediaItem.source_url)" v-bind:src="mediaItem.preview_url || mediaItem.source_url" class="absolute inset-0 size-full scale-110 object-cover opacity-45 blur-xl" alt="" aria-hidden="true">
-                                        <img v-if="mediaItem.preview_url || mediaItem.source_url" v-on:load="captureImageDimensions(mediaItem, $event)" v-bind:src="mediaItem.preview_url || mediaItem.source_url" v-bind:class="postMedia.length === 1 ? 'post-image-preview-content size-full object-contain' : 'post-image-preview-content relative z-0 size-full object-contain'" alt="Image">
+                                        <img v-if="mediaItem.preview_url || mediaItem.source_url" v-on:load="captureImageDimensions(mediaItem, $event)" v-bind:src="mediaItem.preview_url || mediaItem.source_url" v-bind:class="postMedia.length === 1 ? 'post-image-preview-content size-full object-contain' : 'post-image-preview-content relative z-0 size-full object-cover'" alt="Image">
+                                        <div v-if="isPublicationImageGalleryMoreTile(postMedia.length, index)" class="pointer-events-none absolute inset-0 z-10 flex-center bg-black/55 text-white text-title-1 font-bold">+{{ imagePreviewExtraCount }}</div>
                                     </div>
                             </div>
                         </template>
@@ -234,6 +234,7 @@
     import { imagePasteHandler } from '@/kernel/events/image-paste/index.js';
     import { applyVideoPresentationMetadata, buildVideoPresentationMetadata, readVideoFileMetadata } from '@/kernel/services/media/video-metadata.js';
     import { fitMediaPreviewSize } from '@/kernel/services/media/media-preview-sizing.js';
+    import { getPublicationImageGalleryLayout, getPublicationImageGalleryStageStyle, getPublicationImageTileClasses, isPublicationImageGalleryMoreTile } from '@/kernel/services/media/publication-image-gallery.js';
     import { mergePostMediaPreviews } from '@/kernel/services/media/post-media-preview.js';
     import { createMultipartUploadProgress, uploadMultipartPartsAdaptive } from '@/kernel/services/media/multipart-upload-progress.js';
     import { useCheatSheet } from '@D/core/composables/cheat-sheet/index.js';
@@ -313,15 +314,13 @@
             const imageDimensionsFor = (mediaItem) => imageDimensions.value[imageKey(mediaItem)] || {
                 width: Number(mediaItem.width || 0), height: Number(mediaItem.height || 0),
             };
+            const imagePreviewLayout = computed(() => getPublicationImageGalleryLayout(postMedia.value.length));
+            const visibleImageMedia = computed(() => postMedia.value.slice(0, imagePreviewLayout.value.visibleCount));
+            const imagePreviewExtraCount = computed(() => imagePreviewLayout.value.extraCount);
             const imagePreviewStageStyle = computed(() => {
                 const count = postMedia.value.length;
-                const columns = count < 2 ? 1 : count <= 4 ? 2 : count <= 6 ? 3 : 4;
                 if(count === 1) return { display: 'grid', width: '100%', height: 'auto', placeItems: 'center' };
-                return {
-                    display: 'grid', width: '100%', height: 'min(46dvh, calc(100dvh - 320px))',
-                    gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-                    gridTemplateRows: `repeat(${Math.max(1, Math.ceil(count / columns))}, minmax(0, 1fr))`,
-                };
+                return getPublicationImageGalleryStageStyle(count, imagePreviewBounds.value.width, imagePreviewBounds.value.height);
             });
             const captureImageDimensions = (mediaItem, event) => {
                 const image = event.currentTarget;
@@ -333,14 +332,6 @@
                 const dimensions = imageDimensionsFor(mediaItem);
                 const size = fitMediaPreviewSize(dimensions.width, dimensions.height, imagePreviewBounds.value.width, imagePreviewBounds.value.height);
                 return size.width && size.height ? { width: `${size.width}px`, height: `${size.height}px` } : { width: '100%', aspectRatio: '4 / 3' };
-            };
-            const isHeroImageTile = (index) => postMedia.value.length === 3 && index === 0 ? 'row-span-2' : '';
-            const isWideImageTile = (index) => {
-                const count = postMedia.value.length;
-                const columns = count <= 4 ? 2 : count <= 6 ? 3 : 4;
-                const remainder = count % columns;
-                const span = columns - remainder + 1;
-                return count >= 5 && remainder > 0 && index === count - 1 ? ({ 2: 'col-span-2', 3: 'col-span-3', 4: 'col-span-4' }[span] || '') : '';
             };
 
             const updateMainMenuPosition = () => {
@@ -1281,11 +1272,13 @@
                 PostTypeUtils: PostTypeUtils,
                 PostType: PostType,
                 imagePreviewStage: imagePreviewStage,
+                visibleImageMedia: visibleImageMedia,
+                imagePreviewExtraCount: imagePreviewExtraCount,
                 imagePreviewStageStyle: imagePreviewStageStyle,
                 captureImageDimensions: captureImageDimensions,
                 imageFrameStyle: imageFrameStyle,
-                isHeroImageTile: isHeroImageTile,
-                isWideImageTile: isWideImageTile,
+                getPublicationImageTileClasses: getPublicationImageTileClasses,
+                isPublicationImageGalleryMoreTile: isPublicationImageGalleryMoreTile,
                 openCheatSheetPanel: openCheatSheetPanel,
                 submitButtonStatus: submitButtonStatus,
                 onImageSelect: async (event) => {
