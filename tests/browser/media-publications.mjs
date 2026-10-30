@@ -28,6 +28,8 @@ try {
     for (const platform of (process.env.PUBLICATION_WORKER_ONLY ? [] : process.env.PUBLICATION_PLATFORM ? [process.env.PUBLICATION_PLATFORM] : ['mobile', 'desktop'])) for (const kind of ['post', 'story', 'chat']) for (const media of ['image', 'video']) {
         const bytes = media === 'image' ? png : video;
         const mime = media === 'image' ? 'image/png' : 'video/mp4';
+        let expectedFileSize = bytes.length;
+        let expectedItems = 1;
         const compactViewport = process.env.PUBLICATION_COMPACT === '1';
         const viewport = platform === 'mobile'
             ? { width: 390, height: compactViewport ? 700 : 844 }
@@ -43,6 +45,7 @@ try {
         const page = await context.newPage();
         page.setDefaultTimeout(60000);
         const errors = [];
+        page.on('console', message => { if (message.type() === 'error') console.error(message.text()); });
         page.on('pageerror', error => { errors.push(error.message); console.error(error.message); });
         await page.goto(`${origin}/tests/browser/media-publications.html?platform=${platform}&kind=${kind}`, { waitUntil: 'domcontentloaded', timeout: 90000 });
         await page.waitForFunction(() => window.publicationTest);
@@ -63,6 +66,25 @@ try {
             await page.getByRole('button', { name: 'Add media' }).click();
         }
         if (kind === 'story') await page.evaluate(({ bytes, mime }) => window.publicationTest.selectStory(bytes, mime), { bytes: [...bytes], mime });
+        else if (kind === 'post' && media === 'image') {
+            const dimensions = platform === 'mobile' ? [[320, 120], [120, 320], [200, 200]] : [[320, 120], [120, 320], [200, 200], [320, 240]];
+            const photos = (await page.evaluate(async dimensions => Promise.all(dimensions.map(async ([width, height], index) => {
+                const canvas = document.createElement('canvas');
+                canvas.width = width; canvas.height = height;
+                const context = canvas.getContext('2d');
+                context.fillStyle = ['#e14343', '#3284cf', '#45a36b', '#df9a31'][index];
+                context.fillRect(0, 0, width, height);
+                context.fillStyle = '#ffffff';
+                context.fillRect(0, 0, Math.max(2, Math.floor(width / 12)), height);
+                context.fillRect(0, 0, width, Math.max(2, Math.floor(height / 12)));
+                const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+                return { name: `photo-${index + 1}.png`, mimeType: 'image/png', buffer: [...new Uint8Array(await blob.arrayBuffer())] };
+            })), dimensions)).map(photo => ({ ...photo, buffer: Buffer.from(photo.buffer) }));
+            expectedFileSize = photos[0].buffer.length;
+            expectedItems = photos.length;
+            await page.locator('input[type=file][accept^="image/"]').first().setInputFiles(photos);
+            await page.waitForFunction(count => document.querySelectorAll('.post-image-preview-content').length === count, photos.length);
+        }
         else await page.locator(`input[type=file][accept^="${media}/"]`).first().setInputFiles({ name: media === 'image' ? 'photo.png' : 'video.mp4', mimeType: mime, buffer: bytes });
         const preview = media === 'image' ? 'img' : 'video';
         await page.waitForFunction(preview => [...document.querySelectorAll(preview)].some(element => element.src.startsWith('blob:')), preview);
@@ -102,18 +124,24 @@ try {
         }
         else if (kind === 'post') {
             const layout = await page.evaluate(() => {
-                const stage = document.querySelector('.post-image-preview-stage')?.getBoundingClientRect();
-                const image = document.querySelector('.post-image-preview-stage img');
-                const imageBounds = image?.getBoundingClientRect();
-                return stage && imageBounds ? { stageWidth: stage.width, stageHeight: stage.height,
-                    imageWidth: imageBounds.width, imageHeight: imageBounds.height, objectFit: getComputedStyle(image).objectFit,
+                const stageElement = document.querySelector('.post-image-preview-stage');
+                const stage = stageElement?.getBoundingClientRect();
+                const images = [...document.querySelectorAll('.post-image-preview-content')];
+                const cells = images.map(image => ({ objectFit: getComputedStyle(image).objectFit,
+                    naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight,
+                    width: image.getBoundingClientRect().width, height: image.getBoundingClientRect().height,
+                    cellWidth: image.parentElement.getBoundingClientRect().width, cellHeight: image.parentElement.getBoundingClientRect().height }));
+                return stage ? { stageWidth: stage.width, stageHeight: stage.height, count: images.length, heroTiles: stageElement.querySelectorAll('.row-span-2').length, cells,
                     stageBottom: stage.bottom, viewportHeight: innerHeight } : null;
             });
             assert.ok(layout && layout.stageWidth > 100 && layout.stageHeight > 100, `${platform}: image preview has a visible full media stage (${JSON.stringify(layout)})`);
-            assert.ok(Math.abs(layout.imageWidth - layout.stageWidth) < 2 && Math.abs(layout.imageHeight - layout.stageHeight) < 2,
-                `${platform}: image fills the preview stage edge to edge (${JSON.stringify(layout)})`);
-            assert.equal(layout.objectFit, 'cover');
+            assert.equal(layout.count, expectedItems, `${platform}: all selected images remain in the responsive grid`);
+            assert.equal(layout.heroTiles, expectedItems === 3 ? 1 : 0, `${platform}: three-image layouts emphasize the first image`);
+            assert.ok(layout.cells.every(cell => cell.objectFit === 'contain' && cell.naturalWidth > 0 && cell.naturalHeight > 0 &&
+                Math.abs(cell.width - cell.cellWidth) < 2 && Math.abs(cell.height - cell.cellHeight) < 2),
+                `${platform}: every image keeps its full aspect ratio inside its tile (${JSON.stringify(layout)})`);
             assert.ok(layout.stageBottom <= layout.viewportHeight + 1, `${platform}: image stage and editor controls fit in the viewport`);
+            await page.screenshot({ path: path.join(tmpdir(), `zulors-post-image-preview-${platform}.png`) });
         }
         assert.equal(requests.some(request => request.method !== 'GET'), false, `${platform}/${kind}: selecting media must be local`);
         await page.locator('textarea').first().fill('Durable caption');
@@ -132,9 +160,9 @@ try {
             const rows = await window.publicationTest.db.list('1');
             const row = rows[0];
             const file = await window.publicationTest.db.file(`${row.key}:${row.descriptor.items[0].client_uid}`);
-            return { count: rows.length, kind: row.descriptor.kind, content: row.descriptor.content, privacy: row.descriptor.privacy, selected_user_ids: row.descriptor.selected_user_ids, status: row.status, size: file?.size };
+            return { count: rows.length, items: row.descriptor.items.length, kind: row.descriptor.kind, content: row.descriptor.content, privacy: row.descriptor.privacy, selected_user_ids: row.descriptor.selected_user_ids, status: row.status, size: file?.size };
         });
-        assert.deepEqual(result, { count: 1, kind, content: 'Durable caption', privacy: 'all', selected_user_ids: [], status: 'queued', size: bytes.length });
+        assert.deepEqual(result, { count: 1, items: expectedItems, kind, content: 'Durable caption', privacy: 'all', selected_user_ids: [], status: 'queued', size: expectedFileSize });
         assert.equal(requests.some(request => request.method !== 'GET'), false, 'Publish saves locally before the worker sends HTTP');
         await page.evaluate(() => window.publicationTest.close());
         const queuedStatus = kind === 'story' ? 'Starting story upload' : 'Queued';

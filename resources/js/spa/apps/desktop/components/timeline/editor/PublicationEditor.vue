@@ -51,15 +51,16 @@
                 <template v-else>
                     <div v-if="postHasMedia" v-bind:class="[PostTypeUtils.isVideo(currentPostType) ? 'bg-black' : '', (PostTypeUtils.isVideo(currentPostType) || PostTypeUtils.isImage(currentPostType)) ? '-mx-5 mb-3 min-h-0 flex-1 overflow-hidden' : 'mb-3 min-h-0 max-h-[46dvh] shrink-0 overflow-hidden']">
                         <template v-if="PostTypeUtils.isImage(currentPostType)">
-                            <div class="post-image-preview-stage grid h-full min-h-0 w-full grid-cols-2 overflow-hidden" v-bind:style="imagePreviewGridStyle">
-                                    <div v-for="(mediaItem, index) in postMedia" v-bind:key="mediaItem.preview_key || mediaItem.id || mediaItem.source_url" v-bind:class="isWideImageTile(index)" class="relative min-h-0 min-w-0 overflow-hidden">
+                            <div class="post-image-preview-stage grid h-full min-h-0 w-full grid-cols-2 overflow-hidden bg-fill-tr" v-bind:style="imagePreviewGridStyle">
+                                    <div v-for="(mediaItem, index) in postMedia" v-bind:key="mediaItem.preview_key || mediaItem.id || mediaItem.source_url" v-bind:class="[isHeroImageTile(index), isWideImageTile(index)]" class="relative isolate min-h-0 min-w-0 overflow-hidden bg-fill-tr">
                                         <MediaBlurOverlay v-if="mediaItem.deleted"></MediaBlurOverlay>
 
                                         <div v-else-if="! isEditingPost" class="absolute top-2 right-2 inline-block">
                                             <MediaDeleteButton v-on:click="deletePostMedia(mediaItem)"></MediaDeleteButton>
                                         </div>
 
-                                        <img v-bind:src="mediaItem.preview_url || mediaItem.source_url" class="size-full object-cover bg-fill-tr" alt="Image">
+                                        <img v-if="mediaItem.preview_url || mediaItem.source_url" v-bind:src="mediaItem.preview_url || mediaItem.source_url" class="post-image-preview-backdrop absolute inset-0 size-full scale-110 object-cover opacity-45 blur-xl" alt="" aria-hidden="true">
+                                        <img v-if="mediaItem.preview_url || mediaItem.source_url" v-bind:src="mediaItem.preview_url || mediaItem.source_url" class="post-image-preview-content relative z-0 size-full object-contain" alt="Image">
                                     </div>
                             </div>
                         </template>
@@ -211,7 +212,7 @@
                 </div>
             </div>
             <div class="hidden">
-                <input v-on:change="onImageSelect" type="file" accept="image/*" ref="postImageFileInput">
+                <input v-on:change="onImageSelect" type="file" accept="image/*" multiple ref="postImageFileInput">
                 <input v-on:change="onVideoSelect" type="file" accept="video/*" ref="postVideoFileInput">
                 <input v-on:change="onDocumentSelect" type="file" ref="postDocumentFileInput">
                 <input v-on:change="onAudioSelect" type="file" accept="audio/*" ref="postAudioFileInput">
@@ -304,12 +305,20 @@
             });
             const imagePreviewGridStyle = computed(() => {
                 const count = postMedia.value.length;
+                const columns = count < 2 ? 1 : count <= 4 ? 2 : count <= 6 ? 3 : 4;
                 return {
-                    gridTemplateColumns: count === 1 ? 'minmax(0, 1fr)' : 'repeat(2, minmax(0, 1fr))',
-                    gridTemplateRows: `repeat(${Math.max(1, Math.ceil(count / 2))}, minmax(0, 1fr))`,
+                    gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+                    gridTemplateRows: `repeat(${Math.max(1, Math.ceil(count / columns))}, minmax(0, 1fr))`,
                 };
             });
-            const isWideImageTile = (index) => postMedia.value.length > 1 && postMedia.value.length % 2 === 1 && index === postMedia.value.length - 1 ? 'col-span-2' : '';
+            const isHeroImageTile = (index) => postMedia.value.length === 3 && index === 0 ? 'row-span-2' : '';
+            const isWideImageTile = (index) => {
+                const count = postMedia.value.length;
+                const columns = count <= 4 ? 2 : count <= 6 ? 3 : 4;
+                const remainder = count % columns;
+                const span = columns - remainder + 1;
+                return count >= 5 && remainder > 0 && index === count - 1 ? ({ 2: 'col-span-2', 3: 'col-span-3', 4: 'col-span-4' }[span] || '') : '';
+            };
 
             const updateMainMenuPosition = () => {
                 if(typeof window === 'undefined' || ! state.mainMenu.status || ! mainMenuAnchor.value || ! mainMenuPanel.value) return;
@@ -1249,11 +1258,14 @@
                 PostTypeUtils: PostTypeUtils,
                 PostType: PostType,
                 imagePreviewGridStyle: imagePreviewGridStyle,
+                isHeroImageTile: isHeroImageTile,
                 isWideImageTile: isWideImageTile,
                 openCheatSheetPanel: openCheatSheetPanel,
                 submitButtonStatus: submitButtonStatus,
-                onImageSelect: (event) => {
-                    uploadPostMedia(event.target.files[0], 'image');
+                onImageSelect: async (event) => {
+                    const files = Array.from(event.target.files || []);
+                    event.target.value = '';
+                    for(const file of files) await uploadPostMedia(file, 'image');
                 },
                 onAudioSelect: (event) => {
                     uploadPostMedia(event.target.files[0], 'audio');

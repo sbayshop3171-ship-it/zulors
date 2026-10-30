@@ -68,7 +68,7 @@
 		</div>
 
 		<div class="hidden">
-			<input v-on:change="onImageSelect" type="file" accept="image/*" ref="imageFileInput">
+			<input v-on:change="onImageSelect" type="file" accept="image/*" multiple ref="imageFileInput">
 			<input v-on:change="onVideoSelect" type="file" accept="video/*" ref="videoFileInput">
 			<input v-on:change="onAudioSelect" type="file" accept="audio/*" ref="audioFileInput">
 		</div>
@@ -1151,8 +1151,10 @@
 				textInputHandler: function() {
 					autoResize(contentInput.value);
 				},
-				onImageSelect: function(event) {
-					uploadMedia(event.target.files[0], 'image');
+				onImageSelect: async function(event) {
+					const files = Array.from(event.target.files || []);
+					event.target.value = '';
+					for(const file of files) await uploadMedia(file, 'image');
 				},
 				onAudioSelect: function(event) {
 					uploadMedia(event.target.files[0], 'audio');
