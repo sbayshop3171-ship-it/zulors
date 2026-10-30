@@ -12,6 +12,10 @@ const paths = {
     mobile: 'resources/js/spa/apps/mobile/views/editors/post/PostEditor.vue',
     desktop: 'resources/js/spa/apps/desktop/components/timeline/editor/PublicationEditor.vue',
 };
+const previewPaths = {
+    mobile: 'resources/js/spa/apps/mobile/views/editors/post/parts/preview/PostVideoPreview.vue',
+    desktop: 'resources/js/spa/apps/desktop/components/timeline/editor/preview/video/PostVideoPreview.vue',
+};
 const waitFor = async predicate => {
     for(let attempt = 0; attempt < 100; attempt++) {
         if(predicate()) return;
@@ -141,6 +145,67 @@ async function editorHarness(platform, { fallback = false, fail = false } = {}) 
     );
     const editor = component.setup({}, {});
     return { editor, store, revoked, requests, calls, timeline, unmount };
+}
+
+async function videoPreviewHarness(platform, play = async () => {}) {
+    const source = (await readFile(new URL(`../../${previewPaths[platform]}`, import.meta.url))).toString();
+    const descriptor = parse(source).descriptor;
+    const ast = babelParse(descriptor.script.content, { sourceType: 'module' });
+    const imports = new Map([
+        ['vue', vue],
+        ['@/kernel/services/media/video-metadata.js', {
+            applyVideoPresentationMetadata: (item, metadata) => { item.metadata = { ...item.metadata, ...metadata }; },
+            buildVideoPresentationMetadata: () => ({}),
+            isVideoPortrait: () => true,
+            videoFrameAspectStyle: () => ({}),
+        }],
+        ['@M/views/editors/post/parts/buttons/MediaDeleteButton.vue', { default: {} }],
+        ['@D/components/timeline/editor/animations/MediaBlurOverlay.vue', { default: {} }],
+        ['@D/components/timeline/editor/buttons/MediaDeleteButton.vue', { default: {} }],
+        ['@/kernel/vue/components/media/video/VideoDurationTime.vue', { default: {} }],
+    ]);
+    const replacements = ast.program.body.flatMap(node => {
+        if(node.type === 'ImportDeclaration') {
+            return [{ start: node.start, end: node.end, text: node.specifiers.map(spec => {
+                const name = spec.type === 'ImportDefaultSpecifier' ? 'default' : spec.imported.name;
+                return `const ${spec.local.name} = imports.get(${JSON.stringify(node.source.value)})?.[${JSON.stringify(name)}] || {};`;
+            }).join('\n') }];
+        }
+        if(node.type === 'ExportDefaultDeclaration') return [{ start: node.start, end: node.declaration.start, text: 'return ' }];
+        return [];
+    });
+    let body = descriptor.script.content;
+    for(const edit of replacements.reverse()) body = body.slice(0, edit.start) + edit.text + body.slice(edit.end);
+    const component = new Function('imports', body)(imports);
+    const item = { id: 'video-preview', preview_url: 'blob:video-preview', type: 'video', metadata: {} };
+    const props = platform === 'mobile' ? { postMedia: [item], canDelete: false } : { mediaItem: item, canDelete: false };
+    const preview = component.setup(props, { emit() {} });
+    const video = { play };
+    const event = { currentTarget: { closest: selector => {
+        assert.equal(selector, '.post-video-preview-frame');
+        return { querySelector: query => { assert.equal(query, 'video'); return video; } };
+    } } };
+    return { descriptor, preview, item, video, event };
+}
+
+for(const platform of Object.keys(previewPaths)) {
+    test(`${platform}: visible preview play button starts video playback`, async () => {
+        let playCalls = 0;
+        const h = await videoPreviewHarness(platform, async () => { playCalls++; });
+        assert.match(h.descriptor.template.content, /v-on:click="playPreview/);
+        if(platform === 'mobile') await h.preview.playPreview(h.item, h.event);
+        else await h.preview.playPreview(h.event);
+        assert.equal(playCalls, 1);
+        assert.equal(platform === 'mobile' ? h.preview.isPreviewPlaying(h.item) : h.preview.isPreviewPlaying.value, true);
+    });
+
+    test(`${platform}: unsupported preview playback shows retry/error state`, async () => {
+        const h = await videoPreviewHarness(platform, async () => { throw new Error('unsupported codec'); });
+        if(platform === 'mobile') await h.preview.playPreview(h.item, h.event);
+        else await h.preview.playPreview(h.event);
+        assert.equal(platform === 'mobile' ? h.preview.playbackError(h.item) : h.preview.playbackError.value, true);
+        assert.equal(platform === 'mobile' ? h.preview.isPreviewPlaying(h.item) : h.preview.isPreviewPlaying.value, false);
+    });
 }
 
 for(const platform of Object.keys(paths)) {
