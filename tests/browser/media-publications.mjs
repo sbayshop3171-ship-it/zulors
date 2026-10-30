@@ -87,13 +87,15 @@ try {
         assert.deepEqual(result, { count: 1, kind, content: 'Durable caption', privacy: 'all', selected_user_ids: [], status: 'queued', size: bytes.length });
         assert.equal(requests.some(request => request.method !== 'GET'), false, 'Publish saves locally before the worker sends HTTP');
         await page.evaluate(() => window.publicationTest.close());
-        await page.getByRole('status').filter({ hasText: 'Queued' }).waitFor();
+        const queuedStatus = kind === 'story' ? 'Starting story upload' : 'Queued';
+        await page.getByRole('status').filter({ hasText: queuedStatus }).waitFor();
         await page.screenshot({ path: path.join(tmpdir(), `zulors-publication-${platform}-${kind}.png`), fullPage: true });
         const bounds = await page.locator('.publication-row').evaluate(element => ({ width: element.getBoundingClientRect().width, viewport: innerWidth, overflow: document.documentElement.scrollWidth > innerWidth }));
         assert.ok(bounds.width <= bounds.viewport); assert.equal(bounds.overflow, false);
         await page.goto(`${origin}/tests/browser/media-publications.html?platform=${platform}&kind=${kind}&outbox`);
         await page.waitForFunction(() => window.publicationTest?.rows.value.length === 1);
         assert.equal(await page.evaluate(() => window.publicationTest.rows.value[0].descriptor.content), 'Durable caption');
+        await page.getByRole('status').filter({ hasText: queuedStatus }).waitFor();
         assert.deepEqual(errors, [], `${platform}/${kind}: browser errors`);
         assert.equal(await page.evaluate(() => window.fixtureError || null), null);
         console.log(`${platform}/${kind}/${media}: local preview, quota retention, durable publish, reload and pending row passed`);
