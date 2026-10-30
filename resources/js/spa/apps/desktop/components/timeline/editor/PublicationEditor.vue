@@ -49,16 +49,21 @@
                     <MediaFileDropper v-on:click="state.isDragging = false"></MediaFileDropper>
                 </template>
                 <template v-else>
-                    <div v-if="postHasMedia" v-bind:class="PostTypeUtils.isPicture(currentPostType) ? '-mx-5 mb-3 w-[calc(100%+2.5rem)] flex-none' : PostTypeUtils.isVideo(currentPostType) ? '-mx-5 mb-3 flex w-[calc(100%+2.5rem)] flex-none justify-center overflow-hidden' : 'mb-3 min-h-0 max-h-[46dvh] shrink-0 overflow-hidden'">
+                    <div v-if="postHasMedia" v-bind:class="PostTypeUtils.isPicture(currentPostType) ? 'mb-3 flex-none' : PostTypeUtils.isVideo(currentPostType) ? '-mx-5 mb-3 flex w-[calc(100%+2.5rem)] flex-none justify-center overflow-hidden' : 'mb-3 min-h-0 max-h-[46dvh] shrink-0 overflow-hidden'">
                         <template v-if="PostTypeUtils.isImage(currentPostType)">
-                            <MediaImageGallery class="post-image-preview-stage" v-bind:mediaItems="postMedia">
-                                <template #overlay="{ mediaItem }">
-                                    <MediaBlurOverlay v-if="mediaItem.deleted"></MediaBlurOverlay>
-                                    <div v-else-if="! isEditingPost" class="absolute right-2 top-2 z-20 inline-block">
-                                        <MediaDeleteButton v-on:click.stop="deletePostMedia(mediaItem)"></MediaDeleteButton>
+                            <div class="overflow-hidden">
+                                <div class="grid grid-cols-3 gap-1">
+                                    <div v-for="mediaItem in postMedia" v-bind:key="mediaItem.preview_key || mediaItem.id" class="relative aspect-square overflow-hidden rounded-md border border-bord-card">
+                                        <MediaBlurOverlay v-if="mediaItem.deleted"></MediaBlurOverlay>
+
+                                        <div v-else-if="! isEditingPost" class="absolute right-2 top-2 z-20 inline-block">
+                                            <MediaDeleteButton v-on:click.stop="deletePostMedia(mediaItem)"></MediaDeleteButton>
+                                        </div>
+
+                                        <img v-bind:src="mediaItem.preview_url || mediaItem.source_url" class="size-full object-cover bg-fill-tr" alt="Image">
                                     </div>
-                                </template>
-                            </MediaImageGallery>
+                                </div>
+                            </div>
                         </template>
                         <template v-else-if="PostTypeUtils.isVideo(currentPostType)">
                             <PostVideoPreview
@@ -236,7 +241,6 @@
     import { useTimelineStore } from '@D/store/timeline/timeline.store.js';
     import { usePostEditorStore } from '@D/store/timeline/editor.store.js';
     import { useMenu } from '@/kernel/vue/composables/menu/index.js';
-    import MediaImageGallery from '@/kernel/vue/components/media/image/MediaImageGallery.vue';
 
     import DropdownButton from '@D/components/general/dropdowns/parts/DropdownButton.vue';
 
@@ -1460,7 +1464,6 @@
         },
         components: {
             PublicationAudience,
-            MediaImageGallery,
             PrimaryTextButton: PrimaryTextButton,
             MediaCreateButton: MediaCreateButton,
             DropdownButton: DropdownButton,

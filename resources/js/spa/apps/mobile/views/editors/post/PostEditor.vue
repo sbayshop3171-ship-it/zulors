@@ -13,7 +13,7 @@
 							class="resize-none py-4 px-6 h-full w-full leading-normal bg-transparent text-title-3 text-lab-pr2 outline-hidden placeholder:font-light placeholder:text-title-3"
 						v-bind:placeholder="postTextInputPlaceholder"></textarea>
 				</div>
-				<div v-bind:class="postHasMedia && PostTypeUtils.isPicture(currentPostType) ? 'min-h-0 flex-1 w-full overflow-y-auto overscroll-contain' : postHasMedia && PostTypeUtils.isVideo(currentPostType) ? 'flex w-full flex-none justify-center overflow-hidden' : 'shrink-0'">
+				<div v-bind:class="postHasMedia && PostTypeUtils.isPicture(currentPostType) ? 'min-h-0 flex-1 w-full overflow-hidden' : postHasMedia && PostTypeUtils.isVideo(currentPostType) ? 'flex w-full flex-none justify-center overflow-hidden' : 'shrink-0'">
 					<template v-if="postHasMedia">
 						<template v-if="PostTypeUtils.isImage(currentPostType)">
 								<PostImagePreview v-bind:canDelete="! isEditingPost" v-bind:postMedia="postMedia" v-on:delete="deletePostMedia"></PostImagePreview>

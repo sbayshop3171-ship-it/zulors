@@ -1,16 +1,16 @@
 <template>
-    <MediaImageGallery
-        v-bind:mediaItems="postMedia"
+    <PostContentImageLayout
+        v-bind:postMedia="postMedia"
         v-bind:isSensitive="isSensitive"
         v-bind:isPriority="isPriority"
         v-bind:isSelectable="true"
         v-on:select="$emit('select', $event)"
-    ></MediaImageGallery>
+    ></PostContentImageLayout>
 </template>
 
 <script>
     import { defineComponent } from 'vue';
-    import MediaImageGallery from '@/kernel/vue/components/media/image/MediaImageGallery.vue';
+    import PostContentImageLayout from '@/kernel/vue/components/media/image/PostContentImageLayout.vue';
 
     export default defineComponent({
         emits: ['select'],
@@ -20,6 +20,6 @@
             sponsoredFeed: { type: Boolean, default: false },
             isPriority: { type: Boolean, default: false },
         },
-        components: { MediaImageGallery },
+        components: { PostContentImageLayout },
     });
 </script>
