@@ -98,12 +98,25 @@
             const profileData = inject('profileData');
             const relationsStore = useRelationsStore();
             const permissions = computed(() => profileData.value?.meta?.permissions || {});
+			let lastProfileId = profileData.value?.id ? String(profileData.value.id) : null;
 
 			watch(profileData, (data) => {
 				muteRelationship.value = data?.meta?.relationship?.muting || {};
 				blockRelationship.value = data?.meta?.relationship?.block || {};
-				state.mainMenu.close();
-				state.editProfileMenu.close();
+
+				const nextProfileId = data?.id ? String(data.id) : null;
+
+				// The Android photo picker backgrounds the WebView. Profile auto-revalidation
+				// replaces this object when the app resumes, even for the same profile.
+				// Keep the edit sheet open for that refresh; close only on a real profile switch.
+				if(lastProfileId && nextProfileId && lastProfileId !== nextProfileId) {
+					state.mainMenu.close();
+					state.editProfileMenu.close();
+				}
+
+				if(nextProfileId) {
+					lastProfileId = nextProfileId;
+				}
 			}, { immediate: true });
 
 			return {
