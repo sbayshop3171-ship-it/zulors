@@ -1,10 +1,10 @@
 <template>
-    <div class="block leading-none"
+    <div class="flex max-h-[calc(100dvh-2rem)] min-h-0 flex-col overflow-hidden leading-none"
         v-on:drop.prevent="handleFileDrop"
 		v-on:dragenter.prevent="state.isDragging = true"
 		v-on:dragover.prevent="state.isDragging = true">
-        <form class="block" v-on:submit.prevent="submitForm">
-            <div class="block px-5 pb-3 pt-6">
+        <form class="flex min-h-0 flex-1 flex-col overflow-hidden" v-on:submit.prevent="submitForm">
+            <div class="flex min-h-0 flex-1 flex-col overflow-hidden px-5 pb-3 pt-6">
                 <div class="flex gap-2.5">
                     <div class="shrink-0">
                         <AvatarSmall v-bind:avatarSrc="userData.avatar_url"></AvatarSmall>
@@ -20,7 +20,7 @@
                             v-on:input="textInputHandler"
                             ref="postTextInputField"
                             v-model="postData.content"
-                            class="resize-none w-full min-h-[80px] leading-5 bg-transparent text-par-l text-lab-pr2 pr-4 outline-hidden placeholder:font-light placeholder:text-par-l pt-0.5"
+                            class="resize-none w-full min-h-[80px] max-h-[16dvh] overflow-y-auto leading-5 bg-transparent text-par-l text-lab-pr2 pr-4 outline-hidden placeholder:font-light placeholder:text-par-l pt-0.5"
                         v-bind:placeholder="postTextInputPlaceholder"></textarea>
 
                         <template v-if="state.emojisMenu.status">
@@ -49,7 +49,7 @@
                     <MediaFileDropper v-on:click="state.isDragging = false"></MediaFileDropper>
                 </template>
                 <template v-else>
-                    <div v-if="postHasMedia" class="block mb-3">
+                    <div v-if="postHasMedia" class="mb-3 min-h-0 max-h-[42dvh] shrink-0 overflow-hidden">
                         <template v-if="PostTypeUtils.isImage(currentPostType)">
                             <div class="overflow-hidden">
                                 <div class="grid grid-cols-3 gap-1">
@@ -94,7 +94,7 @@
                     </div>
                 </template>
             </div>
-            <div class="pb-4 px-5 pt-3">
+            <div class="shrink-0 pb-4 px-5 pt-3">
                 <div class="flex items-center mb-5 gap-2.5">
                     <template v-if="! isEditingPost">
                         <div class="shrink-0 inline-flex relative">
@@ -232,7 +232,7 @@
     import { imagePasteHandler } from '@/kernel/events/image-paste/index.js';
     import { applyVideoPresentationMetadata, buildVideoPresentationMetadata, readVideoFileMetadata } from '@/kernel/services/media/video-metadata.js';
     import { mergePostMediaPreviews } from '@/kernel/services/media/post-media-preview.js';
-    import { createMultipartUploadProgress } from '@/kernel/services/media/multipart-upload-progress.js';
+    import { createMultipartUploadProgress, uploadMultipartPartsAdaptive } from '@/kernel/services/media/multipart-upload-progress.js';
     import { useCheatSheet } from '@D/core/composables/cheat-sheet/index.js';
     import { useInputHandlers } from '@/kernel/vue/composables/input/index.js';
     import { useAuthStore } from '@D/store/auth/auth.store.js';
@@ -787,9 +787,8 @@
             const uploadMultipartFileToDirectUrl = async (uploadData, mediaFile, onProgress) => {
                 const parts = Array.isArray(uploadData.parts) ? uploadData.parts : [];
                 const completedParts = [];
-                const uploadConcurrency = Math.min(8, Math.max(1, Number(uploadData.upload_concurrency || 4)));
-                const partFallbackMaxBytes = Math.max(0, Number(uploadData.part_fallback_max_bytes || 0));
-                let nextPartIndex = 0;
+                const uploadConcurrency = Math.min(4, Math.max(1, Number(uploadData.upload_concurrency || 4)));
+                const partFallbackMaxBytes = 0;
                 let shouldBypassDirectUpload = false;
 
                 const updateMultipartProgress = createMultipartUploadProgress(mediaFile.size, onProgress);
@@ -855,16 +854,7 @@
 
                 }
 
-                const workers = Array.from({
-                    length: Math.min(uploadConcurrency, parts.length)
-                }, async () => {
-                    while(nextPartIndex < parts.length) {
-                        const part = parts[nextPartIndex++];
-                        await uploadPart(part);
-                    }
-                });
-
-                await Promise.all(workers);
+                await uploadMultipartPartsAdaptive(parts, uploadConcurrency, uploadPart);
 
                 return completedParts.sort((firstPart, secondPart) => {
                     return firstPart.part_number - secondPart.part_number;
@@ -960,10 +950,7 @@
                     const isMultipartUpload = uploadData.upload_type === 'multipart' && Array.isArray(uploadData.parts);
 
                     if(! uploadData.direct_upload || (! uploadData.upload_url && ! isMultipartUpload)) {
-                        state.postMediaUploadProgress = 0;
-                        state.directVideoUploadReady = false;
-
-                        return await uploadPostMediaLocally(mediaFile, 'video');
+                        throw new Error('Direct video upload is unavailable. Please try again when storage upload is available.');
                     }
 
                     syncUploadMedia(uploadData, uploadData.media);

@@ -1,19 +1,19 @@
 <template>
-	<div class="flex flex-col fixed inset-0 z-50 bg-bg-pr" v-bind:class="{ 'pb-5': $isStandalone() }">
+	<div class="flex flex-col fixed inset-0 z-50 h-[100dvh] min-h-0 overflow-hidden bg-bg-pr" v-bind:class="{ 'pb-5': $isStandalone() }">
 		<div class="shrink-0">
 				<Toolbar v-bind:title="editorTitle" v-on:close="leaveEditor"></Toolbar>
 		</div>
 		<Border height="h-2" opacity="opacity-60"></Border>
-		<div class="flex-1 overflow-y-auto">
-			<div class="flex flex-col h-full">
-				<div class="flex-1">
+		<div class="flex-1 min-h-0 overflow-hidden">
+			<div class="flex h-full min-h-0 flex-col">
+				<div v-bind:class="postHasMedia && PostTypeUtils.isVideo(currentPostType) ? 'h-28 shrink-0' : 'min-h-0 flex-1'">
 					<textarea ref="contentInput"
 							v-model="postData.content"
 							v-on:input="textInputHandler"
 							class="resize-none py-4 px-6 h-full w-full leading-normal bg-transparent text-title-3 text-lab-pr2 outline-hidden placeholder:font-light placeholder:text-title-3"
 						v-bind:placeholder="postTextInputPlaceholder"></textarea>
 				</div>
-				<div class="shrink-0">
+				<div v-bind:class="postHasMedia && PostTypeUtils.isVideo(currentPostType) ? 'flex min-h-0 flex-1 items-center justify-center overflow-hidden' : 'shrink-0'">
 					<template v-if="postHasMedia">
 						<template v-if="PostTypeUtils.isImage(currentPostType)">
 								<PostImagePreview v-bind:canDelete="! isEditingPost" v-bind:postMedia="postMedia" v-on:delete="deletePostMedia"></PostImagePreview>
@@ -89,7 +89,7 @@
 	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 	import { applyVideoPresentationMetadata, buildVideoPresentationMetadata, readVideoFileMetadata } from '@/kernel/services/media/video-metadata.js';
 	import { mergePostMediaPreviews } from '@/kernel/services/media/post-media-preview.js';
-	import { createMultipartUploadProgress } from '@/kernel/services/media/multipart-upload-progress.js';
+	import { createMultipartUploadProgress, uploadMultipartPartsAdaptive } from '@/kernel/services/media/multipart-upload-progress.js';
 	import { usePostEditorStore } from '@M/store/timeline/editor.store.js';
 	import { useAuthStore } from '@M/store/auth/auth.store.js';
 		import { PostTypeUtils, PostType } from '@/kernel/enums/post/post.type.js';
@@ -612,9 +612,8 @@
 			const uploadMultipartFileToDirectUrl = async (uploadData, mediaFile, onProgress) => {
 				const parts = Array.isArray(uploadData.parts) ? uploadData.parts : [];
 				const completedParts = [];
-				const uploadConcurrency = Math.min(8, Math.max(1, Number(uploadData.upload_concurrency || 4)));
-				const partFallbackMaxBytes = Math.max(0, Number(uploadData.part_fallback_max_bytes || 0));
-				let nextPartIndex = 0;
+				const uploadConcurrency = Math.min(4, Math.max(1, Number(uploadData.upload_concurrency || 4)));
+				const partFallbackMaxBytes = 0;
 				let shouldBypassDirectUpload = false;
 
 				const updateMultipartProgress = createMultipartUploadProgress(mediaFile.size, onProgress);
@@ -680,16 +679,7 @@
 
 				}
 
-				const workers = Array.from({
-					length: Math.min(uploadConcurrency, parts.length)
-				}, async () => {
-					while(nextPartIndex < parts.length) {
-						const part = parts[nextPartIndex++];
-						await uploadPart(part);
-					}
-				});
-
-				await Promise.all(workers);
+				await uploadMultipartPartsAdaptive(parts, uploadConcurrency, uploadPart);
 
 				return completedParts.sort((firstPart, secondPart) => {
 					return firstPart.part_number - secondPart.part_number;
@@ -810,10 +800,7 @@
 					const isMultipartUpload = uploadData.upload_type === 'multipart' && Array.isArray(uploadData.parts);
 
 					if(! uploadData.direct_upload || (! uploadData.upload_url && ! isMultipartUpload)) {
-						state.uploadProgress = 0;
-						state.directVideoUploadReady = false;
-
-						return await uploadMediaLocally(mediaFile, 'video', false);
+                        throw new Error('Direct video upload is unavailable. Please try again when storage upload is available.');
 					}
 
 						syncUploadMedia(uploadData, uploadData.media);

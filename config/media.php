@@ -2,7 +2,7 @@
 
 return [
     'publications' => [
-        'enabled' => (bool) env('MEDIA_PUBLICATIONS_ENABLED', false),
+        'enabled' => (bool) env('MEDIA_PUBLICATIONS_ENABLED', true),
         'allowed_user_ids' => array_filter(explode(',', (string) env('MEDIA_PUBLICATIONS_ALLOWED_USER_IDS', ''))),
         'kinds' => array_filter(explode(',', (string) env('MEDIA_PUBLICATIONS_KINDS', 'post,story,chat'))),
         'per_user_limit' => (int) env('MEDIA_PUBLICATIONS_PER_USER_LIMIT', 2),
@@ -39,7 +39,8 @@ return [
 
     'uploads' => [
         'video' => [
-            'direct_only' => env('MEDIA_VIDEO_DIRECT_ONLY', false),
+            // Keep video bytes off the Laravel request path for every client.
+            'direct_only' => true,
             'max_bytes' => (int) env('MEDIA_VIDEO_MAX_BYTES', 1024 * 1024 * 1024),
             'max_duration_seconds' => (int) env('MEDIA_VIDEO_MAX_DURATION_SECONDS', 600),
         ],
@@ -58,7 +59,7 @@ return [
             'direct_upload_expiry_minutes' => (int) env('R2_DIRECT_UPLOAD_EXPIRY_MINUTES', 720),
             'multipart_threshold_mb' => (int) env('R2_DIRECT_UPLOAD_MULTIPART_THRESHOLD_MB', 8),
             'multipart_part_size_mb' => (int) env('R2_DIRECT_UPLOAD_MULTIPART_PART_SIZE_MB', 8),
-            'upload_concurrency' => (int) env('R2_DIRECT_UPLOAD_CONCURRENCY', 8),
+            'upload_concurrency' => (int) env('R2_DIRECT_UPLOAD_CONCURRENCY', 4),
             'upload_stall_timeout_seconds' => (int) env('R2_DIRECT_UPLOAD_STALL_TIMEOUT_SECONDS', 0),
             'raw_fallback_max_mb' => (int) env('R2_DIRECT_UPLOAD_RAW_FALLBACK_MAX_MB', 8),
             'part_fallback_max_mb' => (int) env(

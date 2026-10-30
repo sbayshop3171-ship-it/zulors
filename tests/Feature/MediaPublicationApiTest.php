@@ -55,6 +55,7 @@ class MediaPublicationApiTest extends TestCase
             'story.video_clip_size' => 60,
             'chat.validation.message.media.max' => 2,
             'media.queue_connection' => 'sync',
+            'media.cloudflare.r2.upload_concurrency' => 4,
         ]);
 
         foreach (['r2_temp', 'r2_final'] as $disk) {
@@ -65,6 +66,9 @@ class MediaPublicationApiTest extends TestCase
         $this->withoutMiddleware(ThrottleRequests::class);
         $this->r2 = $this->mock(R2DirectUploadService::class);
         $this->r2->shouldReceive('isConfigured')->andReturnTrue()->byDefault();
+        $this->r2->shouldReceive('publicationUploadConcurrency')->andReturnUsing(
+            fn () => max(2, min(4, (int) config('media.cloudflare.r2.upload_concurrency', 4)))
+        )->byDefault();
     }
 
     public function test_feature_flag_and_canary_control_capabilities_and_new_admission(): void
@@ -78,7 +82,7 @@ class MediaPublicationApiTest extends TestCase
             ->assertJsonPath('data.enabled', false)
             ->assertJsonPath('data.user_id', $owner->id)
             ->assertJsonPath('data.kinds', ['post', 'story', 'chat'])
-            ->assertJsonPath('data.upload_concurrency', 2);
+            ->assertJsonPath('data.upload_concurrency', 4);
         $this->postJson(self::API, $this->payload())->assertStatus(503);
         $this->assertDatabaseCount('media_publications', 0);
 
@@ -92,6 +96,20 @@ class MediaPublicationApiTest extends TestCase
         $this->assertDatabaseCount('media_publications', 1);
         Bus::assertNothingDispatched();
         $this->assertNoPublishedEntities();
+    }
+
+    public function test_capability_upload_concurrency_is_configurable_and_capped_for_web(): void
+    {
+        $this->actingAs($this->createUser());
+
+        config(['media.cloudflare.r2.upload_concurrency' => 3]);
+        $this->getJson(self::API.'/capabilities')->assertOk()->assertJsonPath('data.upload_concurrency', 3);
+
+        config(['media.cloudflare.r2.upload_concurrency' => 12]);
+        $this->getJson(self::API.'/capabilities')->assertOk()->assertJsonPath('data.upload_concurrency', 4);
+
+        config(['media.cloudflare.r2.upload_concurrency' => 1]);
+        $this->getJson(self::API.'/capabilities')->assertOk()->assertJsonPath('data.upload_concurrency', 2);
     }
 
     public function test_unconfigured_r2_disables_admission_without_a_proxy_fallback(): void
@@ -632,7 +650,7 @@ class MediaPublicationApiTest extends TestCase
             ->assertJsonPath('data.upload.upload_id', $upload['upload_id'])
             ->assertJsonPath('data.upload.parts', $refreshed['parts'])
             ->assertJsonPath('data.completed_parts', [['part_number' => 1, 'etag' => '"saved-etag"']])
-            ->assertJsonPath('data.upload.upload_concurrency', 2)
+            ->assertJsonPath('data.upload.upload_concurrency', 4)
             ->assertJsonPath('data.upload.raw_fallback_max_bytes', 0)
             ->assertJsonPath('data.upload.part_fallback_max_bytes', 0);
         $this->assertSame($refreshed, $publication->items[0]->refresh()->upload);
@@ -934,7 +952,7 @@ class MediaPublicationApiTest extends TestCase
 
         return $this->postJson($this->itemUrl($publication, 'resume'))->assertOk()
             ->assertJsonPath('data.status', 'uploading')->assertJsonPath('data.generation', 1)
-            ->assertJsonPath('data.upload.upload_concurrency', 2)
+            ->assertJsonPath('data.upload.upload_concurrency', 4)
             ->assertJsonPath('data.upload.raw_fallback_max_bytes', 0)
             ->assertJsonPath('data.upload.part_fallback_max_bytes', 0)->json('data');
     }

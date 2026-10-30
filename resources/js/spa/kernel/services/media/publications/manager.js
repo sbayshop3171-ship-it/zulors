@@ -322,7 +322,9 @@ export class PublicationManager {
                 const itemPath = `${path}/items/${encodeURIComponent(item.id)}`;
                 const resume = await request('POST', `${itemPath}/resume`, {});
                 if (!resume.upload) {
-                    if (resume.status === 'uploaded') row = await this.savePublication(row, await request('POST', `${itemPath}/complete`, { generation: resume.generation, parts: [] }));
+                    if (resume.status === 'uploaded') {
+                        row = await this.savePublication(row, await request('POST', `${itemPath}/complete`, { generation: resume.generation, parts: [] }));
+                    }
                     continue;
                 }
                 const file = await this.db.file(`${row.key}:${item.client_uid}`);
@@ -330,8 +332,24 @@ export class PublicationManager {
                     if (row.remote_only) continue;
                     throw new Error('The local media file is unavailable. Cancel this upload and select it again.');
                 }
-                const parts = await this.transfer({ upload: resume.upload, completed_parts: resume.completed_parts,
-                    file, concurrency: this.capability.upload_concurrency, signal: controller.signal,
+                const completedKey = `${item.id}:${resume.generation}`;
+                const persistedParts = row.completed_parts?.[completedKey] || [];
+                const knownParts = new Map((resume.completed_parts || []).map(part => [Number(part.part_number), part.etag]));
+                persistedParts.forEach(part => { if (!knownParts.has(Number(part.part_number))) knownParts.set(Number(part.part_number), part.etag); });
+                const startingConcurrency = Math.max(1, Math.min(
+                    Number(this.capability.upload_concurrency) || 2,
+                    Number(row.upload_concurrency) || 2
+                ));
+                const parts = await this.transfer({ upload: resume.upload,
+                    completed_parts: [...knownParts].map(([part_number, etag]) => ({ part_number, etag })),
+                    file, concurrency: this.capability.upload_concurrency, initialConcurrency: startingConcurrency, signal: controller.signal,
+                    onPartComplete: ({ part_number, etag }) => this.db.update(row.key, current => {
+                        if (!current || current.cancel_requested) return current;
+                        const saved = new Map((current.completed_parts?.[completedKey] || []).map(part => [Number(part.part_number), part.etag]));
+                        saved.set(Number(part_number), etag);
+                        return { ...current, completed_parts: { ...(current.completed_parts || {}), [completedKey]: [...saved].map(([number, value]) => ({ part_number: number, etag: value })) } };
+                    }),
+                    onConcurrencyChange: value => this.db.update(row.key, current => current ? { ...current, upload_concurrency: value } : current),
                     beforePart: async () => {
                         check();
                         if (!await this.db.lease(`worker:${row.account}`, this.owner)) throw new DOMException('Worker ownership changed', 'AbortError');
@@ -352,6 +370,12 @@ export class PublicationManager {
                 });
                 check();
                 row = await this.savePublication(row, await request('POST', `${itemPath}/complete`, { generation: resume.generation, parts }));
+                row = await this.db.update(row.key, current => {
+                    if (!current) return current;
+                    const completed = { ...(current.completed_parts || {}) };
+                    delete completed[completedKey];
+                    return { ...current, completed_parts: completed, upload_concurrency: 2 };
+                });
             }
         } catch (error) {
             if (error.name === 'AbortError' || epoch !== this.epoch) return;
@@ -362,6 +386,7 @@ export class PublicationManager {
                 if (!current) return current;
                 return { ...current, status: [401, 419].includes(status) ? 'auth_required' : current.cancel_requested ? 'cancelling' : [0, 429, 410, 503, 502, 504, 500].includes(status) || (error.upload && status === 403) ? 'waiting' : 'failed',
                     retry_requested: status === 410 || current.retry_requested, error: error.response?.data?.message || error.message,
+                    upload_concurrency: error.nextConcurrency || current.upload_concurrency || 2,
                     retry_at: Date.now() + delay };
             });
         } finally { this.controllers.delete(row.key); this.broadcast(); }

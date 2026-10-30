@@ -34,9 +34,18 @@ class TimelineDataIntegrityTest extends TestCase
     use RefreshDatabase;
     use \Tests\Support\CreatesVideoFixture;
 
+    public function test_video_uploads_are_direct_only_by_default(): void
+    {
+        $this->assertTrue(config('media.uploads.video.direct_only'));
+        $this->assertTrue(config('media.publications.enabled'));
+    }
+
     public function test_direct_only_post_rejects_server_uploads_and_fails_closed_when_unavailable(): void
     {
         config(['media.uploads.video.direct_only' => true, 'media.cloudflare.r2.direct_upload_enabled' => false]);
+        $this->instance(\App\Services\Filesystem\FFMpeg\FFMpegService::class, \Mockery::mock(\App\Services\Filesystem\FFMpeg\FFMpegService::class));
+        $this->instance(\App\Services\Filesystem\Upload\VideoUploadService::class, \Mockery::mock(\App\Services\Filesystem\Upload\VideoUploadService::class));
+        $this->instance(\App\Services\Filesystem\Upload\VideoThumbnailService::class, \Mockery::mock(\App\Services\Filesystem\Upload\VideoThumbnailService::class));
         $this->actingAs($this->createUser('direct-only-owner'))->withoutMiddleware();
         foreach(['upload', 'direct/raw', 'direct/part'] as $endpoint) {
             $this->postJson('/api/post/editor/media/video/' . $endpoint)
@@ -522,10 +531,10 @@ class TimelineDataIntegrityTest extends TestCase
         ]);
     }
 
-    public function test_r2_direct_upload_part_fallback_can_be_disabled(): void
+    public function test_video_policy_disables_r2_part_proxy_fallback(): void
     {
         config()->set('media.cloudflare.r2.multipart_part_size_mb', 16);
-        config()->set('media.cloudflare.r2.part_fallback_max_mb', 0);
+        config()->set('media.cloudflare.r2.part_fallback_max_mb', 12);
 
         $method = new \ReflectionMethod(R2DirectUploadService::class, 'partFallbackMaxBytes');
         $method->setAccessible(true);
@@ -533,10 +542,6 @@ class TimelineDataIntegrityTest extends TestCase
         $service = new R2DirectUploadService();
 
         $this->assertSame(0, $method->invoke($service));
-
-        config()->set('media.cloudflare.r2.part_fallback_max_mb', 12);
-
-        $this->assertSame(12 * 1024 * 1024, $method->invoke($service));
     }
 
     public function test_r2_direct_upload_stall_timeout_can_be_disabled(): void

@@ -592,6 +592,7 @@ const useChatStore = defineStore('chats_chat', {
                     }
                     throw error;
                 }
+                throw new Error('Direct video upload is unavailable. Please try again when storage upload is available.');
             }
             const formData = new FormData();
             const dateTime = new Date().toISOString();

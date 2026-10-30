@@ -246,29 +246,23 @@ for(const platform of Object.keys(previewPaths)) {
 }
 
 for(const platform of Object.keys(paths)) {
-    for(const fallback of [false, true]) {
-        test(`${platform}: ${fallback ? 'fallback' : 'multipart'} completion preserves local preview, duration and server deletion identity`, async () => {
-            const h = await editorHarness(platform, { fallback });
+    test(`${platform}: multipart completion preserves local preview, duration and server deletion identity`, async () => {
+            const h = await editorHarness(platform);
             const file = new File(['01234567890123456789'], 'video.mp4', { type: 'video/mp4' });
             h.editor.onVideoSelect({ target: { files: [file] } });
-            if(! fallback) {
-                await waitFor(() => h.requests.length === 2);
-                assert.equal(h.editor.submitButtonStatus.value, true);
-                h.editor.deletePostMedia(h.editor.postMedia.value[0]);
-                assert.equal(h.revoked.length, 0, 'cannot remove an active upload');
-                h.requests[0].progress(8);
-                h.requests[1].progress(5);
-                h.requests[0].progress(10);
-                h.requests[0].complete();
-                await delay(0);
-                const value = platform === 'mobile' ? h.editor.state.uploadProgress : h.editor.state.postMediaUploadProgress;
-                assert.equal(value, 75, 'part acknowledgement must include the other active part');
-                h.requests[1].progress(10);
-                h.requests[1].complete();
-            }
-            else {
-                await waitFor(() => h.calls.some(call => call.endpoint === 'media/video/upload'));
-            }
+            await waitFor(() => h.requests.length === 2);
+            assert.equal(h.editor.submitButtonStatus.value, true);
+            h.editor.deletePostMedia(h.editor.postMedia.value[0]);
+            assert.equal(h.revoked.length, 0, 'cannot remove an active upload');
+            h.requests[0].progress(8);
+            h.requests[1].progress(5);
+            h.requests[0].progress(10);
+            h.requests[0].complete();
+            await delay(0);
+            const value = platform === 'mobile' ? h.editor.state.uploadProgress : h.editor.state.postMediaUploadProgress;
+            assert.equal(value, 75, 'part acknowledgement must include the other active part');
+            h.requests[1].progress(10);
+            h.requests[1].complete();
             await waitFor(() => ! h.store.videoUploadActive);
             assert.equal(h.editor.state.videoUploadFailed, false);
             assert.equal(h.editor.submitButtonStatus.value, false, 'uploaded media can publish before processing');
@@ -288,18 +282,13 @@ for(const platform of Object.keys(paths)) {
             await waitFor(() => h.editor.postMedia.value.length === 0);
             assert.deepEqual(h.calls.find(call => call.endpoint === 'media/delete').payload, { id: 101 });
             assert.deepEqual(h.revoked, ['blob:device-video']);
-        });
+    });
 
-        test(`${platform}: ${fallback ? 'fallback' : 'completion'} failure disables publish and unmount releases preview`, async () => {
-            const h = await editorHarness(platform, { fallback, fail: true });
+    test(`${platform}: direct completion failure disables publish and unmount releases preview`, async () => {
+            const h = await editorHarness(platform, { fail: true });
             h.editor.onVideoSelect({ target: { files: [new File(['01234567890123456789'], 'video.mp4', { type: 'video/mp4' })] } });
-            if(! fallback) {
-                await waitFor(() => h.requests.length === 2);
-                for(const request of h.requests) { request.progress(10); request.complete(); }
-            }
-            else {
-                await waitFor(() => h.calls.some(call => call.endpoint === 'media/video/upload'));
-            }
+            await waitFor(() => h.requests.length === 2);
+            for(const request of h.requests) { request.progress(10); request.complete(); }
             await waitFor(() => ! h.store.videoUploadActive);
             assert.equal(h.editor.state.videoUploadFailed, true);
             assert.equal(h.editor.submitButtonStatus.value, true);
@@ -308,8 +297,19 @@ for(const platform of Object.keys(paths)) {
             assert.equal(h.editor.postMedia.value[0].preview_url, 'blob:device-video');
             for(const cleanup of h.unmount) cleanup();
             assert.deepEqual(h.revoked, ['blob:device-video']);
-        });
-    }
+    });
+
+    test(`${platform}: unavailable direct storage never proxies video bytes through Laravel`, async () => {
+        const h = await editorHarness(platform, { fallback: true });
+        h.editor.onVideoSelect({ target: { files: [new File(['01234567890123456789'], 'video.mp4', { type: 'video/mp4' })] } });
+        await waitFor(() => h.calls.some(call => call.endpoint === 'media/video/direct/create'));
+        await waitFor(() => ! h.store.videoUploadActive);
+        assert.equal(h.editor.state.videoUploadFailed, true);
+        assert.equal(h.editor.submitButtonStatus.value, true, 'an unuploaded video cannot be published');
+        assert.equal(h.requests.length, 0);
+        assert.equal(h.calls.some(call => call.endpoint === 'media/video/upload'), false);
+        assert.equal(h.calls.some(call => call.endpoint === 'media/video/direct/part'), false);
+    });
 }
 
 test('preview merge does not duplicate associated video or mutate server data; unrelated images survive', () => {
@@ -337,9 +337,10 @@ test('multipart progress is cumulative across acknowledgements and retries', () 
 });
 
 test('desktop publishing clears the retained preview even if the editor stays mounted', async () => {
-    const h = await editorHarness('desktop', { fallback: true });
+    const h = await editorHarness('desktop');
     h.editor.onVideoSelect({ target: { files: [new File(['video'], 'video.mp4', { type: 'video/mp4' })] } });
-    await waitFor(() => h.calls.some(call => call.endpoint === 'media/video/upload'));
+    await waitFor(() => h.requests.length === 2);
+    for(const request of h.requests) request.complete();
     await waitFor(() => ! h.store.videoUploadActive);
     await h.editor.submitForm();
     assert.equal(h.calls.some(call => call.endpoint === 'create'), true);

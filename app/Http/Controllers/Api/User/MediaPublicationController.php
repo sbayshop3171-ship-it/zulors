@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\MediaPublication;
 use App\Services\Media\Publication\PublicationService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -17,7 +18,7 @@ class MediaPublicationController extends Controller
     {
         return response()->json(['data' => [
             'enabled' => $this->service->enabled($request->user()), 'user_id' => $request->user()->id,
-            'kinds' => array_values(config('media.publications.kinds')), 'upload_concurrency' => 2,
+            'kinds' => array_values(config('media.publications.kinds')), 'upload_concurrency' => $this->service->uploadConcurrency(),
             'privacy_options' => ['all'],
         ]]);
     }
@@ -35,6 +36,7 @@ class MediaPublicationController extends Controller
 
     public function store(Request $request)
     {
+        $queuedAt = hrtime(true);
         if(! $request->filled('client_uid')) $request->merge(['client_uid' => $request->header('Idempotency-Key')]);
         $data = $request->validate([
             'client_uid' => ['required', 'uuid'], 'kind' => ['required', Rule::in(['post', 'story', 'chat'])],
@@ -80,12 +82,49 @@ class MediaPublicationController extends Controller
                 throw ValidationException::withMessages(["items.$index.duration_seconds" => 'Video duration exceeds the upload limit.']);
             }
         }
-        return response()->json(['data' => $this->present($this->service->create($request->user(), $data))], 201);
+        $publication = $this->service->create($request->user(), $data);
+
+        if($items->contains('type', 'video')) {
+            Log::info('media_publication.video_queued', [
+                'kind' => $data['kind'],
+                'items' => $items->count(),
+                'bytes' => (int) $items->sum('size'),
+                'queue_ack_ms' => max(0, (int) ((hrtime(true) - $queuedAt) / 1_000_000)),
+            ]);
+        }
+
+        return response()->json(['data' => $this->present($publication)], 201);
     }
 
     public function resume(Request $request, string $id, string $itemId)
     {
-        return response()->json(['data' => $this->service->resume($this->owned($request, $id), $itemId)]);
+        $publication = $this->owned($request, $id);
+        $item = $publication->items->firstWhere('id', $itemId);
+        try {
+            $result = $this->service->resume($publication, $itemId);
+        }
+        catch (\Throwable $error) {
+            if($item?->type === 'video') {
+                Log::warning('media_publication.video_upload_resume_failed', [
+                    'kind' => $publication->kind,
+                    'bytes' => (int) $item->size,
+                    'error_type' => $error::class,
+                ]);
+            }
+
+            throw $error;
+        }
+
+        if($item?->type === 'video') {
+            Log::info('media_publication.video_upload_resumed', [
+                'kind' => $publication->kind,
+                'bytes' => (int) $item->size,
+                'generation' => (int) $result['generation'],
+                'completed_parts' => count($result['completed_parts'] ?? []),
+            ]);
+        }
+
+        return response()->json(['data' => $result]);
     }
 
     public function complete(Request $request, string $id, string $itemId)
@@ -95,12 +134,52 @@ class MediaPublicationController extends Controller
             'parts.*.part_number' => ['required', 'integer', 'min:1', 'max:10000', 'distinct'],
             'parts.*.etag' => ['required', 'string', 'max:255'],
         ]);
-        return response()->json(['data' => $this->present($this->service->complete($this->owned($request, $id), $itemId, $data['generation'], $data['parts']))]);
+        $publication = $this->owned($request, $id);
+        $item = $publication->items->firstWhere('id', $itemId);
+        $startedAt = data_get($item?->upload, 'created_at');
+        try {
+            $completed = $this->service->complete($publication, $itemId, $data['generation'], $data['parts']);
+        }
+        catch (\Throwable $error) {
+            if($item?->type === 'video') {
+                Log::warning('media_publication.video_upload_completion_failed', [
+                    'kind' => $publication->kind,
+                    'bytes' => (int) $item->size,
+                    'parts' => count($data['parts']),
+                    'error_type' => $error::class,
+                ]);
+            }
+
+            throw $error;
+        }
+
+        if($item?->type === 'video') {
+            Log::info('media_publication.video_upload_completed', [
+                'kind' => $publication->kind,
+                'bytes' => (int) $item->size,
+                'parts' => count($data['parts']),
+                'upload_session_seconds' => $startedAt ? max(0, (int) now()->diffInSeconds(\Illuminate\Support\Carbon::parse($startedAt))) : null,
+            ]);
+        }
+
+        return response()->json(['data' => $this->present($completed)]);
     }
 
     public function retry(Request $request, string $id)
     {
-        return response()->json(['data' => $this->present($this->service->retry($this->owned($request, $id)))]);
+        $publication = $this->owned($request, $id);
+        $videoItems = $publication->items->where('type', 'video');
+        $retried = $this->service->retry($publication);
+
+        if($videoItems->isNotEmpty()) {
+            Log::info('media_publication.video_retry_requested', [
+                'kind' => $publication->kind,
+                'items' => $videoItems->count(),
+                'bytes' => (int) $videoItems->sum('size'),
+            ]);
+        }
+
+        return response()->json(['data' => $this->present($retried)]);
     }
 
     public function destroy(Request $request, string $id)

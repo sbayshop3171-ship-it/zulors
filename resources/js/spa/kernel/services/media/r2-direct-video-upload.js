@@ -1,4 +1,5 @@
 import { readVideoFileMetadata } from './video-metadata.js';
+import { uploadMultipartPartsAdaptive } from './multipart-upload-progress.js';
 
 export async function directVideoMetadata(file, options = {}) {
     options = Object.fromEntries(Object.entries(options).filter(([, value]) => value !== undefined));
@@ -42,33 +43,28 @@ export async function uploadR2DirectVideo(upload, file, onProgress = () => {}) {
     const parts = upload.upload_type === 'multipart' ? upload.parts : [{ ...upload, start: 0, end: file.size }];
     if(! parts?.length) throw new Error('No video upload parts were provided.');
     const loaded = new Array(parts.length).fill(0);
-    const completed = new Array(parts.length);
-    let next = 0;
-    let failure = null;
-    const worker = async () => {
-        while(next < parts.length && ! failure) {
-            const index = next++;
-            const part = parts[index];
-            const body = file.slice(part.start, part.end, file.type);
-            for(let attempt = 0; attempt < 3; attempt++) {
-                try {
-                    const etag = await putPart(part, body, (bytes) => {
-                        loaded[index] = bytes;
-                        onProgress(Math.min(100, Math.round(loaded.reduce((a, b) => a + b, 0) / file.size * 100)));
-                    });
-                    completed[index] = { part_number: part.part_number, etag };
-                    break;
-                }
-                catch(error) {
-                    if(attempt === 2) { failure = error; return; }
-                    await new Promise(resolve => setTimeout(resolve, 500 * (2 ** attempt)));
-                }
+    const completed = new Map();
+    await uploadMultipartPartsAdaptive(parts, Number(upload.upload_concurrency) || 4, async part => {
+        const index = parts.indexOf(part);
+        const body = file.slice(part.start, part.end, file.type);
+        let lastError;
+        for(let attempt = 0; attempt < 3; attempt++) {
+            try {
+                const etag = await putPart(part, body, bytes => {
+                    loaded[index] = bytes;
+                    onProgress(Math.min(100, Math.round(loaded.reduce((a, b) => a + b, 0) / file.size * 100)));
+                });
+                completed.set(Number(part.part_number), { part_number: part.part_number, etag });
+                return;
+            }
+            catch(error) {
+                lastError = error;
+                if(attempt < 2) await new Promise(resolve => setTimeout(resolve, 500 * (2 ** attempt)));
             }
         }
-    };
-    await Promise.all(Array.from({ length: Math.min(parts.length, Math.max(1, Math.min(4, Number(upload.upload_concurrency) || 3))) }, worker));
-    if(failure) throw failure;
-    return upload.upload_type === 'multipart' ? completed : [];
+        throw lastError;
+    });
+    return upload.upload_type === 'multipart' ? [...completed.values()].sort((a, b) => a.part_number - b.part_number) : [];
 }
 
 // Progress is advisory. Completion is sent only after all R2 requests settle.

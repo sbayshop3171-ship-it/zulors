@@ -1,4 +1,4 @@
-import { buildVideoPresentationMetadata, readVideoFileMetadata } from '../video-metadata.js';
+import { buildVideoPresentationMetadata } from '../video-metadata.js';
 import { durationSecondsToObject } from '../../../helpers/media/audio/index.js';
 
 const videoMimeByExtension = {
@@ -40,22 +40,19 @@ export async function selectPublicationMedia(file, account = null) {
     const type = publicationMediaType(file);
     const native = Boolean(file.native_file_id);
     const url = native ? file.preview_url || '' : URL.createObjectURL(file);
-    let metadata = {};
-    try {
-        if (type === 'video' && !native) metadata = await readVideoFileMetadata(file);
-    } catch { /* Metadata is optional; the server validates the original media. */ }
+    const metadata = {};
     const client_uid = crypto.randomUUID();
-    const seconds = Math.max(0, Math.ceil(file.duration_seconds || metadata.duration_seconds || 0));
+    const seconds = Math.max(0, Math.ceil(file.duration_seconds || 0));
     const presentationMetadata = type === 'video' ? buildVideoPresentationMetadata(
-        file.width || metadata.dimensions?.width,
-        file.height || metadata.dimensions?.height,
-        file.duration_seconds || metadata.duration_seconds
+        file.width,
+        file.height,
+        file.duration_seconds
     ) : {};
     return {
         id: client_uid, client_uid, type, mime, size: file.size, account,
         name: file.name || (type === 'video' ? 'video.mp4' : 'image.jpg'),
         ...(native ? { native_file_id: file.native_file_id } : { file }),
-        duration_seconds: file.duration_seconds || metadata.duration_seconds || null,
+        duration_seconds: file.duration_seconds || null,
         width: presentationMetadata.dimensions?.width, height: presentationMetadata.dimensions?.height,
         source_url: url, preview_url: url, thumbnail_url: '', is_local_preview: true,
         metadata: { ...metadata, ...presentationMetadata, duration: seconds ? durationSecondsToObject(seconds) : null },

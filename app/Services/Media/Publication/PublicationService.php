@@ -29,6 +29,11 @@ class PublicationService
             && $this->r2->isConfigured();
     }
 
+    public function uploadConcurrency(): int
+    {
+        return $this->r2->publicationUploadConcurrency();
+    }
+
     public function assertMayPublish(User $user, array $payload): void
     {
         abort_unless($user->status === \App\Enums\User\UserStatus::ACTIVE, 403, 'Account is not active.');
@@ -137,7 +142,7 @@ class PublicationService
             } else {
                 $upload = $this->r2->refreshPublicationUpload($upload);
             }
-            $upload['upload_concurrency'] = 2;
+            $upload['upload_concurrency'] = $this->r2->publicationUploadConcurrency();
             $upload['raw_fallback_max_bytes'] = $upload['part_fallback_max_bytes'] = 0;
             $item->forceFill(['upload' => $upload, 'status' => 'uploading'])->save();
             return [

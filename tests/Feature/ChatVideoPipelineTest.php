@@ -62,96 +62,18 @@ class ChatVideoPipelineTest extends TestCase
         \Illuminate\Support\Facades\Event::assertDispatched(\App\Events\User\Chat\MessageMediaReadyEvent::class);
     }
 
-    public function test_chat_video_upload_is_queued_through_r2_temp_pipeline(): void
+    public function test_legacy_chat_video_upload_rejects_video_bytes_at_the_api_server(): void
     {
-        Bus::fake();
-        Notification::fake();
-
-        config([
-            'filesystems.disks.r2_temp' => [
-                'driver' => 'local',
-                'root' => storage_path('app/testing/r2-temp'),
-                'enabled' => true,
-            ],
-            'filesystems.disks.r2_final' => [
-                'driver' => 'local',
-                'root' => storage_path('app/testing/r2-final'),
-                'enabled' => true,
-            ],
-            'media.cloudflare.r2.temp_disk' => 'r2_temp',
-            'media.cloudflare.r2.final_disk' => 'r2_final',
-        ]);
-
         [$sender, $recipient, $chat] = $this->createDirectChat();
-        $thumbnailPath = $this->makeTempFile('chat-thumb.jpg', 'thumb');
-
-        $this->mock(VideoUploadService::class, function($mock) {
-            $mock->shouldReceive('tempSaveLocally')->once()->andReturn([
-                'disk' => 'local',
-                'video_path' => 'tmp/videos/chat-upload.mp4',
-                'duration' => parse_duration(14),
-                'seconds' => 14,
-                'dimensions' => ['width' => 720, 'height' => 1280],
-                'aspect_ratio' => 0.5625,
-                'is_portrait' => true,
-            ]);
-            $mock->shouldReceive('setStorageDisk')->once()->with('r2_temp')->andReturnSelf();
-            $mock->shouldReceive('setNamespace')->once()->with(Filesystem::mediaNamespace('chats/raw_videos'))->andReturnSelf();
-            $mock->shouldReceive('setDefaultExtension')->once()->with('mp4')->andReturnSelf();
-            $mock->shouldReceive('upload')->once()->with(storage_local_path('tmp/videos/chat-upload.mp4'))->andReturn([
-                'disk' => 'r2_temp',
-                'video_path' => 'uploads/chats/raw_videos/chat-upload.mp4',
-                'video_size' => 456789,
-            ]);
-        });
-
-        $this->mock(VideoThumbnailService::class, function($mock) use ($thumbnailPath) {
-            $mock->shouldReceive('setSecondsOffset')->once()->with(1)->andReturnSelf();
-            $mock->shouldReceive('generateThumbnail')->once()->with('tmp/videos/chat-upload.mp4')->andReturn($thumbnailPath);
-        });
-
-        $this->mock(ImageUploadService::class, function($mock) use ($thumbnailPath) {
-            $mock->shouldReceive('load')->once()->with($thumbnailPath)->andReturnSelf();
-            $mock->shouldReceive('setNamespace')->once()->with(Filesystem::mediaNamespace('chats/video_thumbnails'))->andReturnSelf();
-            $mock->shouldReceive('setStorageDisk')->once()->with('r2_final')->andReturnSelf();
-            $mock->shouldReceive('compress')->once()->andReturnSelf();
-            $mock->shouldReceive('upload')->once()->andReturn([
-                'disk' => 'r2_final',
-                'image_path' => 'uploads/chats/video_thumbnails/chat-thumb.webp',
-                'image_size' => 12345,
-            ]);
-        });
-
-        Sanctum::actingAs($sender);
-
-        $response = $this->postJson('/api/messenger/send', [
+        $this->actingAs($sender)->withoutMiddleware()->postJson('/api/messenger/send', [
             'chat_id' => $chat->chat_id,
             'media_type' => 'video',
             'media_duration' => 14,
             'media' => UploadedFile::fake()->create('chat-video.mp4', 1024, 'video/mp4'),
-        ]);
+        ])->assertStatus(409)->assertJsonPath('code', 'direct_upload_required');
 
-        $response->assertOk()
-            ->assertJsonPath('data.type', 'video')
-            ->assertJsonPath('data.relations.media.type', 'video')
-            ->assertJsonPath('data.relations.media.status', MediaStatus::PROCESSING->value)
-            ->assertJsonPath('data.relations.media.metadata.provider', 'r2_temp')
-            ->assertJsonPath('data.relations.media.metadata.temp_disk', 'r2_temp')
-            ->assertJsonPath('data.relations.media.metadata.final_disk', 'r2_final');
-
-        $message = $chat->messages()->with('media')->latest('id')->firstOrFail();
-        $media = $message->media;
-
-        $this->assertNotNull($media);
-        $this->assertSame('r2_temp', $media->disk);
-        $this->assertSame(MediaStatus::PROCESSING, $media->status);
-        $this->assertSame('r2_temp', data_get($media->metadata, 'provider'));
-        $this->assertSame('uploaded', data_get($media->metadata, 'upload_state'));
-        $this->assertSame('r2_temp', data_get($media->metadata, 'temp_disk'));
-        $this->assertSame('r2_final', data_get($media->metadata, 'final_disk'));
-        $this->assertSame(14, data_get($media->metadata, 'duration_seconds'));
-
-        Bus::assertDispatched(ProcessChatVideo::class);
+        $this->assertDatabaseCount('messages', 0);
+        $this->assertDatabaseCount('media', 0);
     }
 
     public function test_chat_direct_upload_queues_once_and_checks_ownership_and_size(): void

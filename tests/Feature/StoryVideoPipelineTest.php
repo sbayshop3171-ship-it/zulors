@@ -59,88 +59,14 @@ class StoryVideoPipelineTest extends TestCase
         $this->assertSame($path, $media->refresh()->source_path);
     }
 
-    public function test_story_video_upload_is_stored_in_r2_temp_with_final_disk_metadata(): void
+    public function test_legacy_story_upload_rejects_video_bytes_at_the_api_server(): void
     {
-        config([
-            'filesystems.disks.r2_temp' => [
-                'driver' => 'local',
-                'root' => storage_path('app/testing/r2-temp'),
-                'enabled' => true,
-            ],
-            'filesystems.disks.r2_final' => [
-                'driver' => 'local',
-                'root' => storage_path('app/testing/r2-final'),
-                'url' => 'https://media.example.test',
-                'enabled' => true,
-            ],
-            'media.cloudflare.r2.temp_disk' => 'r2_temp',
-            'media.cloudflare.r2.final_disk' => 'r2_final',
-        ]);
-
         $owner = $this->createUser('story-r2-owner');
-        $thumbnailPath = $this->makeTempFile('story-thumb.jpg', 'thumb');
+        $this->actingAs($owner)->withoutMiddleware()->post('/api/story/editor/media/upload', [
+            'media_file' => UploadedFile::fake()->create('story-video.mp4', 1024, 'video/mp4'),
+        ])->assertStatus(409)->assertJsonPath('code', 'direct_upload_required');
 
-        $this->mock(VideoUploadService::class, function($mock) {
-            $mock->shouldReceive('tempSaveLocally')->once()->andReturn([
-                'disk' => 'local',
-                'video_path' => 'tmp/videos/story-upload.mp4',
-                'duration' => parse_duration(18),
-                'seconds' => 18,
-                'dimensions' => ['width' => 720, 'height' => 1280],
-                'aspect_ratio' => 0.5625,
-                'is_portrait' => true,
-            ]);
-            $mock->shouldReceive('setStorageDisk')->once()->with('r2_temp')->andReturnSelf();
-            $mock->shouldReceive('setNamespace')->once()->with(Filesystem::mediaNamespace('stories/raw_videos'))->andReturnSelf();
-            $mock->shouldReceive('setDefaultExtension')->once()->with('mp4')->andReturnSelf();
-            $mock->shouldReceive('upload')->once()->with(storage_local_path('tmp/videos/story-upload.mp4'))->andReturn([
-                'disk' => 'r2_temp',
-                'video_path' => 'uploads/stories/raw_videos/story-upload.mp4',
-                'video_size' => 345678,
-            ]);
-        });
-
-        $this->mock(VideoThumbnailService::class, function($mock) use ($thumbnailPath) {
-            $mock->shouldReceive('setSecondsOffset')->once()->with(0)->andReturnSelf();
-            $mock->shouldReceive('generateThumbnail')->once()->with('tmp/videos/story-upload.mp4')->andReturn($thumbnailPath);
-        });
-
-        $this->mock(ImageUploadService::class, function($mock) use ($thumbnailPath) {
-            $mock->shouldReceive('load')->once()->with($thumbnailPath)->andReturnSelf();
-            $mock->shouldReceive('setNamespace')->once()->with(Filesystem::mediaNamespace('stories/video_thumbnails'))->andReturnSelf();
-            $mock->shouldReceive('setStorageDisk')->once()->with('r2_final')->andReturnSelf();
-            $mock->shouldReceive('scaleToStoryFrame')->once()->andReturnSelf();
-            $mock->shouldReceive('compress')->once()->andReturnSelf();
-            $mock->shouldReceive('upload')->once()->andReturn([
-                'disk' => 'r2_final',
-                'image_path' => 'uploads/stories/video_thumbnails/story-thumb.webp',
-                'image_size' => 12345,
-            ]);
-        });
-
-        $this->mock(Base64ImageService::class, function($mock) use ($thumbnailPath) {
-            $mock->shouldReceive('load')->once()->with($thumbnailPath)->andReturnSelf();
-            $mock->shouldReceive('getBase64')->once()->andReturn('data:image/webp;base64,thumb');
-        });
-
-        $response = $this->actingAs($owner)
-            ->withoutMiddleware()
-            ->post('/api/story/editor/media/upload', [
-                'media_file' => UploadedFile::fake()->create('story-video.mp4', 1024, 'video/mp4'),
-            ]);
-
-        $response->assertOk()
-            ->assertJsonPath('data.type', 'video')
-            ->assertJsonPath('data.metadata.duration_seconds', 18);
-
-        $storyMedia = $owner->fresh()->story->frames()->firstOrFail()->media()->firstOrFail();
-
-        $this->assertSame('r2_temp', $storyMedia->disk);
-        $this->assertSame(MediaStatus::UNPROCESSED, $storyMedia->status);
-        $this->assertSame('r2_temp', data_get($storyMedia->metadata, 'provider'));
-        $this->assertSame('uploaded', data_get($storyMedia->metadata, 'upload_state'));
-        $this->assertSame('r2_temp', data_get($storyMedia->metadata, 'temp_disk'));
-        $this->assertSame('r2_final', data_get($storyMedia->metadata, 'final_disk'));
+        $this->assertDatabaseCount('media', 0);
     }
 
     public function test_story_publish_makes_uploaded_r2_video_active_and_dispatches_background_processing(): void

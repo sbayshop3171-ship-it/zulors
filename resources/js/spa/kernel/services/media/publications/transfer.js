@@ -30,32 +30,88 @@ export function uploadPart(part, body, { signal, onProgress = () => {}, xhrFacto
     });
 }
 
-export async function transferItem({ upload, completed_parts = [], file, concurrency = 2, signal, put = uploadPart, onProgress = () => {}, beforePart = async () => {} }) {
+const shouldReduceConcurrency = error => {
+    const status = Number(error?.status || 0);
+    return status === 0 || status === 408 || status === 429 || status >= 500;
+};
+
+export async function transferItem({
+    upload, completed_parts = [], file, concurrency = 4, initialConcurrency = 2,
+    signal, put = uploadPart, onProgress = () => {}, beforePart = async () => {},
+    onPartComplete = async () => {}, onConcurrencyChange = async () => {},
+}) {
     const multipart = upload.upload_type === 'multipart' || Array.isArray(upload.parts);
     const parts = multipart ? upload.parts : [{ ...upload, start: 0, end: file.size }];
     if (!parts?.length) throw new Error('No upload parts were provided.');
     const complete = new Map(completed_parts.map(part => [Number(part.part_number), part.etag]));
     const loaded = parts.map(part => complete.has(Number(part.part_number)) ? part.end - part.start : 0);
+    const pending = parts.map((part, index) => ({ part, index }))
+        .filter(({ part }) => !complete.has(Number(part.part_number)));
+    const maxConcurrency = Math.max(1, Math.min(4, Number(concurrency) || 2));
+    let activeConcurrency = Math.max(1, Math.min(maxConcurrency, Number(initialConcurrency) || 2));
     let next = 0;
     let failure;
-    const worker = async () => {
-        while (next < parts.length && !failure) {
-            const index = next++;
-            const part = parts[index];
-            if (complete.has(Number(part.part_number))) continue;
-            try {
-                if (signal?.aborted) throw new DOMException('Paused', 'AbortError');
-                await beforePart();
-                const etag = await put(part, file.slice(part.start, part.end, file.type), { signal, onProgress: bytes => {
-                    loaded[index] = bytes;
-                    onProgress(Math.min(100, Math.round(loaded.reduce((a, b) => a + b, 0) / file.size * 100)));
-                } });
-                if (multipart && !etag) throw new Error('Upload ETag is unavailable. Check storage CORS settings.');
-                complete.set(Number(part.part_number), etag);
-            } catch (error) { failure = error; }
-        }
+
+    const persistConcurrency = async value => {
+        try { await onConcurrencyChange(value); } catch { /* Local progress persistence must not stop a transfer. */ }
     };
-    await Promise.all(Array.from({ length: Math.min(parts.length, Math.max(1, Math.min(2, concurrency))) }, worker));
-    if (failure) throw failure;
+
+    await new Promise((resolve, reject) => {
+        let active = 0;
+        let settled = false;
+        const schedule = () => {
+            if (settled) return;
+            if (failure && active === 0) {
+                settled = true;
+                reject(failure);
+                return;
+            }
+            if (!failure && next >= pending.length && active === 0) {
+                settled = true;
+                resolve();
+                return;
+            }
+
+            while (!failure && active < activeConcurrency && next < pending.length) {
+                const { part, index } = pending[next++];
+                active++;
+                void (async () => {
+                    try {
+                        if (signal?.aborted) throw new DOMException('Paused', 'AbortError');
+                        await beforePart();
+                        const etag = await put(part, file.slice(part.start, part.end, file.type), { signal, onProgress: bytes => {
+                            loaded[index] = bytes;
+                            onProgress(Math.min(100, Math.round(loaded.reduce((a, b) => a + b, 0) / file.size * 100)));
+                        } });
+                        if (multipart && !etag) throw new Error('Upload ETag is unavailable. Check storage CORS settings.');
+                        if (multipart) {
+                            complete.set(Number(part.part_number), etag);
+                            try { await onPartComplete({ part_number: Number(part.part_number), etag }); } catch { /* R2 is authoritative during resume. */ }
+                        }
+
+                        if (!failure && activeConcurrency < maxConcurrency) {
+                            activeConcurrency++;
+                            await persistConcurrency(activeConcurrency);
+                        }
+                    } catch (error) {
+                        if (!failure) {
+                            failure = error;
+                            if (shouldReduceConcurrency(error) && activeConcurrency > 1) {
+                                activeConcurrency = Math.max(1, Math.floor(activeConcurrency / 2));
+                                try { error.nextConcurrency = activeConcurrency; } catch { /* Platform errors may be non-extensible. */ }
+                                await persistConcurrency(activeConcurrency);
+                            }
+                        }
+                    } finally {
+                        active--;
+                        schedule();
+                    }
+                })();
+            }
+        };
+
+        schedule();
+    });
+
     return multipart ? [...complete].map(([part_number, etag]) => ({ part_number, etag })).sort((a, b) => a.part_number - b.part_number) : [];
 }

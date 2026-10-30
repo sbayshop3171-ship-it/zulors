@@ -106,7 +106,7 @@ class R2DirectUploadService
             $upload['upload_headers'] = $this->normalizeUploadHeaders($signed['headers'] ?? []);
         }
         $upload['expires_at'] = $expiresAt->toIso8601String();
-        $upload['upload_concurrency'] = 2;
+        $upload['upload_concurrency'] = max(2, $this->uploadConcurrency());
         $upload['raw_fallback_max_bytes'] = 0;
         $upload['part_fallback_max_bytes'] = 0;
         return $upload;
@@ -716,7 +716,12 @@ class R2DirectUploadService
 
     private function uploadConcurrency(): int
     {
-        return max(1, min(12, (int) config('media.cloudflare.r2.upload_concurrency', 8)));
+        return max(2, min(4, (int) config('media.cloudflare.r2.upload_concurrency', 4)));
+    }
+
+    public function publicationUploadConcurrency(): int
+    {
+        return max(2, $this->uploadConcurrency());
     }
 
     private function uploadStallTimeoutMs(): int

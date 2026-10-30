@@ -248,6 +248,7 @@ const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 						}
 						return;
 					}
+					throw new Error('Direct video upload is unavailable. Please try again when storage upload is available.');
 				}
 				catch(error) {
 					if(uploadCreated) await this.deleteMedia().catch(() => {});

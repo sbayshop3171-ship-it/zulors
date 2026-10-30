@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { PublicationManager } from '../../resources/js/spa/kernel/services/media/publications/manager.js';
 import { NativePublicationBridge } from '../../resources/js/spa/kernel/services/media/publications/native-bridge.js';
 import { transferItem, uploadPart } from '../../resources/js/spa/kernel/services/media/publications/transfer.js';
-import { isPublicationMedia, publicationMediaMime, publicationMediaType } from '../../resources/js/spa/kernel/services/media/publications/selection.js';
+import { isPublicationMedia, publicationMediaMime, publicationMediaType, releasePublicationSelection, selectPublicationMedia } from '../../resources/js/spa/kernel/services/media/publications/selection.js';
 
 class MemoryDatabase {
     rows = new Map(); files = new Map();
@@ -16,7 +16,7 @@ class MemoryDatabase {
     async release() {}
 }
 const bridge = () => ({ capabilities: async () => null, listeners: new Set(), connect: () => false });
-const capability = { enabled: true, user_id: 1, kinds: ['post', 'story', 'chat'], privacy_options: ['all'], upload_concurrency: 2 };
+const capability = { enabled: true, user_id: 1, kinds: ['post', 'story', 'chat'], privacy_options: ['all'], upload_concurrency: 4 };
 const selection = () => ({ client_uid: crypto.randomUUID(), type: 'image', name: 'photo.png', mime: 'image/png', size: 4, file: new Blob(['test'], { type: 'image/png' }) });
 function makeManager(request, options = {}) {
     const manager = new PublicationManager({ request, db: new MemoryDatabase(), bridge: bridge(), host: null, locks: null, ...options });
@@ -86,15 +86,88 @@ test('video publication can queue when the device cannot provide duration metada
     assert.equal(Object.hasOwn(row.descriptor.items[0], 'duration_seconds'), false);
 });
 
-test('multipart resumes confirmed parts, respects byte ranges and caps concurrency at two', async () => {
+test('video selection is queued without waiting for client-side metadata probing', async () => {
+    const previousDocument = globalThis.document;
+    let metadataProbeCalls = 0;
+    globalThis.document = { createElement() { metadataProbeCalls++; throw new Error('metadata probe should happen after queue acknowledgement'); } };
+    try {
+        const selected = await selectPublicationMedia(new File(['video'], 'camera.mp4', { type: 'video/mp4' }));
+        assert.equal(selected.type, 'video');
+        assert.equal(selected.duration_seconds, null);
+        assert.equal(selected.size, 5);
+        assert.equal(metadataProbeCalls, 0);
+        releasePublicationSelection(selected);
+    }
+    finally {
+        if (previousDocument === undefined) delete globalThis.document;
+        else globalThis.document = previousDocument;
+    }
+});
+
+test('multipart resumes confirmed parts, starts at two, ramps to four and respects byte ranges', async () => {
     let simultaneous = 0; let maximum = 0; const sent = [];
-    const parts = Array.from({ length: 4 }, (_, i) => ({ part_number: i + 1, start: i * 2, end: i * 2 + 2 }));
-    const result = await transferItem({ file: new Blob(['abcdefgh']), upload: { upload_type: 'multipart', parts },
-        completed_parts: [{ part_number: 1, etag: 'saved' }], concurrency: 10,
+    const parts = Array.from({ length: 8 }, (_, i) => ({ part_number: i + 1, start: i * 2, end: i * 2 + 2 }));
+    const result = await transferItem({ file: new Blob(['abcdefghijklmnop']), upload: { upload_type: 'multipart', parts },
+        completed_parts: [{ part_number: 1, etag: 'saved' }], concurrency: 4,
         put: async (part, body) => { simultaneous++; maximum = Math.max(maximum, simultaneous); sent.push([part.part_number, await body.text()]); await new Promise(resolve => setImmediate(resolve)); simultaneous--; return `etag-${part.part_number}`; },
     });
-    assert.equal(maximum, 2); assert.deepEqual(sent, [[2, 'cd'], [3, 'ef'], [4, 'gh']]);
-    assert.deepEqual(result[0], { part_number: 1, etag: 'saved' }); assert.equal(result.length, 4);
+    assert.equal(maximum, 4); assert.equal(sent.length, 7);
+    assert.deepEqual(sent.find(([part]) => part === 2), [2, 'cd']);
+    assert.deepEqual(result[0], { part_number: 1, etag: 'saved' }); assert.equal(result.length, 8);
+});
+
+test('browser outbox durably saves completed part ETags and uses them for the active generation', async () => {
+    let row;
+    const manager = makeManager(async (method, path) => {
+        if (method === 'POST' && path === '') {
+            return publication(row, 'uploading', 'pending');
+        }
+        if (method === 'GET') return publication(row, 'uploading', 'pending');
+        if (path.endsWith('/resume')) return {
+            status: 'uploading', generation: 5,
+            upload: { upload_type: 'multipart', upload_concurrency: 4, parts: [{ part_number: 1, start: 0, end: 4 }] },
+            completed_parts: [],
+        };
+        if (path.endsWith('/complete')) return publication(row, 'published', 'uploaded');
+        throw new Error(`Unexpected request ${method} ${path}`);
+    }, {
+        transfer: async ({ onPartComplete, onConcurrencyChange }) => {
+            await onPartComplete({ part_number: 1, etag: 'etag-generation-five' });
+            await onConcurrencyChange(3);
+            const saved = await manager.db.get(row.key);
+            assert.deepEqual(saved.completed_parts[`${row.descriptor.items[0].client_uid}:5`], [{ part_number: 1, etag: 'etag-generation-five' }]);
+            return [{ part_number: 1, etag: 'etag-generation-five' }];
+        },
+    });
+    row = await queued(manager);
+    row.descriptor.items[0].type = 'video';
+    row.descriptor.items[0].mime = 'video/mp4';
+    row.descriptor.items[0].name = 'camera.mp4';
+    row.descriptor.items[0].size = 4;
+    await manager.db.update(row.key, current => ({ ...current, descriptor: row.descriptor }));
+
+    await manager.process(row, manager.epoch);
+
+    const saved = await manager.db.get(row.key);
+    assert.equal(saved.status, 'published');
+    assert.deepEqual(saved.completed_parts, {});
+    assert.equal(saved.upload_concurrency, 2);
+});
+
+test('network failure halves concurrency and exposes the next retry setting', async () => {
+    const parts = Array.from({ length: 6 }, (_, i) => ({ part_number: i + 1, start: i, end: i + 1 }));
+    const changes = [];
+    let calls = 0;
+    await assert.rejects(transferItem({ file: new Blob(['abcdef']), upload: { upload_type: 'multipart', parts }, concurrency: 4,
+        onConcurrencyChange: value => changes.push(value),
+        put: async () => {
+            if (++calls === 1) throw Object.assign(new Error('offline'), { status: 0 });
+            await new Promise(resolve => setImmediate(resolve));
+            return 'etag';
+        },
+    }), error => error.nextConcurrency === 1);
+    assert.ok(changes.includes(1));
+    assert.equal(calls, 2);
 });
 
 test('R2 requests carry no cookies or API authentication headers', async () => {
