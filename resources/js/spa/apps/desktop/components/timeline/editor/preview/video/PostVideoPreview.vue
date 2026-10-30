@@ -1,8 +1,6 @@
 <template>
 	<div
-		v-bind:class="frameWidthClass"
-		v-bind:style="frameStyle"
-		class="post-video-preview-frame mx-auto max-w-full bg-black border border-bord-card flex justify-center rounded-2xl overflow-hidden relative">
+		class="post-video-preview-frame relative h-full min-h-0 w-full min-w-0 max-h-full max-w-full bg-black border border-bord-card flex justify-center rounded-2xl overflow-hidden">
 		<template v-if="mediaItem.deleted">
 			<MediaBlurOverlay></MediaBlurOverlay>
 		</template>
@@ -13,7 +11,7 @@
 			</div>
 		</template>
 
-		<div class="size-full">
+		<div class="absolute inset-0">
 			<video
 				v-if="videoUrl"
 				v-on:loadedmetadata="captureVideoMetadata"
@@ -36,7 +34,7 @@
 		<div v-if="videoUrl" class="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full bg-black/60 px-2.5 py-1 text-xs font-semibold text-white" aria-live="polite">
 			{{ playbackSpeedLabel }}
 		</div>
-		<div v-if="videoUrl" class="pointer-events-none absolute inset-y-0 left-2 right-2 z-10 flex items-center justify-between">
+		<div v-if="videoUrl" class="hidden pointer-events-none absolute inset-y-0 left-2 right-2 z-10 flex items-center justify-between">
 			<button type="button" class="pointer-events-auto flex size-10 items-center justify-center rounded-full bg-black/60 text-lg font-semibold text-white shadow ring-1 ring-white/60 hover:bg-black/75 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Decrease video speed" v-bind:disabled="!canChangePlaybackSpeed(-1)" v-on:click="changePlaybackSpeed(-1, $event)">−</button>
 			<button type="button" class="pointer-events-auto flex size-10 items-center justify-center rounded-full bg-black/60 text-lg font-semibold text-white shadow ring-1 ring-white/60 hover:bg-black/75 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Increase video speed" v-bind:disabled="!canChangePlaybackSpeed(1)" v-on:click="changePlaybackSpeed(1, $event)">+</button>
 		</div>
@@ -61,7 +59,7 @@
 
 <script>
 	import { defineComponent, computed, ref } from 'vue';
-	import { applyVideoPresentationMetadata, buildVideoPresentationMetadata, isVideoPortrait, videoEditorPreviewFrameStyle } from '@/kernel/services/media/video-metadata.js';
+	import { applyVideoPresentationMetadata, buildVideoPresentationMetadata } from '@/kernel/services/media/video-metadata.js';
 
 	import MediaBlurOverlay from '@D/components/timeline/editor/animations/MediaBlurOverlay.vue';
 	import MediaDeleteButton from '@D/components/timeline/editor/buttons/MediaDeleteButton.vue';
@@ -141,12 +139,6 @@
 				}),
 				mediaDuration: computed(() => {
 					return props.mediaItem.metadata?.duration || null;
-				}),
-				frameWidthClass: computed(() => {
-					return 'w-full';
-				}),
-				frameStyle: computed(() => {
-					return videoEditorPreviewFrameStyle(props.mediaItem.metadata, isVideoPortrait(props.mediaItem.metadata), 46);
 				}),
 				captureVideoMetadata: (event) => {
 					const videoElement = event.currentTarget;

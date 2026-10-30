@@ -1,5 +1,5 @@
 <template>
-    <div class="flex max-h-[calc(100dvh-3rem)] min-h-0 flex-col overflow-hidden leading-none"
+    <div v-bind:class="postHasMedia && PostTypeUtils.isVideo(currentPostType) ? 'h-[calc(100dvh-3rem)] max-h-[56rem]' : 'max-h-[calc(100dvh-3rem)]'" class="flex min-h-0 flex-col overflow-hidden leading-none"
         v-on:drop.prevent="handleFileDrop"
 		v-on:dragenter.prevent="state.isDragging = true"
 		v-on:dragover.prevent="state.isDragging = true">
@@ -49,7 +49,7 @@
                     <MediaFileDropper v-on:click="state.isDragging = false"></MediaFileDropper>
                 </template>
                 <template v-else>
-                    <div v-if="postHasMedia" class="mb-3 min-h-0 max-h-[46dvh] shrink-0 overflow-hidden">
+                    <div v-if="postHasMedia" v-bind:class="PostTypeUtils.isVideo(currentPostType) ? 'mb-3 min-h-0 flex-1 overflow-hidden bg-black' : 'mb-3 min-h-0 max-h-[46dvh] shrink-0 overflow-hidden'">
                         <template v-if="PostTypeUtils.isImage(currentPostType)">
                             <div class="overflow-hidden">
                                 <div class="grid grid-cols-3 gap-1">
@@ -97,10 +97,11 @@
             <div class="shrink-0 pb-4 px-5 pt-3">
                 <div class="flex items-center mb-5 gap-2.5">
                     <template v-if="! isEditingPost">
-                        <div class="shrink-0 inline-flex relative">
-                            <MediaCreateButton v-on:click.stop="state.mainMenu.open" iconName="plus" iconType="solid"></MediaCreateButton>
+                        <div ref="mainMenuAnchor" class="shrink-0 inline-flex relative">
+                            <MediaCreateButton v-on:click.stop="openMainMenu" iconName="plus" iconType="solid" ariaLabel="Add media"></MediaCreateButton>
 
-                            <div class="absolute w-96 top-full left-0 z-50" v-if="state.mainMenu.status">
+                            <Teleport to="body">
+                            <div ref="mainMenuPanel" v-bind:style="mainMenuPosition" class="fixed z-[10000] w-96 max-w-[calc(100vw-1.5rem)] max-h-[calc(100dvh-1.5rem)] overflow-y-auto overscroll-contain" v-if="state.mainMenu.status">
                                 <RichMenu v-outside-click="state.mainMenu.close" v-on:click="state.mainMenu.close">
                                     <RichMenuItem
                                         v-on:click="selectImage"
@@ -149,6 +150,7 @@
                                     v-bind:description="$t('editor.main_menu.gif.description')"></RichMenuItem>
                                 </RichMenu>
                             </div>
+                            </Teleport>
                             <template v-if="state.recorderMenu.status">
                                 <div class="absolute top-full left-0 w-80">
                                     <PostRecordingForm v-on:uploaded="onAudioRecorded" v-on:close="state.recorderMenu.close"></PostRecordingForm>
@@ -222,7 +224,7 @@
 </template>
 
 <script>
-    import { defineComponent, defineAsyncComponent, onMounted, onBeforeUnmount, ref, reactive, computed, nextTick } from 'vue';
+    import { defineComponent, defineAsyncComponent, onMounted, onBeforeUnmount, ref, reactive, computed, nextTick, watch } from 'vue';
     import { useMediaPublication } from '@/kernel/vue/composables/media-publication/index.js';
     import PublicationAudience from '@/kernel/vue/components/media/publications/PublicationAudience.vue';
     import { PostTypeUtils, PostType } from '@/kernel/enums/post/post.type.js';
@@ -260,6 +262,9 @@
             const postVideoFileInput = ref(null);
             const postAudioFileInput = ref(null);
             const postTextInputField = ref('');
+            const mainMenuAnchor = ref(null);
+            const mainMenuPanel = ref(null);
+            const mainMenuPosition = reactive({ left: '12px', top: '12px' });
             const ignoredLinkSnapshots = ref([]);
 
             const { openCheatSheetPanel } = useCheatSheet();
@@ -291,6 +296,41 @@
                 recorderMenu: useMenu(),
                 gifMenu: useMenu(),
                 mainMenu: useMenu()
+            });
+
+            const updateMainMenuPosition = () => {
+                if(typeof window === 'undefined' || ! state.mainMenu.status || ! mainMenuAnchor.value || ! mainMenuPanel.value) return;
+
+                const anchorBounds = mainMenuAnchor.value.getBoundingClientRect();
+                const panelBounds = mainMenuPanel.value.getBoundingClientRect();
+                const margin = 12;
+                const gap = 8;
+                const left = Math.max(margin, Math.min(anchorBounds.left, window.innerWidth - panelBounds.width - margin));
+                let top = anchorBounds.bottom + gap;
+
+                if(top + panelBounds.height > window.innerHeight - margin) {
+                    top = Math.max(margin, anchorBounds.top - panelBounds.height - gap);
+                }
+
+                mainMenuPosition.left = `${left}px`;
+                mainMenuPosition.top = `${top}px`;
+            };
+
+            const openMainMenu = async () => {
+                if(state.mainMenu.status) {
+                    state.mainMenu.close();
+                    return;
+                }
+
+                state.mainMenu.open();
+                await nextTick();
+                updateMainMenuPosition();
+            };
+
+            watch(() => state.mainMenu.status, async (isOpen) => {
+                if(! isOpen) return;
+                await nextTick();
+                updateMainMenuPosition();
             });
 
             const submitButtonStatus = computed(() => {
@@ -357,6 +397,10 @@
             }
 
             onMounted(async function() {
+                if(typeof window !== 'undefined') {
+                    window.addEventListener('resize', updateMainMenuPosition);
+                    window.addEventListener('scroll', updateMainMenuPosition, true);
+                }
                 await postEditorStore.fetchDraftPost();
             });
 
@@ -392,6 +436,10 @@
             }
 
             onBeforeUnmount(() => {
+                if(typeof window !== 'undefined') {
+                    window.removeEventListener('resize', updateMainMenuPosition);
+                    window.removeEventListener('scroll', updateMainMenuPosition, true);
+                }
                 clearLocalMediaPreviews();
             });
 
@@ -1175,6 +1223,10 @@
 
             return {
                 state: state,
+                mainMenuAnchor: mainMenuAnchor,
+                mainMenuPanel: mainMenuPanel,
+                mainMenuPosition: mainMenuPosition,
+                openMainMenu: openMainMenu,
                 videoUploadActive: computed(() => postEditorStore.videoUploadActive),
                 isLocalPublication: computed(() => publication.selections.value.length > 0),
                 userData: userData,

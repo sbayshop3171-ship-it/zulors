@@ -3,12 +3,11 @@
 		v-for="mediaItem in postMedia"
 		v-bind:key="mediaItem.preview_key || mediaItem.id || mediaItem.preview_url || mediaItem.source_url"
 		v-bind:class="[(mediaItem.deleted ? 'opacity-20' : '')]"
-		v-bind:style="frameStyle(mediaItem)"
-	class="post-video-preview-frame mx-auto max-w-full bg-black flex justify-center overflow-hidden relative">
+	class="post-video-preview-frame relative h-full min-h-0 w-full min-w-0 max-h-full max-w-full bg-black flex justify-center overflow-hidden">
 		<div v-if="canDelete" class="absolute top-3 right-3 z-10 inline-block">
 			<MediaDeleteButton v-on:click="$emit('delete', mediaItem)"></MediaDeleteButton>
 		</div>
-		<div class="size-full">
+		<div class="absolute inset-0">
 			<video
 				v-if="videoUrl(mediaItem)"
 				v-on:loadedmetadata="captureVideoMetadata(mediaItem, $event)"
@@ -31,7 +30,7 @@
 		<div v-if="videoUrl(mediaItem)" class="pointer-events-none absolute left-1/2 top-3 z-10 -translate-x-1/2 rounded-full bg-black/60 px-2.5 py-1 text-xs font-semibold text-white" aria-live="polite">
 			{{ playbackSpeedLabel(mediaItem) }}
 		</div>
-		<div v-if="videoUrl(mediaItem)" class="pointer-events-none absolute inset-y-0 left-2 right-2 z-10 flex items-center justify-between">
+		<div v-if="videoUrl(mediaItem)" class="hidden pointer-events-none absolute inset-y-0 left-2 right-2 z-10 flex items-center justify-between">
 			<button type="button" class="pointer-events-auto flex size-10 items-center justify-center rounded-full bg-black/60 text-lg font-semibold text-white shadow ring-1 ring-white/60 hover:bg-black/75 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Decrease video speed" v-bind:disabled="!canChangePlaybackSpeed(mediaItem, -1)" v-on:click="changePlaybackSpeed(mediaItem, -1, $event)">−</button>
 			<button type="button" class="pointer-events-auto flex size-10 items-center justify-center rounded-full bg-black/60 text-lg font-semibold text-white shadow ring-1 ring-white/60 hover:bg-black/75 disabled:cursor-not-allowed disabled:opacity-40" aria-label="Increase video speed" v-bind:disabled="!canChangePlaybackSpeed(mediaItem, 1)" v-on:click="changePlaybackSpeed(mediaItem, 1, $event)">+</button>
 		</div>
@@ -55,7 +54,7 @@
 
 <script>
 	import { defineComponent, computed, ref } from 'vue';
-	import { applyVideoPresentationMetadata, buildVideoPresentationMetadata, isVideoPortrait, videoEditorPreviewFrameStyle } from '@/kernel/services/media/video-metadata.js';
+	import { applyVideoPresentationMetadata, buildVideoPresentationMetadata } from '@/kernel/services/media/video-metadata.js';
 
 	import MediaDeleteButton from '@M/views/editors/post/parts/buttons/MediaDeleteButton.vue';
 	import VideoDurationTime from '@/kernel/vue/components/media/video/VideoDurationTime.vue';
@@ -137,9 +136,6 @@
 					setPreviewPlaying,
 					playPreview,
 					togglePreviewPlayback,
-					frameStyle: (mediaItem) => {
-						return videoEditorPreviewFrameStyle(mediaItem.metadata, isVideoPortrait(mediaItem.metadata), 48);
-					},
 					captureVideoMetadata: (mediaItem, event) => {
 						const videoElement = event.currentTarget;
 						videoElement.playbackRate = playbackSpeed(mediaItem);

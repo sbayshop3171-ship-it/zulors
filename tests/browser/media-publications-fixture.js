@@ -24,8 +24,20 @@ const paths = {
 };
 const Editor = (await import(/* @vite-ignore */ `/resources/js/spa/apps/${platform}/${paths[platform][kind]}`)).default;
 const passthrough = { setup: (_, { slots }) => () => h('div', slots.default?.()) };
-for (const name of ['MentionsPicker', 'AvatarSmall', 'DropdownMenu', 'DropdownMenuItem', 'DropdownButton', 'RichMenu', 'RichMenuItem', 'Toolbar', 'ToastNotification', 'StoryEditorHeader', 'EmojisPickerButton']) {
+for (const name of ['MentionsPicker', 'AvatarSmall', 'DropdownMenu', 'DropdownMenuItem', 'DropdownButton', 'RichMenu', 'Toolbar', 'ToastNotification', 'StoryEditorHeader', 'EmojisPickerButton']) {
     if (Editor.components?.[name]) Editor.components[name] = passthrough;
+}
+if (Editor.components?.RichMenuItem) {
+    Editor.components.RichMenuItem = {
+        props: ['title', 'description', 'disabled'],
+        setup(props) {
+            return () => h('button', {
+                class: 'browser-rich-menu-item',
+                type: 'button',
+                disabled: props.disabled,
+            }, [h('span', props.title), h('span', props.description)]);
+        },
+    };
 }
 let store;
 if (kind === 'story') {

@@ -1,5 +1,5 @@
 <template>
-    <button class="size-icon-medium disabled:opacity-70 outline-hidden smoothing hover:text-lab-pr cursor-pointer text-lab-pr3" type="button" v-bind:disabled="disabled">
+    <button class="size-icon-medium disabled:opacity-70 outline-hidden smoothing hover:text-lab-pr cursor-pointer text-lab-pr3" type="button" v-bind:aria-label="ariaLabel || undefined" v-bind:disabled="disabled">
         <SvgIcon v-bind:type="iconType" v-bind:name="iconName"></SvgIcon>
     </button>
 </template>
@@ -20,6 +20,10 @@
             disabled: {
                 type: Boolean,
                 default: false
+            },
+            ariaLabel: {
+                type: String,
+                default: ''
             }
         }
     });

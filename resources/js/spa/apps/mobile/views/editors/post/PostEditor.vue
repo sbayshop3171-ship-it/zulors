@@ -13,7 +13,7 @@
 							class="resize-none py-4 px-6 h-full w-full leading-normal bg-transparent text-title-3 text-lab-pr2 outline-hidden placeholder:font-light placeholder:text-title-3"
 						v-bind:placeholder="postTextInputPlaceholder"></textarea>
 				</div>
-				<div v-bind:class="postHasMedia && PostTypeUtils.isVideo(currentPostType) ? 'flex min-h-0 flex-1 items-center justify-center overflow-hidden' : 'shrink-0'">
+				<div v-bind:class="postHasMedia && PostTypeUtils.isVideo(currentPostType) ? 'flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black' : 'shrink-0'">
 					<template v-if="postHasMedia">
 						<template v-if="PostTypeUtils.isImage(currentPostType)">
 								<PostImagePreview v-bind:canDelete="! isEditingPost" v-bind:postMedia="postMedia" v-on:delete="deletePostMedia"></PostImagePreview>
@@ -42,15 +42,15 @@
 		<div class="shrink-0 px-6 pt-4 pb-4 mb-safe-bottom">
 				<div class="flex gap-2 items-center mb-2 -translate-x-1.5">
 					<template v-if="! isEditingPost">
-					<PrimaryIconButton v-on:click="selectImage" v-bind:disabled="postMediaButtonStatus(PostType.IMAGE)" iconName="image-01" iconType="line" buttonColor="text-lab-pr3"></PrimaryIconButton>
-					<PrimaryIconButton v-on:click="selectVideo" v-bind:disabled="postMediaButtonStatus(PostType.VIDEO)" iconName="video-recorder" iconType="line" buttonColor="text-lab-pr3"></PrimaryIconButton>
-					<PrimaryIconButton v-on:click="selectAudio" v-bind:disabled="postMediaButtonStatus(PostType.AUDIO)" iconName="music-note-01" iconType="line" buttonColor="text-lab-pr3"></PrimaryIconButton>
-					<PrimaryIconButton v-on:click="createPoll" v-bind:disabled="postMediaButtonStatus(PostType.POLL)" iconName="bar-chart-12" iconType="line" buttonColor="text-lab-pr3"></PrimaryIconButton>
-					<PrimaryIconButton v-on:click="toggleGifPicker" v-bind:disabled="postMediaButtonStatus(PostType.GIF)" iconName="gif" iconType="line" buttonColor="text-lab-pr3"></PrimaryIconButton>
+					<PrimaryIconButton v-on:click="selectImage" v-bind:disabled="postMediaButtonStatus(PostType.IMAGE)" iconName="image-01" iconType="line" buttonColor="text-lab-pr3" aria-label="Add image"></PrimaryIconButton>
+					<PrimaryIconButton v-on:click="selectVideo" v-bind:disabled="postMediaButtonStatus(PostType.VIDEO)" iconName="video-recorder" iconType="line" buttonColor="text-lab-pr3" aria-label="Add video"></PrimaryIconButton>
+					<PrimaryIconButton v-on:click="selectAudio" v-bind:disabled="postMediaButtonStatus(PostType.AUDIO)" iconName="music-note-01" iconType="line" buttonColor="text-lab-pr3" aria-label="Add audio"></PrimaryIconButton>
+					<PrimaryIconButton v-on:click="createPoll" v-bind:disabled="postMediaButtonStatus(PostType.POLL)" iconName="bar-chart-12" iconType="line" buttonColor="text-lab-pr3" aria-label="Create poll"></PrimaryIconButton>
+					<PrimaryIconButton v-on:click="toggleGifPicker" v-bind:disabled="postMediaButtonStatus(PostType.GIF)" iconName="gif" iconType="line" buttonColor="text-lab-pr3" aria-label="Add GIF"></PrimaryIconButton>
 					</template>
 
 					<div class="ml-auto opacity-80">
-						<PrimaryIconButton v-bind:disabled="submitButtonStatus" v-on:click="submitForm" v-bind:iconName="submitButtonIcon" buttonColor="text-lab-pr2"></PrimaryIconButton>
+						<PrimaryIconButton v-bind:disabled="submitButtonStatus" v-on:click="submitForm" v-bind:iconName="submitButtonIcon" buttonColor="text-lab-pr2" v-bind:aria-label="isEditingPost ? 'Save post changes' : 'Publish post'"></PrimaryIconButton>
 					</div>
 				</div>
 

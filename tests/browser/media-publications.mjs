@@ -28,7 +28,11 @@ try {
     for (const platform of (process.env.PUBLICATION_WORKER_ONLY ? [] : process.env.PUBLICATION_PLATFORM ? [process.env.PUBLICATION_PLATFORM] : ['mobile', 'desktop'])) for (const kind of ['post', 'story', 'chat']) for (const media of ['image', 'video']) {
         const bytes = media === 'image' ? png : video;
         const mime = media === 'image' ? 'image/png' : 'video/mp4';
-        const context = await browser.newContext({ viewport: platform === 'mobile' ? { width: 390, height: 844 } : { width: 1365, height: 900 } });
+        const compactViewport = process.env.PUBLICATION_COMPACT === '1';
+        const viewport = platform === 'mobile'
+            ? { width: 390, height: compactViewport ? 700 : 844 }
+            : { width: compactViewport ? 1280 : 1365, height: compactViewport ? 700 : 900 };
+        const context = await browser.newContext({ viewport });
         const requests = [];
         await context.route('**/api/**', route => {
             const request = route.request(); requests.push({ url: request.url(), method: request.method() });
@@ -43,6 +47,21 @@ try {
         await page.goto(`${origin}/tests/browser/media-publications.html?platform=${platform}&kind=${kind}`, { waitUntil: 'domcontentloaded', timeout: 90000 });
         await page.waitForFunction(() => window.publicationTest);
         if (kind === 'post') await page.waitForFunction(() => window.publicationTest.store.draftPost.content !== undefined);
+        if (platform === 'desktop' && kind === 'post') {
+            await page.getByRole('button', { name: 'Add media' }).click();
+            const menu = page.locator('body > div.fixed').filter({ has: page.locator('.browser-rich-menu-item') });
+            await page.getByText('editor.main_menu.image.title', { exact: true }).waitFor();
+            const bounds = await menu.evaluate(element => {
+                const rect = element.getBoundingClientRect();
+                return { top: rect.top, left: rect.left, right: rect.right, bottom: rect.bottom, width: innerWidth, height: innerHeight };
+            });
+            assert.ok(bounds.top >= 0 && bounds.left >= 0 && bounds.right <= bounds.width && bounds.bottom <= bounds.height,
+                'the add-media menu remains fully inside the viewport');
+            for (const key of ['image', 'video', 'poll', 'audio', 'document', 'recording', 'gif']) {
+                assert.equal(await page.getByText(`editor.main_menu.${key}.title`, { exact: true }).count(), 1);
+            }
+            await page.getByRole('button', { name: 'Add media' }).click();
+        }
         if (kind === 'story') await page.evaluate(({ bytes, mime }) => window.publicationTest.selectStory(bytes, mime), { bytes: [...bytes], mime });
         else await page.locator(`input[type=file][accept^="${media}/"]`).first().setInputFiles({ name: media === 'image' ? 'photo.png' : 'video.mp4', mimeType: mime, buffer: bytes });
         const preview = media === 'image' ? 'img' : 'video';
@@ -58,6 +77,22 @@ try {
             await page.waitForFunction(() => document.querySelector('video')?.readyState >= 2);
             await page.locator('video').first().evaluate(async element => { element.muted = true; await element.play(); });
             await page.waitForFunction(() => document.querySelector('video')?.currentTime > 0.15);
+            if (kind === 'post') {
+                const layout = await page.evaluate(() => {
+                    const frame = document.querySelector('.post-video-preview-frame')?.getBoundingClientRect();
+                    const stage = document.querySelector('.post-video-preview-frame')?.parentElement?.getBoundingClientRect();
+                    return frame && stage ? { frameWidth: frame.width, frameHeight: frame.height, stageWidth: stage.width, stageHeight: stage.height,
+                        stageBottom: stage.bottom, viewportHeight: innerHeight, documentHeight: document.documentElement.scrollHeight } : null;
+                });
+                assert.ok(layout && layout.frameWidth > 100 && layout.frameHeight > 100, `${platform}: post preview has a visible media stage (${JSON.stringify(layout)})`);
+                assert.ok(Math.abs(layout.frameWidth - layout.stageWidth) < 2, `${platform}: post preview uses the full media width`);
+                assert.ok(Math.abs(layout.frameHeight - layout.stageHeight) < 2, `${platform}: post preview uses the full available media height (${JSON.stringify(layout)})`);
+                assert.ok(layout.stageBottom <= layout.viewportHeight + 1, `${platform}: media stage and editor controls fit in the viewport`);
+                if (platform === 'mobile') {
+                    await page.getByRole('button', { name: 'Publish post' }).waitFor();
+                    await page.getByRole('button', { name: 'Add image' }).waitFor();
+                }
+            }
             const pixels = await page.locator('video').first().evaluate(element => {
                 const canvas = document.createElement('canvas'); canvas.width = 32; canvas.height = 18;
                 const ctx = canvas.getContext('2d'); ctx.drawImage(element, 0, 0, 32, 18);
@@ -101,6 +136,7 @@ try {
         console.log(`${platform}/${kind}/${media}: local preview, quota retention, durable publish, reload and pending row passed`);
         await context.close();
     }
+    if (!process.env.PUBLICATION_UI_ONLY) {
     const context = await browser.newContext();
     await context.route('**/api/**', route => route.fulfill({ json: { data: route.request().url().endsWith('/capabilities') ? { enabled: true, user_id: 1, kinds: ['post'], upload_concurrency: 2 } : [] } }));
     const pages = await Promise.all([context.newPage(), context.newPage()]);
@@ -291,5 +327,6 @@ try {
         assert.ok(requests.every(([method, pathname]) => method === 'GET' && ['/api/media-publications', '/api/media-publications/capabilities'].includes(pathname)), 'browser never calls native publication transfer, retry, or cancel APIs');
         console.log(`Native ${kind === 'chat' ? 'Chat' : 'Home'}: preferred row deduplicated by server ID, native progress and actions, no browser transfer`);
         await nativeContext.close();
+    }
     }
 } finally { await browser?.close(); await server.close(); await rm(scratch, { recursive: true, force: true }); }
