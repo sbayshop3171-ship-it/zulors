@@ -5,21 +5,20 @@
                 {{ cropTitle }}
             </h3>
             <p class="mt-1 text-par-s text-lab-sc">
-                Drag the image to position it, then adjust zoom.
+                Drag to position. Pinch or use the zoom controls to resize.
             </p>
         </div>
 
         <div class="p-4">
             <div
                 ref="frameRef"
-                class="relative mx-auto bg-black overflow-hidden select-none touch-none"
+                class="relative mx-auto bg-white overflow-hidden select-none touch-none"
                 v-bind:class="frameClasses"
                 v-bind:style="frameStyle"
                 v-on:pointerdown="startDrag"
                 v-on:pointermove="dragImage"
                 v-on:pointerup="stopDrag"
                 v-on:pointercancel="stopDrag"
-                v-on:pointerleave="stopDrag"
             >
                 <img
                     ref="imageRef"
@@ -44,16 +43,33 @@
                 <span>Zoom</span>
                 <span>{{ zoomLabel }}</span>
             </div>
-            <input
-                class="w-full accent-brand-900"
-                type="range"
-                min="1"
-                max="4"
-                step="0.01"
-                v-model.number="state.zoom"
-                v-on:input="handleZoomChange"
-                v-bind:disabled="! state.imageLoaded || isBusy"
-            >
+            <div class="flex items-center gap-3">
+                <button
+                    type="button"
+                    class="size-11 shrink-0 rounded-full border border-bord-pr text-par-l font-medium text-lab-pr disabled:opacity-40"
+                    aria-label="Zoom out"
+                    v-bind:disabled="! state.imageLoaded || isBusy || state.zoom <= minZoom + 0.005"
+                    v-on:click="zoomOut"
+                >−</button>
+                <input
+                    class="min-w-0 w-full accent-brand-900"
+                    type="range"
+                    v-bind:min="minZoom"
+                    max="4"
+                    step="0.01"
+                    v-model.number="state.zoom"
+                    v-on:input="handleZoomChange"
+                    v-bind:disabled="! state.imageLoaded || isBusy"
+                    aria-label="Adjust image size"
+                >
+                <button
+                    type="button"
+                    class="size-11 shrink-0 rounded-full border border-bord-pr text-par-l font-medium text-lab-pr disabled:opacity-40"
+                    aria-label="Zoom in"
+                    v-bind:disabled="! state.imageLoaded || isBusy || state.zoom >= 4"
+                    v-on:click="zoomIn"
+                >+</button>
+            </div>
 
             <div class="mt-4 flex items-center justify-between">
                 <button
@@ -135,6 +151,8 @@
             });
 
             let resizeObserver = null;
+            const activePointers = new Map();
+            let pinchStart = null;
 
             const cropConfig = computed(() => {
                 return (props.mode === 'cover') ? {
@@ -178,6 +196,25 @@
                 return props.isSubmitting || state.isExporting;
             });
 
+            const minZoom = computed(() => {
+                if(! state.naturalWidth || ! state.naturalHeight || ! state.frameWidth || ! state.frameHeight) {
+                    return 1;
+                }
+
+                const coverScale = Math.max(
+                    state.frameWidth / state.naturalWidth,
+                    state.frameHeight / state.naturalHeight
+                );
+                const containScale = Math.min(
+                    state.frameWidth / state.naturalWidth,
+                    state.frameHeight / state.naturalHeight
+                );
+
+                // Permit zooming out until the complete source image fits in the crop frame.
+                // The remaining area is filled by the same neutral background used on export.
+                return Math.min(1, containScale / coverScale);
+            });
+
             const revokePreviewUrl = () => {
                 if(state.previewUrl) {
                     URL.revokeObjectURL(state.previewUrl);
@@ -209,8 +246,10 @@
             };
 
             const clampOffset = () => {
-                const limitX = Math.max(0, (state.displayWidth - state.frameWidth) / 2);
-                const limitY = Math.max(0, (state.displayHeight - state.frameHeight) / 2);
+                // Keep oversized images from exposing blank edges, while still allowing
+                // smaller images to move through the crop frame over its white backdrop.
+                const limitX = Math.abs(state.displayWidth - state.frameWidth) / 2;
+                const limitY = Math.abs(state.displayHeight - state.frameHeight) / 2;
 
                 state.offsetX = Math.min(limitX, Math.max(-limitX, state.offsetX));
                 state.offsetY = Math.min(limitY, Math.max(-limitY, state.offsetY));
@@ -250,26 +289,94 @@
             };
 
             const handleZoomChange = () => {
+                state.zoom = Math.min(4, Math.max(minZoom.value, Number(state.zoom) || minZoom.value));
                 measureFrame();
                 updateDisplaySize();
             };
 
+            const setZoom = (zoom) => {
+                state.zoom = Math.min(4, Math.max(minZoom.value, zoom));
+                measureFrame();
+                updateDisplaySize();
+            };
+
+            const zoomIn = () => setZoom(state.zoom + 0.1);
+            const zoomOut = () => setZoom(state.zoom - 0.1);
+
+            const pointerDistance = (first, second) => {
+                return Math.hypot(second.x - first.x, second.y - first.y);
+            };
+
+            const pointerCenter = (first, second) => {
+                return {
+                    x: (first.x + second.x) / 2,
+                    y: (first.y + second.y) / 2
+                };
+            };
+
+            const capturePointer = (event) => {
+                if(frameRef.value && frameRef.value.setPointerCapture) {
+                    try {
+                        frameRef.value.setPointerCapture(event.pointerId);
+                    }
+                    catch (error) {}
+                }
+            };
+
             const startDrag = (event) => {
-                if(state.imageLoaded && ! isBusy.value) {
+                if(! state.imageLoaded || isBusy.value) {
+                    return;
+                }
+
+                event.preventDefault();
+                activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+                capturePointer(event);
+
+                if(activePointers.size === 1) {
                     state.isDragging = true;
                     state.dragStartX = state.offsetX;
                     state.dragStartY = state.offsetY;
                     state.pointerStartX = event.clientX;
                     state.pointerStartY = event.clientY;
+                    pinchStart = null;
+                    return;
+                }
 
-                    if(frameRef.value.setPointerCapture) {
-                        frameRef.value.setPointerCapture(event.pointerId);
-                    }
+                if(activePointers.size >= 2) {
+                    const [first, second] = [...activePointers.values()];
+                    const center = pointerCenter(first, second);
+
+                    state.isDragging = false;
+                    pinchStart = {
+                        distance: Math.max(pointerDistance(first, second), 1),
+                        zoom: state.zoom,
+                        centerX: center.x,
+                        centerY: center.y,
+                        offsetX: state.offsetX,
+                        offsetY: state.offsetY
+                    };
                 }
             };
 
             const dragImage = (event) => {
-                if(state.isDragging) {
+                if(! activePointers.has(event.pointerId)) {
+                    return;
+                }
+
+                event.preventDefault();
+                activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+                if(activePointers.size >= 2 && pinchStart) {
+                    const [first, second] = [...activePointers.values()];
+                    const center = pointerCenter(first, second);
+                    const distance = pointerDistance(first, second);
+
+                    setZoom(pinchStart.zoom * (distance / pinchStart.distance));
+                    state.offsetX = pinchStart.offsetX + (center.x - pinchStart.centerX);
+                    state.offsetY = pinchStart.offsetY + (center.y - pinchStart.centerY);
+                    clampOffset();
+                }
+                else if(state.isDragging) {
                     state.offsetX = state.dragStartX + (event.clientX - state.pointerStartX);
                     state.offsetY = state.dragStartY + (event.clientY - state.pointerStartY);
 
@@ -278,8 +385,8 @@
             };
 
             const stopDrag = (event) => {
-                if(state.isDragging) {
-                    state.isDragging = false;
+                if(event && activePointers.has(event.pointerId)) {
+                    activePointers.delete(event.pointerId);
 
                     if(frameRef.value && frameRef.value.releasePointerCapture) {
                         try {
@@ -288,6 +395,20 @@
 
                         catch (error) {}
                     }
+                }
+
+                pinchStart = null;
+
+                if(activePointers.size === 1 && state.imageLoaded && ! isBusy.value) {
+                    const [pointer] = activePointers.values();
+                    state.isDragging = true;
+                    state.dragStartX = state.offsetX;
+                    state.dragStartY = state.offsetY;
+                    state.pointerStartX = pointer.x;
+                    state.pointerStartY = pointer.y;
+                }
+                else {
+                    state.isDragging = false;
                 }
             };
 
@@ -302,28 +423,19 @@
 
                 const canvas = document.createElement('canvas');
                 const context2d = canvas.getContext('2d');
-                const scale = state.displayWidth / state.naturalWidth;
-                const sourceWidth = state.frameWidth / scale;
-                const sourceHeight = state.frameHeight / scale;
-                const sourceX = (state.naturalWidth / 2) - (state.offsetX / scale) - (sourceWidth / 2);
-                const sourceY = (state.naturalHeight / 2) - (state.offsetY / scale) - (sourceHeight / 2);
+                const outputScaleX = cropConfig.value.width / state.frameWidth;
+                const outputScaleY = cropConfig.value.height / state.frameHeight;
+                const outputWidth = state.displayWidth * outputScaleX;
+                const outputHeight = state.displayHeight * outputScaleY;
+                const outputX = ((state.frameWidth - state.displayWidth) / 2 + state.offsetX) * outputScaleX;
+                const outputY = ((state.frameHeight - state.displayHeight) / 2 + state.offsetY) * outputScaleY;
 
                 canvas.width = cropConfig.value.width;
                 canvas.height = cropConfig.value.height;
 
                 context2d.fillStyle = '#ffffff';
                 context2d.fillRect(0, 0, canvas.width, canvas.height);
-                context2d.drawImage(
-                    imageRef.value,
-                    Math.max(0, Math.min(state.naturalWidth - sourceWidth, sourceX)),
-                    Math.max(0, Math.min(state.naturalHeight - sourceHeight, sourceY)),
-                    sourceWidth,
-                    sourceHeight,
-                    0,
-                    0,
-                    canvas.width,
-                    canvas.height
-                );
+                context2d.drawImage(imageRef.value, outputX, outputY, outputWidth, outputHeight);
 
                 canvas.toBlob((blob) => {
                     state.isExporting = false;
@@ -383,9 +495,12 @@
                 cropTitle: cropTitle,
                 zoomLabel: zoomLabel,
                 isBusy: isBusy,
+                minZoom: minZoom,
                 resetCrop: resetCrop,
                 handleImageLoad: handleImageLoad,
                 handleZoomChange: handleZoomChange,
+                zoomIn: zoomIn,
+                zoomOut: zoomOut,
                 startDrag: startDrag,
                 dragImage: dragImage,
                 stopDrag: stopDrag,
