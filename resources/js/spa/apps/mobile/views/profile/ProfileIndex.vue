@@ -54,6 +54,7 @@
 	import { useAuthStore } from '@M/store/auth/auth.store.js';
 	import { normalizeProfileUsername, isValidProfileUsername } from '@/kernel/support/profile-routing/index.js';
 	import { useAutoHideHeader } from '@M/core/services/auto-hide-header.js';
+	import { shouldHydrateCachedProfileSnapshot } from '@M/views/profile/profile-cache.js';
 
 	import HeaderSkeleton from '@M/views/profile/parts/skeletons/HeaderSkeleton.vue';
 	import ProfileAvatar from '@M/views/profile/parts/ProfileAvatar.vue';
@@ -169,7 +170,10 @@
 					? readLocalFirstSnapshot(cacheKey, null, 30000, 5 * 60 * 1000).data
 					: null;
 
-				if(cachedProfile) {
+				// Background refreshes run when the app returns from a native photo picker.
+				// Keep the already-authorized profile object in place until the fresh response
+				// arrives; the cache snapshot intentionally omits owner permissions.
+				if(cachedProfile && shouldHydrateCachedProfileSnapshot(profileData.value, showLoader)) {
 					profileData.value = profileHeaderSnapshot(cachedProfile);
 					state.isLoading = false;
 				}

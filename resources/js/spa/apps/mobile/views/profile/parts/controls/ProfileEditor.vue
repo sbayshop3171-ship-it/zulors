@@ -1,5 +1,5 @@
 <template>
-    <div class="flex flex-col">
+    <div class="flex max-h-[calc(100dvh-3.5rem)] flex-col overflow-y-auto overscroll-contain">
         <div class="px-4 pb-4 border-b border-b-bord-pr text-center">
             <SheetTitle v-bind:title="$t('labels.edit_profile')"></SheetTitle>
         </div>

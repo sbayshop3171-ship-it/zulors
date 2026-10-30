@@ -5,7 +5,7 @@
                 {{ cropTitle }}
             </h3>
             <p class="mt-1 text-par-s text-lab-sc">
-                Drag to position. Pinch or use the zoom controls to resize.
+                Drag to position, pinch to zoom, or rotate the image.
             </p>
         </div>
 
@@ -35,6 +35,24 @@
                 <div class="pointer-events-none absolute inset-0 bg-black/0" v-if="! state.imageLoaded">
                     <div class="h-full w-full bg-fill-qt animate-pulse"></div>
                 </div>
+            </div>
+
+            <div class="mt-3 flex items-center justify-center gap-3">
+                <button
+                    type="button"
+                    class="min-h-10 rounded-full border border-bord-pr px-4 text-par-s font-medium text-lab-pr disabled:opacity-40"
+                    aria-label="Rotate image left 90 degrees"
+                    v-bind:disabled="! state.imageLoaded || isBusy"
+                    v-on:click="rotateImage(-90)"
+                >↶ 90°</button>
+                <span class="min-w-12 text-center text-par-s text-lab-sc" aria-live="polite">{{ state.rotation }}°</span>
+                <button
+                    type="button"
+                    class="min-h-10 rounded-full border border-bord-pr px-4 text-par-s font-medium text-lab-pr disabled:opacity-40"
+                    aria-label="Rotate image right 90 degrees"
+                    v-bind:disabled="! state.imageLoaded || isBusy"
+                    v-on:click="rotateImage(90)"
+                >↷ 90°</button>
             </div>
         </div>
 
@@ -109,6 +127,7 @@
 
 <script>
     import { defineComponent, reactive, computed, ref, watch, nextTick, onBeforeUnmount } from 'vue';
+    import { clampCropOffset, getCropZoomRange } from './image-crop-geometry.js';
 
     export default defineComponent({
         emits: ['cancel', 'save'],
@@ -144,6 +163,7 @@
                 offsetX: 0,
                 offsetY: 0,
                 zoom: 1,
+                rotation: 0,
                 dragStartX: 0,
                 dragStartY: 0,
                 pointerStartX: 0,
@@ -180,7 +200,7 @@
                 return {
                     width: `${state.displayWidth}px`,
                     height: `${state.displayHeight}px`,
-                    transform: `translate(calc(-50% + ${state.offsetX}px), calc(-50% + ${state.offsetY}px))`
+                    transform: `translate(calc(-50% + ${state.offsetX}px), calc(-50% + ${state.offsetY}px)) rotate(${state.rotation}deg)`
                 };
             });
 
@@ -201,18 +221,15 @@
                     return 1;
                 }
 
-                const coverScale = Math.max(
-                    state.frameWidth / state.naturalWidth,
-                    state.frameHeight / state.naturalHeight
-                );
-                const containScale = Math.min(
-                    state.frameWidth / state.naturalWidth,
-                    state.frameHeight / state.naturalHeight
-                );
-
                 // Permit zooming out until the complete source image fits in the crop frame.
                 // The remaining area is filled by the same neutral background used on export.
-                return Math.min(1, containScale / coverScale);
+                return getCropZoomRange(
+                    state.naturalWidth,
+                    state.naturalHeight,
+                    state.frameWidth,
+                    state.frameHeight,
+                    state.rotation
+                ).minZoom;
             });
 
             const revokePreviewUrl = () => {
@@ -228,6 +245,7 @@
                 state.naturalWidth = 0;
                 state.naturalHeight = 0;
                 state.zoom = 1;
+                state.rotation = 0;
                 state.offsetX = 0;
                 state.offsetY = 0;
 
@@ -248,11 +266,18 @@
             const clampOffset = () => {
                 // Keep oversized images from exposing blank edges, while still allowing
                 // smaller images to move through the crop frame over its white backdrop.
-                const limitX = Math.abs(state.displayWidth - state.frameWidth) / 2;
-                const limitY = Math.abs(state.displayHeight - state.frameHeight) / 2;
+                const offset = clampCropOffset(
+                    state.offsetX,
+                    state.offsetY,
+                    state.displayWidth,
+                    state.displayHeight,
+                    state.frameWidth,
+                    state.frameHeight,
+                    state.rotation
+                );
 
-                state.offsetX = Math.min(limitX, Math.max(-limitX, state.offsetX));
-                state.offsetY = Math.min(limitY, Math.max(-limitY, state.offsetY));
+                state.offsetX = offset.offsetX;
+                state.offsetY = offset.offsetY;
             };
 
             const updateDisplaySize = () => {
@@ -269,6 +294,7 @@
 
             const resetCrop = () => {
                 state.zoom = 1;
+                state.rotation = 0;
                 state.offsetX = 0;
                 state.offsetY = 0;
 
@@ -302,6 +328,22 @@
 
             const zoomIn = () => setZoom(state.zoom + 0.1);
             const zoomOut = () => setZoom(state.zoom - 0.1);
+
+            const rotateImage = (degrees) => {
+                state.rotation = ((state.rotation + degrees) % 360 + 360) % 360;
+
+                const { coverZoom } = getCropZoomRange(
+                    state.naturalWidth,
+                    state.naturalHeight,
+                    state.frameWidth,
+                    state.frameHeight,
+                    state.rotation
+                );
+
+                state.zoom = Math.min(4, Math.max(state.zoom, coverZoom, minZoom.value));
+                measureFrame();
+                updateDisplaySize();
+            };
 
             const pointerDistance = (first, second) => {
                 return Math.hypot(second.x - first.x, second.y - first.y);
@@ -422,20 +464,31 @@
                 updateDisplaySize();
 
                 const canvas = document.createElement('canvas');
-                const context2d = canvas.getContext('2d');
                 const outputScaleX = cropConfig.value.width / state.frameWidth;
                 const outputScaleY = cropConfig.value.height / state.frameHeight;
                 const outputWidth = state.displayWidth * outputScaleX;
                 const outputHeight = state.displayHeight * outputScaleY;
-                const outputX = ((state.frameWidth - state.displayWidth) / 2 + state.offsetX) * outputScaleX;
-                const outputY = ((state.frameHeight - state.displayHeight) / 2 + state.offsetY) * outputScaleY;
 
                 canvas.width = cropConfig.value.width;
                 canvas.height = cropConfig.value.height;
+                const context2d = canvas.getContext('2d');
+
+                if(! context2d) {
+                    state.isExporting = false;
+                    alert('Could not prepare image. Please try again.');
+                    return false;
+                }
 
                 context2d.fillStyle = '#ffffff';
                 context2d.fillRect(0, 0, canvas.width, canvas.height);
-                context2d.drawImage(imageRef.value, outputX, outputY, outputWidth, outputHeight);
+                context2d.save();
+                context2d.translate(
+                    canvas.width / 2 + state.offsetX * outputScaleX,
+                    canvas.height / 2 + state.offsetY * outputScaleY
+                );
+                context2d.rotate((state.rotation * Math.PI) / 180);
+                context2d.drawImage(imageRef.value, -outputWidth / 2, -outputHeight / 2, outputWidth, outputHeight);
+                context2d.restore();
 
                 canvas.toBlob((blob) => {
                     state.isExporting = false;
@@ -501,6 +554,7 @@
                 handleZoomChange: handleZoomChange,
                 zoomIn: zoomIn,
                 zoomOut: zoomOut,
+                rotateImage: rotateImage,
                 startDrag: startDrag,
                 dragImage: dragImage,
                 stopDrag: stopDrag,
