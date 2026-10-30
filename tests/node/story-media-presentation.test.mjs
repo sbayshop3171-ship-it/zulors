@@ -8,6 +8,12 @@ import {
     storyMediaDimensions,
     storyMediaObjectFitClass
 } from '../../resources/js/spa/kernel/services/media/story-media-presentation.js';
+import { normalizeVideoAspectRatio } from '../../resources/js/spa/kernel/services/media/video-metadata.js';
+
+test('video frame sizing preserves standard camera portrait and landscape ratios', () => {
+    assert.equal(normalizeVideoAspectRatio({ dimensions: { width: 1080, height: 1920 } }), 1080 / 1920);
+    assert.equal(normalizeVideoAspectRatio({ dimensions: { width: 1920, height: 1080 } }), 1920 / 1080);
+});
 
 test('native 9:16 story media fills the player without blur fallback', () => {
     const media = { metadata: { dimensions: { width: 1080, height: 1920 } } };

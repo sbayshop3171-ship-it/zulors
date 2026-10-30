@@ -1,6 +1,6 @@
 import { ref, onBeforeUnmount, watch } from 'vue';
 import { publicationManager } from '@/kernel/services/media/publications/index.js';
-import { isPublicationMedia, selectPublicationMedia, releasePublicationSelection } from '@/kernel/services/media/publications/selection.js';
+import { isPublicationMedia, publicationMediaType, selectPublicationMedia, releasePublicationSelection } from '@/kernel/services/media/publications/selection.js';
 
 export function useMediaPublication(kind) {
     const selections = ref([]);
@@ -17,7 +17,7 @@ export function useMediaPublication(kind) {
     const select = async file => {
         if (!file || !isPublicationMedia(file) || !await publicationManager.enabled(kind)) return false;
         if (kind !== 'post' && selections.value.length) clear();
-        if (selections.value.length >= 10 || (selections.value.length && (selections.value[0].type === 'video' || (file.mime || file.type).startsWith('video/')))) throw new Error('Choose one video, or up to 10 photos.');
+        if (selections.value.length >= 10 || (selections.value.length && (selections.value[0].type === 'video' || publicationMediaType(file) === 'video'))) throw new Error('Choose one video, or up to 10 photos.');
         const token = sequence;
         const account = publicationManager.account;
         selecting.value = true;

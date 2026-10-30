@@ -121,7 +121,6 @@ export class PublicationManager {
         if (selections.some(item => item.account != null && identity(item.account) !== account)) throw new Error('Account changed. Select media again.');
         if ((descriptor.kind !== 'post' || selections.some(item => item.type === 'video')) && selections.length !== 1) throw new Error('Choose one video, or photos for a post.');
         if (selections.length > 10) throw new Error('Choose up to 10 photos.');
-        if (selections.some(item => item.type === 'video' && !item.duration_seconds)) throw new Error('Video duration is unavailable. Select the video again.');
         const client_uid = descriptor.client_uid || crypto.randomUUID();
         const native = selections.every(item => item.native_file_id);
         if (!native && selections.some(item => item.native_file_id)) throw new Error('Choose media from the same picker.');

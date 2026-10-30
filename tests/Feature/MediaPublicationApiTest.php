@@ -281,7 +281,6 @@ class MediaPublicationApiTest extends TestCase
     public static function invalidVideos(): array
     {
         return [
-            'missing duration' => ['duration_seconds', null],
             'zero duration' => ['duration_seconds', 0],
             'negative duration' => ['duration_seconds', -1],
             'excessive duration' => ['duration_seconds', 601],
@@ -311,6 +310,19 @@ class MediaPublicationApiTest extends TestCase
         $video['items'][0]['duration_seconds'] = 600;
         $this->postJson(self::API, $video)->assertCreated();
         $this->assertDatabaseCount('media_publications', 2);
+        $this->assertNoPublishedEntities();
+        Bus::assertNothingDispatched();
+    }
+
+    public function test_video_without_client_duration_metadata_is_accepted_for_server_probe(): void
+    {
+        $this->actingAs($this->createUser());
+        $payload = $this->payload('post', 'video');
+        $payload['items'][0]['duration_seconds'] = null;
+
+        $this->postJson(self::API, $payload)->assertCreated();
+        $this->assertDatabaseCount('media_publications', 1);
+        $this->assertDatabaseCount('media_publication_items', 1);
         $this->assertNoPublishedEntities();
         Bus::assertNothingDispatched();
     }

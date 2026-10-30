@@ -230,7 +230,7 @@
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
     import { imagePasteHandler } from '@/kernel/events/image-paste/index.js';
-    import { applyVideoPresentationMetadata, readVideoFileMetadata } from '@/kernel/services/media/video-metadata.js';
+    import { applyVideoPresentationMetadata, buildVideoPresentationMetadata, readVideoFileMetadata } from '@/kernel/services/media/video-metadata.js';
     import { mergePostMediaPreviews } from '@/kernel/services/media/post-media-preview.js';
     import { createMultipartUploadProgress } from '@/kernel/services/media/multipart-upload-progress.js';
     import { useCheatSheet } from '@D/core/composables/cheat-sheet/index.js';
@@ -923,7 +923,7 @@
 
                 const localPreview = createLocalMediaPreview(mediaFile, 'video');
                 let uploadData = null;
-                let presentationMetadata = {};
+				const presentationMetadata = buildVideoPresentationMetadata(mediaFile.width, mediaFile.height, mediaFile.duration_seconds);
 
                 if(localPreview) {
                     clearLocalMediaPreviews();
@@ -932,9 +932,17 @@
 
                 try {
                     state.postMediaUploadProgress = 5;
-                    presentationMetadata = await readVideoFileMetadata(mediaFile);
-
-                    if(localPreview) {
+					readVideoFileMetadata(mediaFile).then((metadata) => {
+						const detectedMetadata = buildVideoPresentationMetadata(
+							mediaFile.width || metadata.dimensions?.width,
+							mediaFile.height || metadata.dimensions?.height,
+							mediaFile.duration_seconds || metadata.duration_seconds
+						);
+						if(localPreview && Object.keys(detectedMetadata).length) {
+							applyVideoPresentationMetadata(localPreview, detectedMetadata);
+						}
+					}).catch(() => {});
+					if(localPreview && Object.keys(presentationMetadata).length) {
                         applyVideoPresentationMetadata(localPreview, presentationMetadata);
                     }
 

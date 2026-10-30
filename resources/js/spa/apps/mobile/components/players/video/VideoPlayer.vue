@@ -5,7 +5,7 @@
 		<img v-if="sponsoredFeed && thumbnailUrl" v-bind:src="thumbnailUrl" alt="" aria-hidden="true" class="pointer-events-none absolute inset-0 size-full scale-110 object-cover blur-2xl opacity-70">
 		<video
 			v-on:click="handleVideoSurfaceClick"
-			v-bind:class="sponsoredFeed ? 'relative z-10 size-full object-contain' : 'size-full object-cover'"
+			v-bind:class="{ 'relative z-10': sponsoredFeed }"
 			ref="videoPlayerRef"
 			webkit-playsinline
 			playsinline
@@ -13,6 +13,7 @@
 			muted
 			v-bind:poster="thumbnailUrl"
 			loop="loop"
+		class="size-full object-contain"
 		>
 			<source v-bind:src="videoUrl" type="video/mp4">
 		</video>

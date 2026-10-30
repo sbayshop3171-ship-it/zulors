@@ -67,15 +67,17 @@ class MediaPublicationController extends Controller
         }
         foreach($data['items'] as $index => $item) {
             $video = $item['type'] === 'video';
-            $allowed = $video ? ['video/mp4', 'video/quicktime', 'video/webm', 'video/avi', 'video/x-msvideo', 'video/mpeg']
+            $allowed = $video ? ['video/mp4', 'video/quicktime', 'video/webm', 'video/avi', 'video/x-msvideo', 'video/mpeg', 'video/x-m4v', 'video/3gpp', 'video/3gpp2', 'video/x-matroska']
                 : ['image/jpeg', 'image/png', 'image/webp'];
             $limit = $video ? min((int) config('media.uploads.video.max_bytes'), 1024 * (int) config($data['kind'] === 'chat' ? 'chat.validation.message.media.max' : $data['kind'].'.validation.video.max'))
                 : min((int) config('media.publications.image_max_bytes', 20971520), 1024 * (int) config($data['kind'] === 'chat' ? 'chat.validation.message.media.max' : $data['kind'].'.validation.image.max'));
             if(! in_array($item['mime'], $allowed, true) || $item['size'] > $limit) {
                 throw ValidationException::withMessages(["items.$index" => 'Unsupported media format or file exceeds the upload limit.']);
             }
-            if($video && (empty($item['duration_seconds']) || $item['duration_seconds'] > config('media.uploads.video.max_duration_seconds'))) {
-                throw ValidationException::withMessages(["items.$index.duration_seconds" => 'Video duration exceeds the upload limit or is unavailable.']);
+            // Browser/device metadata can be missing for valid camera formats. The
+            // media processor probes the uploaded bytes and enforces the real limit.
+            if($video && ! empty($item['duration_seconds']) && $item['duration_seconds'] > config('media.uploads.video.max_duration_seconds')) {
+                throw ValidationException::withMessages(["items.$index.duration_seconds" => 'Video duration exceeds the upload limit.']);
             }
         }
         return response()->json(['data' => $this->present($this->service->create($request->user(), $data))], 201);

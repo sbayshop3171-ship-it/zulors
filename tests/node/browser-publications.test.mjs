@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { PublicationManager } from '../../resources/js/spa/kernel/services/media/publications/manager.js';
 import { NativePublicationBridge } from '../../resources/js/spa/kernel/services/media/publications/native-bridge.js';
 import { transferItem, uploadPart } from '../../resources/js/spa/kernel/services/media/publications/transfer.js';
-import { isPublicationMedia } from '../../resources/js/spa/kernel/services/media/publications/selection.js';
+import { isPublicationMedia, publicationMediaMime, publicationMediaType } from '../../resources/js/spa/kernel/services/media/publications/selection.js';
 
 class MemoryDatabase {
     rows = new Map(); files = new Map();
@@ -60,6 +60,30 @@ test('feature disabled, unsupported privacy and GIF cannot enter the new path', 
     await assert.rejects(manager.enqueue({ kind: 'post', privacy: 'followers' }, [selection()]), /audience/);
     for (const type of ['image/gif', 'image/heic', 'application/pdf', 'audio/mp3']) assert.equal(isPublicationMedia({ type }), false);
     assert.equal(isPublicationMedia({ type: 'image/png' }), true);
+});
+
+test('camera videos with generic or codec MIME use their known container type', () => {
+    const cameraMp4 = { name: 'camera.mp4', type: 'video/hevc' };
+    const cameraMov = { name: 'camera.MOV', type: 'application/octet-stream' };
+
+    assert.equal(isPublicationMedia(cameraMp4), true);
+    assert.equal(publicationMediaType(cameraMp4), 'video');
+    assert.equal(publicationMediaMime(cameraMp4), 'video/mp4');
+    assert.equal(isPublicationMedia(cameraMov), true);
+    assert.equal(publicationMediaMime(cameraMov), 'video/quicktime');
+});
+
+test('video publication can queue when the device cannot provide duration metadata', async () => {
+    const manager = makeManager(() => { throw new Error('Upload should wait for the worker, not run during enqueue'); });
+    const video = {
+        client_uid: crypto.randomUUID(), type: 'video', name: 'camera.mp4', mime: 'video/mp4', size: 4,
+        duration_seconds: null, file: new Blob(['test'], { type: 'video/mp4' }),
+    };
+
+    const row = await manager.enqueue({ kind: 'post', content: 'caption' }, [video]);
+
+    assert.equal(row.status, 'queued');
+    assert.equal(Object.hasOwn(row.descriptor.items[0], 'duration_seconds'), false);
 });
 
 test('multipart resumes confirmed parts, respects byte ranges and caps concurrency at two', async () => {

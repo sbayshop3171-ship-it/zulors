@@ -1,5 +1,8 @@
-const MIN_VIDEO_RATIO = 4 / 5;
-const MAX_VIDEO_RATIO = 16 / 9;
+// Preserve common portrait camera/video ratios (including 9:16) in feed and
+// editor frames. Bound only unusually extreme metadata so a malformed file
+// cannot create an unusably tall or wide layout.
+const MIN_VIDEO_RATIO = 1 / 3;
+const MAX_VIDEO_RATIO = 3;
 
 const positiveNumber = (value) => {
     const numberValue = Number(value || 0);

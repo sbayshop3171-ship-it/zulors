@@ -17,16 +17,21 @@
 			<video
 				v-if="videoUrl"
 				v-on:loadedmetadata="captureVideoMetadata"
+				v-on:error="captureVideoError"
 				controls
 				playsinline
+				webkit-playsinline
 				preload="metadata"
 				v-bind:poster="mediaItem.thumbnail_url"
 				v-bind:src="videoUrl"
-			class="w-full h-full object-cover"></video>
-			<img v-else-if="mediaItem.thumbnail_url" v-bind:src="mediaItem.thumbnail_url" class="size-full object-cover" alt="Video thumbnail">
+			class="w-full h-full object-contain"></video>
+			<img v-else-if="mediaItem.thumbnail_url" v-bind:src="mediaItem.thumbnail_url" class="size-full object-contain" alt="Video thumbnail">
 			<div v-else class="size-full flex-center text-white" role="status" aria-label="Video preview unavailable">
 				<span class="size-icon-large"><SvgIcon name="video-recorder" type="line"></SvgIcon></span>
 			</div>
+		</div>
+		<div v-if="mediaItem.metadata?.preview_unavailable" class="absolute inset-x-3 bottom-14 z-10 rounded-lg bg-black/75 px-3 py-2 text-center text-xs text-white" role="status">
+			This video format cannot be previewed on this device. You can still publish it; playback will be available after processing.
 		</div>
 
 		<div v-if="mediaDuration" class="pointer-events-none absolute left-4 top-4 rounded-full bg-black/60 px-2.5 py-1">
@@ -71,12 +76,23 @@
 				}),
 				captureVideoMetadata: (event) => {
 					const videoElement = event.currentTarget;
+					const width = props.mediaItem.native_file_id && props.mediaItem.width ? props.mediaItem.width : videoElement.videoWidth;
+					const height = props.mediaItem.native_file_id && props.mediaItem.height ? props.mediaItem.height : videoElement.videoHeight;
+					const presentation = buildVideoPresentationMetadata(width, height, videoElement.duration);
 
-					applyVideoPresentationMetadata(props.mediaItem, buildVideoPresentationMetadata(
-						videoElement.videoWidth,
-						videoElement.videoHeight,
-						videoElement.duration
-					));
+					if(presentation.dimensions) {
+						props.mediaItem.width = presentation.dimensions.width;
+						props.mediaItem.height = presentation.dimensions.height;
+					}
+					if(presentation.duration_seconds) props.mediaItem.duration_seconds = presentation.duration_seconds;
+
+					applyVideoPresentationMetadata(props.mediaItem, presentation);
+					if(props.mediaItem.metadata?.preview_unavailable) {
+						applyVideoPresentationMetadata(props.mediaItem, { preview_unavailable: false });
+					}
+				},
+				captureVideoError: () => {
+					applyVideoPresentationMetadata(props.mediaItem, { preview_unavailable: true });
 				},
 				canDelete: computed(() => {
 					return props.canDelete;

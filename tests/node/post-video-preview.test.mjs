@@ -99,6 +99,16 @@ async function editorHarness(platform, { fallback = false, fail = false } = {}) 
         }],
         ['@/kernel/services/media/video-metadata.js', {
             readVideoFileMetadata: async () => ({ duration_seconds: 100, duration: 100, dimensions: { width: 640, height: 360 } }),
+            buildVideoPresentationMetadata: (width, height, durationSeconds = 0) => {
+                const result = {};
+                if(width > 0 && height > 0) {
+                    result.dimensions = { width, height };
+                    result.aspect_ratio = width / height;
+                    result.is_portrait = width < height;
+                }
+                if(durationSeconds > 0) result.duration_seconds = Math.round(durationSeconds);
+                return result;
+            },
             applyVideoPresentationMetadata: (item, metadata) => { Object.assign(item.metadata, metadata); },
         }],
         ['@/kernel/services/api-client/native/index.js', { colibriAPI: api }],
