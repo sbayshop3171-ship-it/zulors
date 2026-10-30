@@ -7,6 +7,7 @@ import * as vue from 'vue';
 import * as postTypes from '../../resources/js/spa/kernel/enums/post/post.type.js';
 import * as previews from '../../resources/js/spa/kernel/services/media/post-media-preview.js';
 import * as progress from '../../resources/js/spa/kernel/services/media/multipart-upload-progress.js';
+import * as previewSizing from '../../resources/js/spa/kernel/services/media/media-preview-sizing.js';
 
 const paths = {
     mobile: 'resources/js/spa/apps/mobile/views/editors/post/PostEditor.vue',
@@ -90,6 +91,10 @@ async function editorHarness(platform, { fallback = false, fail = false } = {}) 
         ['@/kernel/enums/post/post.type.js', postTypes],
         ['@/kernel/services/media/post-media-preview.js', previews],
         ['@/kernel/services/media/multipart-upload-progress.js', progress],
+        ['@/kernel/services/media/media-preview-sizing.js', previewSizing],
+        ['@/kernel/vue/composables/media-preview-bounds.js', {
+            useMediaPreviewBounds: () => ({ bounds: vue.ref({ width: 390, height: 600 }), refresh() {} }),
+        }],
         ['@/kernel/vue/composables/media-publication/index.js', {
             useMediaPublication: () => ({
                 selections: vue.ref([]),
@@ -153,6 +158,10 @@ async function videoPreviewHarness(platform, play = async () => {}) {
     const ast = babelParse(descriptor.script.content, { sourceType: 'module' });
     const imports = new Map([
         ['vue', vue],
+        ['@/kernel/services/media/media-preview-sizing.js', previewSizing],
+        ['@/kernel/vue/composables/media-preview-bounds.js', {
+            useMediaPreviewBounds: () => ({ bounds: vue.ref({ width: 390, height: 600 }), refresh() {} }),
+        }],
         ['@/kernel/services/media/video-metadata.js', {
             applyVideoPresentationMetadata: (item, metadata) => { item.metadata = { ...item.metadata, ...metadata }; },
             buildVideoPresentationMetadata: () => ({}),

@@ -1,9 +1,11 @@
 <template>
-	<div
-		v-for="mediaItem in postMedia"
-		v-bind:key="mediaItem.preview_key || mediaItem.id || mediaItem.preview_url || mediaItem.source_url"
-		v-bind:class="[(mediaItem.deleted ? 'opacity-20' : '')]"
-	class="post-video-preview-frame relative h-full min-h-0 w-full min-w-0 max-h-full max-w-full bg-black flex justify-center overflow-hidden">
+	<div v-for="mediaItem in postMedia" v-bind:key="mediaItem.preview_key || mediaItem.id || mediaItem.preview_url || mediaItem.source_url" class="post-video-preview-shell relative flex min-h-0 w-full min-w-0 justify-center overflow-hidden">
+		<img v-if="videoBackdropUrl(mediaItem)" v-bind:src="videoBackdropUrl(mediaItem)" class="post-video-preview-backdrop pointer-events-none absolute inset-0 size-full scale-110 object-cover opacity-45 blur-2xl" alt="" aria-hidden="true">
+		<div
+			ref="previewFrame"
+			v-bind:class="[(mediaItem.deleted ? 'opacity-20' : '')]"
+			v-bind:style="frameStyle(mediaItem)"
+		class="post-video-preview-frame relative z-0 min-h-0 min-w-0 max-h-full max-w-full flex-none overflow-hidden">
 		<div v-if="canDelete" class="absolute top-3 right-3 z-10 inline-block">
 			<MediaDeleteButton v-on:click="$emit('delete', mediaItem)"></MediaDeleteButton>
 		</div>
@@ -11,6 +13,7 @@
 			<video
 				v-if="videoUrl(mediaItem)"
 				v-on:loadedmetadata="captureVideoMetadata(mediaItem, $event)"
+				v-on:loadeddata="captureVideoBackdrop(mediaItem, $event)"
 				v-on:click="togglePreviewPlayback(mediaItem, $event)"
 				v-on:play="setPreviewPlaying(mediaItem, true)"
 				v-on:pause="setPreviewPlaying(mediaItem, false)"
@@ -21,8 +24,8 @@
 				preload="metadata"
 				v-bind:poster="mediaItem.thumbnail_url"
 				v-bind:src="videoUrl(mediaItem)"
-			class="w-full h-full object-cover"></video>
-			<img v-else-if="mediaItem.thumbnail_url" v-bind:src="mediaItem.thumbnail_url" class="size-full object-cover" alt="Video thumbnail">
+			class="w-full h-full object-contain"></video>
+			<img v-else-if="mediaItem.thumbnail_url" v-bind:src="mediaItem.thumbnail_url" class="size-full object-contain" alt="Video thumbnail">
 			<div v-else class="size-full flex-center text-white" role="status" aria-label="Video preview unavailable">
 				<span class="size-icon-large"><SvgIcon name="video-recorder" type="line"></SvgIcon></span>
 			</div>
@@ -49,12 +52,15 @@
 		<div v-if="mediaItem.metadata?.preview_unavailable || playbackError(mediaItem)" class="pointer-events-none absolute inset-x-3 bottom-14 z-10 rounded-lg bg-black/75 px-3 py-2 text-center text-xs text-white" role="status">
 			This video cannot play in this preview on your device. You can still publish it; try a supported MP4 video for an in-editor preview.
 		</div>
+		</div>
 	</div>
 </template>
 
 <script>
 	import { defineComponent, computed, ref } from 'vue';
 	import { applyVideoPresentationMetadata, buildVideoPresentationMetadata } from '@/kernel/services/media/video-metadata.js';
+	import { fitMediaPreviewAspectRatio, fitMediaPreviewSize } from '@/kernel/services/media/media-preview-sizing.js';
+	import { useMediaPreviewBounds } from '@/kernel/vue/composables/media-preview-bounds.js';
 
 	import MediaDeleteButton from '@M/views/editors/post/parts/buttons/MediaDeleteButton.vue';
 	import VideoDurationTime from '@/kernel/vue/components/media/video/VideoDurationTime.vue';
@@ -72,7 +78,11 @@
 			},
 			emits: ['delete'],
 			setup: function(props) {
+					const previewFrame = ref(null);
+					const { bounds, refresh } = useMediaPreviewBounds(previewFrame, 350);
 				const previewState = ref({});
+				const videoDimensions = ref({});
+				const videoBackdrops = ref({});
 				const playbackRates = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3];
 				const previewKey = (mediaItem) => String(mediaItem.preview_key || mediaItem.client_uid || mediaItem.id || mediaItem.preview_url || mediaItem.source_url || 'video');
 				const stateFor = (mediaItem) => previewState.value[previewKey(mediaItem)] || {};
@@ -91,6 +101,29 @@
 					return next >= 0 && next < playbackRates.length;
 				};
 				const playbackSpeedLabel = (mediaItem) => `${playbackSpeed(mediaItem)}×`;
+				const frameStyle = (mediaItem) => {
+					const dimensions = videoDimensions.value[previewKey(mediaItem)] || mediaItem;
+					const size = fitMediaPreviewSize(Number(dimensions.width || 0), Number(dimensions.height || 0), bounds.value.width, bounds.value.height);
+					if(size.width && size.height) return { width: `${size.width}px`, height: `${size.height}px` };
+					const fallback = fitMediaPreviewAspectRatio(16 / 9, bounds.value.width, bounds.value.height);
+					return fallback.width && fallback.height ? { width: `${fallback.width}px`, height: `${fallback.height}px` } : { width: '100%', aspectRatio: '16 / 9' };
+				};
+				const videoBackdropUrl = (mediaItem) => videoBackdrops.value[previewKey(mediaItem)] || mediaItem.thumbnail_url || null;
+				const captureVideoBackdrop = (mediaItem, event) => {
+					if(videoBackdropUrl(mediaItem)) return;
+					const videoElement = event.currentTarget;
+					if(! videoElement.videoWidth || ! videoElement.videoHeight || typeof document === 'undefined') return;
+					const size = fitMediaPreviewSize(videoElement.videoWidth, videoElement.videoHeight, 320, 320);
+					if(! size.width || ! size.height) return;
+					try {
+						const canvas = document.createElement('canvas');
+						canvas.width = size.width;
+						canvas.height = size.height;
+						canvas.getContext('2d')?.drawImage(videoElement, 0, 0, size.width, size.height);
+						videoBackdrops.value = { ...videoBackdrops.value, [previewKey(mediaItem)]: canvas.toDataURL('image/jpeg', 0.72) };
+					}
+					catch { /* A cross-origin video may not allow a canvas poster; keep the aspect-fit frame. */ }
+				};
 				const changePlaybackSpeed = (mediaItem, direction, event) => {
 					event.stopPropagation();
 					const video = videoFrom(event);
@@ -121,6 +154,9 @@
 					setPreviewPlaying(mediaItem, false);
 				};
 				return {
+					previewFrame,
+					frameStyle,
+					videoBackdropUrl,
 					canDelete: computed(() => {
 						return props.canDelete;
 					}),
@@ -142,11 +178,18 @@
 						const width = mediaItem.native_file_id && mediaItem.width ? mediaItem.width : videoElement.videoWidth;
 						const height = mediaItem.native_file_id && mediaItem.height ? mediaItem.height : videoElement.videoHeight;
 						const presentation = buildVideoPresentationMetadata(width, height, videoElement.duration);
+						if(width > 0 && height > 0) {
+							videoDimensions.value = {
+								...videoDimensions.value,
+								[previewKey(mediaItem)]: { width: presentation.dimensions?.width || width, height: presentation.dimensions?.height || height }
+							};
+						}
 
 						if(presentation.dimensions) {
 							mediaItem.width = presentation.dimensions.width;
 							mediaItem.height = presentation.dimensions.height;
 						}
+						refresh();
 						if(presentation.duration_seconds) mediaItem.duration_seconds = presentation.duration_seconds;
 
 						applyVideoPresentationMetadata(mediaItem, presentation);
@@ -154,6 +197,7 @@
 							applyVideoPresentationMetadata(mediaItem, { preview_unavailable: false });
 						}
 					},
+					captureVideoBackdrop,
 					captureVideoError: (mediaItem) => {
 						applyVideoPresentationMetadata(mediaItem, { preview_unavailable: true });
 						previewState.value[previewKey(mediaItem)] = { playing: false, error: true };

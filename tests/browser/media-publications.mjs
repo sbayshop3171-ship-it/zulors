@@ -15,7 +15,7 @@ const scratch = await mkdtemp(path.join(tmpdir(), 'zulors-publications-'));
 const videoPath = path.join(scratch, 'video.mp4');
 execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=12', '-t', '2', '-c:v', 'libx264', '-threads', '1', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', videoPath]);
 const video = await readFile(videoPath);
-const server = await createServer({ configFile: false, root, plugins: [vue(), tailwindcss()],
+const server = await createServer({ configFile: false, root, cacheDir: path.join(scratch, 'vite-cache'), plugins: [vue(), tailwindcss()],
     optimizeDeps: { noDiscovery: true, include: ['vue', 'pinia', 'vue-router', 'vue-i18n', 'axios', 'howler', 'mitt', 'autolinker', 'hotkeys-js', 'hls.js', 'recordrtc', '@giphy/js-fetch-api', '@headlessui/vue'] },
     resolve: { alias: { '@': path.join(root, 'resources/js/spa'), '@M': path.join(root, 'resources/js/spa/apps/mobile'), '@D': path.join(root, 'resources/js/spa/apps/desktop') } },
     server: { host: '127.0.0.1', port: 5178, strictPort: false, hmr: false },
@@ -67,7 +67,7 @@ try {
         }
         if (kind === 'story') await page.evaluate(({ bytes, mime }) => window.publicationTest.selectStory(bytes, mime), { bytes: [...bytes], mime });
         else if (kind === 'post' && media === 'image') {
-            const dimensions = platform === 'mobile' ? [[320, 120], [120, 320], [200, 200]] : [[320, 120], [120, 320], [200, 200], [320, 240]];
+            const dimensions = platform === 'mobile' ? [[1200, 3200]] : [[320, 120], [120, 320], [200, 200], [320, 240]];
             const photos = (await page.evaluate(async dimensions => Promise.all(dimensions.map(async ([width, height], index) => {
                 const canvas = document.createElement('canvas');
                 canvas.width = width; canvas.height = height;
@@ -107,8 +107,12 @@ try {
                         stageBottom: stage.bottom, viewportHeight: innerHeight, documentHeight: document.documentElement.scrollHeight } : null;
                 });
                 assert.ok(layout && layout.frameWidth > 100 && layout.frameHeight > 100, `${platform}: post preview has a visible media stage (${JSON.stringify(layout)})`);
-                assert.ok(Math.abs(layout.frameWidth - layout.stageWidth) < 2, `${platform}: post preview uses the full media width`);
-                assert.ok(Math.abs(layout.frameHeight - layout.stageHeight) < 2, `${platform}: post preview uses the full available media height (${JSON.stringify(layout)})`);
+                const videoDimensions = await page.locator('video').first().evaluate(element => ({ width: element.videoWidth, height: element.videoHeight, fit: getComputedStyle(element).objectFit }));
+                assert.ok(layout.frameWidth <= layout.stageWidth + 2, `${platform}: video frame stays within the composer width (${JSON.stringify(layout)})`);
+                assert.ok(layout.frameHeight <= layout.viewportHeight, `${platform}: video frame stays within the viewport height (${JSON.stringify(layout)})`);
+                assert.ok(Math.abs(layout.frameWidth / layout.frameHeight - videoDimensions.width / videoDimensions.height) < 0.03,
+                    `${platform}: video frame preserves the source aspect ratio (${JSON.stringify({ layout, videoDimensions })})`);
+                assert.equal(videoDimensions.fit, 'contain');
                 assert.ok(layout.stageBottom <= layout.viewportHeight + 1, `${platform}: media stage and editor controls fit in the viewport`);
                 if (platform === 'mobile') {
                     await page.getByRole('button', { name: 'Publish post' }).waitFor();
@@ -123,24 +127,30 @@ try {
             assert.ok(pixels > 20, 'selected video renders a decoded frame');
         }
         else if (kind === 'post') {
-            const layout = await page.evaluate(() => {
+            const layout = await page.evaluate(platform => {
                 const stageElement = document.querySelector('.post-image-preview-stage');
                 const stage = stageElement?.getBoundingClientRect();
+                const singleBackdrop = stageElement?.querySelector(':scope > img');
                 const images = [...document.querySelectorAll('.post-image-preview-content')];
                 const cells = images.map(image => ({ objectFit: getComputedStyle(image).objectFit,
                     naturalWidth: image.naturalWidth, naturalHeight: image.naturalHeight,
                     width: image.getBoundingClientRect().width, height: image.getBoundingClientRect().height,
                     cellWidth: image.parentElement.getBoundingClientRect().width, cellHeight: image.parentElement.getBoundingClientRect().height }));
+                const action = document.querySelector(platform === 'mobile' ? '[aria-label="Add image"]' : '[aria-label="Add media"]');
                 return stage ? { stageWidth: stage.width, stageHeight: stage.height, count: images.length, heroTiles: stageElement.querySelectorAll('.row-span-2').length, cells,
-                    stageBottom: stage.bottom, viewportHeight: innerHeight } : null;
-            });
+                    singleBackdrop: Boolean(singleBackdrop),
+                    stageBottom: stage.bottom, actionTop: action?.getBoundingClientRect().top ?? null, viewportHeight: innerHeight } : null;
+            }, platform);
             assert.ok(layout && layout.stageWidth > 100 && layout.stageHeight > 100, `${platform}: image preview has a visible full media stage (${JSON.stringify(layout)})`);
             assert.equal(layout.count, expectedItems, `${platform}: all selected images remain in the responsive grid`);
             assert.equal(layout.heroTiles, expectedItems === 3 ? 1 : 0, `${platform}: three-image layouts emphasize the first image`);
+            if(expectedItems === 1) assert.equal(layout.singleBackdrop, true, `${platform}: a narrow single image fills surrounding bars without cropping the image`);
             assert.ok(layout.cells.every(cell => cell.objectFit === 'contain' && cell.naturalWidth > 0 && cell.naturalHeight > 0 &&
                 Math.abs(cell.width - cell.cellWidth) < 2 && Math.abs(cell.height - cell.cellHeight) < 2),
                 `${platform}: every image keeps its full aspect ratio inside its tile (${JSON.stringify(layout)})`);
             assert.ok(layout.stageBottom <= layout.viewportHeight + 1, `${platform}: image stage and editor controls fit in the viewport`);
+            assert.ok(layout.actionTop === null || layout.actionTop - layout.stageBottom < 80,
+                `${platform}: media sizing does not leave a large gap before the editor controls (${JSON.stringify(layout)})`);
             await page.screenshot({ path: path.join(tmpdir(), `zulors-post-image-preview-${platform}.png`) });
         }
         assert.equal(requests.some(request => request.method !== 'GET'), false, `${platform}/${kind}: selecting media must be local`);

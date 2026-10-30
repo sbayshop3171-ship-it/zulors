@@ -4,8 +4,8 @@
 				<Toolbar v-bind:title="editorTitle" v-on:close="leaveEditor"></Toolbar>
 		</div>
 		<Border height="h-2" opacity="opacity-60"></Border>
-		<div class="flex-1 min-h-0 overflow-hidden">
-			<div class="flex h-full min-h-0 flex-col">
+		<div v-bind:class="postHasMedia && (PostTypeUtils.isVideo(currentPostType) || PostTypeUtils.isImage(currentPostType)) ? 'shrink-0 overflow-hidden' : 'flex-1 min-h-0 overflow-hidden'">
+			<div v-bind:class="postHasMedia && (PostTypeUtils.isVideo(currentPostType) || PostTypeUtils.isImage(currentPostType)) ? 'flex min-h-0 flex-col' : 'flex h-full min-h-0 flex-col'">
 				<div v-bind:class="postHasMedia && (PostTypeUtils.isVideo(currentPostType) || PostTypeUtils.isImage(currentPostType)) ? 'h-28 shrink-0' : 'min-h-0 flex-1'">
 					<textarea ref="contentInput"
 							v-model="postData.content"
@@ -13,7 +13,7 @@
 							class="resize-none py-4 px-6 h-full w-full leading-normal bg-transparent text-title-3 text-lab-pr2 outline-hidden placeholder:font-light placeholder:text-title-3"
 						v-bind:placeholder="postTextInputPlaceholder"></textarea>
 				</div>
-				<div v-bind:class="postHasMedia && (PostTypeUtils.isVideo(currentPostType) || PostTypeUtils.isImage(currentPostType)) ? 'flex min-h-0 flex-1 overflow-hidden bg-black' : 'shrink-0'">
+				<div v-bind:class="postHasMedia && (PostTypeUtils.isVideo(currentPostType) || PostTypeUtils.isImage(currentPostType)) ? 'flex w-full flex-none justify-center overflow-hidden' : 'shrink-0'">
 					<template v-if="postHasMedia">
 						<template v-if="PostTypeUtils.isImage(currentPostType)">
 								<PostImagePreview v-bind:canDelete="! isEditingPost" v-bind:postMedia="postMedia" v-on:delete="deletePostMedia"></PostImagePreview>

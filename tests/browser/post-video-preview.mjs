@@ -23,7 +23,8 @@ try {
             '-t', '4', '-c:v', 'libx264', '-threads', '1', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', fixture.path]);
     }
     server = await createServer({
-        configFile: false, root, plugins: [vue(), tailwindcss()],
+        configFile: false, root, cacheDir: path.join(scratch, 'vite-cache'), plugins: [vue(), tailwindcss()],
+        optimizeDeps: { noDiscovery: true, include: ['vue'] },
         resolve: { alias: {
             '@': path.join(root, 'resources/js/spa'),
             '@M': path.join(root, 'resources/js/spa/apps/mobile'),
@@ -62,8 +63,11 @@ try {
             const data = { sameElement: video === window.originalVideo, duration: video.duration, time: video.currentTime,
                 src: video.currentSrc, count: document.querySelectorAll('video').length, colors: colors.size,
                 width: video.getBoundingClientRect().width, viewport: innerWidth,
+                videoWidth: video.videoWidth, videoHeight: video.videoHeight,
                 objectFit: getComputedStyle(video).objectFit,
                 frameWidth: frame.getBoundingClientRect().width, frameHeight: frame.getBoundingClientRect().height,
+                frameParentWidth: frame.parentElement.getBoundingClientRect().width,
+                backdropIsDataUrl: frame.parentElement.querySelector('.post-video-preview-backdrop')?.src.startsWith('data:image/jpeg') || false,
                 stageWidth: stage.getBoundingClientRect().width, stageHeight: stage.getBoundingClientRect().height,
                 error: video.error?.message || null };
             video.currentTime = 2;
@@ -74,10 +78,14 @@ try {
         assert.ok(result.src.startsWith('blob:'));
         assert.ok(result.duration >= 3.9 && result.time > 0.2);
         assert.ok(result.colors > 20, 'decoded video frame must not be blank');
-        assert.ok(result.width > 100 && result.width <= result.viewport);
-        assert.equal(result.objectFit, 'cover', `${name}/${fixture.orientation}: video fills the preview without side bars`);
-        assert.ok(Math.abs(result.frameWidth - result.stageWidth) < 2, `${name}: preview fills the available media width`);
-        assert.ok(Math.abs(result.frameHeight - result.stageHeight) < 2, `${name}: preview fills the available media height`);
+        assert.ok(result.width > 100 && result.width <= result.viewport, JSON.stringify(result));
+        assert.equal(result.objectFit, 'contain', `${name}/${fixture.orientation}: show the whole video frame`);
+        assert.ok(result.frameWidth <= result.stageWidth + 2, `${name}: preview stays within the available media width`);
+        assert.ok(result.frameHeight <= result.stageHeight + 2, `${name}: preview stays within the available media height`);
+        assert.ok(result.backdropIsDataUrl, `${name}/${fixture.orientation}: blurred frame fills space around the uncropped video`);
+        assert.ok(result.frameParentWidth >= result.frameWidth, `${name}/${fixture.orientation}: video backdrop fills the preview row`);
+        assert.ok(Math.abs(result.frameWidth / result.frameHeight - result.videoWidth / result.videoHeight) < 0.03,
+            `${name}/${fixture.orientation}: preview frame keeps the video aspect ratio`);
         assert.equal(await page.getByRole('button', { name: /video speed/i }).count(), 0, `${name}: speed +/- controls stay hidden`);
         assert.equal(result.error, null);
         await page.waitForFunction(() => document.querySelector('video').currentTime >= 2 && ! document.querySelector('video').seeking);
