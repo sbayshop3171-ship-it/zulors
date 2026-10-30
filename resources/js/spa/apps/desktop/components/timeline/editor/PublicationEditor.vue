@@ -1,10 +1,10 @@
 <template>
-    <div v-bind:class="postHasMedia && (PostTypeUtils.isVideo(currentPostType) || PostTypeUtils.isImage(currentPostType)) ? 'h-[calc(100dvh-3rem)] max-h-[56rem]' : 'max-h-[calc(100dvh-3rem)]'" class="flex min-h-0 flex-col overflow-hidden leading-none"
+    <div v-bind:class="postHasMedia && (PostTypeUtils.isVideo(currentPostType) || PostTypeUtils.isPicture(currentPostType)) ? 'h-[calc(100dvh-3rem)] max-h-[56rem]' : 'max-h-[calc(100dvh-3rem)]'" class="flex min-h-0 flex-col overflow-hidden leading-none"
         v-on:drop.prevent="handleFileDrop"
 		v-on:dragenter.prevent="state.isDragging = true"
 		v-on:dragover.prevent="state.isDragging = true">
         <form class="flex min-h-0 flex-1 flex-col overflow-hidden" v-on:submit.prevent="submitForm">
-            <div v-bind:class="postHasMedia && (PostTypeUtils.isVideo(currentPostType) || PostTypeUtils.isImage(currentPostType)) ? 'flex-none' : 'flex-1'" class="flex min-h-0 flex-col overflow-hidden px-5 pb-3 pt-6">
+            <div v-bind:class="postHasMedia && PostTypeUtils.isPicture(currentPostType) ? 'flex-1 min-h-0 overflow-y-auto overscroll-contain' : postHasMedia && PostTypeUtils.isVideo(currentPostType) ? 'flex-none' : 'flex-1'" class="flex min-h-0 flex-col px-5 pb-3 pt-6">
                 <div class="flex gap-2.5">
                     <div class="shrink-0">
                         <AvatarSmall v-bind:avatarSrc="userData.avatar_url"></AvatarSmall>
@@ -49,21 +49,16 @@
                     <MediaFileDropper v-on:click="state.isDragging = false"></MediaFileDropper>
                 </template>
                 <template v-else>
-                    <div v-if="postHasMedia" v-bind:class="(PostTypeUtils.isVideo(currentPostType) || PostTypeUtils.isImage(currentPostType)) ? '-mx-5 mb-3 flex w-[calc(100%+2.5rem)] flex-none justify-center overflow-hidden' : 'mb-3 min-h-0 max-h-[46dvh] shrink-0 overflow-hidden'">
+                    <div v-if="postHasMedia" v-bind:class="PostTypeUtils.isPicture(currentPostType) ? '-mx-5 mb-3 w-[calc(100%+2.5rem)] flex-none' : PostTypeUtils.isVideo(currentPostType) ? '-mx-5 mb-3 flex w-[calc(100%+2.5rem)] flex-none justify-center overflow-hidden' : 'mb-3 min-h-0 max-h-[46dvh] shrink-0 overflow-hidden'">
                         <template v-if="PostTypeUtils.isImage(currentPostType)">
-                            <div ref="imagePreviewStage" class="post-image-preview-stage relative isolate min-h-0 w-full min-w-0 overflow-hidden bg-fill-pr" v-bind:style="imagePreviewStageStyle">
-                                    <img v-if="postMedia.length === 1 && (postMedia[0].preview_url || postMedia[0].source_url)" v-bind:src="postMedia[0].preview_url || postMedia[0].source_url" class="pointer-events-none absolute inset-0 size-full scale-110 object-cover opacity-45 blur-2xl" alt="" aria-hidden="true">
-                                    <div v-for="(mediaItem, index) in visibleImageMedia" v-bind:key="mediaItem.preview_key || mediaItem.id || mediaItem.source_url" v-bind:class="[getPublicationImageTileClasses(postMedia.length, index), (mediaItem.deleted ? 'opacity-20' : '')]" v-bind:style="imageFrameStyle(mediaItem)" class="relative z-0 isolate min-h-0 min-w-0 overflow-hidden bg-fill-pr">
-                                        <MediaBlurOverlay v-if="mediaItem.deleted"></MediaBlurOverlay>
-
-                                        <div v-else-if="! isEditingPost" class="absolute top-2 right-2 inline-block">
-                                            <MediaDeleteButton v-on:click="deletePostMedia(mediaItem)"></MediaDeleteButton>
-                                        </div>
-
-                                        <img v-if="mediaItem.preview_url || mediaItem.source_url" v-on:load="captureImageDimensions(mediaItem, $event)" v-bind:src="mediaItem.preview_url || mediaItem.source_url" v-bind:class="postMedia.length === 1 ? 'post-image-preview-content size-full object-contain' : 'post-image-preview-content relative z-0 size-full object-cover'" alt="Image">
-                                        <div v-if="isPublicationImageGalleryMoreTile(postMedia.length, index)" class="pointer-events-none absolute inset-0 z-10 flex-center bg-black/55 text-white text-title-1 font-bold">+{{ imagePreviewExtraCount }}</div>
+                            <MediaImageGallery class="post-image-preview-stage" v-bind:mediaItems="postMedia">
+                                <template #overlay="{ mediaItem }">
+                                    <MediaBlurOverlay v-if="mediaItem.deleted"></MediaBlurOverlay>
+                                    <div v-else-if="! isEditingPost" class="absolute right-2 top-2 z-20 inline-block">
+                                        <MediaDeleteButton v-on:click.stop="deletePostMedia(mediaItem)"></MediaDeleteButton>
                                     </div>
-                            </div>
+                                </template>
+                            </MediaImageGallery>
                         </template>
                         <template v-else-if="PostTypeUtils.isVideo(currentPostType)">
                             <PostVideoPreview
@@ -233,8 +228,6 @@
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
     import { imagePasteHandler } from '@/kernel/events/image-paste/index.js';
     import { applyVideoPresentationMetadata, buildVideoPresentationMetadata, readVideoFileMetadata } from '@/kernel/services/media/video-metadata.js';
-    import { fitMediaPreviewSize } from '@/kernel/services/media/media-preview-sizing.js';
-    import { getPublicationImageGalleryLayout, getPublicationImageGalleryStageStyle, getPublicationImageTileClasses, isPublicationImageGalleryMoreTile } from '@/kernel/services/media/publication-image-gallery.js';
     import { mergePostMediaPreviews } from '@/kernel/services/media/post-media-preview.js';
     import { createMultipartUploadProgress, uploadMultipartPartsAdaptive } from '@/kernel/services/media/multipart-upload-progress.js';
     import { useCheatSheet } from '@D/core/composables/cheat-sheet/index.js';
@@ -243,7 +236,7 @@
     import { useTimelineStore } from '@D/store/timeline/timeline.store.js';
     import { usePostEditorStore } from '@D/store/timeline/editor.store.js';
     import { useMenu } from '@/kernel/vue/composables/menu/index.js';
-    import { useMediaPreviewBounds } from '@/kernel/vue/composables/media-preview-bounds.js';
+    import MediaImageGallery from '@/kernel/vue/components/media/image/MediaImageGallery.vue';
 
     import DropdownButton from '@D/components/general/dropdowns/parts/DropdownButton.vue';
 
@@ -269,8 +262,6 @@
             const mainMenuPanel = ref(null);
             const mainMenuPosition = reactive({ left: '12px', top: '12px' });
             const ignoredLinkSnapshots = ref([]);
-            const imagePreviewStage = ref(null);
-            const imageDimensions = ref({});
 
             const { openCheatSheetPanel } = useCheatSheet();
             const { autoResize, insertSymbolAtCaret, matchMention, matchLink, completeText } = useInputHandlers();
@@ -309,31 +300,6 @@
 
                 return mergePostMediaPreviews(serverMedia, state.localMediaPreviews);
             });
-            const { bounds: imagePreviewBounds, refresh: refreshImagePreviewBounds } = useMediaPreviewBounds(imagePreviewStage, 320);
-            const imageKey = (mediaItem) => String(mediaItem.preview_key || mediaItem.id || mediaItem.preview_url || mediaItem.source_url || 'image');
-            const imageDimensionsFor = (mediaItem) => imageDimensions.value[imageKey(mediaItem)] || {
-                width: Number(mediaItem.width || 0), height: Number(mediaItem.height || 0),
-            };
-            const imagePreviewLayout = computed(() => getPublicationImageGalleryLayout(postMedia.value.length));
-            const visibleImageMedia = computed(() => postMedia.value.slice(0, imagePreviewLayout.value.visibleCount));
-            const imagePreviewExtraCount = computed(() => imagePreviewLayout.value.extraCount);
-            const imagePreviewStageStyle = computed(() => {
-                const count = postMedia.value.length;
-                if(count === 1) return { display: 'grid', width: '100%', height: 'auto', placeItems: 'center' };
-                return getPublicationImageGalleryStageStyle(count, imagePreviewBounds.value.width, imagePreviewBounds.value.height);
-            });
-            const captureImageDimensions = (mediaItem, event) => {
-                const image = event.currentTarget;
-                imageDimensions.value[imageKey(mediaItem)] = { width: image.naturalWidth, height: image.naturalHeight };
-                refreshImagePreviewBounds();
-            };
-            const imageFrameStyle = (mediaItem) => {
-                if(postMedia.value.length !== 1) return {};
-                const dimensions = imageDimensionsFor(mediaItem);
-                const size = fitMediaPreviewSize(dimensions.width, dimensions.height, imagePreviewBounds.value.width, imagePreviewBounds.value.height);
-                return size.width && size.height ? { width: `${size.width}px`, height: `${size.height}px` } : { width: '100%', aspectRatio: '4 / 3' };
-            };
-
             const updateMainMenuPosition = () => {
                 if(typeof window === 'undefined' || ! state.mainMenu.status || ! mainMenuAnchor.value || ! mainMenuPanel.value) return;
 
@@ -1271,14 +1237,6 @@
                 postTextInputField: postTextInputField,
                 PostTypeUtils: PostTypeUtils,
                 PostType: PostType,
-                imagePreviewStage: imagePreviewStage,
-                visibleImageMedia: visibleImageMedia,
-                imagePreviewExtraCount: imagePreviewExtraCount,
-                imagePreviewStageStyle: imagePreviewStageStyle,
-                captureImageDimensions: captureImageDimensions,
-                imageFrameStyle: imageFrameStyle,
-                getPublicationImageTileClasses: getPublicationImageTileClasses,
-                isPublicationImageGalleryMoreTile: isPublicationImageGalleryMoreTile,
                 openCheatSheetPanel: openCheatSheetPanel,
                 submitButtonStatus: submitButtonStatus,
                 onImageSelect: async (event) => {
@@ -1502,6 +1460,7 @@
         },
         components: {
             PublicationAudience,
+            MediaImageGallery,
             PrimaryTextButton: PrimaryTextButton,
             MediaCreateButton: MediaCreateButton,
             DropdownButton: DropdownButton,

@@ -18,18 +18,7 @@
 
 	<div v-else-if="productData" class="pb-24">
 		<div class="bg-fill-qt border-y border-bord-pr overflow-hidden">
-			<div class="flex gap-px overflow-x-auto snap-x snap-mandatory">
-				<a
-					v-for="mediaItem in productMedia"
-					v-bind:key="mediaItem.source_url"
-					v-bind:href="mediaItem.source_url"
-					target="_blank"
-					rel="noopener noreferrer"
-					class="block min-w-full snap-start bg-fill-tr"
-				>
-					<img v-bind:src="mediaItem.source_url" alt="Product image" class="w-full max-h-[70vh] object-contain">
-				</a>
-			</div>
+			<MediaImageGallery v-bind:mediaItems="productMedia" v-bind:isSelectable="true" v-on:select="lightboxImages"></MediaImageGallery>
 		</div>
 
 		<div class="px-4 py-4 border-b border-bord-pr">
@@ -91,7 +80,9 @@
 	import { defineAsyncComponent, defineComponent, computed, onMounted, reactive } from 'vue';
 	import { useRouter } from 'vue-router';
 	import { useMarketStore } from '@D/store/market/market.store.js';
+	import { useLightboxStore } from '@M/store/lightbox/lightbox.store.js';
 	import { useMenu } from '@/kernel/vue/composables/menu/index.js';
+	import MediaImageGallery from '@/kernel/vue/components/media/image/MediaImageGallery.vue';
 
 	import Toolbar from '@M/components/layout/Toolbar.vue';
 	import PrimaryIconButton from '@M/components/inter-ui/buttons/PrimaryIconButton.vue';
@@ -107,6 +98,7 @@
 		setup: function(props) {
 			const router = useRouter();
 			const marketStore = useMarketStore();
+			const lightboxStore = useLightboxStore();
 			const state = reactive({
 				isLoading: true,
 				chatMenu: useMenu()
@@ -149,6 +141,13 @@
 						source_url: productData.value.preview_image_url
 					}];
 				}),
+				lightboxImages: () => {
+					lightboxStore.add({
+						albumName: productData.value.relations.merchant.name,
+						date: productData.value.date.iso,
+						images: productMedia.value.map((mediaItem) => mediaItem.source_url || mediaItem.preview_url),
+					});
+				},
 				price: computed(() => {
 					return productData.value.sale_price ? productData.value.sale_price.formatted : productData.value.price.formatted;
 				}),
@@ -182,6 +181,7 @@
 			Toolbar: Toolbar,
 			PrimaryIconButton: PrimaryIconButton,
 			PrimaryPillButton: PrimaryPillButton,
+			MediaImageGallery: MediaImageGallery,
 			ChatLauncher: defineAsyncComponent(() => {
 				return import('@M/components/inter-ui/chat/ChatLauncher.vue');
 			})

@@ -27,6 +27,7 @@
     import SensitiveContentAlert from '@D/components/media/SensitiveContentAlert.vue';
 
     export default defineComponent({
+        emits: ['load', 'error'],
         props: {
             base64Image: {
                 type: String,
@@ -51,7 +52,7 @@
                 validator: (value) => ['high', 'low', 'auto'].includes(value)
             }
         },
-        setup: function(props) {
+        setup: function(props, context) {
             const isLoaded = ref(false);
             const imageRef = ref(null);
 
@@ -59,15 +60,21 @@
                 if(imageRef.value?.complete) {
                     isLoaded.value = true;
 
+                    if(imageRef.value.naturalWidth && imageRef.value.naturalHeight) {
+                        context.emit('load', { target: imageRef.value });
+                    }
+
                     return;
                 }
 
-                imageRef.value.onload = () => {
+                imageRef.value.onload = (event) => {
                     isLoaded.value = true;
+                    context.emit('load', event);
                 }
 
-                imageRef.value.onerror = () => {
+                imageRef.value.onerror = (event) => {
                     isLoaded.value = true;
+                    context.emit('error', event);
                 }
             });
 

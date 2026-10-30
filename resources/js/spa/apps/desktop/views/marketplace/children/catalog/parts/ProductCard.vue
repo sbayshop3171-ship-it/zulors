@@ -1,8 +1,6 @@
 <template>
     <div class="cursor-pointer">
-        <div class="rounded-lg overflow-hidden mb-2">
-            <img v-bind:src="productData.preview_image_url" alt="Image" class="w-full">
-        </div>
+		<ContentImage v-bind:src="productData.preview_image_url" alt="Product image" class="mb-2 rounded-lg"></ContentImage>
         <div class="flex-1 overflow-hidden">
             <div class="mb-1 max-w-11/12">
                 <h4 class="text-par-s line-clamp-2 text-lab-pr" v-html="productData.title">
@@ -24,6 +22,7 @@
 <script>
     import { defineComponent, ref, computed } from 'vue';
     import PrimaryIconButton from '@D/components/inter-ui/buttons/PrimaryIconButton.vue';
+	import ContentImage from '@/kernel/vue/components/media/image/ContentImage.vue';
 
     export default defineComponent({
         props: {
@@ -60,7 +59,8 @@
             }
         },
         components: {
-            PrimaryIconButton: PrimaryIconButton
+			PrimaryIconButton: PrimaryIconButton,
+			ContentImage: ContentImage
         }
     });
 </script>

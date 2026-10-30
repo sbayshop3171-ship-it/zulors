@@ -57,7 +57,7 @@
                     <div v-bind:class="sponsoredAdData ? 'overflow-hidden mb-0' : 'overflow-hidden mb-2'" v-if="postHasMedia">
                         <template v-if="PostTypeUtils.isImage(postData.type)">
                             <div v-on:click="lightboxImages" class="block cursor-pointer rounded-2xl overflow-hidden border border-bord-card">
-                                <PublicationImage v-bind:key="postData.hash_id" v-bind:isSensitive="isSensitive" v-bind:isPriority="position === 1" v-bind:postMedia="postMedia" v-bind:sponsoredFeed="Boolean(sponsoredAdData)"></PublicationImage>
+                                <PublicationImage v-bind:key="postData.hash_id" v-bind:isSensitive="isSensitive" v-bind:isPriority="position === 1" v-bind:postMedia="postMedia" v-bind:sponsoredFeed="Boolean(sponsoredAdData)" v-on:select="lightboxImages"></PublicationImage>
                             </div>
                         </template>
                         <template v-if="PostTypeUtils.isGif(postData.type)">

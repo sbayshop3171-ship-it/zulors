@@ -49,17 +49,15 @@
 		</template>
 
 		<template v-else>
-			<div v-if="products.length" class="grid grid-cols-2 gap-4 pt-2">
+				<div v-if="products.length" class="columns-2 gap-4 pt-2">
 				<RouterLink
 					v-for="productData in products"
 					v-bind:key="productData.hash_id"
 					v-bind:to="{ name: 'marketplace_show', params: { product_id: productData.hash_id } }"
-					class="block"
+					class="mb-4 block break-inside-avoid"
 				>
 					<div class="overflow-hidden">
-						<div class="aspect-square rounded-xl bg-fill-qt overflow-hidden mb-2 border border-bord-pr">
-							<img v-bind:src="productData.preview_image_url" alt="Product image" class="size-full object-cover">
-						</div>
+						<ContentImage v-bind:src="productData.preview_image_url" alt="Product image" class="mb-2 rounded-xl border border-bord-pr"></ContentImage>
 						<h4 class="text-par-s leading-4 text-lab-pr2 font-medium line-clamp-2" v-html="productData.title"></h4>
 						<div class="mt-1 flex items-baseline gap-1">
 							<span class="text-par-s text-lab-pr font-bold">{{ productPrice(productData) }}</span>
@@ -91,6 +89,7 @@
 
 	import Toolbar from '@M/components/layout/Toolbar.vue';
 	import PrimaryIconButton from '@M/components/inter-ui/buttons/PrimaryIconButton.vue';
+	import ContentImage from '@/kernel/vue/components/media/image/ContentImage.vue';
 
 	export default defineComponent({
 		setup: function() {
@@ -177,7 +176,8 @@
 		},
 		components: {
 			Toolbar: Toolbar,
-			PrimaryIconButton: PrimaryIconButton
+			PrimaryIconButton: PrimaryIconButton,
+			ContentImage: ContentImage
 		}
 	});
 </script>

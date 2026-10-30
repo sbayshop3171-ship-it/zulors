@@ -1,13 +1,7 @@
 <template>
 	<div class="border-b border-bord-pr">
 		<div class="overflow-hidden relative group bg-fill-tr">
-			<swiper-container v-bind:slides-per-view="slidesPerView" space-between="1" mousewheel="true">
-				<swiper-slide v-for="mediaItem in productMedia" v-bind:key="mediaItem.id">
-					<div v-on:click="lightboxImages" class="cursor-pointer overflow-hidden">
-						<img class="w-full hover:scale-105 smoothing" v-bind:src="mediaItem.source_url" alt="Image">
-					</div>
-				</swiper-slide>
-			</swiper-container>
+			<MediaImageGallery class="cursor-pointer" v-bind:mediaItems="productMedia" v-bind:isSelectable="true" v-on:select="lightboxImages"></MediaImageGallery>
 		</div>
 	</div>
 	<div class="p-4">
@@ -70,8 +64,8 @@
 <script>
 	import { defineComponent, ref, computed, reactive } from 'vue';
 	import { useMarketStore } from '@D/store/market/market.store.js';
-	import { register  } from 'swiper/element/bundle';
 	import { useLightboxStore } from '@D/store/lightbox/lightbox.store.js';
+	import MediaImageGallery from '@/kernel/vue/components/media/image/MediaImageGallery.vue';
 
     import AvatarRightSided from '@D/components/general/avatars/sided/small/AvatarRightSided.vue';
 	import PrimaryPillButton from '@D/components/inter-ui/buttons/PrimaryPillButton.vue';
@@ -87,8 +81,6 @@
 		},
 		emits: ['ask'],
 		setup(props) {
-			register();
-
 			const lightboxStore = useLightboxStore();
 			const productData = ref(props.productData);
 			const isStore = productData.value.relations.merchant.is_store;
@@ -103,17 +95,6 @@
 
 			return {
 				state: state,
-				slidesPerView: computed(() => {
-					if(productData.value.relations.media.length == 1) {
-						return 1;
-					}
-
-					if(productData.value.relations.media.length == 2) {
-						return 2;
-					}
-
-					return 2.4;
-				}),
 				bookmarkProduct: async function() {
                     state.isSubmitting = true;
 
@@ -169,15 +150,14 @@
 				lightboxImages: function() {
 					lightboxStore.add({
 						albumName: `${merchantData.value.name} ${merchantData.value.caption}`,
-						images: productData.value.relations.media.map((mediaItem) => {
-							return mediaItem.source_url;
-						}),
+						images: productMedia.value.map((mediaItem) => mediaItem.source_url || mediaItem.preview_url),
 						date: productData.value.date.iso
 					});
 				}
 			};
 		},
 		components: {
+			MediaImageGallery: MediaImageGallery,
 			PrimaryPillButton: PrimaryPillButton,
 			PrimaryIconButton: PrimaryIconButton,
             AvatarRightSided: AvatarRightSided,

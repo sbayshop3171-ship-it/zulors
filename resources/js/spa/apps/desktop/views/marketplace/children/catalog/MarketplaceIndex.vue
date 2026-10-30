@@ -81,9 +81,9 @@
                     </template>
                     <template v-else>
                         <template v-if="products.length">
-                            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 px-4 gap-4">
+                            <div class="columns-1 sm:columns-2 xl:columns-3 px-4 gap-4">
                                 <RouterLink
-                                    class="block"
+                                    class="mb-4 block break-inside-avoid"
                                     v-for="productData in products"
                                     v-bind:key="productData.hash_id"
                                     v-bind:to="{ name: 'marketplace_show', params: { product_id: productData.hash_id } }"

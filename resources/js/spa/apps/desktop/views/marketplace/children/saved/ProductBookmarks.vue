@@ -15,8 +15,8 @@
 					</div>
 				</div>
 				<div class="block pt-4" v-else>
-					<div v-if="bookmarks.length" class="grid grid-cols-3 px-4 gap-4">
-						<RouterLink v-for="productData in bookmarks" v-bind:to="{ name: 'marketplace_show', params: { product_id: productData.hash_id } }" class="block">
+					<div v-if="bookmarks.length" class="columns-3 px-4 gap-4">
+						<RouterLink v-for="productData in bookmarks" v-bind:to="{ name: 'marketplace_show', params: { product_id: productData.hash_id } }" class="mb-4 block break-inside-avoid">
 							<ProductCard v-bind:key="productData.id" v-bind:productData="productData"></ProductCard>
 						</RouterLink>
 					</div>
