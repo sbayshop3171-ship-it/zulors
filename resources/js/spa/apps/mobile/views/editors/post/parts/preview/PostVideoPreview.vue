@@ -48,8 +48,8 @@
 		<div v-if="mediaItem.metadata && mediaItem.metadata.duration" v-bind:class="playbackControlsHidden(mediaItem) ? 'opacity-0' : 'opacity-100'" class="pointer-events-none absolute left-4 top-4 rounded-full bg-black/60 px-2.5 py-1 transition-opacity duration-300">
 			<VideoDurationTime v-bind:videoDuration="mediaItem.metadata.duration"></VideoDurationTime>
 		</div>
-		<div v-if="mediaItem.metadata?.preview_unavailable || playbackError(mediaItem)" class="pointer-events-none absolute inset-x-3 bottom-3 z-10 rounded-lg bg-black/75 px-3 py-2 text-center text-xs text-white" role="status">
-			Preview playback couldn't start. You can still publish this video.
+		<div v-if="playbackFallback(mediaItem) || mediaItem.metadata?.preview_unavailable || playbackError(mediaItem)" class="pointer-events-none absolute inset-x-3 bottom-3 z-10 rounded-lg bg-black/75 px-3 py-2 text-center text-xs text-white" role="status">
+			{{ playbackFallback(mediaItem) ? 'Video opened in the device player.' : "Preview playback couldn't start. You can still publish this video." }}
 		</div>
 		</div>
 	</div>
@@ -58,6 +58,7 @@
 <script>
 	import { defineComponent, computed, onBeforeUnmount, ref } from 'vue';
 	import { applyVideoPresentationMetadata, buildVideoPresentationMetadata } from '@/kernel/services/media/video-metadata.js';
+	import { publicationManager } from '@/kernel/services/media/publications/index.js';
 	import { useMediaPreviewBounds } from '@/kernel/vue/composables/media-preview-bounds.js';
 
 	import MediaDeleteButton from '@M/views/editors/post/parts/buttons/MediaDeleteButton.vue';
@@ -159,7 +160,18 @@
 						setPreviewPlaying(mediaItem, true);
 					}
 					catch {
-						previewState.value[previewKey(mediaItem)] = { playing: false, error: true };
+						try {
+							const payload = mediaItem.native_file_id
+								? { native_file_id: mediaItem.native_file_id }
+								: { url: video.currentSrc || video.src || mediaItem.preview_url || mediaItem.source_url };
+							const fallback = await publicationManager.bridge.request('playPreview', payload, 10000);
+							if (fallback?.opened) {
+								applyVideoPresentationMetadata(mediaItem, { preview_unavailable: false });
+								previewState.value[previewKey(mediaItem)] = { playing: false, error: false, fallback: true };
+								return;
+							}
+						} catch { /* Keep the web preview error when a native player is unavailable. */ }
+						previewState.value[previewKey(mediaItem)] = { playing: false, error: true, fallback: false };
 					}
 				};
 				const togglePreviewPlayback = (mediaItem, event) => {
@@ -185,6 +197,7 @@
 					previewKey,
 					isPreviewPlaying: (mediaItem) => Boolean(stateFor(mediaItem).playing),
 					playbackError: (mediaItem) => Boolean(stateFor(mediaItem).error),
+					playbackFallback: (mediaItem) => Boolean(stateFor(mediaItem).fallback),
 					setPreviewPlaying,
 					playPreview,
 					togglePreviewPlayback,
@@ -214,9 +227,10 @@
 						}
 					},
 					captureVideoError: (mediaItem) => {
+						if(stateFor(mediaItem).fallback) return;
 						clearPlaybackTimer(previewKey(mediaItem));
 						applyVideoPresentationMetadata(mediaItem, { preview_unavailable: true });
-						previewState.value[previewKey(mediaItem)] = { playing: false, error: true };
+						previewState.value[previewKey(mediaItem)] = { playing: false, error: true, fallback: false };
 					}
 			};
 		},
