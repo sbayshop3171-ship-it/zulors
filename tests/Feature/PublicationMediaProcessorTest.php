@@ -40,6 +40,28 @@ class PublicationMediaProcessorTest extends TestCase
         Storage::disk('r2_temp')->assertExists($item->upload['path']);
     }
 
+    public function test_comment_photos_use_the_publication_pipeline_and_gifs_are_rejected(): void
+    {
+        $item = $this->item('comment', 'image', 'image/webp', 'comment.webp', 'webp-comment-bytes');
+        $outputPath = $this->targetPath($item, 'webp');
+        $r2 = $this->mock(R2DirectUploadService::class);
+        $r2->shouldReceive('publishUploadedObject')->once()
+            ->with($item->upload['path'], $this->targetPrefix($item), 'webp', 'image/webp', 'r2_temp')
+            ->andReturn(['disk' => 'r2_final', 'path' => $outputPath, 'size' => $item->size]);
+
+        $output = app(PublicationMediaProcessor::class)->process($item);
+        $this->assertSame('image/webp', $output['mime']);
+        $this->assertSame('original_direct', $output['metadata']['processing_mode']);
+
+        $gif = $this->item('comment', 'image', 'image/gif', 'comment.gif', 'gif-comment-bytes');
+        try {
+            app(PublicationMediaProcessor::class)->process($gif);
+            $this->fail('GIF photos must not pass comment processing.');
+        } catch (RuntimeException $error) {
+            $this->assertSame('Unsupported publication media type.', $error->getMessage());
+        }
+    }
+
     public function test_long_video_is_promoted_unchanged_and_keeps_declared_presentation_metadata(): void
     {
         $item = $this->item('post', 'video', 'video/mp4', 'one-hour.mp4', str_repeat('v', 1024), [

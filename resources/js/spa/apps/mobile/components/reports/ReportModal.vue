@@ -1,25 +1,29 @@
 <template>
 	<ActionSheet v-if="state.isOpen" v-on:close="closeReportModal">
 		<div class="flex flex-col h-full">
-			<div class="px-12 text-center pb-4 shrink-0">
-				<h3 class="text-par-l font-bold text-lab-pr mb-1">
-					{{ reportInfo.title }}
-				</h3>
-				<p class="text-par-n text-lab-sc">
-					{{ reportInfo.description }}
-				</p>
+			<div v-if="state.isLoading" class="flex justify-center py-12">
+				<div class="colibri-primary-animation"></div>
 			</div>
-			<div class="flex-1 overflow-y-auto border-y border-y-bord-pr">
-				<ReasonItem v-on:click="selectReason(idx)" v-bind:isSelected="state.selectedReasonIndex === idx" v-for="(reasonData, idx) in reportInfo.reasons" v-bind:key="idx" v-bind:reasonData="reasonData"></ReasonItem>
-			</div>
-			<div class="pt-4 px-6 shrink-0">
-				<PrimaryPillButton
-					v-bind:disabled="state.selectedReasonIndex === null"
-					v-bind:buttonText="$t('labels.send_report')"
-					buttonType="button"
-					buttonRole="danger"
-					v-on:click="sendReport"
-				v-bind:buttonFluid="true"></PrimaryPillButton>
+			<template v-else-if="reportInfo">
+				<div class="px-12 text-center pb-4 shrink-0">
+					<h3 class="text-par-l font-bold text-lab-pr mb-1">{{ reportInfo.title }}</h3>
+					<p class="text-par-n text-lab-sc">{{ reportInfo.description }}</p>
+				</div>
+				<div class="flex-1 overflow-y-auto border-y border-y-bord-pr">
+					<ReasonItem v-on:click="selectReason(idx)" v-bind:isSelected="state.selectedReasonIndex === idx" v-for="(reasonData, idx) in reportInfo.reasons" v-bind:key="idx" v-bind:reasonData="reasonData"></ReasonItem>
+				</div>
+				<div class="pt-4 px-6 shrink-0">
+					<PrimaryPillButton
+						v-bind:disabled="state.selectedReasonIndex === null"
+						v-bind:buttonText="$t('labels.send_report')"
+						buttonType="button"
+						buttonRole="danger"
+						v-on:click="sendReport"
+					v-bind:buttonFluid="true"></PrimaryPillButton>
+				</div>
+			</template>
+			<div v-else class="flex-1 flex items-center justify-center text-par-n text-lab-sc px-8 text-center">
+				{{ $t('labels.something_went_wrong') }}
 			</div>
 		</div>
 	</ActionSheet>

@@ -7,6 +7,7 @@ use App\Enums\CensorLevel;
 use App\Enums\Chat\ChatType;
 use App\Enums\Media\MediaStatus;
 use App\Enums\Post\PostStatus;
+use App\Enums\Post\PostType;
 use App\Enums\Story\StoryPrivacy;
 use App\Enums\Story\StoryStatus;
 use App\Enums\User\FollowStatus;
@@ -26,6 +27,7 @@ use App\Models\Chat;
 use App\Models\Block;
 use App\Models\Blacklist;
 use App\Models\Censor;
+use App\Models\Comment;
 use App\Models\Follow;
 use App\Models\Media;
 use App\Models\MediaPublication;
@@ -111,6 +113,95 @@ class PublicationFinalizerTest extends TestCase
         $this->assertSame(3, DB::table('media_publication_events')->count());
         Bus::assertDispatchedTimes(DeliverPublicationEvent::class, 3);
         $this->assertNull(Auth::user());
+    }
+
+    public function test_comment_photo_publication_creates_one_comment_only_after_the_image_is_ready(): void
+    {
+        Notification::fake();
+        $actor = $this->user();
+        $post = Post::create(['user_id' => $actor->id, 'content' => 'Comment photo post', 'status' => PostStatus::ACTIVE, 'type' => PostType::TEXT, 'comments_count' => 0]);
+        $publication = $this->publication($actor, 'comment', ['image'], [
+            'post_id' => $post->id, 'comment_mode' => 'create', 'content' => '',
+        ]);
+        $item = $publication->items()->first();
+        $item->update(['status' => 'uploading', 'output' => null]);
+
+        $this->assertSame('processing', $this->finalize($publication)->status);
+        $this->assertSame(0, Comment::count());
+        $item->update(['status' => 'processed', 'output' => [
+            'source_path' => 'ready/0.webp', 'disk' => 'public', 'mime' => 'image/webp', 'extension' => 'webp', 'size' => 1234,
+            'thumbnail_path' => 'ready/poster.webp', 'thumbnail_disk' => 'public', 'thumbnail_size' => 321,
+            'metadata' => ['dimensions' => ['width' => 600, 'height' => 800]],
+        ]]);
+
+        $published = $this->finalize($publication);
+        $comment = Comment::with('media')->findOrFail($published->result['id']);
+
+        $this->assertSame('published', $published->status);
+        $this->assertSame('comment', $published->result['type']);
+        $this->assertSame('', $comment->content);
+        $this->assertSame($comment->id, $comment->thread_root_id);
+        $this->assertCount(1, $comment->media);
+        $this->assertSame(1, (int) $post->fresh()->comments_count);
+        $this->assertDatabaseHas('media', [
+            'mediaable_type' => Comment::class,
+            'mediaable_id' => $comment->id,
+            'source_path' => 'ready/0.webp',
+        ]);
+        $this->assertSame(2, DB::table('media_publication_events')->count());
+    }
+
+    public function test_comment_photo_edit_replaces_media_and_expired_or_deleted_targets_fail_safely(): void
+    {
+        Notification::fake();
+        $actor = $this->user();
+        $post = Post::create(['user_id' => $actor->id, 'content' => 'Comment photo post', 'status' => PostStatus::ACTIVE, 'type' => PostType::TEXT, 'comments_count' => 0]);
+        $first = $this->finalize($this->publication($actor, 'comment', ['image'], [
+            'post_id' => $post->id, 'comment_mode' => 'create', 'content' => 'Before edit',
+        ]));
+        $comment = Comment::with('media')->findOrFail($first->result['id']);
+        $oldMediaId = $comment->media->first()->id;
+
+        $edited = $this->finalize($this->publication($actor, 'comment', ['image'], [
+            'post_id' => $post->id, 'comment_mode' => 'edit', 'comment_id' => $comment->id, 'content' => 'After edit',
+        ]));
+        $comment->refresh()->load('media');
+        $this->assertSame('published', $edited->status);
+        $this->assertSame('After edit', $comment->content);
+        $this->assertNotNull($comment->edited_at);
+        $this->assertCount(1, $comment->media);
+        $this->assertNotSame($oldMediaId, $comment->media->first()->id);
+        $this->assertDatabaseMissing('media', ['id' => $oldMediaId]);
+        $this->assertSame(1, (int) $post->fresh()->comments_count);
+
+        $this->travel(16)->minutes();
+        $expired = $this->finalize($this->publication($actor, 'comment', ['image'], [
+            'post_id' => $post->id, 'comment_mode' => 'edit', 'comment_id' => $comment->id, 'content' => 'Late edit',
+        ]));
+        $this->assertSame('failed', $expired->status);
+        $this->assertSame('comment_edit_expired', $expired->error);
+        $this->assertSame('After edit', $comment->fresh()->content);
+        $this->travelBack();
+    }
+
+    public function test_comment_photo_publication_with_parent_removed_before_finalize_does_not_create_a_comment(): void
+    {
+        Notification::fake();
+        $actor = $this->user();
+        $post = Post::create(['user_id' => $actor->id, 'content' => 'Comment photo post', 'status' => PostStatus::ACTIVE, 'type' => PostType::TEXT, 'comments_count' => 1]);
+        $parent = Comment::create(['post_id' => $post->id, 'user_id' => $actor->id, 'content' => 'Parent', 'text_language' => 'en']);
+        $parent->update(['thread_root_id' => $parent->id]);
+        $publication = $this->publication($actor, 'comment', ['image'], [
+            'post_id' => $post->id, 'parent_id' => $parent->id, 'comment_mode' => 'create', 'content' => 'Reply to deleted comment',
+        ]);
+        $parent->delete();
+        $post->update(['comments_count' => 0]);
+
+        $failed = $this->finalize($publication);
+        $this->assertSame('failed', $failed->status);
+        $this->assertSame('reply_target_unavailable', $failed->error);
+        $this->assertSame(0, Comment::where('post_id', $post->id)->count());
+        $this->assertSame(0, (int) $post->fresh()->comments_count);
     }
 
     public function test_empty_or_incomplete_processed_output_cannot_create_a_visible_entity(): void

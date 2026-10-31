@@ -19,6 +19,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Str;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use App\Http\Resources\User\Media\MediaResource;
 
 class CommentResource extends JsonResource
 {
@@ -33,8 +34,12 @@ class CommentResource extends JsonResource
             'id' => $this->id,
             'post_id' => $this->post_id,
             'parent_id' => $this->parent_id,
+            'thread_root_id' => $this->thread_root_id,
+            'reply_count' => $this->parent_id ? 0 : max(0, (int) ($this->reply_count ?? $this->threadReplies()->count()) - 1),
             'has_parent' => (empty($this->parent_id)) ? false : true,
             'content' => e($this->content),
+            'media' => $this->whenLoaded('media', fn () => MediaResource::collection($this->media)->resolve($request)),
+            'is_edited' => $this->edited_at !== null,
             'relations' => [
                 'user' => [
                     'avatar_url' => $this->user->avatar_url,
@@ -52,7 +57,8 @@ class CommentResource extends JsonResource
             'meta' => [
                 'permissions' => [
                     'can_edit' => auth_check() ? me()->can('update', $this->resource) : false,
-                    'can_delete' => auth_check() ? me()->can('delete', $this->resource) : false
+                    'can_delete' => auth_check() ? me()->can('delete', $this->resource) : false,
+                    'can_report' => auth_check() && (int) me()->id !== (int) $this->user_id,
                 ],
                 'is_translatable' => $this->isContentTranslatable()
             ]

@@ -39,11 +39,14 @@ class MediaPublicationController extends Controller
         $queuedAt = hrtime(true);
         if(! $request->filled('client_uid')) $request->merge(['client_uid' => $request->header('Idempotency-Key')]);
         $data = $request->validate([
-            'client_uid' => ['required', 'uuid'], 'kind' => ['required', Rule::in(['post', 'story', 'chat'])],
+            'client_uid' => ['required', 'uuid'], 'kind' => ['required', Rule::in(['post', 'story', 'chat', 'comment'])],
             'content' => ['nullable', 'string', 'max:8200'],
             // Do not silently accept privacy values the existing delivery queries cannot enforce.
             'privacy' => ['nullable', Rule::in(['all'])], 'selected_user_ids' => ['nullable', 'array', 'max:0'],
             'chat_id' => ['required_if:kind,chat', 'nullable', 'uuid'], 'parent_id' => ['nullable', 'integer', 'min:1'],
+            'post_id' => ['required_if:kind,comment', 'nullable', 'integer', 'min:1'],
+            'comment_id' => ['nullable', 'integer', 'min:1'],
+            'comment_mode' => ['nullable', Rule::in(['create', 'edit'])],
             'quoted_post_id' => ['nullable', 'integer', 'min:1'],
             'marks' => ['nullable', 'array:is_ai_generated,is_sensitive'],
             'marks.is_ai_generated' => ['boolean'], 'marks.is_sensitive' => ['boolean'],
@@ -63,10 +66,28 @@ class MediaPublicationController extends Controller
         $items = collect($data['items']);
         if(($data['kind'] !== 'post' && $items->count() !== 1)
             || ($items->contains(fn ($item) => $item['type'] !== 'image') && $items->count() !== 1)
-            || ($data['kind'] === 'story' && $items->contains(fn ($item) => ! in_array($item['type'], ['image', 'video'], true)))) {
+            || ($data['kind'] === 'story' && $items->contains(fn ($item) => ! in_array($item['type'], ['image', 'video'], true)))
+            || ($data['kind'] === 'comment' && ($items->count() !== 1 || $items->first()['type'] !== 'image'))) {
             throw ValidationException::withMessages(['items' => 'Choose one media file, or up to 10 photos for a post.']);
         }
-        if(mb_strlen($data['content']) > (int) config($data['kind'] === 'chat' ? 'chat.message.validation.content.max' : $data['kind'].'.validation.content.max', 2200)) {
+        if($data['kind'] === 'comment') {
+            $commentId = $data['comment_id'] ?? null;
+            $data['comment_mode'] = $data['comment_mode'] ?? ($commentId ? 'edit' : 'create');
+            if (($data['comment_mode'] === 'edit') !== (bool) $commentId) {
+                throw ValidationException::withMessages(['comment_id' => 'Comment edit target is invalid.']);
+            }
+            if (! $commentId && ! empty($data['parent_id']) && ! \App\Models\Comment::where('post_id', $data['post_id'])->whereKey($data['parent_id'])->exists()) {
+                throw ValidationException::withMessages(['parent_id' => 'Reply target does not belong to this publication.']);
+            }
+            if ($commentId) {
+                $comment = \App\Models\Comment::where('post_id', $data['post_id'])->whereKey($commentId)->first();
+                abort_unless($comment && (int) $comment->user_id === (int) $request->user()->id
+                    && \Illuminate\Support\Carbon::parse($comment->getRawOriginal('created_at'))->gte(now()->subMinutes(15)), 403, 'This comment can no longer be edited.');
+            }
+        }
+        $contentLimit = $data['kind'] === 'comment' ? (int) config('post.comments.validation.max', 2200)
+            : (int) config($data['kind'] === 'chat' ? 'chat.message.validation.content.max' : $data['kind'].'.validation.content.max', 2200);
+        if(mb_strlen($data['content']) > $contentLimit) {
             throw ValidationException::withMessages(['content' => 'Caption exceeds the allowed length.']);
         }
         foreach($data['items'] as $index => $item) {
@@ -84,7 +105,7 @@ class MediaPublicationController extends Controller
             };
             $limit = match ($item['type']) {
                 'video' => (int) config('media.uploads.video.max_bytes'),
-                'image' => min((int) config('media.publications.image_max_bytes', 20971520), 1024 * (int) config($data['kind'] === 'chat' ? 'chat.validation.message.media.max' : $data['kind'].'.validation.image.max')),
+                'image' => min((int) config('media.publications.image_max_bytes', 20971520), 1024 * (int) config(in_array($data['kind'], ['chat', 'comment'], true) ? 'post.validation.image.max' : $data['kind'].'.validation.image.max')),
                 'audio' => 1024 * (int) config($data['kind'] === 'chat' ? 'chat.validation.message.media.max' : 'post.validation.audio.max', 24576),
                 'document' => 1024 * (int) config($data['kind'] === 'chat' ? 'chat.validation.message.media.max' : 'post.validation.document.max', 24576),
             };

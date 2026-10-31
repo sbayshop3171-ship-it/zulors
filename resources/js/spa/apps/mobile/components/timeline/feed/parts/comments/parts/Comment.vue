@@ -12,6 +12,7 @@
                     <span class="text-par-s text-lab-sc">
                         {{ commentData.date.time_ago }}
                     </span>
+                    <span v-if="commentData.is_edited" class="text-par-s text-lab-sc">· Edited</span>
                 </div>
             </div>
             <div v-if="commentData.has_parent" class="overflow-hidden mb-1">
@@ -33,16 +34,22 @@
                 </div>
             </div>
             <CommentText v-bind:commentContent="commentData.content"></CommentText>
+            <button v-if="commentData.media?.length" class="mt-2 block max-w-full" v-on:click="state.previewOpen = true">
+                <img v-bind:src="commentData.media[0].source_url" v-bind:alt="'Photo by ' + commentData.relations.user.name" class="max-w-full rounded-xl object-contain" style="max-height:70vh" loading="lazy">
+            </button>
             <div v-if="! commentData.deleted">
                 <div class="mt-2" v-if="hasReactions">
                     <ReactionsViewer v-on:add="addReaction" v-bind:reactions="commentData.relations.reactions"></ReactionsViewer>
                 </div>
             </div>
             <div v-if="! commentData.deleted">
+                <div class="flex items-center gap-4">
+                <MarginalTextButton buttonColor="text-lab-sc/70" v-on:click="openReactionsPicker" v-bind:buttonText="$t('labels.like')"></MarginalTextButton>
                 <MarginalTextButton
                     buttonColor="text-lab-sc/70"
                     v-on:click="reply"
                 v-bind:buttonText="$t('labels.reply')"></MarginalTextButton>
+                </div>
             </div>
         </div>
 
@@ -57,11 +64,10 @@
                 <ActionSheetItem v-on:click="openReactionsPicker" iconName="heart-rounded" v-bind:textLabel="$t('dd.add_reaction')"></ActionSheetItem>
                 <ActionSheetItem v-on:click="reply" iconName="pencil-line" v-bind:textLabel="$t('dd.comment.reply_to_comment', {name: commentData.relations.user.name})"></ActionSheetItem>
                 <ActionSheetItem v-on:click="copyCommentText" iconName="type-01" v-bind:textLabel="$t('dd.copy_text')"></ActionSheetItem>
+                <ActionSheetItem v-if="canEditComment" v-on:click.stop="editComment" iconName="edit-02" textLabel="Edit comment"></ActionSheetItem>
+                <ActionSheetItem v-if="commentData.meta.permissions.can_report" v-on:click.stop="reportComment" iconName="annotation-alert" textLabel="Report comment"></ActionSheetItem>
             </ActionSheetGroup>
     
-            <!-- TODO: Add report comment -->
-            <!-- <ActionSheetItem itemColor="text-red-900" iconName="annotation-alert" v-bind:textLabel="$t('dd.comment.report_comment')"></ActionSheetItem> -->
-            
             <template v-if="canDeleteComment">
                 <div class="mt-4">
                     <ActionSheetGroup>
@@ -75,10 +81,15 @@
     <ActionSheet v-if="state.isReactionPickerOpen" v-on:close="closeReactionsPicker">
         <ReactionsPicker v-on:add="addReaction"></ReactionsPicker>
     </ActionSheet>
+
+    <div v-if="state.previewOpen" class="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-3" v-on:click="state.previewOpen = false">
+        <button class="absolute top-5 right-5 text-white text-3xl" aria-label="Close photo preview">×</button>
+        <img v-bind:src="commentData.media?.[0]?.source_url" class="max-w-full object-contain" style="max-height:94vh" v-on:click.stop>
+    </div>
 </template>
 
 <script>
-    import { defineComponent, defineAsyncComponent, ref, reactive, computed } from 'vue';
+    import { defineComponent, defineAsyncComponent, ref, reactive, computed, toRef } from 'vue';
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
     import { colibriEventBus } from '@/kernel/events/bus/index.js';
     
@@ -100,10 +111,11 @@
         },
         emits: ['reply', 'delete'],
         setup: function(props, context) {
-            const commentData = ref(props.commentData);
+            const commentData = toRef(props, 'commentData');
             const state = reactive({
                 isMenuOpen: false,
-                isReactionPickerOpen: false
+                isReactionPickerOpen: false,
+                previewOpen: false
             });
 
             const openReactionsPicker = function() {
@@ -144,6 +156,15 @@
                 canDeleteComment: computed(() => {
                     return commentData.value.meta.permissions.can_delete;
                 }),
+                canEditComment: computed(() => commentData.value.meta.permissions.can_edit),
+                editComment: () => {
+                    colibriEventBus.emit('publication-comment:edit', { commentData: commentData.value });
+                    state.isMenuOpen = false;
+                },
+                reportComment: () => {
+                    colibriEventBus.emit('report:open', { type: 'comment', reportableId: commentData.value.id });
+                    state.isMenuOpen = false;
+                },
                 deleteComment: () => {
                     context.emit('delete', commentData.value.id);
                 },

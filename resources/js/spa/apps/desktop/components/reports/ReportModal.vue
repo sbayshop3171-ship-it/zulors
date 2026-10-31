@@ -6,7 +6,7 @@
 			<div v-if="state.isLoading" class="flex justify-center py-12">
 				<PrimaryDotsAnimation></PrimaryDotsAnimation>
 			</div>
-			<div class="block" v-else>
+			<div class="block" v-else-if="reportInfo">
 				<div class="block py-6 px-4 text-center">
 					<div class="flex justify-center">
 						<div class="size-6 text-red-500">
@@ -33,6 +33,9 @@
 						v-on:click="sendReport"
 					v-bind:buttonFluid="true"></PrimaryPillButton>
 				</div>
+			</div>
+			<div v-else class="px-8 py-12 text-center text-par-n text-lab-sc">
+				{{ $t('labels.something_went_wrong') }}
 			</div>
 		</ContentModal>
 	</Teleport>

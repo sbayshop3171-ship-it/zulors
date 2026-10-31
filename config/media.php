@@ -4,7 +4,7 @@ return [
     'publications' => [
         'enabled' => (bool) env('MEDIA_PUBLICATIONS_ENABLED', true),
         'allowed_user_ids' => array_filter(explode(',', (string) env('MEDIA_PUBLICATIONS_ALLOWED_USER_IDS', ''))),
-        'kinds' => array_filter(explode(',', (string) env('MEDIA_PUBLICATIONS_KINDS', 'post,story,chat'))),
+        'kinds' => array_filter(explode(',', (string) env('MEDIA_PUBLICATIONS_KINDS', 'post,story,chat,comment'))),
         'per_user_limit' => (int) env('MEDIA_PUBLICATIONS_PER_USER_LIMIT', 2),
         'video_limit' => (int) env('MEDIA_PUBLICATIONS_VIDEO_LIMIT', 20),
         'max_queue_age_seconds' => (int) env(

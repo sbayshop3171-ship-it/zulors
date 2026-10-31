@@ -20,6 +20,15 @@ jobs:
   build:
     name: Build And Check
     runs-on: ubuntu-24.04
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    env:
+      REDIS_CLIENT: predis
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: 6379
 
     steps:
       - name: Checkout
@@ -37,6 +46,9 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+
+      - name: Install FFmpeg test dependency
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
       - name: Prepare CI environment
         run: |
@@ -73,7 +85,15 @@ jobs:
           php artisan route:list --no-ansi >/dev/null
 
       - name: Run database migrations
-        run: php artisan migrate --force
+        run: |
+          php artisan migrate --force
+          php artisan comments:backfill-thread-roots --chunk=500
+
+      - name: Run PHP test suite
+        run: php -d memory_limit=512M vendor/bin/phpunit
+
+      - name: Run JavaScript unit checks
+        run: npm run test:ws
 
       - name: Laravel boot check
         run: php artisan about

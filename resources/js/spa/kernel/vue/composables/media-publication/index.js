@@ -40,8 +40,9 @@ export function useMediaPublication(kind) {
         selections.value = selections.value.filter(value => value.client_uid !== item.client_uid);
     };
     const enqueue = descriptor => publicationManager.enqueue({ ...descriptor, kind, client_uid: clientUid }, selections.value);
+    const newClientUid = () => { clientUid = crypto.randomUUID(); return clientUid; };
     onBeforeUnmount(() => { mounted = false; clear(); });
-    return { selections, selecting, select, pick, remove, clear, enqueue };
+    return { selections, selecting, select, pick, remove, clear, enqueue, newClientUid };
 }
 
 export function useChatMediaPublication(chatStore, content, reply, state) {

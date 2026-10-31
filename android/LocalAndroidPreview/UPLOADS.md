@@ -2,6 +2,8 @@
 
 Version: `0.5.0-production`. The server's `MEDIA_PUBLICATIONS_ENABLED` flag controls new admission. Shipping this APK does not enable the feature. Already-admitted uploads continue when the flag is disabled. The existing HTML file chooser and legacy media endpoints are unchanged.
 
+The bridge accepts `post`, `story`, `chat`, and `comment` publications. Comment uploads carry their `post_id` and optional reply or edit target and contain exactly one photo.
+
 ## Bridge Protocol 1
 
 The bridge exists only when the installed WebView supports AndroidX `WEB_MESSAGE_LISTENER`. Older APKs and unsupported WebViews have no `window.ZulorsUploadBridge`; the browser must treat a missing object or failed capability handshake as unsupported.

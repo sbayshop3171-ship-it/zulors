@@ -239,6 +239,7 @@ php artisan route:list --no-ansi >/dev/null
 echo "Running Laravel deployment tasks..."
 if [ "$RUN_MIGRATIONS" = "1" ]; then
 	php artisan migrate --force
+	php artisan comments:backfill-thread-roots --chunk="${COMMENT_THREAD_BACKFILL_CHUNK:-500}"
 else
 	echo "Skipping database migrations."
 fi

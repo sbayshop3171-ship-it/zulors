@@ -126,6 +126,7 @@ export class PublicationManager {
         if (!selections.length) throw new Error('Select a photo or video.');
         if (selections.some(item => item.account != null && identity(item.account) !== account)) throw new Error('Account changed. Select media again.');
         if ((descriptor.kind !== 'post' || selections.some(item => item.type !== 'image')) && selections.length !== 1) throw new Error('Choose one media file, or photos for a post.');
+        if (descriptor.kind === 'comment' && (selections.length !== 1 || selections[0].type !== 'image')) throw new Error('A comment can include one JPEG, PNG, or WebP photo.');
         if (selections.length > 10) throw new Error('Choose up to 10 photos.');
         const client_uid = descriptor.client_uid || crypto.randomUUID();
         const native = selections.every(item => item.native_file_id);

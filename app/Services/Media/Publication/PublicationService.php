@@ -4,6 +4,7 @@ namespace App\Services\Media\Publication;
 
 use App\Jobs\Media\CleanupPublication;
 use App\Models\Chat;
+use App\Models\Comment;
 use App\Models\MediaPublication;
 use App\Models\MediaPublicationItem;
 use App\Models\User;
@@ -44,6 +45,17 @@ class PublicationService
             abort_unless($chat, 403, 'Chat membership is required.');
             if(! empty($payload['parent_id'])) {
                 abort_unless($chat->messages()->whereKey($payload['parent_id'])->where('is_deleted', false)->exists(), 422, 'Reply target is unavailable.');
+            }
+        }
+        if($payload['kind'] === 'comment') {
+            $post = \App\Models\Post::activeById($payload['post_id'] ?? 0)->first();
+            abort_unless($post, 422, 'Publication is no longer available.');
+            if(($payload['comment_mode'] ?? 'create') === 'edit') {
+                $comment = Comment::where('post_id', $post->id)->whereKey($payload['comment_id'] ?? 0)->first();
+                abort_unless($comment && (int) $comment->user_id === (int) $user->id
+                    && \Illuminate\Support\Carbon::parse($comment->getRawOriginal('created_at'))->gte(now()->subMinutes(15)), 403, 'This comment can no longer be edited.');
+            } elseif(! empty($payload['parent_id'])) {
+                abort_unless($post->comments()->whereKey($payload['parent_id'])->exists(), 422, 'Reply target is unavailable.');
             }
         }
     }

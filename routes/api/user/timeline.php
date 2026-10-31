@@ -21,6 +21,8 @@ Route::get('/update', [App\Http\Controllers\Api\User\Timeline\FeedController::cl
 Route::get('/post/{hashId}', [App\Http\Controllers\Api\User\Timeline\FeedController::class, 'getPostData']);
 
 Route::get('/post/{hashId}/comments', [App\Http\Controllers\Api\User\Timeline\FeedController::class, 'getPostComments']);
+Route::get('/post/{hashId}/comment-threads', [App\Http\Controllers\Api\User\Timeline\CommentThreadController::class, 'roots']);
+Route::get('/post/{hashId}/comment-threads/{rootId}/replies', [App\Http\Controllers\Api\User\Timeline\CommentThreadController::class, 'replies']);
 
 Route::post('/post/poll/vote', [App\Http\Controllers\Api\User\Timeline\PostPollController::class, 'votePoll']);
 
@@ -33,6 +35,7 @@ Route::post('/telemetry/events', [App\Http\Controllers\Api\User\Timeline\Telemet
 Route::post('/post/reaction/add', [App\Http\Controllers\Api\User\Timeline\PostController::class, 'addReaction']);
 
 Route::post('/post/comment/create', [App\Http\Controllers\Api\User\Timeline\CommentController::class, 'createComment']);
+Route::put('/post/comment/update', [App\Http\Controllers\Api\User\Timeline\CommentController::class, 'updateComment']);
 
 Route::put('/post/update', [App\Http\Controllers\Api\User\Timeline\PostController::class, 'updatePost']);
 

@@ -13,6 +13,7 @@
                         <span class="text-par-s text-lab-sc ">
                             {{ commentData.date.time_ago }}
                         </span>
+                        <span v-if="commentData.is_edited" class="text-par-s text-lab-sc">· Edited</span>
                     </div>
                 </div>
                 <div class="block">
@@ -37,6 +38,9 @@
                     <div class="pr-6">
                         <CommentText v-bind:commentContent="commentContent"></CommentText>
                     </div>
+                    <button v-if="commentData.media?.length" class="mt-2 block max-w-full" v-on:click="state.previewOpen = true">
+                        <img v-bind:src="commentData.media[0].source_url" v-bind:alt="'Photo by ' + commentData.relations.user.name" class="max-w-full rounded-xl object-contain" style="max-height:70vh" loading="lazy">
+                    </button>
                     <div v-if="state.isTranslated" class="mt-2">
                         <TranslationService></TranslationService>
                     </div>
@@ -101,8 +105,8 @@
                         <DropdownMenuItem v-on:click="replyToComment" iconName="pencil-line" v-bind:textLabel="$t('dd.comment.reply_to_comment', {name: commentData.relations.user.name})"></DropdownMenuItem>
                         <DropdownMenuItem v-on:click="copyCommentText" iconName="type-01" v-bind:textLabel="$t('dd.copy_text')"></DropdownMenuItem>
                         <Border/>
-                        <!-- TODO: Add report comment -->
-                        <!-- <DropdownMenuItem itemColor="text-red-900" iconName="annotation-alert" v-bind:textLabel="$t('dd.comment.report_comment')"></DropdownMenuItem> -->
+                        <DropdownMenuItem v-if="canEditComment" v-on:click="editComment" iconName="edit-02" textLabel="Edit comment"></DropdownMenuItem>
+                        <DropdownMenuItem v-if="commentData.meta.permissions.can_report" v-on:click="reportComment" iconName="annotation-alert" textLabel="Report comment"></DropdownMenuItem>
                         <template v-if="canDeleteComment">
                             <DropdownMenuItem v-on:click="deleteComment" itemColor="text-red-900" iconName="trash-04" v-bind:textLabel="$t('dd.comment.delete_comment')"></DropdownMenuItem>
                         </template>
@@ -111,12 +115,16 @@
             </div>
         </div>
     </div>
+    <div v-if="state.previewOpen" class="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-3 cursor-zoom-out" v-on:click="state.previewOpen = false">
+        <img v-bind:src="commentData.media?.[0]?.source_url" class="max-w-full object-contain" style="max-height:94vh">
+    </div>
 </template>
 
 <script>
-    import { defineComponent, defineAsyncComponent, ref, reactive, computed } from 'vue';
+    import { defineComponent, defineAsyncComponent, ref, reactive, computed, toRef } from 'vue';
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
     import { colibriTranslator } from '@/kernel/services/translator/index.js';
+    import { colibriEventBus } from '@/kernel/events/bus/index.js';
     
     import AvatarSmall from '@D/components/general/avatars/AvatarSmall.vue';
     import DropdownButton from '@D/components/general/dropdowns/parts/DropdownButton.vue';
@@ -138,7 +146,7 @@
         emits: ['reply', 'delete'],
         setup: function(props, context) {
             const commentTranslatedContent = ref('');
-            const commentData = ref(props.commentData);
+            const commentData = toRef(props, 'commentData');
             const state = reactive({
                 isDropdownOpen: false,
                 isReactionPickerOpen: false,
@@ -182,6 +190,9 @@
                 canDeleteComment: computed(() => {
                     return commentData.value.meta.permissions.can_delete;
                 }),
+                canEditComment: computed(() => commentData.value.meta.permissions.can_edit),
+                editComment: () => colibriEventBus.emit('publication-comment:edit', { commentData: commentData.value }),
+                reportComment: () => colibriEventBus.emit('report:open', { type: 'comment', reportableId: commentData.value.id }),
                 deleteComment: () => {
                     context.emit('delete', commentData.value.id);
                 },

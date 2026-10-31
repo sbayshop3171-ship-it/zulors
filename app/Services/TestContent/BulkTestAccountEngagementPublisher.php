@@ -360,6 +360,8 @@ class BulkTestAccountEngagementPublisher
 		}
 
 		DB::table(Table::COMMENTS)->insert($comments);
+		DB::table(Table::COMMENTS)->where('post_id', $post->id)->whereNull('parent_id')->whereNull('thread_root_id')
+			->update(['thread_root_id' => DB::raw('id')]);
 		DB::table(Table::TEST_CONTENT_ENGAGEMENTS)->insert($engagements);
 
 		return count($comments);

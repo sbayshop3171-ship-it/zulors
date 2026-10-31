@@ -61,12 +61,13 @@ final class UploadStore extends SQLiteOpenHelper {
         JSONObject existing = get(account, uid);
         if (existing != null) return view(existing);
         JSONObject descriptor = new JSONObject();
-        String[] fields = {"client_uid", "kind", "content", "privacy", "selected_user_ids", "chat_id", "parent_id", "quoted_post_id", "marks", "clip_start_seconds", "clip_duration_seconds"};
+        String[] fields = {"client_uid", "kind", "content", "privacy", "selected_user_ids", "chat_id", "parent_id", "post_id", "comment_id", "comment_mode", "quoted_post_id", "marks", "clip_start_seconds", "clip_duration_seconds"};
         for (String field : fields) if (input.has(field)) descriptor.put(field, input.get(field));
         String kind = descriptor.getString("kind");
-        if (!kind.equals("post") && !kind.equals("story") && !kind.equals("chat")) throw new IllegalArgumentException("invalid_kind");
+        if (!kind.equals("post") && !kind.equals("story") && !kind.equals("chat") && !kind.equals("comment")) throw new IllegalArgumentException("invalid_kind");
         JSONArray items = input.getJSONArray("items"), saved = new JSONArray();
         if (items.length() < 1 || items.length() > 30) throw new IllegalArgumentException("invalid_items");
+        if (kind.equals("comment") && (items.length() != 1 || !items.getJSONObject(0).optString("type").equals("image"))) throw new IllegalArgumentException("invalid_comment_media");
         SQLiteDatabase db = getWritableDatabase();
         db.beginTransaction();
         try {

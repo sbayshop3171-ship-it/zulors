@@ -21,11 +21,14 @@ class PublicationMediaProcessor
     {
         $publication = $item->publication;
         $kind = $publication?->kind;
-        if (! in_array($kind, ['post', 'story', 'chat'], true) || ! in_array($item->type, ['image', 'video', 'audio', 'document'], true)) {
+        if (! in_array($kind, ['post', 'story', 'chat', 'comment'], true) || ! in_array($item->type, ['image', 'video', 'audio', 'document'], true)) {
             throw new RuntimeException('Unsupported publication media kind or type.');
         }
         if ($kind === 'story' && ! in_array($item->type, ['image', 'video'], true)) {
             throw new RuntimeException('Stories support photo and video attachments only.');
+        }
+        if ($kind === 'comment' && $item->type !== 'image') {
+            throw new RuntimeException('Comments support one photo attachment only.');
         }
 
         $upload = $item->upload ?? [];
@@ -33,7 +36,10 @@ class PublicationMediaProcessor
         $sourcePath = $upload['path'] ?? null;
         $declaredSize = (int) $item->size;
         $maxBytes = match ($item->type) {
-            'image' => (int) config('media.publications.image_max_bytes', 20 * 1024 * 1024),
+            'image' => min(
+                (int) config('media.publications.image_max_bytes', 20 * 1024 * 1024),
+                $kind === 'comment' ? 1024 * (int) config('post.validation.image.max') : PHP_INT_MAX,
+            ),
             'video' => (int) config('media.uploads.video.max_bytes', 8 * 1024 * 1024 * 1024),
             'audio' => 1024 * (int) config($kind === 'chat' ? 'chat.validation.message.media.max' : 'post.validation.audio.max', 24576),
             'document' => 1024 * (int) config($kind === 'chat' ? 'chat.validation.message.media.max' : 'post.validation.document.max', 24576),
@@ -51,7 +57,9 @@ class PublicationMediaProcessor
 
         $mime = strtolower(trim((string) $item->mime));
         $allowedMime = match ($item->type) {
-            'image' => in_array($mime, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true),
+            'image' => in_array($mime, $kind === 'comment'
+                ? ['image/jpeg', 'image/png', 'image/webp']
+                : ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true),
             'video' => in_array($mime, ['video/mp4', 'video/quicktime', 'video/webm', 'video/avi', 'video/x-msvideo', 'video/mpeg', 'video/x-m4v', 'video/3gpp', 'video/3gpp2', 'video/x-matroska'], true),
             'audio' => in_array($mime, ['audio/aac', 'audio/mp4', 'audio/mpeg', 'audio/mp3', 'audio/ogg', 'audio/webm', 'audio/wav', 'audio/x-m4a', 'audio/x-wav', 'video/webm'], true),
             'document' => in_array($mime, ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/plain', 'application/zip', 'application/x-zip-compressed', 'application/x-rar-compressed', 'application/vnd.rar'], true),

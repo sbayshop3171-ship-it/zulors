@@ -49,7 +49,7 @@ class TimelineResource extends JsonResource
                 'formatted' => Num::abbreviate($this->views_count)
             ],
             'comments_count' => [
-                'raw' => $this->comments_count,
+                'raw' => (int) $this->comments_count,
                 'formatted' => Num::abbreviate($this->comments_count)
             ],
             'bookmarks_count' => [
@@ -120,6 +120,10 @@ class TimelineResource extends JsonResource
 
     private function getPreviewComments(): array
     {
+        if (! $this->resource->relationLoaded('comments')) {
+            return [];
+        }
+
         return $this->comments->unique('user.id')->map(function($item) {
             return [
                 'id' => $item->id,

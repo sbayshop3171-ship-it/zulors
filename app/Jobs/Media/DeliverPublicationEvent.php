@@ -11,6 +11,7 @@ use App\Enums\Story\StoryPrivacy;
 use App\Enums\Story\StoryStatus;
 use App\Models\MediaPublication;
 use App\Models\Message;
+use App\Models\Comment;
 use App\Models\Post;
 use App\Models\StoryFrame;
 use App\Models\User;
@@ -118,6 +119,7 @@ class DeliverPublicationEvent implements ShouldQueue
             'story' => StoryFrame::with(['story.user', 'media'])->find(data_get($publication->result, 'id')),
             'chat' => Message::with(['user', 'media', 'chat', 'participant', 'parent.user', 'parent.participant', 'parent.media', 'reactions', 'linkSnapshot'])
                 ->where('is_deleted', false)->find(data_get($publication->result, 'id')),
+            'comment' => Comment::with(['user', 'media', 'post', 'parent.user', 'reactions'])->find(data_get($publication->result, 'id')),
         };
         if (! $entity) {
             return;
@@ -144,11 +146,13 @@ class DeliverPublicationEvent implements ShouldQueue
             $entity->setAttribute('client_uid', $publication->client_uid);
         }
         if ($event->type === 'domain_created') {
-            event(match ($publication->kind) {
+            $createdEvent = match ($publication->kind) {
                 'post' => new PostCreatedEvent($entity),
                 'story' => new StoryCreatedEvent($entity),
                 'chat' => new MessageReceivedEvent($entity, $publication->client_uid),
-            });
+                'comment' => null,
+            };
+            if ($createdEvent) event($createdEvent);
             return;
         }
         if ($event->type === 'public_timeline') {

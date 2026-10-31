@@ -60,7 +60,7 @@ class Post extends Model
         return $query->where('user_id', '!=', me()->id);
     }
 
-    public function scopeTimelineFormatPosts($query, bool $includeProcessing = false)
+    public function scopeTimelineFormatPosts($query, bool $includeProcessing = false, bool $includeComments = true)
     {
         if($includeProcessing) {
             $query->whereIn('status', [
@@ -72,16 +72,22 @@ class Post extends Model
             $query->active();
         }
 
-        return $query->with(['user', 'media', 'poll', 'reactions', 'quotedPost.user', 'quotedPost.media', 'linkSnapshot', 'bookmarks' => function($query) {
+        $relations = ['user', 'media', 'poll', 'reactions', 'quotedPost.user', 'quotedPost.media', 'linkSnapshot', 'bookmarks' => function($query) {
             if(auth_check()) {
                 $query->where('user_id', me()->id);
             }
             else {
                 $query->whereRaw('1 = 0');
             }
-        }, 'comments' => function($query) {
+        }];
+
+        if ($includeComments) {
+            $relations['comments'] = function($query) {
             $query->with('user:id,avatar')->limit(3);
-        }]);
+            };
+        }
+
+        return $query->with($relations);
     }
 
     public function user()

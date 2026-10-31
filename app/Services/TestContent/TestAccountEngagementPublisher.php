@@ -123,6 +123,8 @@ class TestAccountEngagementPublisher
 			]);
 			$comment->text_language = $lockedPost->text_language ?: 'en';
 			$comment->save();
+			$comment->thread_root_id = $comment->id;
+			$comment->save();
 
 			$lockedPost->increment('comments_count');
 

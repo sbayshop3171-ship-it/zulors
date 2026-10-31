@@ -65,6 +65,20 @@ public class UploadStoreTest {
         assertEquals(1, store.list(owner).length());
     }
 
+    @Test public void commentUploadsPersistReplyAndEditTargetsAndRequireOnePhoto() throws Exception {
+        JSONObject input = descriptor(file()).put("kind", "comment").put("post_id", 91)
+            .put("parent_id", 27).put("comment_mode", "create");
+        JSONObject row = store.enqueue(owner, input);
+        JSONObject saved = store.get(owner, row.getString("client_uid")).getJSONObject("descriptor");
+        assertEquals("comment", saved.getString("kind"));
+        assertEquals(91, saved.getInt("post_id"));
+        assertEquals(27, saved.getInt("parent_id"));
+        assertEquals("create", saved.getString("comment_mode"));
+
+        JSONObject multiple = descriptor(file(), file()).put("kind", "comment").put("post_id", 91);
+        assertThrows(IllegalArgumentException.class, () -> store.enqueue(owner, multiple));
+    }
+
     @Test public void fileHandlesAndOutboxesAreAccountBound() throws Exception {
         JSONObject item = file(), input = descriptor(item);
         assertThrows(IllegalArgumentException.class, () -> store.enqueue("another-user", input));

@@ -6,7 +6,8 @@ const useReportStore = defineStore('mobile_report_store', {
 		return {
 			reportReasons: {
 				post: null,
-				user: null
+				user: null,
+				comment: null
 			}
 		}
 	},

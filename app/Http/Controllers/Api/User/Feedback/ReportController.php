@@ -6,6 +6,7 @@ use Exception;
 use App\Models\Post;
 use App\Models\User;
 use App\Models\Group;
+use App\Models\Comment;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use App\Enums\Report\ReportType;
@@ -105,6 +106,12 @@ class ReportController extends Controller
                 break;
             case 'group':
                 $reportableData = Group::active()->where('id', $reportableId)->first();
+                break;
+            case 'comment':
+                $reportableData = Comment::whereKey($reportableId)->whereHas('post', fn ($query) => $query->active())->first();
+                if ($reportableData && (int) $reportableData->user_id === (int) me()->id) {
+                    $reportableData = null;
+                }
                 break;
         }
 

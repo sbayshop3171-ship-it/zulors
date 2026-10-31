@@ -11,7 +11,9 @@ use App\Enums\User\UserStatus;
 use App\Events\User\Chat\MessageMediaReadyEvent;
 use App\Events\User\Timeline\MediaProcessedEvent;
 use App\Jobs\Media\DeliverPublicationEvent;
+use App\Actions\Media\DeleteMediaAction;
 use App\Models\Chat;
+use App\Models\Comment;
 use App\Models\HiddenChat;
 use App\Models\Media;
 use App\Models\MediaPublication;
@@ -59,7 +61,7 @@ class PublicationFinalizer
 
             return self::asActor($actor, function () use ($publication, $actor, $items, $outputs) {
                 $payload = $publication->payload;
-                if (! in_array($publication->kind, ['post', 'story', 'chat'], true)) {
+                if (! in_array($publication->kind, ['post', 'story', 'chat', 'comment'], true)) {
                     return $this->fail($publication, 'invalid_kind');
                 }
                 if (in_array($publication->kind, ['post', 'story'], true)
@@ -68,7 +70,11 @@ class PublicationFinalizer
                 }
                 $types = $items->pluck('type')->unique();
                 $maxItems = $publication->kind === 'post' && $types->first() === 'image' ? 10 : 1;
-                $allowedTypes = $publication->kind === 'story' ? ['image', 'video'] : ['image', 'video', 'audio', 'document'];
+                $allowedTypes = match ($publication->kind) {
+                    'story' => ['image', 'video'],
+                    'comment' => ['image'],
+                    default => ['image', 'video', 'audio', 'document'],
+                };
                 if ($types->count() !== 1 || ! in_array($types->first(), $allowedTypes, true) || $items->count() > $maxItems) {
                     return $this->fail($publication, 'invalid_attachments');
                 }
@@ -80,7 +86,9 @@ class PublicationFinalizer
                     }
                 }
 
-                app(PublicationService::class)->assertMayPublish($actor, array_merge($payload, ['kind' => $publication->kind]));
+                if ($publication->kind !== 'comment') {
+                    app(PublicationService::class)->assertMayPublish($actor, array_merge($payload, ['kind' => $publication->kind]));
+                }
                 $safety = app(SafetyService::class);
                 $publication->update(['status' => 'publishing', 'error' => null]);
 
@@ -88,6 +96,7 @@ class PublicationFinalizer
                     'post' => $this->createPost($publication, $actor, $safety),
                     'story' => $this->createStory($publication, $actor),
                     'chat' => $this->createMessage($publication, $actor),
+                    'comment' => $this->createComment($publication, $actor),
                 };
 
                 if (! $entity) {
@@ -107,6 +116,13 @@ class PublicationFinalizer
                     ]));
                 }
 
+                if ($entity instanceof Comment && ($previousMediaIds = $entity->getAttribute('_previous_media_ids'))) {
+                    Media::whereIn('id', $previousMediaIds)->get()->each(function (Media $media) {
+                        $media->delete();
+                        DB::afterCommit(fn () => (new DeleteMediaAction($media))->execute());
+                    });
+                }
+
                 $publication->update([
                     'status' => 'published',
                     'error' => null,
@@ -118,6 +134,7 @@ class PublicationFinalizer
                             'post' => $entity->url,
                             'story' => $entity->story->url,
                             'chat' => url('/messenger/c/'.$entity->chat_uuid),
+                            'comment' => $entity->post?->url,
                         },
                     ],
                 ]);
@@ -131,7 +148,7 @@ class PublicationFinalizer
                     foreach ($entity->chat->participants()->where('user_id', '!=', $actor->id)->pluck('user_id')->unique() as $recipientId) {
                         DeliverPublicationEvent::record($publication, 'chat_recipient', $recipientId);
                     }
-                } else {
+                } elseif (! $entity instanceof Comment) {
                     foreach (User::active()->where('id', '!=', $actor->id)->whereIn('username', $entity->getMentions() ?: [])->pluck('id') as $recipientId) {
                         DeliverPublicationEvent::record($publication, $publication->kind.'_mention', $recipientId);
                     }
@@ -424,6 +441,51 @@ class PublicationFinalizer
         }
 
         return $message;
+    }
+
+    private function createComment(MediaPublication $publication, User $actor): ?Comment
+    {
+        $payload = $publication->payload;
+        $post = Post::activeById((int) data_get($payload, 'post_id'))->lockForUpdate()->first();
+        if (! $post) {
+            $this->fail($publication, 'publication_unavailable');
+            return null;
+        }
+
+        if (($payload['comment_mode'] ?? 'create') === 'edit') {
+            $comment = Comment::where('post_id', $post->id)->whereKey((int) data_get($payload, 'comment_id'))->lockForUpdate()->first();
+            if (! $comment || (int) $comment->user_id !== (int) $actor->id
+                || \Illuminate\Support\Carbon::parse($comment->getRawOriginal('created_at'))->lt(now()->subMinutes(15))) {
+                $this->fail($publication, 'comment_edit_expired');
+                return null;
+            }
+            $previousMediaIds = $comment->media()->pluck('id')->all();
+            $comment->content = $this->commentContent($publication);
+            $comment->text_language = $comment->content === '' ? '' : detect_text_language($comment->content);
+            $comment->edited_at = now();
+            $comment->save();
+            $comment->setAttribute('_previous_media_ids', $previousMediaIds);
+            return $comment->load(['user', 'post', 'parent.user', 'reactions']);
+        }
+
+        $parent = null;
+        $parentId = data_get($payload, 'parent_id');
+        if ($parentId) {
+            $parent = $post->comments()->whereKey((int) $parentId)->lockForUpdate()->first();
+            if (! $parent) {
+                $this->fail($publication, 'reply_target_unavailable');
+                return null;
+            }
+        }
+
+        $comment = app(\App\Actions\Comment\CreateCommentAction::class)
+            ->execute($post, $actor, $this->commentContent($publication), $parent, true);
+        return $comment->load('post');
+    }
+
+    private function commentContent(MediaPublication $publication): string
+    {
+        return normalize_nls((string) data_get($publication->payload, 'content', ''));
     }
 
     private function content(MediaPublication $publication): string

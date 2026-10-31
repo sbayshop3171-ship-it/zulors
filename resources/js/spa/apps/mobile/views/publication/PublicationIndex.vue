@@ -38,7 +38,7 @@
 			const postAuthor = ref(null);
 
 				onMounted(async () => {
-					await colibriAPI().userTimeline().getFrom(`post/${props.hash_id}`).then(function(response) {
+					await colibriAPI().userTimeline().params({ without_comments: 1 }).getFrom(`post/${props.hash_id}`).then(function(response) {
 						postData.value = response.data.data.post;
 						postAuthor.value = response.data.data.author;
 						state.isLoading = false;

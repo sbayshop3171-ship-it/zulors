@@ -23,22 +23,22 @@ use App\Models\Comment;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
 use App\Services\Reaction\ReactionService;
-use App\Services\Timeline\UserInterestService;
 use App\Actions\Comment\DeleteCommentAction;
+use App\Actions\Comment\CreateCommentAction;
+use App\Actions\Media\DeleteMediaAction;
 use App\Traits\Http\Api\SupportsApiResponses;
 use Illuminate\Auth\Access\AuthorizationException;
 use App\Http\Resources\User\Timeline\CommentResource;
 use App\Http\Resources\User\Timeline\ReactionCollection;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
-use App\Notifications\User\Post\PostCommentedNotification;
+use Illuminate\Support\Facades\DB;
 use App\Notifications\User\Post\CommentReactedNotification;
-use App\Notifications\User\Mention\CommentMentionNotification;
 
 class CommentController extends Controller
 {
     use SupportsApiResponses, AuthorizesRequests;
 
-    public function createComment(Request $request, UserInterestService $userInterestService)
+    public function createComment(Request $request)
     {
         $request->validate([
             'post_id' => ['required', 'integer'],
@@ -65,42 +65,51 @@ class CommentController extends Controller
             }
         }
 
-        $comment = $postData->comments()->create([
-            'content' => $commentContent,
-            'user_id' => me()->id,
-            'parent_id' => (empty($parentId)) ? null : $parentId,
-            'text_language' => $postData->text_language
-        ]);
-
-        $comment->text_language = $postData->getContentLanguage();
-        $comment->save();
-
-        $postData->comments_count = $postData->comments()->count();
-        $postData->save();
-
-        $userInterestService->recordPostInteraction(me(), $postData, UserInterestService::EVENT_COMMENT);
-
-        if(! $postData->is_owner && empty($parentId)) {
-            $postData->user->notify(new PostCommentedNotification($postData, $commentContent));
-        }
-
-        else {
-            if(! empty($commentParentData) && ! $commentParentData->is_owner) {
-                $commentParentData->user->notify(new CommentMentionNotification($commentParentData, $commentContent));
-            }
-        }
+        $comment = app(CreateCommentAction::class)->execute($postData, me(), $commentContent, $commentParentData ?? null);
 
         return $this->responseSuccess([
             'data' => [
                 'comment' => CommentResource::make($comment),
                 'post' => [
                     'comments_count' => [
-                        'raw' => $postData->comments_count,
+                        'raw' => (int) $postData->comments_count,
                         'formatted' => Num::abbreviate($postData->comments_count)
                     ]
                 ]
             ]
         ]);
+    }
+
+    public function updateComment(Request $request)
+    {
+        $data = $request->validate([
+            'id' => ['required', 'integer', 'min:1'],
+            'content' => ['nullable', 'string', XRule::join('max', config('post.comments.validation.max'))],
+            'remove_media' => ['nullable', 'boolean'],
+        ]);
+        $comment = Comment::with('media')->findOrFail($data['id']);
+        try {
+            $this->authorize('update', $comment);
+        } catch (AuthorizationException) {
+            return $this->responseUnauthorizedError();
+        }
+
+        $content = array_key_exists('content', $data) ? trim((string) $data['content']) : $comment->content;
+        $removeMedia = (bool) ($data['remove_media'] ?? false);
+        if ($content === '' && ($removeMedia || $comment->media->isEmpty())) {
+            return response()->json(['message' => 'A comment needs text or a photo.'], 422);
+        }
+
+        $comment->content = $content;
+        $comment->text_language = $comment->getContentLanguage();
+        $comment->edited_at = now();
+        $comment->save();
+        if ($removeMedia) {
+            $comment->media->each(fn ($media) => (new DeleteMediaAction($media))->execute());
+        }
+
+        $comment->load(['post:id,user_id', 'user:id,first_name,last_name,avatar,username', 'parent.user:id,first_name,last_name,username', 'reactions', 'media']);
+        return $this->responseSuccess(['data' => ['comment' => CommentResource::make($comment)]]);
     }
 
     public function deleteComment(Request $request)
@@ -111,18 +120,18 @@ class CommentController extends Controller
             try {
                 $this->authorize('delete', $commentData);
 
-                $postData = $commentData->post;
-        
-                (new DeleteCommentAction($commentData))->execute();
-
-                $postData->comments_count = $postData->comments()->count();
-                $postData->save();
+                DB::transaction(function () use ($commentData, &$postData) {
+                    $postData = Post::whereKey($commentData->post_id)->lockForUpdate()->firstOrFail();
+                    (new DeleteCommentAction($commentData))->execute();
+                    $postData->comments_count = (int) $postData->comments()->count();
+                    $postData->save();
+                });
         
                 return $this->responseSuccess([
                     'data' => [
                         'post' => [
                             'comments_count' => [
-                                'raw' => Num::abbreviate($postData->comments_count),
+                                'raw' => (int) $postData->comments_count,
                                 'formatted' => Num::abbreviate($postData->comments_count)
                             ]
                         ]

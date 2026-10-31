@@ -112,11 +112,11 @@ class FeedController extends Controller
 
         $postData = Post::query()
             ->whereHashId($postHashId)
-            ->timelineFormatPosts(true)
+            ->timelineFormatPosts(true, ! $request->boolean('without_comments'))
             ->first();
         
         if($postData && ($postData->status === PostStatus::ACTIVE || $postData->user_id === me()->id)) {
-            $postComments = $this->fetchPostItemComments($postData);
+            $postComments = $request->boolean('without_comments') ? collect() : $this->fetchPostItemComments($postData);
 
             return $this->responseSuccess([
                 'data' => [

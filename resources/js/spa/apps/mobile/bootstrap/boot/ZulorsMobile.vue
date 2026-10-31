@@ -65,7 +65,7 @@
                 }
 
                 try {
-                    const response = await colibriAPI().userTimeline().getFrom(`post/${hashId}`);
+                    const response = await colibriAPI().userTimeline().params({ without_comments: 1 }).getFrom(`post/${hashId}`);
 
                     colibriEventBus.emit('timeline:post-updated', response.data.data.post);
                 } catch (error) {

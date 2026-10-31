@@ -20,7 +20,7 @@
                     </div>
                     <Border></Border>
                     <div v-if="! state.isLoading" class="sticky top-0 bg-bg-pr z-10">
-                        <PublicationCommentEditor v-bind:postId="postData.id" v-on:add="handleCommentAdding"></PublicationCommentEditor>
+                        <PublicationCommentEditor v-bind:postId="postData.id" v-on:add="handleCommentAdding" v-on:uploaded="refreshThreads" v-on:edited="handleCommentEdited"></PublicationCommentEditor>
 
                         <div class="px-4 bg-fill-fv py-2">
                             <span class="text-par-s text-lab-sc text-center block font-semibold">
@@ -28,15 +28,28 @@
                             </span>
                         </div>
                     </div>
+                    <div v-if="!state.isLoading" class="px-4 py-2 flex justify-end border-b border-bord-pr">
+                        <label class="text-par-s text-lab-sc flex items-center gap-2">Sort
+                            <select v-model="sort" class="bg-transparent text-lab-pr outline-hidden">
+                                <option value="relevant">Most relevant</option>
+                                <option value="newest">Newest</option>
+                            </select>
+                        </label>
+                    </div>
                     <div class="block" v-if="postComments.length">
 
-                        <div v-for="(commentItem, idx) in postComments">
-                            <PublicationComment
-                                v-on:delete="handleCommentDelete"
-                                v-on:reply="handleCommentReply"
-                                v-bind:key="commentItem.id"
-                            v-bind:commentData="commentItem"></PublicationComment>
-                            <Border v-if="idx != (postComments.length - 1)"></Border>
+                        <div v-for="commentItem in postComments" v-bind:key="commentItem.id" class="border-b border-bord-pr/70">
+                            <PublicationComment v-on:delete="handleCommentDelete" v-on:reply="handleCommentReply" v-bind:commentData="commentItem"></PublicationComment>
+                            <div v-if="commentItem.reply_count > 0" class="ml-20 pb-3">
+                                <button class="text-par-s font-semibold text-lab-sc" v-on:click="toggleThread(commentItem)">
+                                    {{ openThreads[commentItem.id] ? 'Hide replies' : `View ${commentItem.reply_count} ${commentItem.reply_count === 1 ? 'reply' : 'replies'}` }}
+                                </button>
+                            </div>
+                            <div v-if="openThreads[commentItem.id]" class="border-l border-bord-pr">
+                                <PublicationComment v-for="reply in (threadReplies[commentItem.id] || [])" v-bind:key="reply.id" v-on:delete="handleCommentDelete" v-on:reply="handleCommentReply" v-bind:commentData="reply"></PublicationComment>
+                                <div v-if="threadState[commentItem.id]?.loading" class="flex justify-center my-3"><div class="colibri-primary-animation"></div></div>
+                                <button v-else-if="threadState[commentItem.id]?.hasMore" class="pb-3 text-par-s font-semibold text-lab-sc" v-on:click="loadMoreReplies(commentItem)">Load more replies</button>
+                            </div>
                         </div>
                         <div v-if="state.isLoadingComments">
                             <div class="flex justify-center my-4">
@@ -61,7 +74,7 @@
 </template>
 
 <script>
-    import { defineComponent, ref, reactive, computed, onMounted, onUnmounted } from 'vue';
+    import { defineComponent, ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue';
 
     import { useRoute, useRouter } from 'vue-router';
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
@@ -99,6 +112,10 @@
             const postData = ref({});
             const postAuthor = ref({});
             const postComments = ref([]);
+            const openThreads = reactive({});
+            const threadReplies = reactive({});
+            const threadState = reactive({});
+            const sort = ref('relevant');
             const campaignTracking = computed(() => {
                 if(!route.query.ad_id || !route.query.delivery_id) return null;
                 return {
@@ -108,42 +125,55 @@
                 };
             });
 
-            const fetchComments = async () => {
-                if (postComments.value.length && ! state.noMoreComments && ! state.isLoadingComments) {
-                    const cursorId = postComments.value.at(-1).id;
-
-                    if (cursorId) {
-                        state.isLoadingComments = true;
-
-                        await colibriAPI().userTimeline().params({
-                            cursor: cursorId
-                        }).getFrom(`post/${route.params.hash_id}/comments`).then(function(response) {
-                            let comments = response.data.data;
-
-                            if (comments.length) {
-                                postComments.value = postComments.value.concat(comments);
-                            }
-                            else {
-                                state.noMoreComments = true;
-                            }
-                        }).catch(function(error) {
-                            state.noMoreComments = true;
-                        });
-
-                        state.isLoadingComments = false;
+            const fetchComments = async (reset = false) => {
+                if (state.isLoadingComments || (!reset && state.noMoreComments)) return;
+                state.isLoadingComments = true;
+                try {
+                    const cursor = reset ? 0 : (postComments.value.nextCursor || 0);
+                    const response = await colibriAPI().userTimeline().params({ cursor, sort: sort.value }).getFrom(`post/${route.params.hash_id}/comment-threads`);
+                    const comments = response.data.data || [];
+                    postComments.value = reset ? comments : postComments.value.concat(comments);
+                    postComments.value.nextCursor = response.data.meta?.next_cursor;
+                    state.noMoreComments = !response.data.meta?.has_more;
+                    if (response.data.meta?.comments_count !== undefined) {
+                        postData.value.comments_count = { ...postData.value.comments_count, raw: response.data.meta.comments_count, formatted: response.data.meta.comments_count_formatted };
                     }
-                }
+                } catch (error) {
+                    if (error.response) toastError(error.response.data.message);
+                } finally { state.isLoadingComments = false; }
             }
+
+            const fetchReplies = async (root, reset = false) => {
+                const current = threadState[root.id] || (threadState[root.id] = { cursor: 0, hasMore: true, loading: false });
+                if (current.loading || (!reset && !current.hasMore)) return;
+                current.loading = true;
+                try {
+                    const cursor = reset ? 0 : current.cursor;
+                    const response = await colibriAPI().userTimeline().params({ cursor }).getFrom(`post/${route.params.hash_id}/comment-threads/${root.id}/replies`);
+                    const replies = response.data.data || [];
+                    threadReplies[root.id] = reset ? replies : (threadReplies[root.id] || []).concat(replies);
+                    current.cursor = response.data.meta?.next_cursor || current.cursor;
+                    current.hasMore = Boolean(response.data.meta?.has_more);
+                } catch (error) { if (error.response) toastError(error.response.data.message); }
+                finally { current.loading = false; }
+            }
+
+            const refreshThreads = async () => {
+                await fetchComments(true);
+                for (const root of postComments.value) if (openThreads[root.id]) await fetchReplies(root, true);
+            }
+
+            watch(sort, () => { state.noMoreComments = false; fetchComments(true); });
 
             useInfiniteScroll({
 				callback: fetchComments
 			});
 
             onMounted(() => {
-                colibriAPI().userTimeline().getFrom(`post/${route.params.hash_id}`).then(function(response) {
+                colibriAPI().userTimeline().params({ without_comments: 1 }).getFrom(`post/${route.params.hash_id}`).then(async function(response) {
                     postData.value = response.data.data.post;
                     postAuthor.value = response.data.data.author;
-                    postComments.value = response.data.data.comments;
+                    await fetchComments(true);
                     state.isLoading = false;
                 }).catch(function(error) {
                     router.push({
@@ -175,12 +205,15 @@
                 postComments: computed(() => {
                     return postComments.value
                 }),
+                sort, openThreads, threadReplies, threadState, refreshThreads,
+                toggleThread: async (root) => {
+                    openThreads[root.id] = !openThreads[root.id];
+                    if (openThreads[root.id] && !threadReplies[root.id]) await fetchReplies(root, true);
+                },
+                loadMoreReplies: (root) => fetchReplies(root),
                 handleCommentReply: (commentId) => {
-                    let commentData = postComments.value.find((item) => {
-                        if(item.id == commentId) {
-                            return item;
-                        }
-                    });
+                    let commentData = postComments.value.find(item => item.id == commentId);
+                    if (!commentData) for (const replies of Object.values(threadReplies)) { commentData = replies.find(item => item.id == commentId); if (commentData) break; }
 
                     if(commentData) {
                         colibriEventBus.emit('publication-comment:reply', {
@@ -199,19 +232,7 @@
 
                                 postData.value.comments_count = response.data.data.post.comments_count;
 
-                                let commentIndex = postComments.value.findIndex((item) => {
-                                    return item.id == commentId;
-                                });
-
-                                if(commentIndex !== -1) {
-                                    postComments.value.splice(commentIndex, 1);
-                                }
-
-                                postComments.value.forEach(function(item) {
-                                    if(item.parent_id && item.parent_id == commentId) {
-                                        item.deleted = true;
-                                    }
-                                });
+                                refreshThreads();
 
                                 toastSuccess(__t('toast.media.comment_deleted'));
                             }).catch((error) => {
@@ -223,11 +244,17 @@
                     });
                 },
                 handleCommentAdding: (commentData) => {
-                    postComments.value.unshift(commentData.comment);
-
                     postData.value.comments_count = commentData.post.comments_count;
+                    if (commentData.comment.parent_id) {
+                        const root = postComments.value.find(item => item.id === commentData.comment.thread_root_id);
+                        if (root) {
+                            root.reply_count = Number(root.reply_count || 0) + 1;
+                            if (openThreads[root.id]) threadReplies[root.id] = [...(threadReplies[root.id] || []), commentData.comment];
+                        }
+                    } else refreshThreads();
                     recordSponsoredSocialEvent(campaignTracking.value, campaignTracking.value?.placement || 'feed', 'comment');
                 },
+                handleCommentEdited: () => refreshThreads(),
                 handlePostDelete: (postData) => {
                     postDeleter(postData, () => {
                         router.push({
