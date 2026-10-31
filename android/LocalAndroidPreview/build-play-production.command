@@ -3,7 +3,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-EXTERNAL_APP_DIR="${EXTERNAL_APP_DIR:-../../../LocalAndroidPreview}"
+EXTERNAL_APP_DIR="${EXTERNAL_APP_DIR:-../../LocalAndroidPreview}"
+EXTERNAL_APP_DIR="$(cd "$EXTERNAL_APP_DIR" && pwd)"
 EXTERNAL_ENV="$EXTERNAL_APP_DIR/.env.play-upload-key"
 
 if [ -f "$EXTERNAL_ENV" ]; then

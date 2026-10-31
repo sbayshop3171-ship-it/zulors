@@ -39,8 +39,13 @@ export class PublicationManager {
             this.reconcile().catch(() => {});
             this.wake();
         };
+        this.onPageVisible = () => {
+            if (host?.document?.visibilityState === 'visible') this.onVisible();
+        };
         host?.addEventListener('online', this.onVisible);
         host?.addEventListener('focus', this.onVisible);
+        host?.addEventListener('pageshow', this.onVisible);
+        host?.document?.addEventListener('visibilitychange', this.onPageVisible);
         this.bridge.listeners.add(() => this.refresh().catch(() => {}));
     }
 
@@ -468,5 +473,7 @@ export class PublicationManager {
         this.pause(); this.channel?.close();
         this.host?.removeEventListener('online', this.onVisible);
         this.host?.removeEventListener('focus', this.onVisible);
+        this.host?.removeEventListener('pageshow', this.onVisible);
+        this.host?.document?.removeEventListener('visibilitychange', this.onPageVisible);
     }
 }

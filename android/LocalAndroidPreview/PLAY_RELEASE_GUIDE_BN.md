@@ -36,7 +36,7 @@ Production build-এর আগে `check-play-update-setup.sh` নিশ্চ�
 নতুন release-এর default version name `1.0.9`; version code সর্বশেষ প্রকাশিত `1792433586`-এর চেয়ে বড় হতে হবে. Build helper-এ Play-এর জন্য minSdk 24 সেট করা আছে.
 
 ```bash
-cd /Users/muhammadrasel/Documents/Zulors/Source/android/LocalAndroidPreview
+cd android/LocalAndroidPreview
 VERSION_NAME=1.0.9 MIN_SDK=24 TARGET_SDK=36 ./build-play-production.command
 ```
 
@@ -60,12 +60,21 @@ Play Store-এ পরবর্তী app update দিতে নতুন signed
 
 `AndroidManifest.xml` হলো একমাত্র manifest source; build helper local/production mode অনুযায়ী এর placeholders পূরণ করে। Generated manifest থাকে timestamped build folder-এ, upload folder-এ নয়.
 
-Production signing environment, keystore, এবং Firebase config-এর একমাত্র location `../../../LocalAndroidPreview`; এগুলো Git-এ commit করা হয় না:
+Production signing files project root-এর `LocalAndroidPreview` folder-এ থাকে। Private password ও keystore Git-এ যাবে না; একমাত্র canonical Firebase app config `LocalAndroidPreview/firebase/google-services.json`-এ রাখা হয়েছে এবং GitHub-এ push করা যাবে:
 
 ```text
 .env.play-upload-key
-firebase/google-services.json
 keystores/zulors-upload.jks
+```
+
+Firebase client config-এ private signing key/password নেই। তাই project-এর অন্য `google-services.json` copy বাদ দিয়ে শুধু canonical config ব্যবহার করুন.
+
+এই upload key-টাই প্রতিটি Production build-এ ব্যবহার হবে; নতুন keystore বানাবেন না এবং Firebase-এ একই SHA-1 বারবার যোগ করার দরকার নেই:
+
+```text
+Alias: zulors-upload
+SHA-1: EE:5C:95:A4:24:90:58:06:B5:D9:04:2A:B8:A5:4B:D0:ED:9E:1D:5A
+SHA-256: 0E:9D:9E:43:73:18:3A:63:5C:D2:C3:44:0D:76:C3:F9:5B:FA:2D:DB:84:CD:E4:C0:EA:FC:A6:1B:88:2A:15:C4
 ```
 
 Production rollout-এর আগে internal/closed test track-এ যাচাই করুন:
@@ -75,3 +84,29 @@ Production rollout-এর আগে internal/closed test track-এ যাচা�
 - notification permission allowed/denied দুই অবস্থায় কাজ করে;
 - app minimize/reopen ও screen lock-এর পর pending upload থাকে;
 - Google sign-in ও push notification token registration কাজ করে.
+
+## নতুন Mac বা fresh clone থেকে একই release setup
+
+যে ফাইলটি Git-এ থাকবে:
+
+```text
+LocalAndroidPreview/firebase/google-services.json
+```
+
+এটাই `com.zulors.app`-এর একমাত্র canonical Firebase config। Root `.gitignore`-এ শুধু এই নির্দিষ্ট ফাইলটিকে track করার exception আছে; অন্য `google-services.json` কপি build-এ ব্যবহার হয় না.
+
+Play upload keystore এবং password private signing credential। এগুলো Git history-তে রাখা হবে না—public বা private repository-তে ভুল করে commit হলেও key আর নিরাপদ থাকে না। একবার GitHub CLI দিয়ে signing info-গুলো repository Actions secrets-এ সংরক্ষণ করুন:
+
+```bash
+brew install gh                 # gh আগে থেকে না থাকলে
+gh auth login
+bash android/LocalAndroidPreview/configure-github-signing-secrets.sh
+```
+
+স্ক্রিপ্টটি বর্তমান `LocalAndroidPreview/keystores/zulors-upload.jks` এবং `.env.play-upload-key` থেকে key ও password সরাসরি GitHub-এ পাঠায়; terminal-এ credential দেখায় না। GitHub repository-তে এগুলো `ANDROID_UPLOAD_KEYSTORE_BASE64`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEYSTORE_TYPE` নামে Actions secrets হবে। এই সেটআপ একবারের; secret value পরে আর Firebase-এ যোগ করতে হবে না.
+
+এরপর workflow ও canonical Firebase JSON GitHub-এ push করার পর ভবিষ্যতে নতুন Mac-এ repository clone করে GitHub-এর **Actions → Android production build → Run workflow** থেকে signed AAB/APK তৈরি করা যাবে। AAB ও APK ১৪ দিনের জন্য workflow artifact হিসেবে থাকবে; workflow নিজে Play Store-এ release করে না। Local machine-এ সরাসরি production-sign করা APK/AAB বানাতে keystore ও password পুনরুদ্ধার করতে হবে; GitHub Actions secret থেকে সেগুলো plaintext-এ download করা যায় না.
+
+নতুন signing secret setup-এর আগে Mac reset হলে keystore/password-এর আলাদা encrypted backup ছাড়া GitHub clone থেকে একই signing identity ফিরিয়ে আনা যাবে না। তাই প্রথমে secret setup script চালিয়ে সফলতা নিশ্চিত করুন; এরপর চাইলে keystore-র encrypted offline backup রাখুন। Firebase JSON public client config, কিন্তু signing key/password নয়.
+
+Play Console-এর upload-key reset pending থাকলে ওই request approve হওয়ার পরই নতুন key-তে signed AAB upload করা যাবে। Workflow build ও test করতে পারে, কিন্তু Play Console upload-key reset approval-কে bypass করতে পারে না.

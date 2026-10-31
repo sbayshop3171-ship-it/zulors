@@ -152,6 +152,9 @@ final class UploadCoordinator {
 
     void reopen() {
         if (account.isEmpty()) return;
+        // Resume durable transfers before contacting the server. A slow or unavailable
+        // capabilities endpoint must not leave already-saved media sitting in the queue.
+        UploadScheduling.resumeTransfers(context, visible);
         sync.execute(() -> {
             try { syncRemote(); } catch (Exception ignored) { UploadScheduling.sync(context); }
             schedule();

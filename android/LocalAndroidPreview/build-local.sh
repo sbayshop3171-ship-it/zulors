@@ -11,9 +11,20 @@ MIN_SDK="${MIN_SDK:-}"
 TARGET_SDK="${TARGET_SDK:-$PLATFORM_API}"
 VERSION_CODE="${VERSION_CODE:-$(date +%s)}"
 VERSION_NAME="${VERSION_NAME:-0.5.0-${APP_MODE}}"
-JDK_HOME="${JDK_HOME:-/Applications/Android Studio.app/Contents/jbr/Contents/Home}"
+JDK_HOME="${JDK_HOME:-${JAVA_HOME:-/Applications/Android Studio.app/Contents/jbr/Contents/Home}}"
+if [ ! -x "$JDK_HOME/bin/keytool" ]; then
+	if [ -x /usr/libexec/java_home ]; then
+		JDK_HOME="$(/usr/libexec/java_home)"
+	elif command -v keytool >/dev/null 2>&1; then
+		JDK_HOME="$(cd "$(dirname "$(command -v keytool)")/.." && pwd)"
+	else
+		echo "A JDK was not found. Set JDK_HOME or JAVA_HOME to a Java 17 installation." >&2
+		exit 1
+	fi
+fi
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-EXTERNAL_APP_DIR="${EXTERNAL_APP_DIR:-$APP_DIR/../../../LocalAndroidPreview}"
+EXTERNAL_APP_DIR="${EXTERNAL_APP_DIR:-$APP_DIR/../../LocalAndroidPreview}"
+EXTERNAL_APP_DIR="$(cd "$EXTERNAL_APP_DIR" && pwd)"
 BUILD="$APP_DIR/build/$(date +%Y%m%d%H%M%S)"
 KEYSTORE="$APP_DIR/debug.keystore"
 RELEASE_KEYSTORE_TYPE="${RELEASE_KEYSTORE_TYPE:-JKS}"
@@ -342,9 +353,10 @@ NODE
 	echo "Authorization certificate check passed for SHA-1: $SIGNING_SHA1"
 fi
 
-GRADLE_PROJECT="$BUILD/gradle"
+GRADLE_PROJECT="$APP_DIR/ide-project"
 GRADLE_APP="$GRADLE_PROJECT/app"
 
+rm -rf "$GRADLE_APP/src/main"
 mkdir -p "$GRADLE_APP/src/main/java/com/zulors/app" "$GRADLE_APP/src/main/res"
 cp "$BUILD/AndroidManifest.xml" "$GRADLE_APP/src/main/AndroidManifest.xml"
 cp -R "$BUILD/res/." "$GRADLE_APP/src/main/res/"
@@ -352,7 +364,16 @@ find "$APP_DIR/src" -name '*.java' -exec cp {} "$GRADLE_APP/src/main/java/com/zu
 
 if [ "$ENABLE_FIREBASE_MESSAGING" = "true" ]; then
 	cp "$GOOGLE_SERVICES_JSON" "$GRADLE_APP/google-services.json"
+else
+	rm -f "$GRADLE_APP/google-services.json"
 fi
+
+cleanup_generated_google_services() {
+	if [ "${APP_MODE:-local}" = "production" ] && [ -n "${GRADLE_APP:-}" ]; then
+		rm -f "$GRADLE_APP/google-services.json"
+	fi
+}
+trap cleanup_generated_google_services EXIT
 
 LOCAL_MAVEN_REPOSITORY=""
 if [ -n "$LOCAL_MAVEN_CACHE" ]; then
@@ -524,6 +545,55 @@ dependencies {
     implementation 'com.google.android.libraries.identity.googleid:googleid:$GOOGLE_ID_VERSION'
     implementation 'com.google.android.gms:play-services-auth:21.4.0'
 }
+
+configurations {
+    ideCompileClasspath {
+        canBeConsumed = false
+        canBeResolved = true
+        extendsFrom implementation, testImplementation
+    }
+}
+
+tasks.register('exportIdeClasspath') {
+    dependsOn 'assembleDebug'
+
+    doLast {
+        File outputDir = file('$GRADLE_PROJECT/ide-classpath')
+        delete outputDir
+        outputDir.mkdirs()
+
+        def copyClasspathJar = { File source, String identity ->
+            String hash = java.security.MessageDigest.getInstance('SHA-256')
+                .digest(identity.getBytes('UTF-8')).encodeHex().toString().substring(0, 12)
+            copy {
+                from source
+                into outputDir
+                rename { name -> "\${hash}-\${name}" }
+            }
+        }
+
+        configurations.ideCompileClasspath.files.each { File artifact ->
+            if (artifact.name.endsWith('.jar')) {
+                copyClasspathJar(artifact, artifact.canonicalPath)
+            } else if (artifact.name.endsWith('.aar')) {
+                zipTree(artifact).matching {
+                    include 'classes.jar'
+                    include 'libs/**/*.jar'
+                }.files.each { File nestedJar ->
+                    copyClasspathJar(nestedJar, "\${artifact.canonicalPath}:\${nestedJar.path}")
+                }
+            }
+        }
+
+        File androidJar = file('$SDK/platforms/android-$PLATFORM_API/android.jar')
+        File resourceJar = file("\$buildDir/intermediates/compile_and_runtime_not_namespaced_r_class_jar/debug/processDebugResources/R.jar")
+        if (!androidJar.isFile() || !resourceJar.isFile()) {
+            throw new GradleException('Android SDK or generated R classes are missing; run the local Android build first.')
+        }
+        copyClasspathJar(androidJar, androidJar.canonicalPath)
+        copyClasspathJar(resourceJar, resourceJar.canonicalPath)
+    }
+}
 EOF
 
 export RELEASE_STORE_PASSWORD="${RELEASE_STORE_PASSWORD:-}"
@@ -537,6 +607,11 @@ fi
 	--no-daemon \
 	--project-dir "$GRADLE_PROJECT" \
 	":app:$GRADLE_TASK"
+
+"$GRADLE_BIN" \
+	--no-daemon \
+	--project-dir "$GRADLE_PROJECT" \
+	:app:exportIdeClasspath
 
 mkdir -p "$APP_DIR/build/latest"
 if [ "$ARTIFACT_TYPE" = "bundle" ]; then

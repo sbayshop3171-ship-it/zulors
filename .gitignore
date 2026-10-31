@@ -20,12 +20,14 @@
 .env
 .env.backup
 .env.production
+.env.play-upload-key
 .phpactor.json
 .phpunit.result.cache
 Homestead.json
 Homestead.yaml
 auth.json
 **/google-services.json
+!/LocalAndroidPreview/firebase/google-services.json
 npm-debug.log
 yarn-error.log
 /storage/frontend/*
@@ -44,6 +46,9 @@ yarn-error.log
 /.fleet
 /.idea
 /.vscode
+!/.vscode/
+/.vscode/*
+!/.vscode/settings.json
 /bootstrap/cache/*
 !/bootstrap/cache/.gitignore
 /public/vendor/
@@ -57,6 +62,7 @@ yarn-error.log
 *.pfx
 *.jks
 *.keystore
+/LocalAndroidPreview/keystores/
 /refactor
 /plugins/
 pack.sh

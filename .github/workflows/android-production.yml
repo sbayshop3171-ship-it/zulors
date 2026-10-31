@@ -1,0 +1,117 @@
+name: Android production build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: Production version name (for example 1.0.10)
+        required: true
+        type: string
+      version_code:
+        description: Optional Play version code; defaults to the current Unix timestamp
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zulors-android-production-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK platform
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'platform-tools'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+
+      - name: Check production inputs and restore signing key
+        env:
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          test -s LocalAndroidPreview/firebase/google-services.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const config = JSON.parse(fs.readFileSync('LocalAndroidPreview/firebase/google-services.json', 'utf8'));
+          const hasPackage = (config.client || []).some(client =>
+            client.client_info?.android_client_info?.package_name === 'com.zulors.app'
+          );
+          if (!hasPackage) {
+            throw new Error('Firebase config does not contain Android package com.zulors.app');
+          }
+          NODE
+          if [ -z "$ANDROID_UPLOAD_KEYSTORE_BASE64" ]; then
+            echo 'Missing GitHub secret ANDROID_UPLOAD_KEYSTORE_BASE64. Run android/LocalAndroidPreview/configure-github-signing-secrets.sh once from an authenticated checkout.' >&2
+            exit 1
+          fi
+          mkdir -p LocalAndroidPreview/keystores
+          printf '%s' "$ANDROID_UPLOAD_KEYSTORE_BASE64" | base64 --decode > LocalAndroidPreview/keystores/zulors-upload.jks
+          chmod 600 LocalAndroidPreview/keystores/zulors-upload.jks
+          test -s LocalAndroidPreview/keystores/zulors-upload.jks
+
+      - name: Build and test signed production AAB and APK
+        id: production_build
+        env:
+          EXTERNAL_APP_DIR: ${{ github.workspace }}/LocalAndroidPreview
+          GOOGLE_SERVICES_JSON: ${{ github.workspace }}/LocalAndroidPreview/firebase/google-services.json
+          RELEASE_KEYSTORE: ${{ github.workspace }}/LocalAndroidPreview/keystores/zulors-upload.jks
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEYSTORE_TYPE: ${{ secrets.RELEASE_KEYSTORE_TYPE }}
+          VERSION_NAME: ${{ inputs.version_name }}
+          VERSION_CODE: ${{ inputs.version_code }}
+          APP_MODE: production
+          BUILD_TYPE: release
+          MIN_SDK: '24'
+          TARGET_SDK: '36'
+          ENABLE_FIREBASE_MESSAGING: 'true'
+          ENABLE_PLAY_FLEXIBLE_UPDATES: 'true'
+        run: |
+          set -euo pipefail
+          export JDK_HOME="${JAVA_HOME:?Java 17 was not configured}"
+          if [ -z "$RELEASE_STORE_PASSWORD" ] || [ -z "$RELEASE_KEY_PASSWORD" ] || [ -z "$RELEASE_KEY_ALIAS" ] || [ -z "$RELEASE_KEYSTORE_TYPE" ]; then
+            echo 'Production signing GitHub secrets are incomplete. Run android/LocalAndroidPreview/configure-github-signing-secrets.sh once.' >&2
+            exit 1
+          fi
+          if [ -z "$VERSION_CODE" ]; then VERSION_CODE="$(date +%s)"; fi
+          export VERSION_CODE
+          ARTIFACT_TYPE=bundle RUN_UPLOAD_TESTS=true bash android/LocalAndroidPreview/build-local.sh
+          ARTIFACT_TYPE=apk RUN_UPLOAD_TESTS=false bash android/LocalAndroidPreview/build-local.sh
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+
+      - name: Remove temporary signing key
+        if: always()
+        run: rm -f LocalAndroidPreview/keystores/zulors-upload.jks
+
+      - name: Upload signed artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: zulors-production-${{ inputs.version_name }}-${{ steps.production_build.outputs.version_code }}
+          path: |
+            android/LocalAndroidPreview/build/latest/zulors-production-*.aab
+            android/LocalAndroidPreview/build/latest/zulors-production-*.apk
+          if-no-files-found: error
+          retention-days: 14

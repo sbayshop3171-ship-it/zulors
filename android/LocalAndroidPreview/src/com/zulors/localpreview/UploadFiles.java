@@ -21,18 +21,41 @@ import java.util.UUID;
 final class UploadFiles {
     private static final long MAX_FILE_BYTES = 8L * 1024 * 1024 * 1024;
 
+    static String normalizeContainerMime(String mime, String name) {
+        String normalizedMime = mime == null ? "" : mime.toLowerCase(java.util.Locale.ROOT).split(";", 2)[0].trim();
+        String extension = name == null ? "" : name.substring(name.lastIndexOf('.') + 1).toLowerCase(java.util.Locale.ROOT);
+        String containerMime;
+        switch (extension) {
+            case "mp4": case "m4v": containerMime = "video/mp4"; break;
+            case "mov": containerMime = "video/quicktime"; break;
+            case "webm": containerMime = "video/webm"; break;
+            case "3gp": containerMime = "video/3gpp"; break;
+            case "3g2": containerMime = "video/3gpp2"; break;
+            case "mkv": containerMime = "video/x-matroska"; break;
+            case "avi": containerMime = "video/x-msvideo"; break;
+            default: containerMime = null;
+        }
+        if (containerMime != null && (normalizedMime.isEmpty() || normalizedMime.equals("application/octet-stream")
+            || normalizedMime.equals("video/hevc") || normalizedMime.equals("video/h265")
+            || normalizedMime.equals("video/h264") || normalizedMime.equals("video/avc"))) {
+            return containerMime;
+        }
+        return normalizedMime;
+    }
+
     static JSONObject importFile(Context context, UploadStore store, String account, Uri uri) throws Exception {
         if (!"content".equals(uri.getScheme())) throw new IllegalArgumentException("invalid_picker_uri");
         String mime = context.getContentResolver().getType(uri);
-        if (mime == null || !(mime.equals("image/jpeg") || mime.equals("image/png") || mime.equals("image/webp") || mime.startsWith("video/"))) throw new IllegalArgumentException("unsupported_media");
         String handle = UUID.randomUUID().toString();
-        String name = mime.startsWith("video/") ? "video" : "image";
+        String name = mime != null && mime.startsWith("video/") ? "video" : "image";
         try (Cursor cursor = context.getContentResolver().query(uri, new String[] {OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE}, null, null, null)) {
             if (cursor != null && cursor.moveToFirst()) {
                 name = cursor.getString(0);
                 if (!cursor.isNull(1) && cursor.getLong(1) > MAX_FILE_BYTES) throw new IllegalArgumentException("file_too_large");
             }
         }
+        mime = normalizeContainerMime(mime, name);
+        if (mime.isEmpty() || !(mime.equals("image/jpeg") || mime.equals("image/png") || mime.equals("image/webp") || mime.startsWith("video/"))) throw new IllegalArgumentException("unsupported_media");
         File target = store.path(handle), temporary = new File(store.directory, handle + ".import");
         boolean committed = false;
         try {

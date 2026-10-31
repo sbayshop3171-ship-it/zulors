@@ -65,7 +65,7 @@ The build pins AndroidX WebKit `1.12.1`, WorkManager `2.10.3`, and OkHttp `4.12.
 - [WorkManager long-running workers and foreground service types](https://developer.android.com/develop/background-work/background-tasks/persistent/how-to/long-running)
 - [WorkManager 2.10.3 release](https://developer.android.com/jetpack/androidx/releases/work#2.10.3)
 
-Use the canonical signing environment, keystore, and Firebase config from `../../../LocalAndroidPreview`. The build reads release passwords from environment variables; generated Gradle files do not contain them. Set `CREATE_RELEASE_KEYSTORE=false`. Never generate a replacement upload key. Play Store upload builds should be signed AABs; the matching signed APK is only for same-signature device sanity testing. Local preview uses its own app ID and Firebase config under `android/LocalAndroidPreview`.
+Use the canonical signing environment, keystore, and Firebase config from the project root's `LocalAndroidPreview` folder (relative path `../../LocalAndroidPreview` from this directory). The build reads release passwords from environment variables; generated Gradle files do not contain them. Set `CREATE_RELEASE_KEYSTORE=false`. Never generate a replacement upload key. Play Store upload builds should be signed AABs; the matching signed APK is only for same-signature device sanity testing. Local preview uses its own app ID under `android/LocalAndroidPreview`.
 
 ```sh
 APP_MODE=production BUILD_TYPE=release ARTIFACT_TYPE=bundle RUN_UPLOAD_TESTS=true \

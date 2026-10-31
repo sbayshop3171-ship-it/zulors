@@ -20,6 +20,17 @@ final class UploadScheduling {
     private static final String SYNC = "zulors-media-sync";
 
     static void transfers(Context context, boolean visible) {
+        transfers(context, visible, false);
+    }
+
+    static void resumeTransfers(Context context, boolean visible) {
+        // On pre-Android-14 devices, an existing WorkManager request can be sitting
+        // in retry backoff after the app was backgrounded. Replace that idle request
+        // when the user returns so the durable queue gets another immediate run.
+        transfers(context, visible, visible && Build.VERSION.SDK_INT < 34);
+    }
+
+    private static void transfers(Context context, boolean visible, boolean resume) {
         UploadCoordinator coordinator = UploadCoordinator.get(context);
         if (coordinator.account().isEmpty() || coordinator.transferring.get()) return;
         try {
@@ -41,7 +52,8 @@ final class UploadScheduling {
             } else {
                 OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(UploadWorker.class)
                     .setConstraints(network()).setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 60, TimeUnit.SECONDS).build();
-                WorkManager.getInstance(context).enqueueUniqueWork(TRANSFER, ExistingWorkPolicy.KEEP, request);
+                WorkManager.getInstance(context).enqueueUniqueWork(TRANSFER,
+                    resume ? ExistingWorkPolicy.REPLACE : ExistingWorkPolicy.KEEP, request);
             }
         } catch (RuntimeException error) {
             // The durable queue is retained when Android refuses a background UIDT start.

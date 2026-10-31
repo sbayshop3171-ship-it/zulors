@@ -1,0 +1,79 @@
+{
+  "project_info": {
+    "project_number": "92185010272",
+    "project_id": "zulors",
+    "storage_bucket": "zulors.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:92185010272:android:1a0028c40d08257cefe305",
+        "android_client_info": {
+          "package_name": "com.zulors.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "92185010272-0fefmq8beuhaoihpbshd9h7fismmodd1.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.zulors.app",
+            "certificate_hash": "1182774b5b4957364d6c0c0cc3e62a5414d3abc3"
+          }
+        },
+        {
+          "client_id": "92185010272-ahr6kvhcn3ea5k6nue881b2v65iavf15.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.zulors.app",
+            "certificate_hash": "6eabf7339b6067ad0e958c15b67c957424a72ea7"
+          }
+        },
+        {
+          "client_id": "92185010272-cl04gu1gl9ak9n4nbglbkb9aoo219emu.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.zulors.app",
+            "certificate_hash": "068fe350a51b0b7f50f96a76b6014a7099b5a6d2"
+          }
+        },
+        {
+          "client_id": "92185010272-h7m8l3j775roj5qtpr7c7qfa28jpkl7k.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.zulors.app",
+            "certificate_hash": "830070a1229b6b5dd30ea66ca0c4103e7fc415ea"
+          }
+        },
+        {
+          "client_id": "92185010272-prsghvkso5smrabki74a5re7hs4hjkd2.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.zulors.app",
+            "certificate_hash": "ee5c95a424905806b5d9042ab8a54bd0ed9e1d5a"
+          }
+        },
+        {
+          "client_id": "92185010272-6likk4ebn353qm2mjdembk8cttaivfl3.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDaUlOcWKKuZkhYtU-FYYOidmITM2cAHIY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "92185010272-6likk4ebn353qm2mjdembk8cttaivfl3.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

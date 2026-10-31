@@ -185,7 +185,15 @@ final class ZulorsUploadBridge implements UploadCoordinator.Listener {
     }
 
     void pageStarted(String url) { topUrl = url; document++; events = null; }
-    void resumed() { coordinator.visible = true; coordinator.reopen(); }
+    void resumed() {
+        coordinator.visible = true;
+        coordinator.reopen();
+        // Let Android finish bringing the activity window to the foreground before
+        // retrying a UIDT schedule that may have been rejected during onResume().
+        main.postDelayed(() -> {
+            if (!destroyed && coordinator.visible) coordinator.schedule();
+        }, 750);
+    }
     void paused() { coordinator.visible = false; }
     WebResourceResponse intercept(WebResourceRequest request) { return UploadFiles.preview(coordinator.store, coordinator.accountVerified ? coordinator.account() : "", topUrl, request); }
     void destroy() { destroyed = true; coordinator.visible = false; coordinator.listeners.remove(this); events = null; pendingPick = null; }
