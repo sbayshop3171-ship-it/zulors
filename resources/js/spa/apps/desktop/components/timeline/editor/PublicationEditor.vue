@@ -191,7 +191,6 @@
                         <span class="w-px h-4 bg-bord-sc"></span>
                         <div class="shrink-0 inline-flex">
                             <span class="inline-flex text-par-s items-center gap-2 text-lab-sc leading-none disabled:opacity-60">
-                                <span v-if="state.videoUploadStage === 'uploading'">Uploading directly to R2…</span>
                                 <span class="text-brand-900">{{ $t('labels.uploading') }} <span class="inline-block w-8">{{ state.postMediaUploadProgress }}%</span></span>
                             </span>
                         </div>

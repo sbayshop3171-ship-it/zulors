@@ -33,7 +33,6 @@
 			</div>
 		</div>
 		<div v-if="(state.uploadProgress || state.videoUploadStage === 'uploading') && ! isEditingPost">
-			<p v-if="state.videoUploadStage === 'uploading'" class="px-6 pb-2 text-xs text-lab-sc">Uploading directly to R2…</p>
 			<div class="flex">
 				<div class="flex-1 bg-fill-tr h-1">
 					<div class="bg-green-900 min-w-10 h-full" v-bind:style="{ width: state.uploadProgress + '%' }"></div>
