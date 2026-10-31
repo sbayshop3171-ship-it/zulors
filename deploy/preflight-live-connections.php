@@ -17,6 +17,14 @@ $expectedBuckets = [
 $r2 = config('media.cloudflare.r2', []);
 $temp = config('filesystems.disks.r2_temp', []);
 $final = config('filesystems.disks.r2_final', []);
+$video = config('media.uploads.video', []);
+
+if ((int) ($video['max_duration_seconds'] ?? 0) < 3600) {
+    $failures[] = 'video duration limit is below 3600 seconds';
+}
+if ((int) ($video['max_bytes'] ?? 0) < 8589934592) {
+    $failures[] = 'video size limit is below 8 GiB';
+}
 
 if (! (bool) ($r2['direct_upload_enabled'] ?? false)) {
     $failures[] = 'direct R2 uploads are disabled';
