@@ -28,6 +28,7 @@ class GoogleSocialProfileService
             'last_name' => $profileNames['last_name'],
             'email' => $socialiteUser->getEmail() ?: data_get($rawUser, 'email', $user->email),
             'avatar' => $userAvatarFilePath,
+            'avatar_disk' => static_storage_disk(),
             'email_verified_at' => $this->resolveEmailVerifiedAt($user, $rawUser),
         ]);
     }

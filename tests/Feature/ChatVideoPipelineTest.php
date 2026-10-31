@@ -33,8 +33,12 @@ class ChatVideoPipelineTest extends TestCase
         config(['media.uploads.video.direct_only' => true, 'media.cloudflare.r2.direct_upload_enabled' => false]);
         [$sender, $recipient, $chat] = $this->createDirectChat();
         $this->actingAs($sender)->withoutMiddleware();
-        $this->postJson('/api/messenger/send', ['chat_id' => $chat->chat_id, 'media_type' => 'video'])
-            ->assertStatus(409)->assertJsonPath('code', 'direct_upload_required');
+        $this->post('/api/messenger/send', [
+            'chat_id' => $chat->chat_id,
+            'media_type' => 'video',
+            'media_duration' => 14,
+            'media' => UploadedFile::fake()->create('chat-video.mp4', 1024, 'video/mp4'),
+        ])->assertStatus(409)->assertJsonPath('code', 'direct_upload_required');
         $this->postJson('/api/v1/chats/' . $chat->chat_id . '/media/video/direct/create', ['size' => 1024])
             ->assertStatus(503)->assertJsonPath('code', 'direct_upload_unavailable');
         $this->postJson('/api/messenger/send', ['content' => 'hello'])->assertUnprocessable();
@@ -91,7 +95,7 @@ class ChatVideoPipelineTest extends TestCase
         $clientUid = (string) Str::uuid();
         $createPayload = [
             'name' => 'sample.mp4', 'size' => 1024, 'duration_seconds' => 10,
-            'extension' => 'mp4', 'client_uid' => $clientUid,
+            'mime' => 'video/mp4', 'extension' => 'mp4', 'client_uid' => $clientUid,
         ];
         $created = $this->postJson($base . 'create', [
             ...$createPayload,
@@ -112,14 +116,14 @@ class ChatVideoPipelineTest extends TestCase
         \Illuminate\Support\Facades\Storage::disk('r2_temp')->put($upload['uid'], 'wrong size');
         $this->postJson($base . 'complete', $payload)->assertUnprocessable();
         \Illuminate\Support\Facades\Storage::disk('r2_temp')->put($upload['uid'], str_repeat('x', 1024));
-        $this->postJson($base . 'complete', $payload)->assertOk()
-            ->assertJsonPath('data.media.metadata.processing_state', 'queued')
-            ->assertJsonPath('data.media.source_url', null);
+        $completed = $this->postJson($base . 'complete', $payload)->assertOk()
+            ->assertJsonPath('data.media.metadata.processing_state', 'processed')
+            ->assertJsonPath('data.media.metadata.processing_mode', 'original_direct');
+        $this->assertNotEmpty($completed->json('data.media.source_url'));
         $this->postJson($base . 'complete', $payload)->assertOk();
         \Illuminate\Support\Facades\Event::assertDispatchedTimes(\App\Events\User\Chat\MessageReceivedEvent::class, 1);
         Notification::assertSentToTimes($recipient, \App\Notifications\User\Chat\MessageReceivedNotification::class, 1);
-        Bus::assertDispatchedTimes(ProcessChatVideo::class, 1);
-        Bus::assertNotDispatchedAfterResponse(ProcessChatVideo::class);
+        Bus::assertNotDispatched(ProcessChatVideo::class);
     }
 
     private function createDirectChat(): array

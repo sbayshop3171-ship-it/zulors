@@ -15,7 +15,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\User\Media\MediaResource;
 use App\Events\User\Timeline\MediaUpdatedEvent;
 use App\Events\User\Timeline\PublicTimelinePostCreatedEvent;
-use App\Jobs\User\Timeline\ConvertAndCompressPostVideo;
 use App\Traits\Http\Api\SupportsApiResponses;
 use App\Services\Media\Cloudflare\R2DirectUploadService;
 use App\Services\Media\Cloudflare\CloudflareStreamService;
@@ -29,29 +28,20 @@ class DirectMediaUploadController extends Controller
     use InteractsWithDraftPost,
         SupportsApiResponses;
 
-    public function createVideoUpload(Request $request, CloudflareStreamService $cloudflareStreamService, R2DirectUploadService $r2DirectUploadService)
+    public function createVideoUpload(Request $request, R2DirectUploadService $r2DirectUploadService)
     {
         $this->requireDirectVideoService($r2DirectUploadService);
         $request->validate([
             'name' => ['nullable', 'string', 'max:255'],
-            'size' => ['required', 'integer', 'min:1', 'max:' . config('media.uploads.video.max_bytes', 1073741824)],
-            'mime' => ['nullable', 'string', 'max:120'],
-            'extension' => ['nullable', 'string', 'max:16'],
+            'size' => ['required', 'integer', 'min:1', 'max:' . config('media.uploads.video.max_bytes', 8589934592)],
+            'mime' => ['required', 'string', 'in:video/mp4,video/quicktime,video/webm,video/avi,video/x-msvideo,video/mpeg,video/x-m4v,video/3gpp,video/3gpp2,video/x-matroska'],
+            'extension' => ['required', 'string', 'regex:/\A[a-zA-Z0-9]{2,8}\z/'],
             'width' => ['nullable', 'integer', 'min:1', 'max:20000'],
             'height' => ['nullable', 'integer', 'min:1', 'max:20000'],
-            'duration_seconds' => ['nullable', 'numeric', 'min:0', 'max:' . config('media.uploads.video.max_duration_seconds', 600)],
+            'duration_seconds' => ['nullable', 'numeric', 'min:0', 'max:' . config('media.uploads.video.max_duration_seconds', 3600)],
             ...OriginalAudioEligibility::metadataValidationRules(),
         ]);
         $presentationMetadata = $this->videoPresentationMetadata($request);
-
-        if(! $r2DirectUploadService->isConfigured() && ! $cloudflareStreamService->isConfigured()) {
-            return $this->responseSuccess([
-                'data' => [
-                    'direct_upload' => false,
-                    'reason' => 'direct_upload_not_configured'
-                ]
-            ]);
-        }
 
         $this->fetchOrInitializeDraftPost();
         $this->resetFailedDirectVideoDraftPost();
@@ -78,21 +68,13 @@ class DirectMediaUploadController extends Controller
             $this->draftPost->type = PostType::VIDEO;
             $this->draftPost->save();
 
-            if($this->shouldUseCloudflareStreamUpload($request, $cloudflareStreamService)) {
-                return $this->responseSuccess([
-                    'data' => $this->startCloudflareStreamVideoUpload($request, $cloudflareStreamService, $presentationMetadata),
-                ]);
-            }
-
             if($r2DirectUploadService->isConfigured()) {
                 return $this->responseSuccess([
                     'data' => $this->startR2VideoUpload($request, $r2DirectUploadService, $presentationMetadata),
                 ]);
             }
 
-            return $this->responseSuccess([
-                'data' => $this->startCloudflareStreamVideoUpload($request, $cloudflareStreamService, $presentationMetadata),
-            ]);
+            throw new Exception('Direct R2 video uploads are temporarily unavailable. Please retry later.');
         }
         catch (Exception $e) {
             $this->resetEmptyAttachmentDraftPost();
@@ -106,26 +88,6 @@ class DirectMediaUploadController extends Controller
                 ]
             ]);
         }
-    }
-
-    private function shouldUseCloudflareStreamUpload(Request $request, CloudflareStreamService $cloudflareStreamService): bool
-    {
-        if(! $cloudflareStreamService->isConfigured()) {
-            return false;
-        }
-
-        if(! (bool) config('media.cloudflare.stream.prefer_video_direct_uploads', true)) {
-            return false;
-        }
-
-        if(! empty(OriginalAudioEligibility::storyMusicMetadataFromRequest($request))) {
-            return false;
-        }
-
-        $size = max(0, $request->integer('size', 0));
-        $basicUploadMaxBytes = max(0, (int) config('media.cloudflare.stream.basic_upload_max_bytes', 200 * 1024 * 1024));
-
-        return $size > 0 && ($basicUploadMaxBytes === 0 || $size <= $basicUploadMaxBytes);
     }
 
     private function startR2VideoUpload(Request $request, R2DirectUploadService $r2DirectUploadService, array $presentationMetadata): array
@@ -184,52 +146,6 @@ class DirectMediaUploadController extends Controller
             'upload_stall_timeout_ms' => $uploadData['upload_stall_timeout_ms'] ?? null,
             'raw_fallback_max_bytes' => $uploadData['raw_fallback_max_bytes'] ?? null,
             'part_fallback_max_bytes' => $uploadData['part_fallback_max_bytes'] ?? null,
-            'expires_at' => $uploadData['expires_at'],
-            'media' => MediaResource::make($media),
-        ];
-    }
-
-    private function startCloudflareStreamVideoUpload(Request $request, CloudflareStreamService $cloudflareStreamService, array $presentationMetadata): array
-    {
-        $uploadData = $cloudflareStreamService->createDirectUpload([
-            'post_id' => (string) $this->draftPost->id,
-            'user_id' => (string) me()->id,
-            'original_name' => (string) $request->input('name'),
-        ]);
-
-        $media = $this->draftPost->media()->create([
-            'source_path' => $uploadData['uid'],
-            'type' => MediaType::VIDEO,
-            'status' => MediaStatus::PROCESSING,
-            'disk' => 'cloudflare_stream',
-            'extension' => $request->input('extension', 'mp4'),
-            'mime' => $request->input('mime', 'video/mp4'),
-            'size' => $request->integer('size', 0),
-            'thumbnail_path' => $uploadData['playback']['thumbnail'] ?? null,
-            'thumbnail_disk' => 'cloudflare_stream',
-            'metadata' => array_merge($presentationMetadata, [
-                'provider' => 'cloudflare_stream',
-                'cloudflare_uid' => $uploadData['uid'],
-                'upload_state' => 'waiting_for_upload',
-                'upload_url_expires_at' => $uploadData['expires_at'],
-                'upload_method' => 'POST',
-                'upload_type' => 'form',
-                'upload_progress' => 0,
-                'processing_progress' => 0,
-                'processing_state' => 'waiting_for_upload',
-                'playback' => $uploadData['playback'],
-                'original_name' => (string) $request->input('name'),
-            ], OriginalAudioEligibility::storyMusicMetadataFromRequest($request))
-        ]);
-
-        return [
-            'direct_upload' => true,
-            'provider' => 'cloudflare_stream',
-            'uid' => $uploadData['uid'],
-            'upload_url' => $uploadData['upload_url'],
-            'upload_method' => 'POST',
-            'upload_type' => 'form',
-            'upload_headers' => [],
             'expires_at' => $uploadData['expires_at'],
             'media' => MediaResource::make($media),
         ];
@@ -415,7 +331,7 @@ class DirectMediaUploadController extends Controller
                 'upload_state' => 'uploaded',
                 'upload_progress' => 100,
                 'upload_completed_at' => data_get($metadata, 'upload_completed_at', $now),
-                'processing_state' => 'queued',
+                'processing_state' => 'ready',
                 'processing_progress' => max(1, min(99, (int) data_get($metadata, 'processing_progress', 0))),
                 'processing_updated_at' => $now,
                 'temp_path' => data_get($metadata, 'temp_path', $media->source_path),
@@ -463,22 +379,38 @@ class DirectMediaUploadController extends Controller
     private function publishCompletedR2Video(Media $media, array $metadata, R2DirectUploadService $r2DirectUploadService, int $originalSize): Media
     {
         $now = now()->toIso8601String();
+        $temporaryPath = $media->source_path;
+        $temporaryDisk = $media->disk;
+        $published = $temporaryDisk === $r2DirectUploadService->finalDisk()
+            ? ['disk' => $temporaryDisk, 'video_path' => $temporaryPath, 'video_size' => $originalSize]
+            : $r2DirectUploadService->publishUploadedVideo(
+                $temporaryPath,
+                $media->extension ?: 'mp4',
+                $media->mime ?: 'video/mp4',
+                $temporaryDisk
+            );
+
+        $media->source_path = $published['video_path'];
+        $media->disk = $published['disk'];
+        $media->size = (int) $published['video_size'];
+
         $nextMetadata = array_merge($metadata, [
-            'provider' => data_get($metadata, 'provider') ?: 'r2_direct',
+            'provider' => 'r2',
             'upload_state' => 'uploaded',
             'upload_progress' => 100,
             'upload_completed_at' => data_get($metadata, 'upload_completed_at', $now),
-            'processing_state' => data_get($metadata, 'processing_state') === 'processed' ? 'processed' : 'queued',
+            'processing_state' => 'processed',
             'processing_progress' => 100,
             'processing_updated_at' => $now,
-            'background_processing_state' => 'queued',
-            'background_processing_progress' => 0,
-            'temp_path' => data_get($metadata, 'temp_path', $media->source_path),
-            'temp_disk' => data_get($metadata, 'temp_disk', $media->disk),
-            'final_disk' => data_get($metadata, 'final_disk', $r2DirectUploadService->finalDisk()),
+            'background_processing_state' => 'skipped',
+            'background_processing_progress' => 100,
+            'processing_mode' => 'original_direct',
+            'temp_path' => data_get($metadata, 'temp_path', $temporaryPath),
+            'temp_disk' => data_get($metadata, 'temp_disk', $temporaryDisk),
+            'final_disk' => $published['disk'],
             'original_size' => $originalSize ?: (int) $media->size,
-            'optimized_size' => data_get($metadata, 'optimized_size'),
-            'optimization_ratio' => data_get($metadata, 'optimization_ratio'),
+            'optimized_size' => null,
+            'optimization_ratio' => null,
             'instant_publish' => true,
         ]);
 
@@ -497,10 +429,6 @@ class DirectMediaUploadController extends Controller
             $post->save();
         }
 
-        if($post instanceof Post && $post->status === PostStatus::ACTIVE) {
-            $this->dispatchR2VideoOptimization($post, $media);
-        }
-
         if($postWasProcessing) {
             try {
                 broadcast(new PublicTimelinePostCreatedEvent($post->refresh()))->toOthers();
@@ -513,255 +441,20 @@ class DirectMediaUploadController extends Controller
         return $media->refresh();
     }
 
-    private function dispatchR2VideoOptimization(Post $post, Media $media): void
-    {
-        $metadata = $media->metadata ?? [];
-
-        if(! in_array(data_get($metadata, 'provider'), ['r2_temp', 'r2_direct'], true)
-            || data_get($metadata, 'upload_state') !== 'uploaded'
-            || filled(data_get($metadata, 'processed_at'))
-            || filled(data_get($metadata, 'processing_dispatched_at'))) {
-            return;
-        }
-
-        $metadata['processing_dispatched_at'] = now()->toIso8601String();
-        $media->metadata = $metadata;
-        $media->save();
-
-        ConvertAndCompressPostVideo::dispatch($post)->onQueue(config('media.queues.video'));
-    }
-
     public function uploadRawVideo(Request $request, R2DirectUploadService $r2DirectUploadService)
     {
-        $this->rejectServerVideoUpload();
-        $request->validate([
-            'media_id' => ['required', 'integer'],
-            'uid' => ['required', 'string', 'max:255'],
-            'content_type' => ['nullable', 'string', 'max:120'],
-        ]);
-
-        $media = Media::query()->find($request->integer('media_id'));
-
-        if(empty($media) || $media->source_path !== $request->input('uid')) {
-            return $this->responseNotFoundError();
-        }
-
-        $media->load('mediaable');
-
-        if(! ($media->mediaable instanceof Post) || $media->mediaable->user_id !== me()->id) {
-            return $this->responseUnauthorizedError();
-        }
-
-        $metadata = $media->metadata ?? [];
-
-        if(
-            ! in_array(data_get($metadata, 'provider'), ['r2_temp', 'r2_direct'], true) ||
-            data_get($metadata, 'upload_type') !== 'raw' ||
-            data_get($metadata, 'upload_state') === 'uploaded'
-        ) {
-            return $this->responseValidationError([
-                'message' => 'Invalid direct upload session.',
-                'errors' => [
-                    'video' => [
-                        'Invalid direct upload session.'
-                    ]
-                ]
-            ]);
-        }
-
-        $videoFile = $request->file('video');
-        $requestStream = null;
-        $readStream = null;
-        $videoSize = (int) ($videoFile?->getSize() ?? 0);
-        $contentType = (string) ($videoFile?->getMimeType() ?: $request->input('content_type') ?: $media->mime ?: 'video/mp4');
-        $maxRawFallbackSize = max(5, (int) config('media.cloudflare.r2.raw_fallback_max_mb', 8)) * 1024 * 1024;
-
-        if(! $videoFile) {
-            $requestStream = $this->openRawRequestStream($request);
-            $readStream = $requestStream['stream'] ?? null;
-            $videoSize = (int) ($requestStream['size'] ?? 0);
-        }
-
-        if($videoSize < 1 || $videoSize > ($maxRawFallbackSize + (1024 * 1024))) {
-            return $this->responseValidationError([
-                'message' => 'Video is too large for server fallback upload.',
-                'errors' => [
-                    'video' => [
-                        'Video is too large for server fallback upload.'
-                    ]
-                ]
-            ]);
-        }
-
-        if($videoFile) {
-            $readStream = fopen($videoFile->getRealPath(), 'rb');
-        }
-
-        if(! is_resource($readStream)) {
-            return $this->responseValidationError([
-                'message' => 'Unable to read uploaded video file.',
-                'errors' => [
-                    'video' => [
-                        'Unable to read uploaded video file.'
-                    ]
-                ]
-            ]);
-        }
-
-        try {
-            $r2DirectUploadService->uploadRawObject(
-                $media->source_path,
-                $readStream,
-                $contentType ?: (string) ($media->mime ?: 'video/mp4'),
-                $media->disk
-            );
-        }
-        catch (Exception $e) {
-            return $this->responseValidationError([
-                'message' => $e->getMessage(),
-                'errors' => [
-                    'video' => [
-                        $e->getMessage()
-                    ]
-                ]
-            ]);
-        }
-        finally {
-            fclose($readStream);
-        }
-
-        return $this->responseSuccess([
-            'data' => [
-                'uploaded' => true,
-            ]
-        ]);
+        abort(response()->json([
+            'message' => 'Application-server media proxy uploads are disabled. Retry through the signed R2 URL.',
+            'code' => 'direct_upload_required',
+        ], 410));
     }
 
     public function uploadVideoPart(Request $request, R2DirectUploadService $r2DirectUploadService)
     {
-        $this->rejectServerVideoUpload();
-        $request->validate([
-            'media_id' => ['required', 'integer'],
-            'uid' => ['required', 'string', 'max:255'],
-            'upload_id' => ['required', 'string', 'max:2048'],
-            'part_number' => ['required', 'integer', 'min:1', 'max:10000'],
-        ]);
-
-        $media = Media::query()->find($request->integer('media_id'));
-
-        if(empty($media) || $media->source_path !== $request->input('uid')) {
-            return $this->responseNotFoundError();
-        }
-
-        $media->load('mediaable');
-
-        if(! ($media->mediaable instanceof Post) || $media->mediaable->user_id !== me()->id) {
-            return $this->responseUnauthorizedError();
-        }
-
-        $metadata = $media->metadata ?? [];
-        $uploadId = (string) $request->input('upload_id');
-        $partNumber = $request->integer('part_number');
-
-        if(
-            ! in_array(data_get($metadata, 'provider'), ['r2_temp', 'r2_direct'], true) ||
-            data_get($metadata, 'upload_type') !== 'multipart' ||
-            data_get($metadata, 'upload_state') === 'uploaded' ||
-            $uploadId !== (string) data_get($metadata, 'upload_id')
-        ) {
-            return $this->responseValidationError([
-                'message' => 'Invalid multipart upload session.',
-                'errors' => [
-                    'video' => [
-                        'Invalid multipart upload session.'
-                    ]
-                ]
-            ]);
-        }
-
-        $partsCount = (int) data_get($metadata, 'parts_count', 0);
-
-        if($partsCount > 0 && $partNumber > $partsCount) {
-            return $this->responseValidationError([
-                'message' => 'Invalid multipart upload part number.',
-                'errors' => [
-                    'video' => [
-                        'Invalid multipart upload part number.'
-                    ]
-                ]
-            ]);
-        }
-
-        $partFile = $request->file('part');
-        $requestStream = null;
-        $readStream = null;
-        $partSize = (int) ($partFile?->getSize() ?? 0);
-
-        if(! $partFile) {
-            $requestStream = $this->openRawRequestStream($request);
-            $readStream = $requestStream['stream'] ?? null;
-            $partSize = (int) ($requestStream['size'] ?? 0);
-        }
-
-        $configuredPartSize = max(5, (int) config('media.cloudflare.r2.multipart_part_size_mb', 5)) * 1024 * 1024;
-        $expectedPartSize = (int) data_get($metadata, 'part_size', $configuredPartSize);
-        $maxPartSize = max(1, $expectedPartSize) + (1024 * 1024);
-
-        if($partSize < 1 || $partSize > $maxPartSize) {
-            return $this->responseValidationError([
-                'message' => 'Invalid multipart upload part size.',
-                'errors' => [
-                    'video' => [
-                        'Invalid multipart upload part size.'
-                    ]
-                ]
-            ]);
-        }
-
-        if($partFile) {
-            $readStream = fopen($partFile->getRealPath(), 'rb');
-        }
-
-        if(! is_resource($readStream)) {
-            return $this->responseValidationError([
-                'message' => 'Unable to read uploaded video part.',
-                'errors' => [
-                    'video' => [
-                        'Unable to read uploaded video part.'
-                    ]
-                ]
-            ]);
-        }
-
-        try {
-            $etag = $r2DirectUploadService->uploadMultipartPart(
-                $media->source_path,
-                $uploadId,
-                $partNumber,
-                $readStream,
-                $media->disk
-            );
-        }
-        catch (Exception $e) {
-            return $this->responseValidationError([
-                'message' => $e->getMessage(),
-                'errors' => [
-                    'video' => [
-                        $e->getMessage()
-                    ]
-                ]
-            ]);
-        }
-        finally {
-            fclose($readStream);
-        }
-
-        return $this->responseSuccess([
-            'data' => [
-                'part_number' => $partNumber,
-                'etag' => $etag,
-            ]
-        ]);
+        abort(response()->json([
+            'message' => 'Application-server media proxy uploads are disabled. Retry through the signed R2 URL.',
+            'code' => 'direct_upload_required',
+        ], 410));
     }
 
     private function videoPresentationMetadata(Request $request): array
@@ -788,36 +481,6 @@ class DirectMediaUploadController extends Controller
         }
 
         return $metadata;
-    }
-
-    private function openRawRequestStream(Request $request): ?array
-    {
-        $requestBody = $request->getContent(true);
-
-        if(! is_resource($requestBody)) {
-            return null;
-        }
-
-        $stream = tmpfile();
-
-        if(! is_resource($stream)) {
-            return null;
-        }
-
-        $bytes = stream_copy_to_stream($requestBody, $stream);
-
-        if($bytes === false || $bytes < 1) {
-            fclose($stream);
-
-            return null;
-        }
-
-        rewind($stream);
-
-        return [
-            'stream' => $stream,
-            'size' => (int) $bytes,
-        ];
     }
 
     private function broadcastMediaUpdated(Media $media): void

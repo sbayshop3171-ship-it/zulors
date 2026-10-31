@@ -33,7 +33,7 @@ class ChatInstantAudioMessageTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_audio_init_creates_pending_message_and_dispatches_message_received_event(): void
+    public function test_legacy_audio_init_is_rejected_without_creating_an_orphan_message(): void
     {
         Event::fake([MessageReceivedEvent::class]);
         Notification::fake();
@@ -50,117 +50,34 @@ class ChatInstantAudioMessageTest extends TestCase
             'file_name' => 'voice-note.webm',
         ]);
 
-        $response->assertCreated()
-            ->assertJsonPath('data.type', 'audio')
-            ->assertJsonPath('data.relations.media.type', 'audio')
-            ->assertJsonPath('data.relations.media.status', MediaStatus::PROCESSING->value)
-            ->assertJsonPath('data.relations.media.source_url', null)
-            ->assertJsonPath('data.relations.media.metadata.duration_seconds', 12)
-            ->assertJsonPath('data.relations.media.metadata.file_name', 'voice-note.webm');
-
-        $messageData = $chat->messages()->with('media')->latest('id')->firstOrFail();
-
-        $this->assertSame('audio', $messageData->type->value);
-        $this->assertSame('', $messageData->media->source_path);
-        $this->assertSame(MediaStatus::PROCESSING, $messageData->media->status);
-        $this->assertSame('waiting_for_upload', data_get($messageData->media->metadata, 'processing_state'));
-
-        Event::assertDispatched(MessageReceivedEvent::class, 1);
+        $response->assertStatus(409)->assertJsonPath('code', 'direct_upload_required');
+        $this->assertDatabaseCount('messages', 0);
+        $this->assertDatabaseCount('media', 0);
+        Event::assertNotDispatched(MessageReceivedEvent::class);
     }
 
     public function test_audio_upload_direct_ready_marks_media_processed_and_dispatches_ready_event(): void
     {
-        Event::fake([MessageMediaReadyEvent::class]);
-        Notification::fake();
-
-        [$sender, $recipient, $chat] = $this->createDirectChat();
-
-        $this->mock(RoundRobinService::class, function($mock) {
-            $mock->shouldReceive('getNextDisk')->once()->andReturn('public');
-        });
-
-        $this->mock(AudioUploadService::class, function($mock) {
-            $mock->shouldReceive('setStorageDisk')->twice()->andReturnSelf();
-            $mock->shouldReceive('tempSaveLocally')->once()->andReturn([
-                'disk' => 'public',
-                'audio_path' => 'tmp/audios/direct-voice.m4a',
-                'duration' => parse_duration(7),
-                'duration_seconds' => 7,
-            ]);
-            $mock->shouldReceive('setNamespace')->once()->with(Filesystem::mediaNamespace('chats/audios'))->andReturnSelf();
-            $mock->shouldReceive('setDefaultExtension')->once()->with('m4a')->andReturnSelf();
-            $mock->shouldReceive('upload')->once()->with(storage_local_path('tmp/audios/direct-voice.m4a'))->andReturn([
-                'disk' => 'public',
-                'audio_path' => 'media/chats/audios/direct-voice.m4a',
-            ]);
-        });
-
+        [$sender] = $this->createDirectChat();
         Sanctum::actingAs($sender);
 
-        $messageId = $this->initPendingAudioMessage($chat, 7, 'm4a', 'audio/mp4', 'voice-note.m4a');
-
-        $response = $this->post("/api/messenger/audio/{$messageId}/upload", [
+        $this->post('/api/messenger/audio/999/upload', [
             'audio' => \Illuminate\Http\UploadedFile::fake()->create('voice-note.m4a', 16, 'audio/mp4'),
-        ]);
-
-        $response->assertOk()
-            ->assertJsonPath('data.relations.media.status', MediaStatus::PROCESSED->value)
-            ->assertJsonPath('data.relations.media.extension', 'm4a')
-            ->assertJsonPath('data.relations.media.metadata.duration_seconds', 7);
-
-        $this->assertNotNull($response->json('data.relations.media.source_url'));
-
-        $messageData = Message::query()->with('media')->findOrFail($messageId);
-
-        $this->assertSame(MediaStatus::PROCESSED, $messageData->media->status);
-        $this->assertSame('media/chats/audios/direct-voice.m4a', $messageData->media->source_path);
-        $this->assertSame('processed', data_get($messageData->media->metadata, 'processing_state'));
-
-        Event::assertDispatched(MessageMediaReadyEvent::class, 1);
+        ])->assertStatus(409)->assertJsonPath('code', 'direct_upload_required');
+        $this->assertDatabaseCount('messages', 0);
+        $this->assertDatabaseCount('media', 0);
     }
 
     public function test_audio_upload_webm_queues_processing_job(): void
     {
-        Bus::fake();
-        Notification::fake();
-
-        [$sender, $recipient, $chat] = $this->createDirectChat();
-
-        $this->mock(RoundRobinService::class, function($mock) {
-            $mock->shouldReceive('getNextDisk')->once()->andReturn('public');
-        });
-
-        $this->mock(AudioUploadService::class, function($mock) {
-            $mock->shouldReceive('setStorageDisk')->once()->andReturnSelf();
-            $mock->shouldReceive('tempSaveLocally')->once()->andReturn([
-                'disk' => 'public',
-                'audio_path' => 'tmp/audios/queued-voice.webm',
-                'duration' => parse_duration(9),
-                'duration_seconds' => 9,
-            ]);
-        });
-
+        [$sender] = $this->createDirectChat();
         Sanctum::actingAs($sender);
 
-        $messageId = $this->initPendingAudioMessage($chat, 9, 'webm', 'audio/webm', 'voice-note.webm');
-
-        $response = $this->post("/api/messenger/audio/{$messageId}/upload", [
+        $this->post('/api/messenger/audio/999/upload', [
             'audio' => UploadedFile::fake()->createWithContent('voice-note.webm', hex2bin('1A45DFA3934282847765626D')),
-        ]);
-
-        $response->assertAccepted()
-            ->assertJsonPath('data.relations.media.status', MediaStatus::PROCESSING->value)
-            ->assertJsonPath('data.relations.media.source_url', null);
-
-        $messageData = Message::query()->with('media')->findOrFail($messageId);
-
-        $this->assertSame(MediaStatus::PROCESSING, $messageData->media->status);
-        $this->assertSame('queued', data_get($messageData->media->metadata, 'processing_state'));
-        $this->assertSame('tmp/audios/queued-voice.webm', data_get($messageData->media->metadata, 'temp_path'));
-
-        Bus::assertDispatchedAfterResponse(ProcessChatAudio::class, function($job) {
-            return $job->queue === config('media.queues.audio');
-        });
+        ])->assertStatus(409)->assertJsonPath('code', 'direct_upload_required');
+        $this->assertDatabaseCount('messages', 0);
+        $this->assertDatabaseCount('media', 0);
     }
 
     public function test_process_chat_audio_marks_media_processed_and_dispatches_ready_event(): void
@@ -256,17 +173,21 @@ class ChatInstantAudioMessageTest extends TestCase
         string $mimeType = 'audio/webm',
         string $fileName = 'voice-note.webm'
     ): int {
-        $response = $this->postJson('/api/messenger/audio/init', [
-            'chat_id' => $chat->chat_id,
-            'duration_seconds' => $durationSeconds,
-            'extension' => $extension,
-            'mime_type' => $mimeType,
-            'file_name' => $fileName,
+        $participantId = $chat->participants()->where('user_id', me()->id)->value('id');
+        $message = $chat->messages()->create([
+            'content' => null, 'user_id' => me()->id, 'chat_uuid' => $chat->chat_id,
+            'participant_id' => $participantId, 'type' => \App\Enums\Chat\MessageType::AUDIO,
+            'text_language' => '',
+        ]);
+        $message->media()->create([
+            'source_path' => '', 'type' => MediaType::AUDIO, 'status' => MediaStatus::PROCESSING,
+            'disk' => '', 'extension' => '', 'mime' => '', 'size' => 0,
+            'metadata' => ['duration_seconds' => $durationSeconds, 'file_name' => $fileName,
+                'requested_extension' => $extension, 'requested_mime' => $mimeType,
+                'processing_state' => 'waiting_for_upload'],
         ]);
 
-        $response->assertCreated();
-
-        return (int) $response->json('data.id');
+        return (int) $message->id;
     }
 
     private function createDirectChat(): array

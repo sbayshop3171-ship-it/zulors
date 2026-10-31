@@ -1,6 +1,7 @@
 import { PublicationDatabase } from './database.js';
 import { NativePublicationBridge } from './native-bridge.js';
 import { transferItem } from './transfer.js';
+import { prepareMediaFile } from '../prepare-media-file.js';
 
 export const terminalStatuses = ['published', 'failed', 'cancelled', 'expired', 'auth_required'];
 const active = row => !terminalStatuses.includes(row.status);
@@ -119,7 +120,7 @@ export class PublicationManager {
         if ((descriptor.privacy ?? 'all') !== 'all' || descriptor.selected_user_ids?.length || !(this.capability.privacy_options || ['all']).includes('all')) throw new Error('Only the Everyone audience is supported for media publishing.');
         if (!selections.length) throw new Error('Select a photo or video.');
         if (selections.some(item => item.account != null && identity(item.account) !== account)) throw new Error('Account changed. Select media again.');
-        if ((descriptor.kind !== 'post' || selections.some(item => item.type === 'video')) && selections.length !== 1) throw new Error('Choose one video, or photos for a post.');
+        if ((descriptor.kind !== 'post' || selections.some(item => item.type !== 'image')) && selections.length !== 1) throw new Error('Choose one media file, or photos for a post.');
         if (selections.length > 10) throw new Error('Choose up to 10 photos.');
         const client_uid = descriptor.client_uid || crypto.randomUUID();
         const native = selections.every(item => item.native_file_id);
@@ -294,6 +295,54 @@ export class PublicationManager {
                     await this.db.update(row.key, current => ({ ...current, status: 'cancelled' }));
                     return;
                 }
+                if (!row.preparation_complete && !row.native) {
+                    row = await this.db.update(row.key, current => ({ ...current, status: 'preparing', upload_stage: 'preparing', preparation_progress: 0 }));
+                    for (const item of row.descriptor.items || []) {
+                        check();
+                        if (row.preparation_results?.[item.client_uid]) continue;
+                        const fileKey = `${row.key}:${item.client_uid}`;
+                        const source = await this.db.file(fileKey);
+                        if (!(source instanceof Blob)) throw new Error('The local media file is unavailable. Select it again.');
+                        let lastStageAt = 0;
+                        const preparation = await prepareMediaFile(source, {
+                            signal: controller.signal,
+                            onStage: stage => {
+                                const now = Date.now();
+                                if (now - lastStageAt < 1000 && stage.progress < 100) return;
+                                lastStageAt = now;
+                                const view = this.rows.find(value => value.key === row.key);
+                                if (view) {
+                                    view.status = 'preparing';
+                                    view.upload_stage = 'preparing';
+                                    view.preparation_progress = stage.progress || 0;
+                                    this.notify();
+                                }
+                                this.db.update(row.key, current => current ? ({ ...current, status: 'preparing', upload_stage: 'preparing', preparation_progress: stage.progress || 0 }) : current).catch(() => {});
+                            },
+                        });
+                        check();
+                        const preparedFile = preparation.file || source;
+                        const itemPatch = preparation.prepared ? {
+                            name: preparedFile.name || item.name,
+                            mime: preparedFile.type || item.mime,
+                            size: preparedFile.size,
+                            ...(preparation.dimensions?.width ? { width: preparation.dimensions.width, height: preparation.dimensions.height } : {}),
+                        } : {};
+                        row = await this.db.updateFileAndPublication(row.key, fileKey, preparedFile, current => ({
+                            ...current,
+                            descriptor: { ...current.descriptor, items: current.descriptor.items.map(value => value.client_uid === item.client_uid ? { ...value, ...itemPatch } : value) },
+                            preparation_results: { ...(current.preparation_results || {}), [item.client_uid]: {
+                                prepared: preparation.prepared,
+                                reason: preparation.reason || null,
+                                compression_ratio: preparation.compression_ratio || 0,
+                            } },
+                            upload_stage: item.type === 'video' && !preparation.prepared ? 'video_not_compressed' : 'preparing',
+                            preparation_progress: 100,
+                        }));
+                        await preparation.cleanup?.();
+                    }
+                    row = await this.db.update(row.key, current => current ? ({ ...current, preparation_complete: true, status: 'queued', upload_stage: 'prepared', preparation_progress: 100 }) : current);
+                }
                 row = await this.db.update(row.key, current => ({ ...current, create_attempted: true }));
                 row = await this.savePublication(row, await request('POST', '', row.descriptor));
             }
@@ -361,7 +410,7 @@ export class PublicationManager {
                         const done = all.filter(value => value.id !== item.id && ['processed', 'processing', 'uploaded'].includes(value.status)).reduce((sum, value) => sum + value.size, 0);
                         progress = Math.round((done + item.size * progress / 100) / size * 100);
                         const view = this.rows.find(view => view.key === row.key);
-                        if (view) { view.progress = progress; view.status = 'uploading'; this.notify(); }
+                        if (view) { view.progress = progress; view.status = 'uploading'; view.upload_stage = 'uploading'; this.notify(); }
                         if (!this.lastProgressSave || Date.now() - this.lastProgressSave > 750 || progress === 100) {
                             this.lastProgressSave = Date.now();
                             this.db.update(row.key, current => current && !current.cancel_requested ? { ...current, progress } : current).then(() => this.broadcast()).catch(() => {});

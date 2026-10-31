@@ -4,6 +4,7 @@
             v-if="visibleMedia.length === 1"
             v-bind:mediaItem="visibleMedia[0]"
             v-bind:isSensitive="isSensitive"
+            v-bind:fitToViewport="fitToViewport"
             v-bind:loading="isPriority ? 'eager' : 'lazy'"
             v-bind:fetchPriority="isPriority ? 'high' : 'auto'"
             v-on:click="selectImage(0, $event)"
@@ -28,6 +29,7 @@
                     <ContentImage
                         v-bind:mediaItem="mediaItem"
                         v-bind:isSensitive="isSensitive"
+                        v-bind:fitToViewport="fitToViewport"
                         v-bind:loading="isPriority && index === 0 ? 'eager' : 'lazy'"
                         v-bind:fetchPriority="isPriority && index === 0 ? 'high' : 'auto'"
                         v-on:click="selectImage(index, $event)"
@@ -64,6 +66,7 @@
             isSensitive: { type: Boolean, default: false },
             isPriority: { type: Boolean, default: false },
             isSelectable: { type: Boolean, default: false },
+            fitToViewport: { type: Boolean, default: false },
         },
         setup(props, context) {
             const swiperElement = ref(null);

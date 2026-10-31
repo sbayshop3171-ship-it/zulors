@@ -57,3 +57,9 @@ Uploaded user files must live outside disposable release folders. The live deplo
 Every deploy links `storage/app/public` to that shared folder before the release is promoted. The deploy also refuses to continue if the shared media guard would reduce the number of existing user avatar/cover files.
 
 Do not manually delete, replace, or rsync `storage/app/public` with `--delete`. User uploads, profile photos, cover photos, post images, and videos are runtime data, not source code.
+
+## Direct R2 Upload Release Gate
+
+The direct R2 upload implementation and the pre-PHP Nginx guards are documented in [the upload audit](upload-flow-audit.md). The live deploy script runs additive database migrations, but it does not update an externally managed VPS Nginx virtual host or enable R2 credentials. Before publishing this upload change, apply the new Nginx guard to the actual host, verify it with `nginx -t`, configure separate R2 temp/final buckets and CORS, apply the temp lifecycle rule, and validate a full upload/resume flow in staging. Keep `R2_DIRECT_UPLOAD_ENABLED=false` until those checks pass.
+
+The website deploy does not exercise a real Android WebView, network interruption, or live R2. Video re-encoding on a user device is intentionally disabled. Those checks must pass in staging before enabling a new release for users. No production deploy was performed as part of this change.

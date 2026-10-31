@@ -417,6 +417,7 @@ class GroupController extends Controller
 
     public function updateGroupAvatar(Request $request)
     {
+        abort(response()->json(['message' => 'Group avatars must use the signed direct R2 upload flow.', 'code' => 'direct_upload_required'], 409));
         $request->validate([
             'avatar_file' => [
                 'required',
@@ -448,11 +449,12 @@ class GroupController extends Controller
 
         if(! empty($imageData)) {
             if(! $groupData->hasDefaultAvatar() && ! empty($groupData->avatar)) {
-                $fileDeleteService->setStorageDisk(static_storage_disk())->deleteFile($groupData->avatar);
+                $fileDeleteService->setStorageDisk($groupData->avatar_disk ?: static_storage_disk())->deleteFile($groupData->avatar);
             }
 
             $groupData->update([
-                'avatar' => $imageData['image_path']
+                'avatar' => $imageData['image_path'],
+                'avatar_disk' => static_storage_disk(),
             ]);
 
             return $this->responseSuccess([

@@ -75,7 +75,7 @@ class PublicationFinalizerTest extends TestCase
             'marks' => ['is_sensitive' => true, 'is_ai_generated' => true],
         ]);
         $last = $publication->items()->orderByDesc('position')->first();
-        $last->update(['status' => 'processing']);
+        $last->update(['status' => 'uploading']);
 
         $this->assertSame('processing', $this->finalize($publication)->status);
         $this->assertSame(1, Post::count());

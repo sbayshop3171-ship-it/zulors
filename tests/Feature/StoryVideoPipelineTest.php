@@ -104,16 +104,19 @@ class StoryVideoPipelineTest extends TestCase
             'source_path' => 'uploads/stories/raw_videos/story-upload.mp4',
             'thumbnail_path' => 'uploads/stories/video_thumbnails/story-thumb.webp',
             'type' => \App\Enums\Media\MediaType::VIDEO,
-            'status' => MediaStatus::UNPROCESSED,
-            'disk' => 'r2_temp',
+            'status' => MediaStatus::PROCESSED,
+            'disk' => 'r2_final',
             'thumbnail_disk' => 'r2_final',
             'extension' => 'mp4',
             'mime' => 'video/mp4',
             'size' => 345678,
             'thumbnail_size' => 12345,
             'metadata' => [
-                'provider' => 'r2_temp',
+                'provider' => 'r2',
                 'upload_state' => 'uploaded',
+                'processing_state' => 'processed',
+                'processing_mode' => 'original_direct',
+                'background_processing_state' => 'skipped',
                 'temp_disk' => 'r2_temp',
                 'final_disk' => 'r2_final',
             ],
@@ -132,16 +135,17 @@ class StoryVideoPipelineTest extends TestCase
 
         $this->assertSame(StoryStatus::ACTIVE, $frame->status);
         $this->assertSame(MediaStatus::PROCESSED, $media->status);
-        $this->assertSame('queued', data_get($media->metadata, 'processing_state'));
+        $this->assertSame('processed', data_get($media->metadata, 'processing_state'));
         $this->assertSame(100, data_get($media->metadata, 'processing_progress'));
-        $this->assertSame('queued', data_get($media->metadata, 'background_processing_state'));
-        $this->assertSame(0, data_get($media->metadata, 'background_processing_progress'));
+        $this->assertSame('skipped', data_get($media->metadata, 'background_processing_state'));
+        $this->assertSame('original_direct', data_get($media->metadata, 'processing_mode'));
+        $this->assertSame(100, data_get($media->metadata, 'background_processing_progress'));
         $this->assertTrue(data_get($media->metadata, 'instant_publish'));
 
-        Queue::assertPushed(ProcessStoryVideo::class);
+        Queue::assertNotPushed(ProcessStoryVideo::class);
     }
 
-    public function test_story_direct_upload_publishes_immediately_and_optimizes_in_background(): void
+    public function test_story_direct_upload_publishes_immediately_without_background_processing(): void
     {
         Queue::fake();
         \Illuminate\Support\Facades\Storage::fake('r2_temp');
@@ -153,25 +157,31 @@ class StoryVideoPipelineTest extends TestCase
         $created = $this->postJson('/api/story/editor/media/video/direct/create', [
             'name' => 'sample.mp4', 'size' => 1024, 'duration_seconds' => 10,
             'mime' => 'video/mp4', 'extension' => 'mp4',
-        ])->assertOk()->assertJsonPath('data.direct_upload', true)->assertJsonPath('data.source_url', null);
+        ])->assertOk()->assertJsonPath('data.direct_upload', true);
+        $this->assertNull($created->json('data.source_url'));
+        $this->assertNull($created->json('data.preview_url'));
         $upload = $created->json('data');
         $identity = ['media_id' => $upload['media_id'], 'uid' => $upload['uid'], 'upload_id' => $upload['upload_id']];
         $this->postJson('/api/story/editor/create', [])->assertUnprocessable();
         $this->postJson('/api/story/editor/media/video/direct/complete', $identity)->assertUnprocessable();
         \Illuminate\Support\Facades\Storage::disk('r2_temp')->put($upload['uid'], str_repeat('x', 1024));
-        $this->postJson('/api/story/editor/media/video/direct/complete', $identity + [
+        $completed = $this->postJson('/api/story/editor/media/video/direct/complete', $identity + [
             'parts' => [['part_number' => 1, 'etag' => 'test']],
-        ])->assertOk()->assertJsonPath('data.metadata.upload_state', 'uploaded')->assertJsonPath('data.source_url', null);
+        ])->assertOk()
+            ->assertJsonPath('data.metadata.upload_state', 'uploaded')
+            ->assertJsonPath('data.metadata.processing_state', 'processed');
+        $this->assertNotEmpty($completed->json('data.source_url'));
         Queue::assertNothingPushed();
         $this->postJson('/api/story/editor/create', ['content' => 'Ready to process'])
             ->assertOk()
             ->assertJsonPath('data.status', StoryStatus::ACTIVE->value)
             ->assertJsonPath('data.can_open', true)
             ->assertJsonPath('data.progress.stage', 'ready');
-        Queue::assertPushedOn(config('media.queues.video_high'), ProcessStoryVideo::class);
-        \Illuminate\Support\Facades\Storage::disk('r2_final')->assertDirectoryEmpty('/');
-
+        Queue::assertNotPushed(ProcessStoryVideo::class);
         $story = $owner->fresh()->story;
+        $media = $story->frames()->with('media')->firstOrFail()->media->firstOrFail();
+        \Illuminate\Support\Facades\Storage::disk('r2_final')->assertExists($media->source_path);
+
         $viewerPayload = $this->getJson("/api/stories/stories/{$story->story_uuid}")
             ->assertOk()
             ->assertJsonPath('data.0.relations.frames.0.status', StoryStatus::ACTIVE->value)
@@ -179,7 +189,7 @@ class StoryVideoPipelineTest extends TestCase
             ->json('data.0.relations.frames.0');
 
         $this->assertNotEmpty($viewerPayload['media']['source_url']);
-        $this->assertSame('queued', data_get($viewerPayload, 'media.metadata.background_processing_state'));
+        $this->assertSame('skipped', data_get($viewerPayload, 'media.metadata.background_processing_state'));
         $this->assertTrue(data_get($viewerPayload, 'media.metadata.instant_publish'));
     }
 

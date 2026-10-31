@@ -39,6 +39,7 @@ async function editorHarness(platform, { fallback = false, fail = false } = {}) 
     const requests = [];
     const calls = [];
     const timeline = [];
+    const preparationCalls = [];
     let storedMedia = null;
     const pendingMedia = () => ({ id: 101, type: 'video', status: 'processing', source_url: null, metadata: { duration: 100, upload_state: 'uploaded', processing_state: 'queued' } });
     const store = vue.reactive({
@@ -96,6 +97,11 @@ async function editorHarness(platform, { fallback = false, fail = false } = {}) 
         ['@/kernel/services/media/post-media-preview.js', previews],
         ['@/kernel/services/media/multipart-upload-progress.js', progress],
         ['@/kernel/services/media/media-preview-sizing.js', previewSizing],
+        ['@/kernel/services/media/prepare-media-file.js', { prepareVideoFile: async (file, options) => {
+            preparationCalls.push(file);
+            options.onStage({ stage: 'preparing', progress: 40 });
+            return { file, prepared: false, reason: 'device_encoder_unavailable', cleanup: async () => {} };
+        } }],
         ['@/kernel/vue/composables/media-preview-bounds.js', {
             useMediaPreviewBounds: () => ({ bounds: vue.ref({ width: 390, height: 600 }), refresh() {} }),
         }],
@@ -153,7 +159,7 @@ async function editorHarness(platform, { fallback = false, fail = false } = {}) 
         fn => { queueMicrotask(fn); return 0; }, () => {}, () => {}, { vibrate() {} },
     );
     const editor = component.setup({}, {});
-    return { editor, store, revoked, requests, calls, timeline, unmount };
+    return { editor, store, revoked, requests, calls, timeline, unmount, preparationCalls };
 }
 
 async function videoPreviewHarness(platform, play = async () => {}) {
@@ -322,6 +328,8 @@ for(const platform of Object.keys(paths)) {
             const file = new File(['01234567890123456789'], 'video.mp4', { type: 'video/mp4' });
             h.editor.onVideoSelect({ target: { files: [file] } });
             await waitFor(() => h.requests.length === 2);
+            assert.deepEqual(h.preparationCalls, [], 'video upload must not invoke a device encoder');
+            assert.equal(h.editor.state.videoUploadStage, 'uploading', 'video upload starts directly with R2');
             assert.equal(h.editor.submitButtonStatus.value, true);
             h.editor.deletePostMedia(h.editor.postMedia.value[0]);
             assert.equal(h.revoked.length, 0, 'cannot remove an active upload');

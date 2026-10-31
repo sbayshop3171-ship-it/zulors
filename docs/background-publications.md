@@ -1,16 +1,22 @@
 # Background Publications
 
+> Current source note (2026-10-30): historical rollout notes below describe the
+> earlier VPS FFmpeg implementation. The current source sends new videos
+> unchanged to R2 and publishes after R2 verification; it does not run a VPS or
+> device video encoder. See [upload-flow-audit.md](upload-flow-audit.md) for the
+> current flow. A cloud transcoder has not been selected or configured.
+
 ## Scope
 
 Background publications let a user select media, press Publish or Send, leave the
-editor, and watch progress from Home, Chat, or the native Android notification. The
-server does not expose the post, story, or message until every attachment is uploaded,
-processed, and attached in the final publish transaction.
+editor, and watch progress from Home or Chat. The server creates the post, story or
+message after R2 verifies each uploaded object and stores its R2 key. A separate
+video transcode step is not part of the current path.
 
-This release is additive and flag gated. It uses the existing R2 temp/final buckets,
-Redis/Horizon queues, and FFmpeg workers. It does not add iOS native background upload,
-new paid infrastructure, Cloudflare Stream, audio/document upload changes, or a
-separate GIF workflow.
+The browser publication outbox uses the existing R2 temp/final buckets and shared
+Redis/cache for idempotency. New uploads do not dispatch video FFmpeg jobs. It does
+not add iOS native background upload, new paid infrastructure, Cloudflare Stream,
+audio/document upload changes, or a separate GIF workflow.
 
 As of the 2026-09-09 live deployment and follow-up activation, the code, migration,
 routes and scheduler entry are deployed to https://zulors.com, and
@@ -60,8 +66,8 @@ the same work without duplicate posts.
 
 Publication status moves through `uploading`, `processing`, `publishing`, and
 `published`, with `waiting`, `failed`, and `cancelled` for non-happy paths. Raw
-uploads remain private in `r2_temp`. Completed public media is written to `r2_final`
-only by server-side processing.
+uploads remain private in `r2_temp`; after verification, R2 promotes each object to
+`r2_final` with a storage-side copy. No media body is sent through Laravel.
 
 ## Android
 
@@ -95,14 +101,16 @@ percentage and server processing status are separate states.
 New publications store `balanced_v1` at creation time, so future tuning does not change
 already accepted work.
 
-Images are auto-oriented, stripped of unnecessary metadata, converted to WebP quality
-84, and capped to a 2048px long edge for Post and Chat. Story images fit into the
-existing vertical story presentation. GIF and animated PNG/WebP are intentionally
-rejected from this new path.
+Eligible images are auto-oriented, stripped of unnecessary metadata, converted to
+WebP quality 86, and capped to a 2048px long edge in a browser worker when that
+reduces size. Otherwise, the original image is retained. GIF and animated PNG/WebP
+are intentionally rejected from this path.
 
-Videos are H.264 MP4 with AAC audio up to 128 kbps, CRF 24, `veryfast`, max 30 fps, and
-a WebP poster. Post/Story video fits within 1080x1920 without upscaling. Chat keeps the
-existing 720px square policy.
+Videos and documents are unchanged. Video is stored and served from R2 as provided;
+there is no H.264/AAC transcode or thumbnail generation in the current pipeline.
+Playback depends on the original codec. R2 does not compress media. A background
+cloud encoder that reads and writes R2 would incur compute charges and needs a
+separate deployment and measurement before it can be added.
 
 Compression is server-side. Original and optimized byte counts are recorded, but no
 specific final MB size is guaranteed for every file.
@@ -119,9 +127,9 @@ specific final MB size is guaranteed for every file.
 6. Test minimize, screen lock, app reopen, retry, cancel, auth expiry, and network
    interruption on a real Android device.
 7. Run one representative 500 MB+ browser/app video and at most two simultaneous uploads.
-8. Watch oldest queued video age, failure rate, web latency, FFmpeg child RSS, CPU, and
-   scratch disk. Stop rollout if queue age approaches 15 minutes or web p95 latency is
-   double baseline.
+8. Watch upload failure/resume rate, R2 temp/final object counts, R2 stored bytes,
+   rejected PHP upload bytes, VPS media-temp disk use and web latency. Stop rollout
+   if duplicate publication or unexpected VPS media-body traffic appears.
 
 Rollback is config-first: set `MEDIA_PUBLICATIONS_ENABLED=false`, clear Laravel config
 cache, and gracefully restart Horizon. Existing admitted rows stay recoverable or

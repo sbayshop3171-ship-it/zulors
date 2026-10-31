@@ -203,28 +203,18 @@
                         await mediaPublication.submit();
                         return;
                     }
-                } catch (error) { alert(error.message); return; }
-
-                await chatStore.sendMediaMessage({
-                    type: 'video',
-                    file: videoData.blob,
-                    extension: videoData.blob.type.includes('mp4') ? 'mp4' : 'webm',
-                    duration: videoData.duration,
-                });
+                    throw new Error('Resumable R2 uploads are unavailable. The video was not sent to the application server.');
+                } catch (error) { alert(error.message); }
             }
 
             const sendAudio = async (audioData) => {
                 state.audioRecorder.open = false;
-
-                await chatStore.sendAudioMessage({
-                    extension: inferAudioExtension(audioData.mimeType || audioData.blob.type, 'webm'),
-                    file: audioData.blob,
-                    duration: audioData.duration,
-                    mime_type: audioData.mimeType || audioData.blob.type,
-                    parent_id: getReplyId(),
-                    parent_message: repliedMessage.value,
-                });
-
+                const extension = inferAudioExtension(audioData.mimeType || audioData.blob.type, 'webm');
+                const mime = audioData.mimeType || audioData.blob.type || `audio/${extension}`;
+                const file = new File([audioData.blob], `voice-note-${Date.now()}.${extension}`, { type: mime === 'video/webm' ? 'audio/webm' : mime });
+                file.duration_seconds = audioData.duration;
+                if (!await mediaPublication.select(file)) { alert('Direct R2 audio uploads are unavailable. The recording was not sent to the application server.'); return; }
+                await mediaPublication.submit();
                 clearReplyAfterSend();
                 colibriSounds.chatMessageSent();
             }
@@ -271,92 +261,28 @@
                     if (await mediaPublication.select(file)) { resetFileInput(event); return; }
                 } catch (error) { alert(error.message); return; }
 
-                if(! file) {
-                    return false;
-                }
-
-                try {
-                    state.isSubmitting = true;
-
-                    await chatStore.sendMediaMessage({
-                        type: 'image',
-                        extension: getFileExtension(file),
-                        file: file,
-                        name: file.name,
-                        parent_id: getReplyId(),
-                    });
-
-                    clearReplyAfterSend();
-                }
-                catch(error) {
-                    alert(error);
-                }
-                finally {
-                    state.isSubmitting = false;
-                    resetFileInput(event);
-                }
+                if(file) alert('Direct R2 photo uploads are unavailable. The file was not sent to the application server.');
+                resetFileInput(event);
             }
 
             const sendVideoFile = async (event) => {
                 const file = event.target.files[0];
                 try {
                     if (await mediaPublication.select(file)) { resetFileInput(event); return; }
-                } catch (error) { alert(error.message); return; }
-
-                if(! file) {
-                    return false;
-                }
-
-                try {
-                    state.isSubmitting = true;
-
-                    await chatStore.sendMediaMessage({
-                        type: 'video',
-                        extension: getFileExtension(file),
-                        file: file,
-                        name: file.name,
-                        duration: await getVideoDuration(file),
-                        parent_id: getReplyId(),
-                    });
-
-                    clearReplyAfterSend();
-                }
-                catch(error) {
-                    alert(error);
-                }
-                finally {
-                    state.isSubmitting = false;
-                    resetFileInput(event);
-                }
+                    throw new Error('Resumable R2 uploads are unavailable. The video was not sent to the application server.');
+                } catch (error) { if (file) alert(error.message); }
+                resetFileInput(event);
             }
 
             const sendDocument = async (event) => {
                 const file = event.target.files[0];
-
-                if(! file) {
-                    return false;
-                }
-
+                if(!file) return;
                 try {
-                    state.isSubmitting = true;
-
-                    await chatStore.sendMediaMessage({
-                        type: 'document',
-                        extension: getFileExtension(file),
-                        file: file,
-                        name: file.name,
-                        parent_id: getReplyId(),
-                    });
-
+                    if (!await mediaPublication.select(file)) throw new Error('Direct R2 document uploads are unavailable. The file was not sent to the application server.');
+                    await mediaPublication.submit();
                     clearReplyAfterSend();
-                }
-                catch(error) {
-                    alert(error);
-                }
-                finally {
-                    state.isSubmitting = false;
-                    resetFileInput(event);
-                }
+                } catch(error) { alert(error.message); }
+                finally { resetFileInput(event); }
             }
 
             const closeAttachments = () => {

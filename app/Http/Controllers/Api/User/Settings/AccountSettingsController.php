@@ -162,6 +162,7 @@ class AccountSettingsController extends Controller
 
     public function updateAvatar(Request $request)
     {
+        abort(response()->json(['message' => 'Profile photos must use the signed direct R2 upload flow.', 'code' => 'direct_upload_required'], 409));
         $request->validate([
             'avatar' => ['required', 'image', config('user.validation.avatar.mimes'), config('user.validation.avatar.max')]
         ]);
@@ -179,11 +180,12 @@ class AccountSettingsController extends Controller
 
         if(! empty($imageData)) {
             if(! me()->hasDefaultAvatar() && ! empty($this->me->avatar)) {
-                $fileDeleteService->setStorageDisk(static_storage_disk())->deleteFile($this->me->avatar);
+                $fileDeleteService->setStorageDisk($this->me->avatar_disk ?: static_storage_disk())->deleteFile($this->me->avatar);
             }
 
             $this->me->update([
-                'avatar' => $imageData['image_path']
+                'avatar' => $imageData['image_path'],
+                'avatar_disk' => static_storage_disk(),
             ]);
 
             return $this->responseSuccess([
@@ -196,6 +198,7 @@ class AccountSettingsController extends Controller
 
     public function updateCover(Request $request)
     {
+        abort(response()->json(['message' => 'Profile covers must use the signed direct R2 upload flow.', 'code' => 'direct_upload_required'], 409));
         $request->validate([
             'cover' => ['required', 'image', config('user.validation.cover.mimes'), config('user.validation.cover.max')]
         ]);
@@ -213,11 +216,12 @@ class AccountSettingsController extends Controller
 
         if(! empty($imageData)) {
             if(! me()->hasDefaultCover() && ! empty($this->me->cover)) {
-                $fileDeleteService->setStorageDisk(static_storage_disk())->deleteFile($this->me->cover);
+                $fileDeleteService->setStorageDisk($this->me->cover_disk ?: static_storage_disk())->deleteFile($this->me->cover);
             }
 
             $this->me->update([
-                'cover' => $imageData['image_path']
+                'cover' => $imageData['image_path'],
+                'cover_disk' => static_storage_disk(),
             ]);
 
             return $this->responseSuccess([

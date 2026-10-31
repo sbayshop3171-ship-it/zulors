@@ -39,7 +39,7 @@ return [
                 'video/quicktime',
                 'video/webm'
             ]),
-            'max' => env('POST_VIDEO_MAX_SIZE', 1048576) // 1GB
+            'max' => env('POST_VIDEO_MAX_SIZE', 8388608) // 8 GiB in KiB
         ],
         'audio' => [
             'mimes' => join(',', [

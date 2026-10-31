@@ -163,6 +163,7 @@ ssh "${SSH_OPTS[@]}" "${LIVE_USER}@${LIVE_HOST}" "set -e && \
 	grep -q '^APP_KEY=' .env && \
 	INSTALL_DEPS='$((1 - DEPLOY_PREBUILT_ASSETS))' BUILD_ASSETS='$((1 - DEPLOY_PREBUILT_ASSETS))' RUN_MIGRATIONS=0 RESTART_HORIZON=0 SHARED_STORAGE_PUBLIC_PATH='$SHARED_STORAGE_PUBLIC' SHARED_STORAGE_SESSIONS_PATH='$SHARED_STORAGE_SESSIONS' bash deploy/live-deploy.sh && \
 	php artisan config:clear >/dev/null && \
+		php deploy/preflight-live-connections.php && \
 	php artisan route:list --no-ansi >/dev/null && \
 	php artisan about --only=environment --no-ansi >/dev/null"
 

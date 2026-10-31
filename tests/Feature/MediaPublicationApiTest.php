@@ -46,7 +46,7 @@ class MediaPublicationApiTest extends TestCase
             'media.publications.video_limit' => 2,
             'media.publications.max_queue_age_seconds' => 900,
             'media.uploads.video.max_bytes' => 2048,
-            'media.uploads.video.max_duration_seconds' => 600,
+            'media.uploads.video.max_duration_seconds' => 3600,
             'post.max_images_count' => 3,
             'post.validation.image.max' => 1,
             'post.validation.video.max' => 2,
@@ -69,6 +69,17 @@ class MediaPublicationApiTest extends TestCase
         $this->r2->shouldReceive('publicationUploadConcurrency')->andReturnUsing(
             fn () => max(2, min(4, (int) config('media.cloudflare.r2.upload_concurrency', 4)))
         )->byDefault();
+        $this->r2->shouldReceive('publishUploadedObject')->andReturnUsing(function ($tempPath, $targetPrefix, $extension, $mime, $sourceDisk = null) {
+            $sourceDisk = $sourceDisk ?: 'r2_temp';
+            $targetDisk = 'r2_final';
+            $targetPath = trim($targetPrefix, '/').'/'.sha1($sourceDisk.'|'.$tempPath).'.'.$extension;
+            $source = Storage::disk($sourceDisk);
+            $target = Storage::disk($targetDisk);
+            if (! $target->exists($targetPath)) $target->put($targetPath, $source->get($tempPath));
+            $size = (int) $target->size($targetPath);
+            $source->delete($tempPath);
+            return ['disk' => $targetDisk, 'path' => $targetPath, 'size' => $size];
+        })->byDefault();
     }
 
     public function test_feature_flag_and_canary_control_capabilities_and_new_admission(): void
@@ -262,7 +273,7 @@ class MediaPublicationApiTest extends TestCase
             'invalid publication uuid' => ['client_uid', 'invalid', 'client_uid'],
             'invalid kind' => ['kind', 'album', 'kind'],
             'empty items' => ['items', [], 'items'],
-            'unknown type' => ['items.0.type', 'audio', 'items.0.type'],
+            'unknown type' => ['items.0.type', 'archive', 'items.0.type'],
             'image mime mismatch' => ['items.0.mime', 'video/mp4', 'items.0'],
             'executable mime' => ['items.0.mime', 'application/x-php', 'items.0'],
             'svg image' => ['items.0.mime', 'image/svg+xml', 'items.0'],
@@ -301,7 +312,7 @@ class MediaPublicationApiTest extends TestCase
         return [
             'zero duration' => ['duration_seconds', 0],
             'negative duration' => ['duration_seconds', -1],
-            'excessive duration' => ['duration_seconds', 601],
+            'excessive duration' => ['duration_seconds', 3601],
             'excessive bytes' => ['size', 2049],
             'image mime mismatch' => ['mime', 'image/jpeg'],
         ];
@@ -325,7 +336,7 @@ class MediaPublicationApiTest extends TestCase
         $this->postJson(self::API, $image)->assertCreated();
         $video = $this->payload('post', 'video');
         $video['items'][0]['size'] = 2048;
-        $video['items'][0]['duration_seconds'] = 600;
+        $video['items'][0]['duration_seconds'] = 3600;
         $this->postJson(self::API, $video)->assertCreated();
         $this->assertDatabaseCount('media_publications', 2);
         $this->assertNoPublishedEntities();
@@ -530,35 +541,35 @@ class MediaPublicationApiTest extends TestCase
         Bus::assertNothingDispatched();
     }
 
-    public function test_repeated_raw_completion_queues_processing_once_and_never_creates_public_media(): void
+    public function test_repeated_raw_completion_publishes_once_without_vps_media_processing(): void
     {
         $this->actingAs($this->createUser());
         $publication = $this->createPublication();
         $session = $this->startUpload($publication);
         Storage::disk('r2_temp')->put($session['upload']['path'], str_repeat('x', 16));
-        $queuedAt = null;
+        $resultId = null;
         for ($attempt = 0; $attempt < 2; $attempt++) {
             $this->postJson($this->itemUrl($publication, 'complete'), ['generation' => $session['generation'], 'parts' => []])
-                ->assertOk()->assertJsonPath('data.status', 'processing')->assertJsonPath('data.result', null)
-                ->assertJsonPath('data.items.0.status', 'uploaded')->assertJsonPath('data.items.0.progress', 100);
+                ->assertOk()->assertJsonPath('data.status', 'published')
+                ->assertJsonPath('data.items.0.status', 'processed')->assertJsonPath('data.items.0.progress', 100);
             $item = $publication->items[0]->refresh();
             if ($attempt === 0) {
-                $queuedAt = $item->queued_at;
+                $resultId = $publication->refresh()->result['id'];
                 $this->travel(1)->minutes();
             } else {
-                $this->assertTrue($queuedAt->equalTo($item->queued_at));
+                $this->assertSame($resultId, $publication->refresh()->result['id']);
             }
         }
-        Bus::assertDispatchedTimes(ProcessPublicationItem::class, 1);
-        Bus::assertDispatched(ProcessPublicationItem::class, fn ($job) => $job->itemId === $publication->items[0]->id
-            && $job->generation === $session['generation'] && $job->afterCommit === true);
+        Bus::assertNotDispatched(ProcessPublicationItem::class);
         Bus::assertNotDispatched(FinalizePublication::class);
         $this->assertNotNull($publication->items[0]->refresh()->dispatched_at);
-        $this->assertNoPublishedEntities();
-        Storage::disk('r2_temp')->assertExists($session['upload']['path']);
+        $this->assertDatabaseCount('posts', 1);
+        $this->assertDatabaseCount('media', 1);
+        Storage::disk('r2_temp')->assertMissing($session['upload']['path']);
+        Storage::disk('r2_final')->assertExists($publication->items[0]->refresh()->output['source_path']);
     }
 
-    public function test_multipart_completion_uses_only_the_owned_session_and_queues_once(): void
+    public function test_multipart_completion_uses_only_the_owned_session_and_publishes_once(): void
     {
         $this->actingAs($this->createUser());
         $publication = $this->createPublication($this->payload('post', 'video'));
@@ -574,9 +585,9 @@ class MediaPublicationApiTest extends TestCase
             'path' => 'other-users/source.mp4', 'disk' => 'local', 'upload_id' => 'forged-session'];
         $this->postJson($this->itemUrl($publication, 'complete'), $request)->assertOk()
             ->assertJsonPath('data.status', 'published')
-            ->assertJsonPath('data.items.0.status', 'uploaded');
+            ->assertJsonPath('data.items.0.status', 'processed');
         $this->postJson($this->itemUrl($publication, 'complete'), $request)->assertOk();
-        Bus::assertDispatchedTimes(ProcessPublicationItem::class, 1);
+        Bus::assertNotDispatched(ProcessPublicationItem::class);
         $this->assertDatabaseCount('posts', 1);
         $this->assertDatabaseCount('media', 1);
     }
@@ -592,7 +603,7 @@ class MediaPublicationApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.status', 'published')
             ->assertJsonPath('data.result.type', 'story')
-            ->assertJsonPath('data.items.0.status', 'uploaded')
+            ->assertJsonPath('data.items.0.status', 'processed')
             ->assertJsonPath('data.items.0.progress', 100);
 
         $frame = \App\Models\StoryFrame::with('media')->firstOrFail();
@@ -600,12 +611,12 @@ class MediaPublicationApiTest extends TestCase
 
         $this->assertSame('active', $frame->status->value);
         $this->assertSame('processed', $media->status->value);
-        $this->assertSame('queued', data_get($media->metadata, 'background_processing_state'));
-        $this->assertTrue(data_get($media->metadata, 'instant_publish'));
+        $this->assertSame('skipped', data_get($media->metadata, 'background_processing_state'));
+        $this->assertSame('original_direct', data_get($media->metadata, 'processing_mode'));
         $this->assertDatabaseCount('stories', 1);
         $this->assertDatabaseCount('story_frames', 1);
         $this->assertDatabaseCount('media', 1);
-        Bus::assertDispatchedTimes(ProcessPublicationItem::class, 1);
+        Bus::assertNotDispatched(ProcessPublicationItem::class);
     }
 
     public static function invalidCompletions(): array
@@ -738,7 +749,7 @@ class MediaPublicationApiTest extends TestCase
             ->assertJsonPath('data.generation', $session['generation']);
         Bus::assertNothingDispatched();
         $this->postJson($this->itemUrl($publication, 'complete'), ['generation' => $session['generation'], 'parts' => []])->assertOk();
-        Bus::assertDispatchedTimes(ProcessPublicationItem::class, 1);
+        Bus::assertNotDispatched(ProcessPublicationItem::class);
     }
 
     public function test_existing_publications_can_resume_complete_retry_and_cancel_after_rollout_is_disabled(): void
@@ -757,12 +768,13 @@ class MediaPublicationApiTest extends TestCase
         $session = $this->startUpload($first);
         Storage::disk('r2_temp')->put($session['upload']['path'], str_repeat('x', 16));
         $this->postJson($this->itemUrl($first, 'complete'), ['generation' => $session['generation'], 'parts' => []])->assertOk();
-        Bus::assertDispatchedTimes(ProcessPublicationItem::class, 1);
+        Bus::assertNotDispatched(ProcessPublicationItem::class);
         $second->update(['status' => 'failed', 'error' => 'Processing failed.']);
         $this->postJson(self::API.'/'.$second->id.'/retry')->assertOk()->assertJsonPath('data.error', null);
         $this->deleteJson(self::API.'/'.$second->id)->assertOk()->assertJsonPath('data.status', 'cancelled');
         Bus::assertDispatchedTimes(CleanupPublication::class, 1);
-        $this->assertNoPublishedEntities();
+        $this->assertDatabaseCount('posts', 1);
+        $this->assertDatabaseCount('media', 1);
     }
 
     public function test_cancellation_blocks_resume_completion_and_retry_and_queues_cleanup(): void
@@ -844,7 +856,7 @@ class MediaPublicationApiTest extends TestCase
         Bus::assertNothingDispatched();
     }
 
-    public function test_instant_published_video_releases_admission_capacity_while_optimization_runs(): void
+    public function test_instant_published_video_releases_admission_capacity_without_server_optimization(): void
     {
         config(['media.publications.per_user_limit' => 1, 'media.publications.video_limit' => 1]);
         $this->actingAs($this->createUser());
@@ -854,7 +866,7 @@ class MediaPublicationApiTest extends TestCase
         $this->postJson($this->itemUrl($publication, 'complete'), ['generation' => $session['generation'], 'parts' => []])
             ->assertOk()
             ->assertJsonPath('data.status', 'published')
-            ->assertJsonPath('data.items.0.status', 'uploaded');
+            ->assertJsonPath('data.items.0.status', 'processed');
         $queuedAt = $publication->items[0]->refresh()->queued_at;
         $this->assertNotNull($queuedAt);
         $this->assertDatabaseCount('posts', 1);
@@ -875,15 +887,21 @@ class MediaPublicationApiTest extends TestCase
         $publication->update(['status' => 'failed', 'error' => 'Worker interrupted.']);
         $publication->items[0]->update(['status' => 'failed']);
         $processed = $publication->items[1];
-        $processed->update(['status' => 'processed', 'generation' => 1, 'output' => ['disk' => 'r2_final', 'source_path' => 'optimized/photo.webp']]);
+        Storage::disk('r2_final')->put('optimized/photo.jpg', str_repeat('p', 12));
+        $processed->update(['status' => 'processed', 'generation' => 1, 'output' => [
+            'disk' => 'r2_final', 'source_path' => 'optimized/photo.jpg', 'mime' => 'image/jpeg',
+            'extension' => 'jpg', 'size' => 12,
+        ]]);
         $before = $processed->getAttributes();
-        $this->postJson(self::API.'/'.$publication->id.'/retry')->assertOk()->assertJsonPath('data.error', null);
-        $this->assertSame('uploaded', $publication->items[0]->refresh()->status);
+        $this->postJson(self::API.'/'.$publication->id.'/retry')->assertOk()->assertJsonPath('data.error', null)
+            ->assertJsonPath('data.status', 'published');
+        $this->assertSame('processed', $publication->items[0]->refresh()->status);
         $this->assertSame($before, $processed->refresh()->getAttributes());
-        Bus::assertDispatchedTimes(ProcessPublicationItem::class, 1);
-        Bus::assertDispatchedTimes(FinalizePublication::class, 1);
-        Storage::disk('r2_temp')->assertExists($session['upload']['path']);
-        $this->assertNoPublishedEntities();
+        Bus::assertNotDispatched(ProcessPublicationItem::class);
+        Bus::assertNotDispatched(FinalizePublication::class);
+        Storage::disk('r2_temp')->assertMissing($session['upload']['path']);
+        $this->assertDatabaseCount('posts', 1);
+        $this->assertDatabaseCount('media', 2);
     }
 
     public function test_published_results_cannot_be_retried_or_cancelled_through_the_outbox(): void

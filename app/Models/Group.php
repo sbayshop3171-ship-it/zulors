@@ -42,7 +42,7 @@ class Group extends Model
             return asset(config('chat.group.avatar'));
         }
 
-        return storage_url($this->avatar, static_storage_disk());
+        return storage_url($this->avatar, $this->avatar_disk ?: static_storage_disk());
     }
 
     public function isVerified()

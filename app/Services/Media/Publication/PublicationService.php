@@ -3,7 +3,6 @@
 namespace App\Services\Media\Publication;
 
 use App\Jobs\Media\CleanupPublication;
-use App\Jobs\Media\ProcessPublicationItem;
 use App\Models\Chat;
 use App\Models\MediaPublication;
 use App\Models\MediaPublicationItem;
@@ -158,7 +157,9 @@ class PublicationService
             $item = $publication->items()->whereKey($itemId)->firstOrFail();
             abort_unless($item->generation === $generation && $generation > 0, 409, 'Upload generation has changed. Resume the current upload.');
             abort_if($publication->status === 'cancelled', 409, 'Publication was cancelled.');
-            if(in_array($item->status, ['uploaded', 'processing', 'processed'], true)) return $publication->load('items');
+            if(in_array($item->status, ['uploaded', 'processing', 'processed'], true)) {
+                return app(PublicationFinalizer::class)->finalize($publication->id) ?? $publication->load('items');
+            }
             $this->assertOpen($publication);
             $upload = $item->upload;
             abort_unless($upload, 422, 'No upload session exists.');
@@ -169,22 +170,10 @@ class PublicationService
             abort_unless($disk->exists($upload['path']) && (int) $disk->size($upload['path']) === $item->size, 422, 'Uploaded bytes do not match the selected file.');
             $item->update(['status' => 'uploaded', 'progress' => 100, 'dispatched_at' => now(), 'queued_at' => now()]);
             $publication->update(['status' => 'processing', 'error' => null]);
-            if($this->shouldPublishUploadedVideoImmediately($publication, $item)) {
-                $publication = app(PublicationFinalizer::class)->finalize($publication->id) ?? $publication;
-            }
-            if(! in_array($publication->status, ['cancelled', 'failed'], true)) {
-                ProcessPublicationItem::dispatch($item->id, $generation)->afterCommit();
-            }
-            return $publication->load('items');
+            // Completion verifies the R2 object and promotes it with a storage-side
+            // copy. User media bytes never enter a VPS worker for processing.
+            return app(PublicationFinalizer::class)->finalize($publication->id) ?? $publication->load('items');
         });
-    }
-
-    private function shouldPublishUploadedVideoImmediately(MediaPublication $publication, MediaPublicationItem $item): bool
-    {
-        return $publication->has_video
-            && $item->type === 'video'
-            && $publication->items()->count() === 1
-            && in_array($publication->kind, ['post', 'story', 'chat'], true);
     }
 
     public function retry(MediaPublication $publication): MediaPublication
@@ -202,12 +191,9 @@ class PublicationService
                     $exists = $item->upload && Storage::disk($item->upload['disk'])->exists($item->upload['path']);
                     $item->update(['status' => $exists ? 'uploaded' : 'pending', 'dispatched_at' => $exists ? now() : null,
                         'queued_at' => $exists ? ($item->queued_at ?? now()) : null]);
-                    if($exists) ProcessPublicationItem::dispatch($item->id, $item->generation)->afterCommit();
                 }
                 $publication->update(['status' => 'uploading', 'error' => null, 'expires_at' => now()->addHours(72)]);
-                // All items may already be processed if only final publication failed.
-                \App\Jobs\Media\FinalizePublication::dispatch($publication->id)->afterCommit();
-                return $publication->load('items');
+                return app(PublicationFinalizer::class)->finalize($publication->id) ?? $publication->load('items');
             });
         });
     }

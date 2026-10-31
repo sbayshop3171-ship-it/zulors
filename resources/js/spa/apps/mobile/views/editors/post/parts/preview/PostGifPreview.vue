@@ -4,6 +4,7 @@
         v-bind:key="mediaItem.id || mediaItem.source_url"
         v-bind:mediaItem="mediaItem"
         v-bind:src="mediaItem.metadata?.preview_url || mediaItem.source_url"
+        v-bind:fitToViewport="true"
         alt="GIF"
     >
         <div v-if="canDelete" class="absolute right-3 top-3 z-10 inline-block">

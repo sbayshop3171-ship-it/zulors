@@ -68,7 +68,8 @@ class PublicationFinalizer
                 }
                 $types = $items->pluck('type')->unique();
                 $maxItems = $publication->kind === 'post' && $types->first() === 'image' ? 10 : 1;
-                if ($types->count() !== 1 || ! in_array($types->first(), ['image', 'video'], true) || $items->count() > $maxItems) {
+                $allowedTypes = $publication->kind === 'story' ? ['image', 'video'] : ['image', 'video', 'audio', 'document'];
+                if ($types->count() !== 1 || ! in_array($types->first(), $allowedTypes, true) || $items->count() > $maxItems) {
                     return $this->fail($publication, 'invalid_attachments');
                 }
                 foreach ($items as $item) {
@@ -182,7 +183,7 @@ class PublicationFinalizer
                 continue;
             }
 
-            $rawOutput = $this->rawUploadedVideoOutput($publication, $item);
+            $rawOutput = $this->directUploadedOutput($publication, $item);
 
             if ($rawOutput) {
                 $outputs[$item->id] = $rawOutput;
@@ -195,69 +196,27 @@ class PublicationFinalizer
         return $outputs;
     }
 
-    private function rawUploadedVideoOutput(MediaPublication $publication, MediaPublicationItem $item): ?array
+    private function directUploadedOutput(MediaPublication $publication, MediaPublicationItem $item): ?array
     {
-        if ($item->type !== 'video' || ! in_array($item->status, ['uploaded', 'processing'], true)
-            || $publication->items->count() !== 1) {
+        $items = $publication->items;
+        $singleItem = $items->count() === 1;
+        $finalRetryItem = $publication->status === 'uploading' && $items->every(
+            fn($candidate) => $candidate->id === $item->id
+                || ($candidate->status === 'processed' && ! empty($candidate->output))
+        );
+
+        // Normal multi-item publication waits for each worker. The fast path is
+        // allowed on retry only when every sibling already has a verified output.
+        if ((! $singleItem && ! $finalRetryItem)
+            || ! in_array($item->type, ['image', 'video', 'audio', 'document'], true)
+            || ! in_array($item->status, ['uploaded', 'processing'], true)) {
             return null;
         }
 
-        $upload = $item->upload ?? [];
-        $sourceDisk = (string) ($upload['disk'] ?? '');
-        $sourcePath = (string) ($upload['path'] ?? '');
+        $output = app(PublicationMediaProcessor::class)->process($item);
+        $item->update(['output' => $output, 'status' => 'processed', 'progress' => 100]);
 
-        if ($sourceDisk === '' || $sourcePath === '') {
-            return null;
-        }
-
-        $extension = strtolower(pathinfo($item->name, PATHINFO_EXTENSION) ?: 'mp4');
-        if (! preg_match('/\A[a-z0-9]{2,8}\z/', $extension)) {
-            $extension = 'mp4';
-        }
-
-        $duration = (float) data_get($item->metadata, 'duration_seconds', data_get($item->metadata, 'seconds', 0));
-        $width = (int) data_get($item->metadata, 'width', data_get($item->metadata, 'dimensions.width', 0));
-        $height = (int) data_get($item->metadata, 'height', data_get($item->metadata, 'dimensions.height', 0));
-        $metadata = [
-            'provider' => (string) ($upload['provider'] ?? 'r2_direct'),
-            'temp_disk' => (string) ($upload['disk'] ?? $sourceDisk),
-            'upload_disk' => (string) ($upload['upload_disk'] ?? $sourceDisk),
-            'final_disk' => (string) ($upload['final_disk'] ?? config('media.cloudflare.r2.final_disk')),
-            'temp_path' => $sourcePath,
-            'upload_state' => 'uploaded',
-            'upload_progress' => 100,
-            'upload_completed_at' => now()->toIso8601String(),
-            'processing_state' => 'queued',
-            'processing_progress' => 100,
-            'processing_updated_at' => now()->toIso8601String(),
-            'background_processing_state' => 'queued',
-            'background_processing_progress' => 0,
-            'original_size' => (int) $item->size,
-            'optimized_size' => null,
-            'optimization_ratio' => null,
-            'instant_publish' => true,
-        ];
-
-        if ($duration > 0) {
-            $metadata['duration'] = parse_duration((int) floor($duration));
-            $metadata['seconds'] = $duration;
-            $metadata['duration_seconds'] = $duration;
-        }
-
-        if ($width > 0 && $height > 0) {
-            $metadata['dimensions'] = ['width' => $width, 'height' => $height];
-            $metadata['aspect_ratio'] = round($width / $height, 6);
-            $metadata['is_portrait'] = $width < $height;
-        }
-
-        return [
-            'source_path' => $sourcePath,
-            'disk' => $sourceDisk,
-            'extension' => $extension,
-            'mime' => str_starts_with($item->mime, 'video/') ? $item->mime : 'video/mp4',
-            'size' => (int) $item->size,
-            'metadata' => $metadata,
-        ];
+        return $output;
     }
 
     private function validOutput(MediaPublicationItem $item, array $output): bool
@@ -266,7 +225,18 @@ class PublicationFinalizer
             && filled($output['disk'] ?? null)
             && filled($output['extension'] ?? null)
             && (int) ($output['size'] ?? 0) > 0
-            && str_starts_with((string) ($output['mime'] ?? ''), $item->type.'/');
+            && $this->validMimeForType((string) ($output['mime'] ?? ''), $item->type);
+    }
+
+    private function validMimeForType(string $mime, string $type): bool
+    {
+        return match ($type) {
+            'image' => str_starts_with($mime, 'image/'),
+            'video' => str_starts_with($mime, 'video/'),
+            'audio' => str_starts_with($mime, 'audio/') || $mime === 'video/webm',
+            'document' => str_starts_with($mime, 'application/') || $mime === 'text/plain',
+            default => false,
+        };
     }
 
     private function mediaMetadata(MediaPublication $publication, MediaPublicationItem $item, array $output, array $base = []): array
@@ -440,7 +410,12 @@ class PublicationFinalizer
             'parent_id' => $parentId,
             'content' => $content,
             'text_language' => $content === '' ? '' : detect_text_language($content),
-            'type' => $publication->items->first()->type === 'video' ? 'video_circle' : 'image',
+            'type' => match ($publication->items->first()->type) {
+                'video' => 'video_circle',
+                'audio' => 'audio',
+                'document' => 'document',
+                default => 'image',
+            },
         ]);
         $participant->update(['last_read_message_id' => $message->id, 'last_read_at' => now()]);
         $chat->update(['last_activity' => now()]);

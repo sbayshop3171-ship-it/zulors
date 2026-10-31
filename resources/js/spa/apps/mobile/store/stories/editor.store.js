@@ -259,60 +259,10 @@ const useStoriesEditorStore = defineStore('mobile_stories_editor_store', {
 					this.uploadProgress = 0;
 				}
 			}
-			const formData = new FormData();
-
-			this.discardUploadedMedia = false;
-			this.isUploading = true;
-			formData.append('media_file', mediaFile);
-
-			if(uploadOptions.clip_start_seconds !== undefined) {
-				formData.append('clip_start_seconds', uploadOptions.clip_start_seconds);
+			if(mediaFile.type.startsWith('image/')) {
+				throw new Error('Direct R2 story photo uploads are unavailable. The photo was not sent to the application server.');
 			}
-
-			if(uploadOptions.clip_duration_seconds !== undefined) {
-				formData.append('clip_duration_seconds', uploadOptions.clip_duration_seconds);
-			}
-
-			appendStoryMusicUploadMetadata(formData, uploadOptions);
-			
-			await colibriAPI().storyEditor().with(formData).withHeaders({
-				'Content-Type': 'multipart/form-data'
-			}).uploadProgress((progressEvent) => {
-				this.uploadProgress = Math.round((progressEvent.loaded / progressEvent.total) * 100);
-			}).sendTo('media/upload').then((response) => {
-				this.storyMedia = response.data.data;
-				this.clearVideoClipCandidate();
-				this.isUploading = false;
-				this.uploadProgress = 0;
-
-				if(this.discardUploadedMedia) {
-					this.discardUploadedMedia = false;
-					return this.deleteMedia();
-				}
-			}).catch((error) => {
-				const wasDiscarding = this.discardUploadedMedia;
-
-				this.discardUploadedMedia = false;
-				this.isUploading = false;
-
-				if(error.response) {
-					this.uploadProgress = 0;
-
-					if(wasDiscarding) {
-						return;
-					}
-
-					throw new Error(error.response.data.message);
-				}
-
-				this.uploadProgress = 0;
-
-				if(wasDiscarding) {
-					return;
-				}
-
-				throw error;
-			});
+			throw new Error('This story attachment type is unsupported. Choose a photo or video for direct R2 upload.');
 		},
 		deleteMedia: async function() {
 			if (this.publicationSelection) {

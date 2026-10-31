@@ -75,6 +75,8 @@
 
 <script>
 	import { defineComponent, reactive, computed, ref, watch } from 'vue';
+	import { AxiosAuth } from '@/kernel/services/axios/index.js';
+	import { directAssetImageUpload } from '@/kernel/services/media/r2-direct-asset-upload.js';
 	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 	import { useAuthStore } from '@D/store/auth/auth.store.js';
 	import ImageCropper from '@/kernel/vue/components/media/image/ImageCropper.vue';
@@ -114,26 +116,19 @@
 			};
 
 			const uploadProfileImage = async(file, mode) => {
-				const formData = new FormData();
-				const dataKey = (mode === 'cover') ? 'cover_url' : 'avatar_url';
-				const endpoint = (mode === 'cover') ? 'account/cover/update' : 'account/avatar/update';
-
-				formData.append(mode, file);
-
-				await colibriAPI().userSettings().with(formData).uploadProgress((progressEvent) => {                    
-					if(progressEvent.total) {
-						state.uploadProgress = Math.round((progressEvent.loaded / progressEvent.total) * 100);
-					}
-				}).sendTo(endpoint).then((response) => {
-					authStore.setProperty(dataKey, response.data.data[dataKey]);
+				try {
+					const result = await directAssetImageUpload({
+						file,
+						operation: mode === 'cover' ? 'profile_cover' : 'profile_avatar',
+						request: (action, payload) => AxiosAuth.post(`media-uploads/${action}`, payload),
+						onStage: stage => { state.uploadProgress = stage.stage === 'uploading' ? 1 : 0; },
+						onProgress: progress => { state.uploadProgress = progress; },
+					});
+					const dataKey = mode === 'cover' ? 'cover_url' : 'avatar_url';
+					authStore.setProperty(dataKey, result[dataKey]);
 					closeCropper();
-				}).catch((error) => {
-					if(error.response) {
-						alert(error.response.data.message);
-					}
-				});
-
-				state.uploadProgress = 0;
+				} catch (error) { alert(error.response?.data?.message || error.message); }
+				finally { state.uploadProgress = 0; }
 			};
 
 			return {

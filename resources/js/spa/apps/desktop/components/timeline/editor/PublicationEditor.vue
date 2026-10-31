@@ -187,10 +187,11 @@
                             </div>
                         </div>
                     </template>
-                    <template v-if="state.postMediaUploadProgress && ! isEditingPost">
+                    <template v-if="(state.postMediaUploadProgress || state.videoUploadStage === 'uploading') && ! isEditingPost">
                         <span class="w-px h-4 bg-bord-sc"></span>
                         <div class="shrink-0 inline-flex">
                             <span class="inline-flex text-par-s items-center gap-2 text-lab-sc leading-none disabled:opacity-60">
+                                <span v-if="state.videoUploadStage === 'uploading'">Uploading directly to R2…</span>
                                 <span class="text-brand-900">{{ $t('labels.uploading') }} <span class="inline-block w-8">{{ state.postMediaUploadProgress }}%</span></span>
                             </span>
                         </div>
@@ -287,6 +288,7 @@
                 postMediaUploadProgress: 0,
                 directVideoUploadReady: false,
                 videoUploadFailed: false,
+                videoUploadStage: null,
                 localMediaPreviews: [],
                 isDragging: false,
                 isLinkPreviewing: false,
@@ -463,7 +465,6 @@
 
             const defaultDirectUploadStallTimeoutMs = 0;
             const defaultDirectUploadFirstProgressTimeoutMs = 0;
-            const defaultRawFallbackMaxBytes = 8 * 1024 * 1024;
 
             const normalizeUploadProgress = (progress) => {
                 return Math.max(0, Math.min(100, Math.round(Number(progress || 0))));
@@ -751,22 +752,6 @@
                 }).catch(() => {});
             }
 
-            const uploadRawFileViaApp = (uploadData, mediaFile, onProgress) => {
-                return colibriAPI().postEditor().with(mediaFile).params({
-                    media_id: uploadData.media?.id,
-                    uid: uploadData.uid,
-                    content_type: mediaFile.type || 'video/mp4'
-                }).withHeaders({
-                    'Content-Type': 'application/octet-stream'
-                }).uploadProgress((progressEvent) => {
-                    if(progressEvent.lengthComputable || progressEvent.total) {
-                        onProgress(progressEvent.loaded, progressEvent.total || mediaFile.size);
-                    }
-                }).sendTo('media/video/direct/raw').then((response) => {
-                    return getUploadResponseData(response);
-                });
-            }
-
             const uploadFileToDirectUrl = async (uploadData, mediaFile, onProgress) => {
                 try {
                     return await retryDirectUpload(() => {
@@ -802,7 +787,6 @@
                 catch (error) {
                     const requestMethod = uploadData.upload_method || 'POST';
                     const uploadType = uploadData.upload_type || 'form';
-                    const rawFallbackMaxBytes = Number(uploadData.raw_fallback_max_bytes ?? defaultRawFallbackMaxBytes);
 
                     if((uploadType === 'raw' || requestMethod === 'PUT') && error?.canVerifyWithServer) {
                         return {
@@ -810,39 +794,14 @@
                         };
                     }
 
-                    if((uploadType === 'raw' || requestMethod === 'PUT') && mediaFile.size <= rawFallbackMaxBytes) {
-                        return uploadRawFileViaApp(uploadData, mediaFile, (loaded, total) => {
-                            const uploadTotal = Math.max(1, total || mediaFile.size);
-                            onProgress(Math.round((loaded / uploadTotal) * 100));
-                        });
-                    }
-
                     throw error;
                 }
-            }
-
-            const uploadMultipartPartViaApp = (uploadData, part, partBlob, onProgress) => {
-                return colibriAPI().postEditor().with(partBlob).params({
-                    media_id: uploadData.media?.id,
-                    uid: uploadData.uid,
-                    upload_id: uploadData.upload_id,
-                    part_number: part.part_number
-                }).withHeaders({
-                    'Content-Type': 'application/octet-stream'
-                }).uploadProgress((progressEvent) => {
-                    if(progressEvent.lengthComputable || progressEvent.total) {
-                        onProgress(progressEvent.loaded, progressEvent.total || partBlob.size);
-                    }
-                }).sendTo('media/video/direct/part').then((response) => {
-                    return getUploadResponseData(response);
-                });
             }
 
             const uploadMultipartFileToDirectUrl = async (uploadData, mediaFile, onProgress) => {
                 const parts = Array.isArray(uploadData.parts) ? uploadData.parts : [];
                 const completedParts = [];
                 const uploadConcurrency = Math.min(4, Math.max(1, Number(uploadData.upload_concurrency || 4)));
-                const partFallbackMaxBytes = 0;
                 let shouldBypassDirectUpload = false;
 
                 const updateMultipartProgress = createMultipartUploadProgress(mediaFile.size, onProgress);
@@ -878,14 +837,6 @@
                         });
                     }
 
-                    if(! result && partFallbackMaxBytes > 0 && partBlob.size <= partFallbackMaxBytes) {
-                        result = await retryDirectUpload(() => {
-                            return uploadMultipartPartViaApp(uploadData, part, partBlob, (loaded) => {
-                                updateMultipartProgress(part.part_number, loaded, partBlob.size);
-                            });
-                        }, 2);
-                    }
-
                     if(result) {
                         updateMultipartProgress(part.part_number, partBlob.size, partBlob.size);
                     }
@@ -915,47 +866,6 @@
                 });
             }
 
-            const uploadPostMediaLocally = (mediaFile, type = 'image') => {
-                if(! mediaFile) {
-                    return false;
-                }
-
-                const formData = new FormData();
-                formData.append(type, mediaFile);
-
-                return colibriAPI().postEditor().with(formData).withHeaders({
-                    'Content-Type': 'multipart/form-data'
-                }).uploadProgress((progressEvent) => {
-                    state.postMediaUploadProgress = Math.round((progressEvent.loaded / progressEvent.total) * 100);
-                }).sendTo(`media/${type}/upload`).then(async (response) => {
-
-                    await postEditorStore.fetchDraftPost({
-                        preserveContent: true
-                    });
-
-                    if(type === 'video') {
-                        const preview = state.localMediaPreviews.find(item => item.type === 'video');
-                        if(preview) preview.media_id = postData.value.relations?.media?.find(item => item.type === 'video')?.id;
-                    }
-                    else {
-                        clearLocalMediaPreviews();
-                    }
-
-                    state.postMediaUploadProgress = 0;
-
-                    resetFileInputTags();
-                }).catch((error) => {
-                    state.videoUploadFailed = type === 'video';
-                    if(type !== 'video') clearLocalMediaPreviews();
-
-                    toastError(error.response?.data?.message || error.message || 'Upload failed');
-
-                    state.postMediaUploadProgress = 0;
-
-                    resetFileInputTags();
-                });
-            }
-
             const uploadPostVideoDirectly = async (mediaFile) => {
                 if(! mediaFile) {
                     return false;
@@ -967,6 +877,7 @@
 
                 const localPreview = createLocalMediaPreview(mediaFile, 'video');
                 let uploadData = null;
+				let uploadFile = mediaFile;
 				const presentationMetadata = buildVideoPresentationMetadata(mediaFile.width, mediaFile.height, mediaFile.duration_seconds);
 
                 if(localPreview) {
@@ -975,7 +886,8 @@
                 }
 
                 try {
-                    state.postMediaUploadProgress = 5;
+					state.postMediaUploadProgress = 0;
+					state.videoUploadStage = 'uploading';
 					readVideoFileMetadata(mediaFile).then((metadata) => {
 						const detectedMetadata = buildVideoPresentationMetadata(
 							mediaFile.width || metadata.dimensions?.width,
@@ -991,10 +903,10 @@
                     }
 
                     const response = await colibriAPI().postEditor().with({
-                        name: mediaFile.name || 'video',
-                        size: mediaFile.size,
-                        mime: mediaFile.type || 'video/mp4',
-                        extension: getFileExtension(mediaFile),
+                        name: uploadFile.name || 'video',
+                        size: uploadFile.size,
+                        mime: uploadFile.type || mediaFile.type || 'video/mp4',
+                        extension: getFileExtension(uploadFile),
                         width: presentationMetadata.dimensions?.width || null,
                         height: presentationMetadata.dimensions?.height || null,
                         duration_seconds: presentationMetadata.duration_seconds || null
@@ -1010,6 +922,7 @@
                     syncUploadMedia(uploadData, uploadData.media);
                     if(localPreview) localPreview.media_id = uploadData.media?.id;
                     state.directVideoUploadReady = true;
+	                    state.videoUploadStage = 'uploading';
 
                     const reportUploadProgress = createDirectUploadProgressReporter(uploadData);
                     reportUploadProgress(0, {
@@ -1019,14 +932,14 @@
                     let completedParts = [];
 
                     if(isMultipartUpload) {
-                        completedParts = await uploadMultipartFileToDirectUrl(uploadData, mediaFile, (progress) => {
+                        completedParts = await uploadMultipartFileToDirectUrl(uploadData, uploadFile, (progress) => {
                             state.postMediaUploadProgress = Math.max(state.postMediaUploadProgress, normalizeUploadProgress(progress));
                             reportUploadProgress(progress);
                         });
                     }
 
                     else {
-                        await uploadFileToDirectUrl(uploadData, mediaFile, (progress) => {
+                        await uploadFileToDirectUrl(uploadData, uploadFile, (progress) => {
                             state.postMediaUploadProgress = Math.max(state.postMediaUploadProgress, normalizeUploadProgress(progress));
                             reportUploadProgress(progress);
                         });
@@ -1088,6 +1001,7 @@
                 finally {
                     postEditorStore.setVideoUploadActive(false);
                     state.postMediaUploadProgress = 0;
+                    state.videoUploadStage = null;
 
                     resetFileInputTags();
                 }
@@ -1101,11 +1015,9 @@
                         return;
                     }
                 } catch (error) { toastError(error.message); return; }
-                if(type === 'video') {
-                    return uploadPostVideoDirectly(mediaFile);
-                }
-
-                return uploadPostMediaLocally(mediaFile, type);
+                if(type === 'video') return uploadPostVideoDirectly(mediaFile);
+                toastError('Direct R2 media publishing is unavailable for this account. The file was not sent to the application server.');
+                resetFileInputTags();
             }
 
             const getFormSubmitData = () => {

@@ -12,7 +12,9 @@ use Illuminate\Support\Facades\Storage;
 
 class R2DirectUploadService
 {
-    private const MAX_SINGLE_COPY_BYTES = 5 * 1024 * 1024 * 1024;
+    // S3 CopyObject is limited to 5 GB (decimal); larger objects use
+    // UploadPartCopy so no media body passes through this process.
+    private const MAX_SINGLE_COPY_BYTES = 5_000_000_000;
 
     public function isConfigured(): bool
     {
@@ -44,6 +46,32 @@ class R2DirectUploadService
         $path = $this->makeTemporaryPath($extension);
         $expiresAt = now()->addMinutes($this->expiryMinutes());
         $size = max(0, (int) ($fileData['size'] ?? 0));
+
+        return $this->createSignedObjectUpload($path, $mime, $size, $expiresAt, $uploadDisk);
+    }
+
+    public function createScopedObjectUpload(array $fileData, string $scope): array
+    {
+        if(! $this->isConfigured()) {
+            throw new Exception('Cloudflare R2 direct upload is not configured.');
+        }
+        if(! preg_match('/\A[a-z0-9_-]{2,32}\z/', $scope)) {
+            throw new Exception('Invalid direct upload operation.');
+        }
+
+        $this->ensureCorsConfiguration();
+        $mime = (string) ($fileData['mime'] ?? 'application/octet-stream');
+        $extension = $this->cleanExtension((string) ($fileData['extension'] ?? 'bin'));
+        $uploadDisk = $this->directUploadDisk();
+        $path = $this->makeScopedTemporaryPath($extension, $scope);
+        $expiresAt = now()->addMinutes($this->expiryMinutes());
+        $size = max(0, (int) ($fileData['size'] ?? 0));
+
+        return $this->createSignedObjectUpload($path, $mime, $size, $expiresAt, $uploadDisk);
+    }
+
+    private function createSignedObjectUpload(string $path, string $mime, int $size, $expiresAt, string $uploadDisk): array
+    {
 
         if($this->shouldUseMultipart($size)) {
             return $this->createMultipartVideoUpload($path, $mime, $size, $expiresAt, $uploadDisk);
@@ -80,7 +108,151 @@ class R2DirectUploadService
 
     public function publishUploadedVideo(string $tempPath, string $extension = 'mp4', string $contentType = 'video/mp4', ?string $sourceDisk = null): array
     {
-        throw new \LogicException('Raw video publication is disabled. Publish only FFmpeg output.');
+        $published = $this->publishUploadedObject(
+            $tempPath,
+            (string) config('media.cloudflare.r2.direct_upload_prefix', 'uploads/posts/videos'),
+            $extension,
+            $contentType,
+            $sourceDisk
+        );
+
+        return [
+            'disk' => $published['disk'],
+            'video_path' => $published['path'],
+            'video_size' => $published['size'],
+        ];
+    }
+
+    /**
+     * Promote a completed temp-bucket object with an R2 server-side copy.
+     * Only HEAD metadata and copy commands cross the VPS; object bytes do not.
+     */
+    public function publishUploadedObject(
+        string $tempPath,
+        string $targetPrefix,
+        string $extension,
+        string $contentType,
+        ?string $sourceDisk = null
+    ): array {
+        if(! $this->isConfigured()) {
+            throw new Exception('Cloudflare R2 direct upload is not configured.');
+        }
+
+        if(blank($tempPath) || ! preg_match('~\A[a-zA-Z0-9/_-]+\z~', $targetPrefix)) {
+            throw new Exception('Invalid direct upload object identity.');
+        }
+
+        $sourceDisk = $sourceDisk ?: $this->directUploadDisk();
+        $targetDisk = $this->finalDisk();
+        $sourceBucket = $this->bucket($sourceDisk);
+        $targetBucket = $this->bucket($targetDisk);
+        $sourceConfig = config("filesystems.disks.{$sourceDisk}");
+        $targetConfig = config("filesystems.disks.{$targetDisk}");
+
+        if(rtrim((string) ($sourceConfig['endpoint'] ?? ''), '/') !== rtrim((string) ($targetConfig['endpoint'] ?? ''), '/')) {
+            throw new Exception('R2 temp and final buckets must use the same endpoint for server-side promotion.');
+        }
+
+        $extension = $this->cleanExtension($extension);
+        $targetPrefix = trim($targetPrefix, '/');
+        $targetPath = $targetPrefix.'/'.hash('sha256', $sourceDisk.'|'.$sourceBucket.'|'.$tempPath).'.'.$extension;
+        $targetStorage = Storage::disk($targetDisk);
+        $sourceStorage = Storage::disk($sourceDisk);
+        $sourceExists = $sourceStorage->exists($tempPath);
+        $size = null;
+        $expectedMime = strtolower(trim(explode(';', $contentType, 2)[0]));
+
+        if(! preg_match('/\A[a-z0-9.+-]+\/[a-z0-9.+-]+\z/', $expectedMime)) {
+            throw new Exception('Invalid uploaded media content type.');
+        }
+
+        if($sourceExists) {
+            try {
+                $head = $this->s3Client($sourceDisk)->headObject([
+                    'Bucket' => $sourceBucket,
+                    'Key' => $tempPath,
+                ]);
+                $size = (int) $head->get('ContentLength');
+                $storedMime = strtolower(trim(explode(';', (string) $head->get('ContentType'), 2)[0]));
+            }
+            catch(\Throwable $exception) {
+                throw new Exception('Uploaded R2 object is missing or unavailable.', previous: $exception);
+            }
+
+            if($storedMime !== '' && $storedMime !== $expectedMime) {
+                throw new Exception('Uploaded R2 object content type does not match the authorized upload.');
+            }
+        }
+
+        if($size !== null && $size < 1) {
+            throw new Exception('Uploaded R2 object is empty.');
+        }
+
+        // A repeated completion reuses the same final key and avoids another copy.
+        $targetExists = $targetStorage->exists($targetPath);
+
+        if(! $targetExists) {
+            if($size === null) {
+                throw new Exception('Uploaded R2 object is missing or unavailable.');
+            }
+
+            $client = $this->s3Client($targetDisk);
+            $copyOptions = [
+                'Bucket' => $targetBucket,
+                'Key' => $targetPath,
+                'CopySource' => $this->copySource($sourceBucket, $tempPath),
+                'ContentType' => $contentType,
+                'MetadataDirective' => 'REPLACE',
+            ];
+
+            if($cacheControl = config('media.cache.control')) {
+                $copyOptions['CacheControl'] = $cacheControl;
+            }
+
+            if($size <= self::MAX_SINGLE_COPY_BYTES) {
+                $client->copyObject($copyOptions);
+            }
+            else {
+                $this->multipartCopyObject(
+                    $client,
+                    $sourceBucket,
+                    $tempPath,
+                    $targetBucket,
+                    $targetPath,
+                    $size,
+                    $contentType,
+                    (string) config('media.cache.control')
+                );
+            }
+        }
+
+        try {
+            $targetHead = $this->s3Client($targetDisk)->headObject([
+                'Bucket' => $targetBucket,
+                'Key' => $targetPath,
+            ]);
+            $publishedSize = (int) $targetHead->get('ContentLength');
+            $publishedMime = strtolower(trim(explode(';', (string) $targetHead->get('ContentType'), 2)[0]));
+        }
+        catch(\Throwable $exception) {
+            throw new Exception('R2 final object could not be verified after promotion.', previous: $exception);
+        }
+
+        if($publishedSize < 1 || ($size !== null && $publishedSize !== $size) || ($publishedMime !== '' && $publishedMime !== $expectedMime)) {
+            $targetStorage->delete($targetPath);
+            throw new Exception('R2 final object metadata does not match the uploaded source.');
+        }
+
+        $sourceStorage->delete($tempPath);
+
+        Log::info('media.r2_object_promoted', [
+            'source_disk' => $sourceDisk,
+            'target_disk' => $targetDisk,
+            'size_bytes' => $publishedSize,
+            'vps_media_body_bytes' => 0,
+        ]);
+
+        return ['disk' => $targetDisk, 'path' => $targetPath, 'size' => $publishedSize];
     }
 
     public function refreshPublicationUpload(array $upload): array
@@ -334,13 +506,21 @@ class R2DirectUploadService
 
     public function verifyUploadedVideo(string $path, string $disk, int $expectedSize): int
     {
-        $size = (int) Storage::disk($disk)->size($path);
-        if($size < 1 || $size > (int) config('media.uploads.video.max_bytes', 1073741824)
-            || ($expectedSize > 0 && $size !== $expectedSize)) {
-            throw new Exception('Uploaded video size does not match the declared size or exceeds the upload limit.');
+        $metadata = $this->verifyUploadedObject($path, $disk, $expectedSize, (int) config('media.uploads.video.max_bytes', 8589934592));
+
+        return $metadata['size'];
+    }
+
+    public function verifyUploadedObject(string $path, string $disk, int $expectedSize, int $maxBytes): array
+    {
+        $storage = Storage::disk($disk);
+        $size = (int) $storage->size($path);
+        $mime = strtolower(trim(explode(';', (string) $storage->mimeType($path), 2)[0]));
+        if($size < 1 || $size > $maxBytes || ($expectedSize > 0 && $size !== $expectedSize)) {
+            throw new Exception('Uploaded object size does not match the declared size or exceeds the upload limit.');
         }
 
-        return $size;
+        return ['size' => $size, 'mime' => $mime];
     }
 
     public function configureTempLifecycle(int $days = 3, bool $apply = false): array
@@ -381,6 +561,14 @@ class R2DirectUploadService
         $userId = auth_check() ? me()->id : 'guest';
 
         return "{$prefix}/{$userId}/".Str::uuid().".{$extension}";
+    }
+
+    private function makeScopedTemporaryPath(string $extension, string $scope): string
+    {
+        $prefix = trim((string) config('media.cloudflare.r2.temp_prefix', 'tmp/direct/media'), '/');
+        $userId = auth_check() ? me()->id : 'guest';
+
+        return "{$prefix}/{$userId}/{$scope}/".Str::uuid().".{$extension}";
     }
 
     private function ensureCorsConfiguration(): void
@@ -424,10 +612,10 @@ class R2DirectUploadService
                 $failureCacheKey = "{$cacheKey}:failed";
 
                 if(! Cache::get($failureCacheKey)) {
-                    Log::warning('Unable to auto-configure R2 direct upload CORS. Browser upload may fall back through the app server.', [
+                    Log::warning('Unable to auto-configure R2 direct upload CORS. Direct upload will fail until bucket CORS is configured.', [
                         'bucket' => $this->bucket($uploadDisk),
                         'origins' => $origins,
-                        'error' => $e->getMessage(),
+                        'error_type' => $e::class,
                     ]);
 
                     Cache::put($failureCacheKey, true, now()->addMinutes(15));
@@ -445,16 +633,7 @@ class R2DirectUploadService
             ->all();
 
         $appOrigin = $this->normalizeCorsOrigin((string) config('app.url'));
-        $requestOrigin = null;
-
-        if(app()->bound('request')) {
-            $requestOrigin = $this->normalizeCorsOrigin((string) request()->headers->get('origin'));
-        }
-
-        $origins = array_values(array_unique(array_filter(array_merge($configuredOrigins, [
-            $appOrigin,
-            $requestOrigin,
-        ]))));
+        $origins = array_values(array_unique(array_filter(array_merge($configuredOrigins, [$appOrigin]))));
 
         return empty($origins) ? ['*'] : $origins;
     }
@@ -575,7 +754,7 @@ class R2DirectUploadService
             catch(\Throwable $abortException) {
                 Log::warning('Unable to abort failed R2 multipart copy.', [
                     'target_path' => $targetPath,
-                    'error' => $abortException->getMessage(),
+                    'error_type' => $abortException::class,
                 ]);
             }
 
@@ -737,20 +916,12 @@ class R2DirectUploadService
 
     private function rawFallbackMaxBytes(): int
     {
-        if(config('media.uploads.video.direct_only', false)) return 0;
-        return max(5, (int) config('media.cloudflare.r2.raw_fallback_max_mb', 8)) * 1024 * 1024;
+        return 0;
     }
 
     private function partFallbackMaxBytes(): int
     {
-        if(config('media.uploads.video.direct_only', false)) return 0;
-        $fallbackMaxMb = (int) config('media.cloudflare.r2.part_fallback_max_mb', 0);
-
-        if($fallbackMaxMb <= 0) {
-            return 0;
-        }
-
-        return $fallbackMaxMb * 1024 * 1024;
+        return 0;
     }
 
     protected function s3Client(string $disk): S3Client

@@ -1,5 +1,12 @@
 # R2 Media Pipeline
 
+> Historical rollout record: the status below documents the 2026-09-09 live
+> release and its then-active VPS FFmpeg pipeline. The current source branch has
+> changed the new user-upload flow to R2 originals without device/VPS video
+> encoding. See [upload-flow-audit.md](upload-flow-audit.md) and
+> [media-pipeline.md](media-pipeline.md) before using these old rollout values;
+> this historical record does not authorize a new deployment.
+
 ## Live Rollout Status (2026-09-09)
 
 **Direct uploads are now enabled on https://zulors.com.** The user chose bounded

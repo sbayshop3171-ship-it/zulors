@@ -7,7 +7,8 @@
                     <span class="min-w-0 break-words">{{ row.descriptor.content || title(row) }}</span>
                 </div>
                 <p class="text-cap-l text-lab-sc mt-1" role="status">{{ statusLabel(row) }}</p>
-                <progress v-if="['uploading', 'queued', 'waiting'].includes(row.status)" :value="row.progress || 0" max="100" class="publication-progress" aria-label="Upload progress" />
+                <p v-if="videoWasNotCompressed(row)" class="text-cap-l text-lab-sc mt-1" role="status">The original video is being uploaded directly to R2.</p>
+                <progress v-if="['preparing', 'uploading', 'queued', 'waiting'].includes(row.status)" :value="row.status === 'preparing' ? (row.preparation_progress || 0) : (row.progress || 0)" max="100" class="publication-progress" :aria-label="row.status === 'preparing' ? 'Media preparation progress' : 'Upload progress'" />
                 <p v-if="row.error && ['failed', 'auth_required', 'expired'].includes(row.status)" class="text-cap-l text-red-900 break-words">{{ typeof row.error === 'string' ? row.error : row.error.message }}</p>
             </div>
             <button v-if="['failed', 'auth_required', 'expired', 'cancelled'].includes(row.status)" type="button" class="publication-action text-lab-pr" title="Retry upload" aria-label="Retry upload" :disabled="busy.has(row.key)" @click="act('retry', row)">
@@ -47,8 +48,9 @@ const title = row => ({ post: 'Post', story: 'Story', chat: 'Message' })[kindOf(
 const statusLabel = row => {
     const kind = kindOf(row);
     return ({
+        preparing: itemType(row) === 'image' ? 'Preparing photo' : 'Preparing video',
         queued: kind === 'story' ? 'Starting story upload' : 'Queued',
-        uploading: `Uploading ${row.progress || 0}%`,
+        uploading: `Uploading to R2 ${row.progress || 0}%`,
         processing: kind === 'story' ? 'Publishing story' : 'Publishing media',
         publishing: kind === 'story' ? 'Publishing story' : 'Publishing',
         waiting: 'Waiting to resume',
@@ -58,8 +60,10 @@ const statusLabel = row => {
         cancelling: 'Cancelling',
         cancelled: 'Cancelled on server',
         expired: row.remote_only ? 'Upload expired. Select media again.' : 'Upload expired. Original media saved.',
-    })[row.status] || row.status;
+    })[row.status] || (row.upload_stage === 'video_not_compressed' ? 'Uploading the original video directly to R2.' : row.status);
 };
+const itemType = row => row.descriptor.items?.[0]?.type || 'video';
+const videoWasNotCompressed = row => row.descriptor.items?.some(item => item.type === 'video' && row.preparation_results?.[item.client_uid]?.prepared === false);
 async function act(action, row) {
     busy.value.add(row.key); actionError.value = '';
     try { await publicationManager[action](row); } catch (error) { actionError.value = error.message; }

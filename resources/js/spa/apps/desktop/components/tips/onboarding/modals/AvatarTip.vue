@@ -24,6 +24,8 @@
 <script>
     import { defineComponent, ref, reactive } from 'vue';
     import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
+    import { AxiosAuth } from '@/kernel/services/axios/index.js';
+    import { directAssetImageUpload } from '@/kernel/services/media/r2-direct-asset-upload.js';
 
     import PrimaryPillButton from '@D/components/inter-ui/buttons/PrimaryPillButton.vue';
     import HeadingBlock from '@D/components/tips/onboarding/parts/HeadingBlock.vue';
@@ -48,7 +50,7 @@
                 state.isSubmitting = true;
 
                 colibriAPI().tips().with(formData).withHeaders({
-                    'Content-Type': 'multipart/form-data'
+                    'Content-Type': formData.image ? 'multipart/form-data' : 'application/json'
                 }).sendTo('avatar/update').then((response) => {
                     context.emit('close');
                 }).catch((error) => {
@@ -68,10 +70,16 @@
                     imageInput.value.click();
                 },
                 uploadAvatar: (event) => {
-                    const formData = new FormData();
-                    formData.append('image', event.target.files[0]);
-
-                    handleSubmit(formData);
+                    const file = event.target.files[0];
+                    event.target.value = '';
+                    state.isSubmitting = true;
+                    directAssetImageUpload({
+                        file,
+                        operation: 'profile_avatar',
+                        request: (action, payload) => AxiosAuth.post(`media-uploads/${action}`, payload),
+                    }).then(() => context.emit('close')).catch(error => {
+                        toastError(error.response?.data?.message || error.message);
+                    }).finally(() => { state.isSubmitting = false; });
                 }
             };
         },

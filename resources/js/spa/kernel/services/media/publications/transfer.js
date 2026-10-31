@@ -8,7 +8,7 @@ export function uploadPart(part, body, { signal, onProgress = () => {}, xhrFacto
         };
         if (signal?.aborted) return reject(new DOMException('Paused', 'AbortError'));
         const url = new URL(part.upload_url);
-        if (!['https:', 'http:'].includes(url.protocol)) return reject(new Error('Invalid upload URL.'));
+        if (url.protocol !== 'https:') return reject(new Error('R2 upload URLs must use HTTPS.'));
         if (url.username || url.password || url.origin === globalThis.location?.origin) return reject(new Error('A separate storage upload URL is required.'));
         xhr.open(part.upload_method || 'PUT', url.href);
         xhr.withCredentials = false;

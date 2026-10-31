@@ -18,11 +18,14 @@ trait RequiresDirectVideoUploads
 
     protected function rejectServerVideoUpload(): void
     {
-        if(config('media.uploads.video.direct_only', false)) {
-            abort(response()->json([
-                'message' => 'Please upload videos using the direct upload API. Update your app if needed.',
-                'code' => 'direct_upload_required',
-            ], 409));
-        }
+        $this->rejectServerMediaUpload('video');
+    }
+
+    protected function rejectServerMediaUpload(string $mediaType = 'media'): void
+    {
+        abort(response()->json([
+            'message' => ucfirst($mediaType).' bytes must be uploaded directly to media storage. Update the app and retry.',
+            'code' => 'direct_upload_required',
+        ], 409));
     }
 }

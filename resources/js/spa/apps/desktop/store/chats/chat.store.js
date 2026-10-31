@@ -594,6 +594,7 @@ const useChatStore = defineStore('chats_chat', {
                 }
                 throw new Error('Direct video upload is unavailable. Please try again when storage upload is available.');
             }
+            throw new Error('Use the resumable R2 attachment uploader for chat media. Media bytes are never sent through the chat API.');
             const formData = new FormData();
             const dateTime = new Date().toISOString();
             const targetChatId = this.chatId;
@@ -631,6 +632,7 @@ const useChatStore = defineStore('chats_chat', {
             });
         },
         sendAudioMessage: async function(audioData = {}) {
+            throw new Error('Use the resumable R2 attachment uploader for voice notes. Audio bytes are never sent through the chat API.');
             const authStore = useAuthStore();
             const targetChatId = this.chatId;
             const durationSeconds = Math.max(1, Math.ceil(Number(audioData.duration) || 1));

@@ -326,7 +326,7 @@ class User extends Authenticatable
             return asset(config('user.avatar'));
         }
 
-        return storage_url($this->avatar, static_storage_disk());
+        return storage_url($this->avatar, $this->avatar_disk ?: static_storage_disk());
     }
 
     public function getCoverUrlAttribute()
@@ -335,7 +335,7 @@ class User extends Authenticatable
             return asset(config('user.cover'));
         }
 
-        return storage_url($this->cover, static_storage_disk());
+        return storage_url($this->cover, $this->cover_disk ?: static_storage_disk());
     }
 
     public function getProfileUrlAttribute()

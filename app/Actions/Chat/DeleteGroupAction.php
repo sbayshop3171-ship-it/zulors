@@ -19,7 +19,7 @@ class DeleteGroupAction
 	{
 		if(! $this->groupData->hasDefaultAvatar() && ! empty($this->groupData->avatar)) {
 			try {
-				Storage::disk(static_storage_disk())->delete($this->groupData->avatar);
+				Storage::disk($this->groupData->avatar_disk ?: static_storage_disk())->delete($this->groupData->avatar);
 			} catch (Throwable $th) {
 				chat_log($th->getMessage());
 			}

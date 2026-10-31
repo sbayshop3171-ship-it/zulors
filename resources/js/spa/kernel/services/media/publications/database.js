@@ -52,6 +52,20 @@ export class PublicationDatabase {
         }, 'readonly');
     }
 
+    async updateFileAndPublication(key, fileKey, blob, change) {
+        return this.transaction(['publications', 'files'], (tx, done) => {
+            const publications = tx.objectStore('publications');
+            publications.get(key).onsuccess = event => {
+                const current = event.target.result;
+                if (!current) return done(null);
+                const next = change(current);
+                tx.objectStore('files').put({ key: fileKey, blob });
+                publications.put(next);
+                done(next);
+            };
+        });
+    }
+
     async get(key) {
         return this.transaction(['publications'], (tx, done) => {
             tx.objectStore('publications').get(key).onsuccess = event => done(event.target.result);

@@ -133,35 +133,7 @@ const useStoriesEditorStore = defineStore('stories_editor_store', {
 					this.uploadProgress = 0;
 				}
 			}
-			const formData = new FormData();
-			const state = this;
-
-			formData.append('media_file', mediaFile);
-
-			if(uploadOptions.clip_start_seconds !== undefined) {
-				formData.append('clip_start_seconds', uploadOptions.clip_start_seconds);
-			}
-
-			if(uploadOptions.clip_duration_seconds !== undefined) {
-				formData.append('clip_duration_seconds', uploadOptions.clip_duration_seconds);
-			}
-
-			appendStoryMusicUploadMetadata(formData, uploadOptions);
-			
-			await colibriAPI().storyEditor().with(formData).withHeaders({
-				'Content-Type': 'multipart/form-data'
-			}).uploadProgress((progressEvent) => {
-				state.uploadProgress = Math.round((progressEvent.loaded / progressEvent.total) * 100);
-			}).sendTo('media/upload').then((response) => {
-				state.storyMedia = response.data.data;
-				state.uploadProgress = 0;
-			}).catch((error) => {
-				if(error.response) {
-					state.uploadProgress = 0;
-
-					throw new Error(error.response.data.message);
-				}
-			});
+			throw new Error('This story attachment type is unsupported. Choose a photo or video for direct R2 upload.');
 		},
 		deleteMedia: async function() {
 			if (this.publicationSelection) {

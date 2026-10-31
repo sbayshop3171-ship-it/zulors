@@ -46,6 +46,9 @@ class TipController extends Controller
 
     public function updateAvatar(Request $request)
     {
+        if($request->hasFile('image')) {
+            abort(response()->json(['message' => 'Profile photos must use the signed direct R2 upload flow.', 'code' => 'direct_upload_required'], 409));
+        }
         $skip = $request->get('skip', false);
 
         $updateData = [
@@ -61,6 +64,7 @@ class TipController extends Controller
 
             if(! empty($avatarFilePath)) {
                 $updateData['avatar'] = $avatarFilePath;
+                $updateData['avatar_disk'] = static_storage_disk();
             }
         }
 
@@ -68,7 +72,7 @@ class TipController extends Controller
 
         return $this->responseSuccess([
             'data' => [
-                'avatar_url' => (empty($skip) ? storage_url($this->me->avatar, static_storage_disk()) : null)
+                'avatar_url' => (empty($skip) ? $this->me->avatar_url : null)
             ]
         ]);
     }

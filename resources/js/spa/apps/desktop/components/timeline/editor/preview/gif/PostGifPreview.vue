@@ -4,6 +4,7 @@
         v-bind:key="mediaItem.id || mediaItem.source_url"
         v-bind:mediaItem="mediaItem"
         v-bind:src="mediaItem.metadata?.preview_url || mediaItem.source_url"
+        v-bind:fitToViewport="true"
         alt="GIF"
     >
         <MediaBlurOverlay v-if="mediaItem.deleted"></MediaBlurOverlay>

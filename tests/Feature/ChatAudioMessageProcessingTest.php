@@ -22,32 +22,12 @@ class ChatAudioMessageProcessingTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_chat_audio_message_prefers_server_measured_duration_metadata(): void
+    public function test_legacy_chat_audio_body_is_rejected_before_message_creation(): void
     {
         Notification::fake();
         config(['chat.processing.audio.preferred_extension' => '']);
 
         [$sender, $recipient, $chat] = $this->createDirectChat();
-
-        $this->mock(RoundRobinService::class, function ($mock) {
-            $mock->shouldReceive('getNextDisk')->once()->andReturn('public');
-        });
-
-        $this->mock(AudioUploadService::class, function ($mock) {
-            $mock->shouldReceive('setStorageDisk')->twice()->andReturnSelf();
-            $mock->shouldReceive('tempSaveLocally')->once()->andReturn([
-                'disk' => 'public',
-                'audio_path' => 'tmp/audios/message-voice.wav',
-                'duration' => parse_duration(6),
-                'duration_seconds' => 6,
-            ]);
-            $mock->shouldReceive('setNamespace')->once()->andReturnSelf();
-            $mock->shouldReceive('setDefaultExtension')->once()->with('wav')->andReturnSelf();
-            $mock->shouldReceive('upload')->once()->andReturn([
-                'disk' => 'public',
-                'audio_path' => 'media/chats/audios/message-voice.wav',
-            ]);
-        });
 
         Sanctum::actingAs($sender);
 
@@ -58,13 +38,9 @@ class ChatAudioMessageProcessingTest extends TestCase
             'media' => $this->makeWaveUpload('voice-message.wav'),
         ]);
 
-        $response->assertOk()
-            ->assertJsonPath('data.relations.media.type', 'audio')
-            ->assertJsonPath('data.relations.media.extension', 'wav')
-            ->assertJsonPath('data.relations.media.metadata.duration.minutes', '00')
-            ->assertJsonPath('data.relations.media.metadata.duration.seconds', '06')
-            ->assertJsonPath('data.relations.media.metadata.duration_seconds', 6)
-            ->assertJsonPath('data.relations.media.metadata.file_name', 'voice-message.wav');
+        $response->assertStatus(409)->assertJsonPath('code', 'direct_upload_required');
+        $this->assertDatabaseCount('messages', 0);
+        $this->assertDatabaseCount('media', 0);
     }
 
     public function test_chat_validation_configuration_allows_mobile_audio_extensions_and_mime_types(): void

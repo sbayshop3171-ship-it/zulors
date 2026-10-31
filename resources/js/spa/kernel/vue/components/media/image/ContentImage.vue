@@ -1,5 +1,12 @@
 <template>
     <div class="content-image-frame relative w-full overflow-hidden bg-fill-tr" v-bind:style="frameStyle">
+        <img
+            v-if="fitToViewport && imageSource"
+            v-bind:src="imageSource"
+            class="content-image-backdrop"
+            alt=""
+            aria-hidden="true"
+        >
         <ProgressiveImageLoader
             v-bind:base64Image="base64Image || mediaItem?.lqip_base64"
             v-bind:src="imageSource"
@@ -8,6 +15,7 @@
             v-bind:fetchPriority="fetchPriority"
             v-bind:alt="alt"
             class="content-image-loader"
+            v-bind:class="{ 'bg-transparent': fitToViewport }"
             v-on:load="captureDimensions"
         ></ProgressiveImageLoader>
         <slot></slot>
@@ -29,6 +37,7 @@
             isSensitive: { type: Boolean, default: false },
             loading: { type: String, default: 'lazy' },
             fetchPriority: { type: String, default: 'auto' },
+            fitToViewport: { type: Boolean, default: false },
         },
         setup(props, context) {
             const loadedDimensions = ref({});
@@ -39,6 +48,7 @@
                 || '');
             const frameStyle = computed(() => ({
                 aspectRatio: String(getImageAspectRatio(props.mediaItem, loadedDimensions.value)),
+                maxHeight: props.fitToViewport ? '55dvh' : undefined,
             }));
 
             watch(imageSource, () => {
@@ -68,6 +78,18 @@
 <style scoped>
     .content-image-frame {
         aspect-ratio: 4 / 3;
+    }
+
+    .content-image-backdrop {
+        position: absolute;
+        inset: -1rem;
+        display: block;
+        width: calc(100% + 2rem);
+        height: calc(100% + 2rem);
+        object-fit: cover;
+        filter: blur(1rem);
+        opacity: 0.72;
+        pointer-events: none;
     }
 
     .content-image-loader {

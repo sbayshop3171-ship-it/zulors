@@ -56,46 +56,7 @@ class StoryMediaController extends Controller
 
     public function uploadMedia(Request $request)
     {
-        if(! $this->canAddStoryFrame()) {
-            return $this->responseValidationError([
-                'message' => __('story.validation.frame_count.max', ['max' => config('story.max_frames_per_story')]),
-                'errors' => [
-                    'media_file' => [
-                        __('story.validation.frame_count.max', ['max' => config('story.max_frames_per_story')])
-                    ]
-                ]
-            ]);
-        }
-
-        $request->validate([
-            'media_file' => ['required', 'file'],
-            'clip_start_seconds' => ['nullable', 'numeric', 'min:0', 'max:86400'],
-            'clip_duration_seconds' => ['nullable', 'numeric', 'min:1', 'max:' . config('story.video_clip_size')],
-            'editor_provider' => ['nullable', 'string', 'max:64'],
-            'editor_export_format' => ['nullable', 'string', 'max:16'],
-            'editor_export_resolution' => ['nullable', 'string', 'max:32'],
-            'editor_export_width' => ['nullable', 'integer', 'min:1', 'max:20000'],
-            'editor_export_height' => ['nullable', 'integer', 'min:1', 'max:20000'],
-            'editor_export_fps' => ['nullable', 'numeric', 'min:1', 'max:120'],
-            'editor_export_source_mime' => ['nullable', 'string', 'max:120'],
-            ...OriginalAudioEligibility::metadataValidationRules(),
-        ]);
-
-        $mediaFile = $request->file('media_file');
-
-        $mediaType = Str::before($mediaFile->getMimeType(), '/');
-
-        if($mediaType === 'image') {
-            $this->validateStoryImage($mediaFile);
-
-            return $this->uploadStoryImage($mediaFile);
-        }
-        else {
-            $this->rejectServerVideoUpload();
-            $this->validateStoryVideo($mediaFile);
-
-            return $this->uploadStoryVideo($request, $mediaFile);
-        }
+        $this->rejectServerMediaUpload();
     }
 
     public function createDirectVideoUpload(Request $request, R2DirectUploadService $r2DirectUploadService)
@@ -115,8 +76,8 @@ class StoryMediaController extends Controller
         $request->validate([
             'name' => ['nullable', 'string', 'max:255'],
             'size' => ['required', 'integer', 'min:1', 'max:' . $this->maxDirectVideoBytes()],
-            'mime' => ['nullable', 'string', 'max:120'],
-            'extension' => ['nullable', 'string', 'max:16'],
+            'mime' => ['required', 'string', 'in:video/mp4,video/quicktime,video/webm,video/avi,video/x-msvideo,video/mpeg,video/x-m4v,video/3gpp,video/3gpp2,video/x-matroska'],
+            'extension' => ['required', 'string', 'regex:/\A[a-zA-Z0-9]{2,8}\z/'],
             'width' => ['nullable', 'integer', 'min:1', 'max:20000'],
             'height' => ['nullable', 'integer', 'min:1', 'max:20000'],
             'duration_seconds' => ['nullable', 'numeric', 'min:0', 'max:' . $this->maxDirectVideoDurationSeconds()],
@@ -334,6 +295,15 @@ class StoryMediaController extends Controller
             }
 
             $r2DirectUploadService->verifyUploadedVideo($storyMedia->source_path, $storyMedia->disk, (int) $storyMedia->size);
+            $temporaryPath = $storyMedia->source_path;
+            $temporaryDisk = $storyMedia->disk;
+            $published = $r2DirectUploadService->publishUploadedObject(
+                $temporaryPath,
+                'uploads/stories/videos',
+                $storyMedia->extension ?: 'mp4',
+                $storyMedia->mime ?: 'video/mp4',
+                $temporaryDisk
+            );
         }
         catch (Exception $e) {
             return $this->responseValidationError([
@@ -347,17 +317,27 @@ class StoryMediaController extends Controller
         }
 
         $metadata = array_merge($metadata, [
+            'provider' => 'r2',
             'upload_state' => 'uploaded',
             'upload_progress' => 100,
             'upload_completed_at' => now()->toIso8601String(),
-            'processing_state' => 'uploaded',
-            'processing_progress' => 0,
+            'processing_state' => 'processed',
+            'processing_progress' => 100,
             'processing_updated_at' => now()->toIso8601String(),
             'original_size' => (int) ($storyMedia->size ?: data_get($metadata, 'original_size', 0)),
+            'processing_mode' => 'original_direct',
+            'background_processing_state' => 'skipped',
+            'background_processing_progress' => 100,
+            'temp_path' => data_get($metadata, 'temp_path', $temporaryPath),
+            'temp_disk' => data_get($metadata, 'temp_disk', $temporaryDisk),
+            'final_disk' => $published['disk'],
         ]);
 
+        $storyMedia->source_path = $published['path'];
+        $storyMedia->disk = $published['disk'];
+        $storyMedia->size = $published['size'];
         $storyMedia->metadata = $metadata;
-        $storyMedia->status = MediaStatus::UNPROCESSED;
+        $storyMedia->status = MediaStatus::PROCESSED;
         $storyMedia->save();
 
         return $this->responseSuccess([
@@ -380,7 +360,7 @@ class StoryMediaController extends Controller
                 $videoStorageDisk = $storyMedia->disk;
 
                 if($this->draftStoryFrame->status->isDraft()) {
-                    $videoStorageDisk = in_array(data_get($storyMedia->metadata, 'provider'), ['r2_temp', 'r2_direct'], true)
+                    $videoStorageDisk = in_array(data_get($storyMedia->metadata, 'provider'), ['r2', 'r2_temp', 'r2_direct'], true)
                         ? $storyMedia->disk
                         : 'local';
                 }
@@ -594,7 +574,7 @@ class StoryMediaController extends Controller
         abort_unless($storyMedia->type->isVideo(), 404);
         abort_unless($storyMedia->storyFrame && $storyMedia->storyFrame->story && ($storyMedia->storyFrame->story->user_id === me()->id), 403);
 
-        if(in_array(data_get($storyMedia->metadata, 'provider'), ['r2_temp', 'r2_direct'], true)) {
+        if(in_array(data_get($storyMedia->metadata, 'provider'), ['r2', 'r2_temp', 'r2_direct'], true)) {
             return redirect()->away(Storage::disk($storyMedia->disk)->temporaryUrl(
                 $storyMedia->source_path,
                 now()->addMinutes(config('media.cloudflare.r2.temp_preview_expiry_minutes', 30))
@@ -699,12 +679,12 @@ class StoryMediaController extends Controller
 
     private function maxDirectVideoBytes(): int
     {
-        return max(1, (int) config('media.uploads.video.max_bytes', 1024 * 1024 * 1024));
+        return max(1, (int) config('media.uploads.video.max_bytes', 8 * 1024 * 1024 * 1024));
     }
 
     private function maxDirectVideoDurationSeconds(): int
     {
-        return max(1, (int) config('media.uploads.video.max_duration_seconds', 600));
+        return max(1, (int) config('media.uploads.video.max_duration_seconds', 3600));
     }
 
     private function buildStoryVideoPreviewPayload(Media $storyMedia, array $clipData): array

@@ -35,4 +35,25 @@ class FakeR2DirectUploadService extends R2DirectUploadService
     {
         if(count($parts) !== $expectedParts) throw new \RuntimeException('Missing video parts.');
     }
+
+    public function publishUploadedVideo(string $tempPath, string $extension = 'mp4', string $contentType = 'video/mp4', ?string $sourceDisk = null): array
+    {
+        $published = $this->publishUploadedObject($tempPath, 'uploads/posts/videos', $extension, $contentType, $sourceDisk);
+        return ['disk' => $published['disk'], 'video_path' => $published['path'], 'video_size' => $published['size']];
+    }
+
+    public function publishUploadedObject(string $tempPath, string $targetPrefix, string $extension, string $contentType, ?string $sourceDisk = null): array
+    {
+        $sourceDisk = $sourceDisk ?: 'r2_temp';
+        $targetDisk = 'r2_final';
+        $path = trim($targetPrefix, '/') . '/' . sha1($sourceDisk . '|' . $tempPath) . '.' . preg_replace('/[^a-zA-Z0-9]/', '', $extension);
+        $source = Storage::disk($sourceDisk);
+        $target = Storage::disk($targetDisk);
+        if(! $target->exists($path)) {
+            $target->put($path, $source->get($tempPath));
+        }
+        $size = (int) $target->size($path);
+        $source->delete($tempPath);
+        return ['disk' => $targetDisk, 'path' => $path, 'size' => $size];
+    }
 }

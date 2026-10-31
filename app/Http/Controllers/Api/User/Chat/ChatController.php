@@ -150,12 +150,12 @@ class ChatController extends Controller
 
     private function maxDirectVideoBytes(): int
     {
-        return max(1, (int) config('media.uploads.video.max_bytes', 1024 * 1024 * 1024));
+        return max(1, (int) config('media.uploads.video.max_bytes', 8 * 1024 * 1024 * 1024));
     }
 
     private function maxDirectVideoDurationSeconds(): int
     {
-        return max(1, (int) config('media.uploads.video.max_duration_seconds', 600));
+        return max(1, (int) config('media.uploads.video.max_duration_seconds', 3600));
     }
 
     private function chatDirectVideoPresentationMetadata(Request $request): array
@@ -181,13 +181,7 @@ class ChatController extends Controller
 
     private function chatDirectVideoPublicDisk(R2DirectUploadService $r2DirectUploadService): string
     {
-        $finalDisk = $r2DirectUploadService->finalDisk();
-
-        if((bool) data_get(config("filesystems.disks.{$finalDisk}"), 'enabled', true)) {
-            return $finalDisk;
-        }
-
-        return app(\App\Services\Filesystem\RoundRobin\RoundRobinService::class)->getNextDisk();
+        return $r2DirectUploadService->finalDisk();
     }
 
     private function chatDirectVideoUploadPayload(array $uploadData): array
@@ -690,10 +684,7 @@ class ChatController extends Controller
 
     public function sendMessage(Request $request)
     {
-        if($request->input('media_type') === 'video'
-            || ($request->hasFile('media') && str_starts_with((string) $request->file('media')->getMimeType(), 'video/'))) {
-            $this->rejectServerVideoUpload();
-        }
+        if($request->hasFile('media')) $this->rejectServerMediaUpload();
 
         $validator = Validator::make([
             'chat_id' => $request->get('chat_id'),
@@ -1037,8 +1028,8 @@ class ChatController extends Controller
             'client_uid' => ['nullable', 'string', 'max:100'],
             'name' => ['nullable', 'string', 'max:255'],
             'size' => ['required', 'integer', 'min:1', 'max:' . $this->maxDirectVideoBytes()],
-            'mime' => ['nullable', 'string', 'max:120'],
-            'extension' => ['nullable', 'string', 'max:16'],
+            'mime' => ['required', 'string', 'in:video/mp4,video/quicktime,video/webm,video/avi,video/x-msvideo,video/mpeg,video/x-m4v,video/3gpp,video/3gpp2,video/x-matroska'],
+            'extension' => ['required', 'string', 'regex:/\A[a-zA-Z0-9]{2,8}\z/'],
             'width' => ['nullable', 'integer', 'min:1', 'max:20000'],
             'height' => ['nullable', 'integer', 'min:1', 'max:20000'],
             'duration_seconds' => ['required', 'integer', 'min:1', 'max:' . $this->maxDirectVideoDurationSeconds()],
@@ -1304,7 +1295,26 @@ class ChatController extends Controller
             ]);
         }
 
-        $completion = DB::transaction(function () use ($media): ?array {
+        $temporaryPath = $media->source_path;
+        $temporaryDisk = $media->disk;
+
+        try {
+            $published = $r2DirectUploadService->publishUploadedObject(
+                $temporaryPath,
+                'uploads/chats/videos',
+                $media->extension ?: 'mp4',
+                $media->mime ?: 'video/mp4',
+                $temporaryDisk
+            );
+        }
+        catch (Exception $e) {
+            return $this->responseValidationError([
+                'message' => $e->getMessage(),
+                'errors' => ['video' => [$e->getMessage()]],
+            ]);
+        }
+
+        $completion = DB::transaction(function () use ($media, $published, $temporaryPath, $temporaryDisk): ?array {
             $lockedMedia = $media->newQuery()
                 ->whereKey($media->getKey())
                 ->lockForUpdate()
@@ -1325,18 +1335,27 @@ class ChatController extends Controller
             }
 
             $metadata = array_merge($metadata, [
+                'provider' => 'r2',
                 'upload_state' => 'uploaded',
                 'upload_progress' => 100,
                 'upload_completed_at' => now()->toIso8601String(),
-                'processing_progress' => max(1, (int) data_get($metadata, 'processing_progress', 0)),
-                'processing_state' => 'queued',
-                'processing_dispatched_at' => now()->toIso8601String(),
+                'processing_progress' => 100,
+                'processing_state' => 'processed',
+                'processing_mode' => 'original_direct',
+                'background_processing_state' => 'skipped',
+                'background_processing_progress' => 100,
+                'temp_path' => data_get($metadata, 'temp_path', $temporaryPath),
+                'temp_disk' => data_get($metadata, 'temp_disk', $temporaryDisk),
+                'final_disk' => $published['disk'],
                 'processing_updated_at' => now()->toIso8601String(),
-                'original_size' => (int) ($lockedMedia->size ?: data_get($metadata, 'original_size', 0)),
+                'original_size' => (int) ($published['size'] ?: data_get($metadata, 'original_size', 0)),
             ]);
 
+            $lockedMedia->source_path = $published['path'];
+            $lockedMedia->disk = $published['disk'];
+            $lockedMedia->size = $published['size'];
             $lockedMedia->metadata = $metadata;
-            $lockedMedia->status = MediaStatus::PROCESSING;
+            $lockedMedia->status = MediaStatus::PROCESSED;
             $lockedMedia->save();
 
             return [
@@ -1363,8 +1382,6 @@ class ChatController extends Controller
                 ],
             ]);
         }
-
-        ProcessChatVideo::dispatch($messageData)->onQueue(config('media.queues.video_high'));
 
         try {
             event(new MessageReceivedEvent($messageData, $clientUid ?: null));
@@ -1396,6 +1413,8 @@ class ChatController extends Controller
 
     public function initAudioMessage(Request $request)
     {
+        $this->rejectServerMediaUpload('audio');
+
         $validator = Validator::make([
             'chat_id' => $request->input('chat_id'),
             'parent_id' => $request->input('parent_id'),
@@ -1517,6 +1536,7 @@ class ChatController extends Controller
 
     public function uploadAudioMessage(Request $request, int $messageId)
     {
+        $this->rejectServerMediaUpload('audio');
         $validator = Validator::make([
             'audio' => $request->file('audio'),
         ], [

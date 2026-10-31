@@ -113,11 +113,11 @@ class DeleteUserAction
             $this->deleteUserAuthorshipRequests();
 
             if (! $this->userData->hasDefaultAvatar() && ! empty($this->userData->avatar)) {
-                Storage::disk(static_storage_disk())->delete($this->userData->avatar);
+                Storage::disk($this->userData->avatar_disk ?: static_storage_disk())->delete($this->userData->avatar);
             }
 
             if (! $this->userData->hasDefaultCover() && ! empty($this->userData->cover)) {
-                Storage::disk(static_storage_disk())->delete($this->userData->cover);
+                Storage::disk($this->userData->cover_disk ?: static_storage_disk())->delete($this->userData->cover);
             }
 
             return $this->userData->delete();

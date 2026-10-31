@@ -120,14 +120,17 @@ class StoryController extends Controller
 
             $isVideo = $this->draftStoryFrame->type->isVideo();
             $isUploadedR2Video = $isVideo
-                && in_array(data_get($storyMedia->metadata, 'provider'), ['r2_temp', 'r2_direct'], true)
+                && in_array(data_get($storyMedia->metadata, 'provider'), ['r2', 'r2_temp', 'r2_direct'], true)
                 && data_get($storyMedia->metadata, 'upload_state') === 'uploaded';
+            $isOriginalDirectVideo = $isUploadedR2Video
+                && data_get($storyMedia->metadata, 'provider') === 'r2'
+                && $storyMedia->status->isProcessed();
             $publishedAt = now();
             $expiresAt = $publishedAt->copy()->addHours(max(1, (int) config('story.expire_after_hours', 24)));
 
             if(
                 $isVideo
-                && in_array(data_get($storyMedia->metadata, 'provider'), ['r2_temp', 'r2_direct'], true)
+                && in_array(data_get($storyMedia->metadata, 'provider'), ['r2', 'r2_temp', 'r2_direct'], true)
                 && data_get($storyMedia->metadata, 'upload_state') !== 'uploaded'
             ) {
                 return $this->responseValidationError([
@@ -190,16 +193,18 @@ class StoryController extends Controller
                     'upload_progress' => 100,
                     'upload_state' => 'uploaded',
                     'upload_completed_at' => now()->toIso8601String(),
-                    'processing_progress' => $isUploadedR2Video ? 100 : 1,
-                    'processing_state' => 'queued',
-                    'processing_dispatched_at' => now()->toIso8601String(),
+                    'processing_progress' => $isOriginalDirectVideo || $isUploadedR2Video ? 100 : 1,
+                    'processing_state' => $isOriginalDirectVideo ? 'processed' : 'queued',
+                    'processing_dispatched_at' => $isOriginalDirectVideo
+                        ? data_get($storyMedia->metadata, 'processing_dispatched_at')
+                        : now()->toIso8601String(),
                     'processing_updated_at' => now()->toIso8601String()
                 ]);
 
                 if($isUploadedR2Video) {
                     $metadata = array_merge($metadata, [
-                        'background_processing_state' => 'queued',
-                        'background_processing_progress' => 0,
+                        'background_processing_state' => $isOriginalDirectVideo ? 'skipped' : 'queued',
+                        'background_processing_progress' => 100,
                         'instant_publish' => true,
                     ]);
                 }

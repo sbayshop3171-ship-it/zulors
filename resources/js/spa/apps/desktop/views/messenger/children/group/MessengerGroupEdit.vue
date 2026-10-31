@@ -94,6 +94,8 @@
 
 <script>
     import { defineComponent, reactive, ref, computed, onMounted } from 'vue';
+    import { AxiosAuth } from '@/kernel/services/axios/index.js';
+    import { directAssetImageUpload } from '@/kernel/services/media/r2-direct-asset-upload.js';
 	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 	import { useGroupStore } from '@D/store/chats/group.store.js';
 	import { useRouter } from 'vue-router';
@@ -188,30 +190,22 @@
 
 					state.isSubmitting = false;
 				},
-				onAvatarSelect: (event) => {
+				onAvatarSelect: async (event) => {
 					state.isSubmitting = true;
-
-					const formData = new FormData();
-					formData.append('avatar_file', event.target.files[0]);
-					formData.append('chat_id', props.chat_id);
-
-					colibriAPI().messenger().with(formData).withHeaders({
-                    	'Content-Type': 'multipart/form-data'
-					}).uploadProgress((progressEvent) => {
-						state.uploadProgress = Math.round((progressEvent.loaded / progressEvent.total) * 100);
-					}).sendTo('groups/avatar/update').then((response) => {
-						editGroupData.value.avatar_url = response.data.data.avatar_url;
-						
-						state.uploadProgress = 0;
-					}).catch((error) => {
-						if(error.response) {
-							toastError(error.response.data.message);
-						} else {
-							state.uploadProgress = 0;
-						}
-					});
-
-					state.isSubmitting = false;
+					const file = event.target.files[0];
+					event.target.value = '';
+					try {
+						const result = await directAssetImageUpload({
+							file,
+							operation: 'group_avatar',
+							chatId: props.chat_id,
+							request: (action, payload) => AxiosAuth.post(`media-uploads/${action}`, payload),
+							onStage: stage => { state.uploadProgress = stage.stage === 'uploading' ? 1 : 0; },
+							onProgress: progress => { state.uploadProgress = progress; },
+						});
+						editGroupData.value.avatar_url = result.avatar_url;
+					} catch (error) { toastError(error.response?.data?.message || error.message); }
+					finally { state.uploadProgress = 0; state.isSubmitting = false; }
 				}
 			};
         },

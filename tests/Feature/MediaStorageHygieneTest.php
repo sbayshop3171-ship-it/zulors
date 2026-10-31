@@ -8,6 +8,23 @@ use Tests\TestCase;
 
 class MediaStorageHygieneTest extends TestCase
 {
+    public function test_cors_allowlist_ignores_browser_supplied_origin(): void
+    {
+        config([
+            'app.url' => 'https://zulors.example',
+            'media.cloudflare.r2.cors_origins' => 'https://app.zulors.example',
+        ]);
+        app()->instance('request', \Illuminate\Http\Request::create('/', 'POST', [], [], [], [
+            'HTTP_ORIGIN' => 'https://attacker.example',
+        ]));
+
+        $service = new R2DirectUploadService();
+        $method = new \ReflectionMethod($service, 'corsOrigins');
+        $method->setAccessible(true);
+
+        $this->assertSame(['https://app.zulors.example', 'https://zulors.example'], $method->invoke($service));
+    }
+
     public function test_lifecycle_can_be_previewed_and_applied_while_direct_uploads_are_disabled(): void
     {
         $client = \Mockery::mock(\Aws\S3\S3Client::class);
@@ -85,7 +102,7 @@ class MediaStorageHygieneTest extends TestCase
         Storage::disk('r2_final')->assertExists($old);
     }
 
-    public function test_uploaded_object_size_must_match_and_raw_publication_is_disabled(): void
+    public function test_uploaded_object_size_must_match_and_r2_promotion_requires_configuration(): void
     {
         Storage::fake('r2_temp');
         Storage::disk('r2_temp')->put('sample', 'video');
@@ -98,7 +115,8 @@ class MediaStorageHygieneTest extends TestCase
         catch (\Exception $e) {
             $this->assertStringContainsString('size does not match', $e->getMessage());
         }
-        $this->expectException(\LogicException::class);
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('not configured');
         $service->publishUploadedVideo('sample');
     }
 }

@@ -60,6 +60,7 @@ class MediaResource extends JsonResource
                     'temp_path',
                     'processing_progress',
                     'processing_state',
+                    'processing_mode',
                     'processing_started_at',
                     'processing_updated_at',
                     'processing_dispatched_at',

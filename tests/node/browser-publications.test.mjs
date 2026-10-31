@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PublicationManager } from '../../resources/js/spa/kernel/services/media/publications/manager.js';
 import { NativePublicationBridge } from '../../resources/js/spa/kernel/services/media/publications/native-bridge.js';
+import { directAssetImageUpload } from '../../resources/js/spa/kernel/services/media/r2-direct-asset-upload.js';
+import { prepareMediaFile, prepareVideoFile } from '../../resources/js/spa/kernel/services/media/prepare-media-file.js';
 import { transferItem, uploadPart } from '../../resources/js/spa/kernel/services/media/publications/transfer.js';
 import { isPublicationMedia, publicationMediaMime, publicationMediaType, releasePublicationSelection, selectPublicationMedia } from '../../resources/js/spa/kernel/services/media/publications/selection.js';
 
@@ -12,6 +14,7 @@ class MemoryDatabase {
     async get(key) { return structuredClone(this.rows.get(key)); }
     async file(key) { return this.files.get(key); }
     async update(key, fn) { const row = fn(await this.get(key)); if (row) this.rows.set(key, structuredClone(row)); return row; }
+    async updateFileAndPublication(key, fileKey, blob, fn) { this.files.set(fileKey, blob); return this.update(key, fn); }
     async lease() { return true; }
     async release() {}
 }
@@ -58,7 +61,9 @@ test('feature disabled, unsupported privacy and GIF cannot enter the new path', 
     await assert.rejects(queued(manager), /unavailable/);
     manager.capability = capability;
     await assert.rejects(manager.enqueue({ kind: 'post', privacy: 'followers' }, [selection()]), /audience/);
-    for (const type of ['image/gif', 'image/heic', 'application/pdf', 'audio/mp3']) assert.equal(isPublicationMedia({ type }), false);
+    for (const type of ['image/gif', 'image/heic']) assert.equal(isPublicationMedia({ type }), false);
+    assert.equal(isPublicationMedia({ type: 'application/pdf', name: 'report.pdf' }), true);
+    assert.equal(isPublicationMedia({ type: 'audio/mp3', name: 'voice.mp3' }), true);
     assert.equal(isPublicationMedia({ type: 'image/png' }), true);
 });
 
@@ -71,6 +76,26 @@ test('camera videos with generic or codec MIME use their known container type', 
     assert.equal(publicationMediaMime(cameraMp4), 'video/mp4');
     assert.equal(isPublicationMedia(cameraMov), true);
     assert.equal(publicationMediaMime(cameraMov), 'video/quicktime');
+});
+
+test('video preparation returns the untouched original immediately without invoking a device encoder', async () => {
+    const previousWorker = globalThis.Worker;
+    let workerCalls = 0;
+    globalThis.Worker = class { constructor() { workerCalls++; throw new Error('Video worker must not start'); } };
+    const original = new File(['video-bytes'], 'one-hour.mp4', { type: 'video/mp4' });
+    try {
+        const prepared = await prepareVideoFile(original);
+        const generic = await prepareMediaFile(original);
+        assert.equal(prepared.file, original);
+        assert.equal(generic.file, original);
+        assert.equal(prepared.prepared, false);
+        assert.equal(prepared.reason, 'video_uploads_use_original_r2');
+        assert.equal(workerCalls, 0);
+    }
+    finally {
+        if (previousWorker === undefined) delete globalThis.Worker;
+        else globalThis.Worker = previousWorker;
+    }
 });
 
 test('video publication can queue when the device cannot provide duration metadata', async () => {
@@ -183,6 +208,58 @@ test('raw upload sends the full file and completes with no multipart entries', a
     const result = await transferItem({ upload: { upload_type: 'raw', upload_url: 'https://bucket.example/raw' }, file: new Blob(['data']),
         put: async (part, body) => { assert.equal(await body.text(), 'data'); assert.equal(part.end, 4); return null; } });
     assert.deepEqual(result, []);
+});
+
+test('profile image upload retries create with the same identity and completes signed R2 multipart parts', async () => {
+    const previousXhr = globalThis.XMLHttpRequest;
+    let sent = 0;
+    globalThis.XMLHttpRequest = class {
+        upload = {};
+        open(method, url) { this.method = method; this.url = url; }
+        setRequestHeader() {}
+        getResponseHeader(name) { return name.toLowerCase() === 'etag' ? `etag-${sent}` : null; }
+        send(body) {
+            sent++;
+            this.status = 200;
+            queueMicrotask(() => {
+                this.upload.onprogress?.({ lengthComputable: true, loaded: body.size, total: body.size });
+                this.onload();
+            });
+        }
+    };
+    const clientUids = [];
+    let createAttempts = 0;
+    let completion;
+    try {
+        const result = await directAssetImageUpload({
+            file: new File(['abcdef'], 'photo.jpg', { type: 'image/jpeg' }),
+            operation: 'profile_avatar',
+            request: async (action, payload) => {
+                if (action === 'create') {
+                    clientUids.push(payload.client_uid);
+                    if (++createAttempts === 1) throw new Error('lost create acknowledgement');
+                    return { data: { data: {
+                        uid: 'tmp/direct/media/profile_avatar/object.jpg', upload_type: 'multipart', upload_concurrency: 2,
+                        parts: [
+                            { part_number: 1, start: 0, end: 3, upload_url: 'https://r2.example.test/part/1' },
+                            { part_number: 2, start: 3, end: 6, upload_url: 'https://r2.example.test/part/2' },
+                        ],
+                    } } };
+                }
+                completion = payload;
+                return { data: { data: { avatar_url: '/media/avatar.jpg' } } };
+            },
+        });
+        assert.equal(clientUids.length, 2);
+        assert.equal(clientUids[0], clientUids[1]);
+        assert.equal(sent, 2);
+        assert.deepEqual(completion.parts.map(part => part.part_number), [1, 2]);
+        assert.deepEqual(result, { avatar_url: '/media/avatar.jpg', prepared: false, reason: 'device_preparation_unavailable' });
+    }
+    finally {
+        if (previousXhr === undefined) delete globalThis.XMLHttpRequest;
+        else globalThis.XMLHttpRequest = previousXhr;
+    }
 });
 
 test('uploaded object with lost completion acknowledgement is completed without another PUT', async () => {
