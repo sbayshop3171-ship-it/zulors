@@ -28,7 +28,7 @@
 				</div>
 			</div>
 			<div class="flex items-center justify-center leading-zero">
-				<RouterLink v-bind:to="profileRoute" class="block rounded-full transform-gpu transition-transform duration-150 ease-out active:scale-[0.94]">
+				<RouterLink v-bind:to="profileRoute" v-on:click="handleProfileNavigation" class="block rounded-full transform-gpu transition-transform duration-150 ease-out active:scale-[0.94]">
 					<div class="inline-flex border border-bord-card items-center justify-center size-6 rounded-full overflow-hidden transition-opacity duration-150 ease-out active:opacity-90">
 						<img v-bind:src="userData.avatar_url" v-bind:alt="userData.username || 'Profile'" class="size-full object-cover">
 					</div>
@@ -68,7 +68,7 @@
 	import { useInboxStore } from '@M/store/chats/inbox.store.js';
 	import useToastNotificationStore from '@M/store/toast/toast.store.js';
 	import { colibriSounds } from '@/kernel/services/sounds/index.js';
-	import { makeProfileRoute } from '@/kernel/support/profile-routing/index.js';
+	import { makeProfileRoute, normalizeProfileUsername } from '@/kernel/support/profile-routing/index.js';
 	import { requestHomeScrollRefresh } from '@/kernel/vue/composables/home-scroll-refresh/index.js';
 	import { requestScrollToTop } from '@M/core/services/auto-hide-header.js';
 	import BRD from '@/kernel/websockets/brd/index.js';
@@ -333,6 +333,18 @@
 					await router.push({ name: 'explore_posts' }).catch(() => {});
 					await nextTick();
 					window.requestAnimationFrame(requestScrollToTop);
+				},
+				handleProfileNavigation: (event) => {
+					const isProfileRoute = String(route.name || '').startsWith('profile_');
+					const isOwnProfile = isProfileRoute &&
+						normalizeProfileUsername(route.params.id) === normalizeProfileUsername(authStore.userData?.username);
+
+					if(! isOwnProfile) {
+						return;
+					}
+
+					event?.preventDefault();
+					requestScrollToTop();
 				}
 			};
 		},

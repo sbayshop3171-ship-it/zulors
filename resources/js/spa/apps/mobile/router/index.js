@@ -5,10 +5,21 @@ import { syncMobileRouteTransition } from '@M/core/services/route-transition/ind
 import { installMobileRouteLoadRecovery } from '@M/core/services/route-load-recovery/index.js';
 import HomeIndex from '@M/views/home/HomeIndex.vue';
 import BootstrapErrorView from '@M/views/errors/bootstrap/BootstrapError.vue';
+import { normalizeProfileUsername } from '@/kernel/support/profile-routing/index.js';
+
+const isProfileRoute = (route) => String(route?.name || '').startsWith('profile_');
 
 const Router = createRouter({
 	history: createWebHistory(),
     scrollBehavior(to, from, savedPosition) {
+        // Entering a profile from another section or opening a different profile
+        // should show its header, even when the destination has a saved position.
+        const isDifferentProfile = normalizeProfileUsername(to.params?.id) !== normalizeProfileUsername(from.params?.id);
+
+        if (isProfileRoute(to) && (!isProfileRoute(from) || isDifferentProfile)) {
+            return { top: 0 };
+        }
+
         if (savedPosition) {
             return { top: savedPosition.top };
         }
