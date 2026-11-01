@@ -79,7 +79,31 @@ test('opens quickly, sends once, forwards, and fits mobile viewport', async ({ p
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/switcher/device/mobile');
     await page.goto(`/messenger/c/${stagingConfig.destinationChatId}`);
-    await expect(page.locator('textarea')).toBeVisible();
+    const mobileComposer = page.locator('textarea').first();
+    await expect(mobileComposer).toBeVisible();
+    const mobileChatUrl = page.url();
+    await mobileComposer.tap();
+    await expect(mobileComposer).toBeFocused();
+    await mobileComposer.fill('mobile composer focus check');
+    await expect(mobileComposer).toHaveValue('mobile composer focus check');
+    await expect(page).toHaveURL(mobileChatUrl);
+
+    const mobileMessageText = `mobile composer check ${Date.now()}`;
+    const mobileSendResponsePromise = page.waitForResponse(response =>
+        response.url().includes('/api/messenger/send') && response.request().method() === 'POST'
+    );
+    await mobileComposer.fill(mobileMessageText);
+    await mobileComposer.press('Enter');
+    const mobileSendResponse = await mobileSendResponsePromise;
+    expect(mobileSendResponse.ok()).toBeTruthy();
+    await expect(page).toHaveURL(mobileChatUrl);
+    await expect(page.getByTestId('chat-message').filter({ hasText: mobileMessageText })).toHaveCount(1);
+
+    const composerBounds = await mobileComposer.boundingBox();
+    const visualViewportHeight = await page.evaluate(() => window.visualViewport?.height || window.innerHeight);
+    expect(composerBounds).not.toBeNull();
+    expect(composerBounds.y + composerBounds.height).toBeLessThanOrEqual(visualViewportHeight + 1);
+
     const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
     expect(hasHorizontalOverflow).toBe(false);
 });

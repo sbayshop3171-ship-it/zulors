@@ -1,5 +1,5 @@
 <template>
-	<div class="chat-layout fixed inset-0 bg-bg-pr mb-safe-bottom">
+	<div class="chat-layout fixed inset-0 bg-bg-pr">
 		<div class="chat-header-wrapper shrink-0">
 			<ChatHeader v-if="hasChatData" v-on:close="$router.push({ name: 'messenger_inbox' })" v-bind:chatData="chatData" v-bind:typingUser="state.typing"></ChatHeader>
 			<div v-else class="chat-header mobile-safe-chat-header flex items-center leading-none gap-2.5">
@@ -32,7 +32,7 @@
 				</p>
 			</div>
 		</div>
-		<div class="chat-input-footer shrink-0" v-bind:class="{ 'pb-safe-bottom': $isStandalone() }">
+		<div class="chat-input-footer shrink-0">
             <ChatEditorLock v-if="isEditorBlocked"></ChatEditorLock>
 			<ChatEditor v-else-if="canRenderEditor" v-on:typing="handleMessageTyping"></ChatEditor>
 			<div v-else class="relative z-20 pb-3 px-4 pt-3"></div>
@@ -53,19 +53,19 @@
 		flex-direction: column;
 		height: var(--app-viewport-height, 100dvh);
 		min-height: var(--app-viewport-height, 100dvh);
+		box-sizing: border-box;
 		overflow: hidden;
 		position: fixed;
 		inset: 0;
 		background: var(--bg-pr, #f8f8f8);
-		transform: translateZ(0);
-		-webkit-transform: translateZ(0);
+		margin: 0;
 		padding: 0;
 	}
 
 	.chat-header-wrapper,
 	.chat-input-footer {
 		flex-shrink: 0;
-		margin-bottom: 0;
+		box-sizing: border-box;
 		background: var(--bg-pr, #ffffff);
 	}
 
@@ -73,6 +73,11 @@
 		position: sticky;
 		top: 0;
 		z-index: 25;
+		padding-top: var(--mobile-safe-top, env(safe-area-inset-top, 0px));
+	}
+
+	.chat-input-footer {
+		padding-bottom: var(--chat-safe-bottom-inset, var(--mobile-safe-bottom, env(safe-area-inset-bottom, 0px)));
 	}
 
 	.chat-messages-container {
@@ -90,7 +95,6 @@
 		top: 0;
 		z-index: 50;
 		flex-shrink: 0;
-		padding-top: env(safe-area-inset-top, 0px);
 	}
 
 	@supports not (height: 100dvh) {

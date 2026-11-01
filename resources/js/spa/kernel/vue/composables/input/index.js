@@ -4,6 +4,9 @@ const buildViewportMetaContent = function({ userScalable = false, interactiveWid
     return `width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=${interactiveWidget}, user-scalable=${userScalable ? 'yes' : 'no'}`;
 };
 
+const CHAT_SAFE_BOTTOM_VARIABLE = '--chat-safe-bottom-inset';
+const VIEWPORT_KEYBOARD_RESIZE_THRESHOLD = 120;
+
 const getSafeViewportHeight = function({ fallback = 0 } = {}) {
     if(typeof window === 'undefined') {
         return fallback;
@@ -44,12 +47,56 @@ const installViewportKeyboardGuard = function({ element = document.documentEleme
         return () => {};
     }
 
-    const update = () => syncViewportHeight({ element, variableName });
+    let stableViewportHeight = getSafeViewportHeight({ fallback: window.innerHeight || 0 });
+    let orientationChangeTimer = null;
+    let isKeyboardOpen = false;
+
+    const update = () => {
+        const nextHeight = getSafeViewportHeight({ fallback: window.innerHeight || 0 });
+
+        if(nextHeight > stableViewportHeight) {
+            stableViewportHeight = nextHeight;
+        }
+
+        const keyboardOpen = stableViewportHeight - nextHeight >= VIEWPORT_KEYBOARD_RESIZE_THRESHOLD;
+        const nextValue = `${nextHeight}px`;
+        isKeyboardOpen = keyboardOpen;
+
+        element.style.setProperty(variableName, nextValue);
+        element.style.setProperty(
+            CHAT_SAFE_BOTTOM_VARIABLE,
+            keyboardOpen ? '0px' : 'var(--mobile-safe-bottom, env(safe-area-inset-bottom, 0px))'
+        );
+
+        return nextValue;
+    };
+
+    const handleOrientationChange = () => {
+        const currentHeight = getSafeViewportHeight({ fallback: window.innerHeight || 0 });
+        const previousKeyboardHeight = isKeyboardOpen
+            ? Math.max(0, stableViewportHeight - currentHeight)
+            : 0;
+
+        update();
+
+        if(orientationChangeTimer) {
+            window.clearTimeout(orientationChangeTimer);
+        }
+
+        orientationChangeTimer = window.setTimeout(() => {
+            orientationChangeTimer = null;
+            const settledHeight = getSafeViewportHeight({ fallback: window.innerHeight || 0 });
+            const keyboardStillOpen = previousKeyboardHeight >= VIEWPORT_KEYBOARD_RESIZE_THRESHOLD;
+
+            stableViewportHeight = settledHeight + (keyboardStillOpen ? previousKeyboardHeight : 0);
+            update();
+        }, 250);
+    };
 
     update();
 
     window.addEventListener('resize', update, { passive: true });
-    window.addEventListener('orientationchange', update, { passive: true });
+    window.addEventListener('orientationchange', handleOrientationChange, { passive: true });
 
     if(window.visualViewport) {
         window.visualViewport.addEventListener('resize', update, { passive: true });
@@ -58,7 +105,12 @@ const installViewportKeyboardGuard = function({ element = document.documentEleme
 
     return () => {
         window.removeEventListener('resize', update);
-        window.removeEventListener('orientationchange', update);
+        window.removeEventListener('orientationchange', handleOrientationChange);
+
+        if(orientationChangeTimer) {
+            window.clearTimeout(orientationChangeTimer);
+            orientationChangeTimer = null;
+        }
 
         if(window.visualViewport) {
             window.visualViewport.removeEventListener('resize', update);
@@ -189,4 +241,5 @@ export {
     getSafeViewportHeight,
     syncViewportHeight,
     installViewportKeyboardGuard,
+    CHAT_SAFE_BOTTOM_VARIABLE,
 };
