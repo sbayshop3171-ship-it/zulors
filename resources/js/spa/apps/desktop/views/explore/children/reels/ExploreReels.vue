@@ -64,6 +64,7 @@
 						v-bind:postData="postData"
 						v-bind:active="(visibleWindow.start + index) === state.activeIndex"
 						v-bind:isNear="Math.abs((visibleWindow.start + index) - state.activeIndex) <= nearRadius"
+						v-bind:isNext="(visibleWindow.start + index) === state.activeIndex + 1"
 						v-bind:distanceFromActive="Math.abs((visibleWindow.start + index) - state.activeIndex)"
 						v-bind:position="visibleWindow.start + index"
 						v-bind:feedSessionId="reelsStore.feedSessionId"
@@ -75,12 +76,20 @@
 				<div v-if="state.isLoadingMore" class="h-28 snap-start inline-flex-center bg-transparent text-white">
 					<div class="colibri-primary-animation"></div>
 				</div>
+				<div v-else-if="showRetryLoadMore" class="h-28 snap-start inline-flex-center bg-transparent text-white">
+					<button type="button" class="rounded-full bg-white/15 px-5 py-2 text-par-s text-white" v-on:click="retryFeed">
+						{{ $t('labels.retry') }}
+					</button>
+				</div>
 			</template>
 
 			<div v-else class="h-[100dvh] inline-flex-center bg-transparent px-10 text-center text-white/70">
 				<div>
 					<SvgIcon name="video-recorder" type="line" classes="size-12 mx-auto mb-4 text-white/45"></SvgIcon>
-					<p class="text-par-s">{{ $t('empty_state.empty') }}</p>
+					<p class="text-par-s">{{ state.initialLoadFailed ? $t('labels.reels_load_failed') : $t('empty_state.empty') }}</p>
+					<button v-if="state.initialLoadFailed" type="button" class="mt-4 rounded-full bg-white/15 px-5 py-2 text-par-s text-white" v-on:click="retryFeed">
+						{{ $t('labels.retry') }}
+					</button>
 				</div>
 			</div>
 		</div>
@@ -118,6 +127,8 @@
 				isLoading: true,
 				isLoadingMore: false,
 				noMoreContent: false,
+				initialLoadFailed: false,
+				loadMoreFailed: false,
 				activeIndex: 0,
 				networkProfile: getNetworkProfileSnapshot(),
 				viewportHeight: 0
@@ -135,6 +146,10 @@
 
 			const showInitialLoader = computed(() => {
 				return state.isLoading && ! posts.value.length;
+			});
+
+			const showRetryLoadMore = computed(() => {
+				return state.loadMoreFailed || reelsStore.pageLoadError;
 			});
 
 			const canGoNext = computed(() => {
@@ -233,30 +248,47 @@
 				});
 			};
 
-			const maybeLoadMore = async () => {
+			const maybeLoadMore = async (force = false) => {
 				const scroller = scrollerRef.value;
 
-				if(! scroller || state.isLoadingMore || state.noMoreContent || ! posts.value.length) {
+				if(! scroller || state.isLoadingMore || state.noMoreContent || ! posts.value.length || (showRetryLoadMore.value && ! force)) {
 					return;
 				}
 
 				const distanceToBottom = scroller.scrollHeight - (scroller.scrollTop + scroller.clientHeight);
 
-				if(distanceToBottom > (scroller.clientHeight * 4)) {
+				if(! force && distanceToBottom > (scroller.clientHeight * 4)) {
 					return;
 				}
 
 				state.isLoadingMore = true;
+				state.loadMoreFailed = false;
 
-					try {
-						const response = await reelsStore.loadNextPage();
-						state.noMoreContent = ! reelsStore.appendPosts(response.data.data);
+				try {
+					const response = await reelsStore.loadNextPage();
+					const newPosts = Array.isArray(response?.data?.data) ? response.data.data : [];
+					state.noMoreContent = newPosts.length === 0;
+
+					if(newPosts.length) {
+						reelsStore.appendPosts(newPosts);
 						warmPlaybackWindow();
-					} catch (error) {
-						state.noMoreContent = true;
-					} finally {
+					}
+				}
+				catch(error) {
+					state.loadMoreFailed = true;
+				}
+				finally {
 					state.isLoadingMore = false;
 				}
+			};
+
+			const retryFeed = async () => {
+				if(! posts.value.length) {
+					await loadInitial();
+					return;
+				}
+
+				await maybeLoadMore(true);
 			};
 
 			const ensureNextPage = async () => {
@@ -264,7 +296,7 @@
 					return;
 				}
 
-				await maybeLoadMore();
+				await maybeLoadMore(showRetryLoadMore.value);
 			};
 
 			const goPrevious = () => {
@@ -325,12 +357,14 @@
 			const loadInitial = async () => {
 				state.isLoading = true;
 				state.noMoreContent = false;
+				state.initialLoadFailed = false;
+				state.loadMoreFailed = false;
 				state.activeIndex = 0;
 
 				try {
 					await reelsStore.initialLoad(props.hash_id, route.query.ad_id);
 				} catch(error) {
-					state.noMoreContent = true;
+					state.initialLoadFailed = true;
 				} finally {
 					state.isLoading = false;
 
@@ -386,6 +420,7 @@
 				virtualTopSpacerPx: virtualTopSpacerPx,
 				virtualBottomSpacerPx: virtualBottomSpacerPx,
 				showInitialLoader: showInitialLoader,
+				showRetryLoadMore: showRetryLoadMore,
 				scrollerRef: scrollerRef,
 				reelsStore: reelsStore,
 				nearRadius: nearRadius,
@@ -396,6 +431,7 @@
 				canGoNext: canGoNext,
 				goPrevious: goPrevious,
 				goNext: goNext,
+				retryFeed: retryFeed,
 				closeReels: closeReels
 			};
 		},

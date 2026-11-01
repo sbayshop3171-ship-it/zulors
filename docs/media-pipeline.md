@@ -6,9 +6,13 @@ New post/reel, story, chat, profile, cover, group-avatar and onboarding-avatar
 uploads use signed, object-scoped Cloudflare R2 URLs. Large files use resumable
 multipart transfers. Laravel handles authentication, authorization, quotas,
 metadata, completion verification and database paths; it does not receive media
-bodies or create media temp files. Images can be resized in a browser worker.
+bodies on the upload request path. Images can be resized in a browser worker.
 Videos are sent in their original bytes so phones do not spend time, battery or
 RAM re-encoding them. Documents remain unchanged.
+
+When optional Reels HLS is enabled, the background queue worker reads the
+verified R2 source into a temporary worker directory for FFmpeg and removes
+that working directory after the job. HLS output is written back to R2.
 
 The upload button starts the R2 transfer without a video-preparation step. The
 browser persists part ETags for retry/resume, and repeat create/complete requests
@@ -18,21 +22,23 @@ covered by the R2 lifecycle policy.
 
 ## Video compression and real limits
 
-R2 is object storage. It does not encode or compress videos. This R2-only,
-no-device-encoding path gives fast transfer startup, resume after interruption,
-no VPS media disk usage and no VPS video processing. It does not shrink video
+R2 is object storage. It does not encode or compress videos. The direct upload
+path gives fast transfer startup, resume after interruption and no device-side
+video encoding. It does not shrink video
 bytes or make a 1 GB file finish in seconds. Transfer time is bounded by the
 user's network upload speed. Browser playback also depends on the codec inside
 the original container; the upload API checks declared type and R2 size/type
 metadata but does not inspect the video bitstream or prove its duration.
 
-To reduce video storage bytes, an encoder must run somewhere. Running it on a
-phone can create heat, lag, battery drain and unpredictable delay. Running it
-on the VPS violates the R2-only media-body rule. Running it in a separate cloud
-transcoder can keep source and output objects in R2, but adds compute charges
-and requires a separately deployed worker. No such transcoder is configured by
-this implementation. Do not advertise a 90% reduction or immediate readiness
-until a real-device corpus and the chosen transcoder have been benchmarked.
+The optional Reels HLS worker runs FFmpeg on the existing `media-video-normal`
+queue after a verified R2 MP4 is published. It keeps that MP4 as the canonical
+playback source and writes separate 240p/360p/480p/720p HLS renditions to the
+final R2 disk when the source resolution supports them. The HLS files can
+increase total storage, and the worker adds CPU cost; they are for adaptive
+playback on constrained networks, not a claim that the original file was
+compressed. The post stays playable from its MP4 while this work runs or fails.
+See [Reels HLS processing](reels-hls-processing.md) for its rollout and recovery
+controls.
 
 ## R2 cost model
 

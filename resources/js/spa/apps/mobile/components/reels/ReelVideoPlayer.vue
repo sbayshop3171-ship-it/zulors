@@ -60,6 +60,17 @@
 			</div>
 		</div>
 
+		<div v-if="state.showRetry && active && ! blocked" class="absolute inset-0 z-40 inline-flex-center">
+			<button
+				type="button"
+				v-on:click.stop="retryPlayback"
+				class="inline-flex items-center gap-2 rounded-full bg-black/75 px-5 py-3 font-semibold text-white shadow-lg"
+			>
+				<SvgIcon name="refresh-cw-04" type="line" classes="size-5"></SvgIcon>
+				<span>{{ $t('labels.retry_video') }}</span>
+			</button>
+		</div>
+
 		<div class="absolute left-0 right-0 bottom-0 z-30 h-0.5 bg-white/20">
 			<span class="block h-full bg-white" v-bind:style="{ width: `${displayProgress}%` }"></span>
 		</div>
@@ -85,6 +96,8 @@
 	import { buildAdaptiveVideoSource, canVideoElementPlayNatively, getDirectPlaybackFallback } from '@/kernel/services/media/adaptive-video/index.js';
 	import { buildReelInteractionSignal } from '@/kernel/services/feed-session/reels-session-signals.js';
 	import { getNetworkProfileSnapshot, isSlowNetworkProfile, subscribeNetworkProfile } from '@/kernel/services/network/index.js';
+	import { createReelPlaybackGestureController } from '@/kernel/services/media/reel-playback-gestures.js';
+	import { queueMetric } from '@/kernel/services/performance/index.js';
 
 	import PrimaryIconButton from '@M/components/inter-ui/buttons/PrimaryIconButton.vue';
 	import SvgIcon from '@/kernel/vue/components/icons/SvgIcon.vue';
@@ -112,6 +125,10 @@
 				type: Number,
 				default: 0
 			},
+			isNext: {
+				type: Boolean,
+				default: false
+			},
 			blocked: {
 				type: Boolean,
 				default: false
@@ -137,8 +154,11 @@
 					isReadyForPlayback: false,
 					isPlaying: false,
 					isBuffering: false,
+					showBufferIndicator: false,
+					showRetry: false,
 					hasVisualFrame: false,
 					manualPaused: false,
+					playRequested: false,
 				playbackTime: 0,
 				durationSeconds: 0,
 				bufferedBar: 0,
@@ -152,13 +172,18 @@
 				sessionId: `reel-video-${Date.now()}-${Math.random().toString(36).slice(2)}`,
 				telemetryTimer: null,
 				bufferRecoveryTimer: null,
+				bufferingGraceTimer: null,
 				networkProfile: getNetworkProfileSnapshot(),
 				nativeVideoUrl: '',
-				stallCount: 0
+				stallCount: 0,
+				retryCount: 0,
+				resumePosition: 0,
+				lastReportedRendition: '',
+				forceMp4Fallback: false
 			});
 
-			let tapTimer = null;
 			let hlsInstance = null;
+			let playbackGestureController = null;
 			let unsubscribeNetworkProfile = null;
 			let sponsoredVideoStarted = false;
 			let sponsoredThreeSecondView = false;
@@ -188,11 +213,7 @@
 			});
 
 			const shouldWarmPlayback = computed(() => {
-				if(props.active || props.blocked) {
-					return props.active && ! props.blocked;
-				}
-
-				return canRenderVideo.value && Number(props.distanceFromActive || 0) <= Number(state.networkProfile.reelsWarmRadius || 0);
+				return ! props.blocked && (props.active || (props.isNext && ! state.networkProfile.offline));
 			});
 
 			const shouldAttachPlaybackSource = computed(() => {
@@ -208,11 +229,11 @@
 					return state.networkProfile.activeVideoPreload;
 				}
 
-					return shouldWarmPlayback.value ? (state.networkProfile.reelsAdjacentVideoPreload || 'metadata') : 'none';
+					return shouldWarmPlayback.value ? 'metadata' : 'none';
 				});
 
 				const showBufferIndicator = computed(() => {
-					return props.active && state.isBuffering && ! props.blocked && ! state.manualPaused;
+					return props.active && state.showBufferIndicator && ! props.blocked && ! state.manualPaused && ! state.showRetry;
 				});
 
 				const showPosterCover = computed(() => {
@@ -296,6 +317,43 @@
 				}
 			};
 
+			const clearBufferingGraceTimer = () => {
+				if(state.bufferingGraceTimer) {
+					clearTimeout(state.bufferingGraceTimer);
+					state.bufferingGraceTimer = null;
+				}
+			};
+
+			const showBufferingAfterGrace = () => {
+				clearBufferingGraceTimer();
+				state.bufferingGraceTimer = setTimeout(() => {
+					state.bufferingGraceTimer = null;
+					state.showBufferIndicator = Boolean(state.isBuffering && props.active && ! state.showRetry);
+				}, 450);
+			};
+
+			const recordPlaybackMetric = (metric, value = 1, details = {}) => {
+				queueMetric(metric, value, {
+					category: 'explore',
+					...details
+				});
+			};
+
+			const markPlaybackTerminalError = () => {
+				clearBufferRecoveryTimer();
+				clearBufferingGraceTimer();
+				state.isBuffering = false;
+				state.showBufferIndicator = false;
+				state.showRetry = true;
+				state.playRequested = false;
+				state.isPlaying = false;
+				stopTelemetryTimer();
+				videoPlayerRef.value?.pause();
+				recordPlaybackMetric('media_terminal_error', 1, {
+					rendition: hlsInstance ? 'hls' : 'mp4'
+				});
+			};
+
 			const updatePlaybackReadiness = (forceReady = false) => {
 				const readyState = Number(videoPlayerRef.value?.readyState || 0);
 				const hasBufferedAhead = bufferedAheadSeconds() >= state.networkProfile.reelsMinBufferSeconds;
@@ -367,6 +425,13 @@
 				const handleLoadedMetadata = () => {
 					state.isLoaded = true;
 					state.durationSeconds = videoDurationSeconds();
+					if(state.resumePosition > 0 && videoPlayerRef.value) {
+						try {
+							videoPlayerRef.value.currentTime = Math.min(state.resumePosition, Math.max(0, state.durationSeconds - 0.1));
+						}
+						catch(error) {}
+						state.resumePosition = 0;
+					}
 					syncProgress();
 					updatePlaybackReadiness(false);
 					markVisualFrameReady();
@@ -382,7 +447,7 @@
 
 					updatePlaybackReadiness(true);
 
-					if(props.active && ! props.blocked && ! state.manualPaused && ! state.isPlaying) {
+					if(props.active && ! props.blocked && ! state.manualPaused && ! state.showRetry && ! state.isPlaying) {
 						nextTick(() => {
 							playVideo();
 						});
@@ -501,10 +566,13 @@
 
 			const resetPlaybackState = (resetSession = false) => {
 				clearBufferRecoveryTimer();
+				clearBufferingGraceTimer();
 				state.isLoaded = false;
 					state.isReadyForPlayback = false;
 					state.isPlaying = false;
 					state.isBuffering = false;
+					state.showBufferIndicator = false;
+					state.showRetry = false;
 					state.hasVisualFrame = false;
 					state.playbackTime = 0;
 				state.durationSeconds = 0;
@@ -516,6 +584,8 @@
 				state.lastPlaybackTime = 0;
 				state.bufferedBar = 0;
 				state.stallCount = 0;
+				state.retryCount = 0;
+				state.lastReportedRendition = '';
 
 				if(resetSession) {
 					state.sessionId = `reel-video-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -524,14 +594,21 @@
 
 			const applyFallbackSource = () => {
 				const fallbackSource = getDirectPlaybackFallback(props.mediaItem);
+				const previousTransport = state.forceMp4Fallback ? 'mp4' : playbackSource.value.transport;
 
 				if(! fallbackSource?.url || fallbackSource.url === state.nativeVideoUrl) {
 					return false;
 				}
 
+				const resumePosition = Number(videoPlayerRef.value?.currentTime || state.playbackTime || 0);
 				destroyHlsInstance();
 				state.nativeVideoUrl = fallbackSource.url;
+				state.forceMp4Fallback = true;
+				if(previousTransport === 'hls') {
+					recordPlaybackMetric('media_fallback', 1, { rendition: 'mp4' });
+				}
 				resetPlaybackState(false);
+				state.resumePosition = resumePosition;
 				state.playbackActivatedAt = Date.now();
 
 				nextTick(() => {
@@ -554,13 +631,27 @@
 			};
 
 				const recoverPlayback = () => {
-					clearBufferRecoveryTimer();
+				if(state.bufferRecoveryTimer) {
+					return;
+				}
 
 				if(! props.active || props.blocked || state.manualPaused) {
 					return;
 				}
 
+				if(state.retryCount >= 3) {
+					if(hlsInstance && applyFallbackSource()) {
+						return;
+					}
+
+					markPlaybackTerminalError('retry_limit');
+					return;
+				}
+
+				state.retryCount += 1;
+
 				state.bufferRecoveryTimer = setTimeout(() => {
+					state.bufferRecoveryTimer = null;
 					if(! props.active || props.blocked || state.manualPaused || ! state.isBuffering) {
 						return;
 					}
@@ -574,12 +665,21 @@
 							hlsInstance.startLoad(hlsStartPosition());
 						}
 						catch(error) {
-							applyFallbackSource();
+							if(! applyFallbackSource()) {
+								markPlaybackTerminalError(error?.name || 'hls_recovery');
+							}
 						}
+					}
+					else if(videoPlayerRef.value) {
+						state.resumePosition = Number(videoPlayerRef.value.currentTime || state.playbackTime || 0);
+						try {
+							videoPlayerRef.value.load();
+						}
+						catch(error) {}
 					}
 
 					playVideo();
-					}, state.networkProfile.stallRecoveryDelayMs);
+				}, state.networkProfile.stallRecoveryDelayMs);
 				};
 
 				const warmNativePlayback = () => {
@@ -600,9 +700,16 @@
 				};
 
 				const playVideo = () => {
-					if(! state.isLoaded || ! state.isReadyForPlayback || ! videoPlayerRef.value || props.blocked || ! props.active) {
-						if(videoPlayerRef.value && props.active && ! props.blocked && ! state.manualPaused) {
+					if(props.blocked || ! props.active || state.showRetry) {
+						return false;
+					}
+
+					state.playRequested = true;
+
+					if(! state.isLoaded || ! state.isReadyForPlayback || ! videoPlayerRef.value) {
+						if(props.active && ! state.manualPaused) {
 							state.isBuffering = true;
+							showBufferingAfterGrace();
 							syncPlaybackWindow();
 						}
 
@@ -612,6 +719,7 @@
 					setMuted();
 
 					videoPlayerRef.value.play().then(() => {
+						state.playRequested = true;
 						if(! state.isPlaying) {
 							state.isPlaying = true;
 							startWatchSession();
@@ -619,14 +727,17 @@
 						}
 
 						state.isBuffering = false;
+						state.showRetry = false;
 					}).catch((error) => {
+						if(error?.name === 'AbortError') {
+							return;
+						}
+
 						state.isPlaying = false;
 						state.isBuffering = false;
+						state.showBufferIndicator = false;
 						stopTelemetryTimer();
-
-						if(error.name === 'NotAllowedError') {
-							console.info('Cannot play reel because user has not interacted with the page yet');
-						}
+						markPlaybackTerminalError(error?.name || 'play_rejected');
 					});
 				};
 
@@ -643,32 +754,81 @@
 			};
 
 			const togglePlay = () => {
-				if(props.blocked || ! state.isLoaded) {
+				if(props.blocked || ! props.active) {
 					return false;
 				}
 
-				if(state.isPlaying) {
+				const currentlyPlaying = state.isPlaying || state.playRequested || (! state.manualPaused && props.active);
+
+				if(currentlyPlaying) {
 					state.manualPaused = true;
+					state.playRequested = false;
 					pauseVideo();
 				}
 				else {
 					state.manualPaused = false;
+					state.playRequested = true;
+					state.showRetry = false;
+					recordPlaybackMetric('media_play_request', 0, {
+						rendition: playbackSource.value.transport
+					});
 					playVideo();
 				}
 			};
 
+			const restorePlaybackSnapshot = (snapshot = {}) => {
+				state.manualPaused = Boolean(snapshot.manualPaused);
+				state.playRequested = Boolean(snapshot.playRequested);
+
+				if(snapshot.shouldPlay) {
+					state.showRetry = false;
+					playVideo();
+				}
+				else if(state.manualPaused) {
+					state.playRequested = false;
+					pauseVideo();
+				}
+			};
+
+			playbackGestureController = createReelPlaybackGestureController({
+				getPlaybackSnapshot: () => ({
+					manualPaused: state.manualPaused,
+					playRequested: state.playRequested,
+					shouldPlay: state.isPlaying || state.playRequested || (! state.manualPaused && props.active)
+				}),
+				onSingleTap: togglePlay,
+				onDoubleTap: () => context.emit('double-tap'),
+				restorePlayback: restorePlaybackSnapshot
+			});
+
 			const handleSurfaceTap = () => {
-				if(tapTimer) {
-					clearTimeout(tapTimer);
-					tapTimer = null;
-					context.emit('double-tap');
-					return;
+				playbackGestureController?.handleTap();
+			};
+
+			const retryPlayback = () => {
+				state.showRetry = false;
+				state.retryCount = 0;
+				state.manualPaused = false;
+				state.playRequested = true;
+				state.isBuffering = true;
+				showBufferingAfterGrace();
+
+				if(hlsInstance) {
+					try {
+						hlsInstance.startLoad(hlsStartPosition());
+					}
+					catch(error) {
+						if(! applyFallbackSource()) {
+							markPlaybackTerminalError(error?.name || 'hls_retry');
+						}
+					}
+				}
+				else if(videoPlayerRef.value) {
+					state.resumePosition = Number(videoPlayerRef.value.currentTime || state.playbackTime || 0);
+					videoPlayerRef.value.load();
 				}
 
-				tapTimer = setTimeout(() => {
-					tapTimer = null;
-					togglePlay();
-				}, 220);
+				playVideo();
 			};
 
 			const toggleMute = () => {
@@ -682,8 +842,33 @@
 			};
 
 				const handlePlaying = () => {
+					const recoveredFromStall = state.isBuffering && state.retryCount > 0;
+					if(recoveredFromStall) {
+						recordPlaybackMetric('media_recovery', state.retryCount, {
+							rendition: hlsInstance ? 'hls' : 'mp4'
+						});
+					}
+
 					state.isPlaying = true;
 					state.isBuffering = false;
+					state.showBufferIndicator = false;
+					state.showRetry = false;
+					state.retryCount = 0;
+					state.playRequested = true;
+					clearBufferRecoveryTimer();
+					clearBufferingGraceTimer();
+					const videoHeight = Number(videoPlayerRef.value?.videoHeight || 0);
+					const isHlsSource = ! state.forceMp4Fallback && playbackSource.value.transport === 'hls';
+					const renditionHeight = isHlsSource && videoHeight > 0
+						? [240, 360, 480, 720].reduce((closest, candidate) => {
+							return Math.abs(candidate - videoHeight) < Math.abs(closest - videoHeight) ? candidate : closest;
+						}, 240)
+						: 0;
+					const rendition = isHlsSource ? (renditionHeight ? `${renditionHeight}p` : 'hls') : 'mp4';
+					if(rendition !== state.lastReportedRendition) {
+						state.lastReportedRendition = rendition;
+						recordPlaybackMetric('media_rendition', renditionHeight || videoHeight || 1, { rendition: rendition });
+					}
 					state.hasVisualFrame = true;
 					updatePlaybackReadiness(true);
 				startWatchSession();
@@ -699,8 +884,14 @@
 					return;
 				}
 
+				if(! state.isBuffering) {
+					state.stallCount += 1;
+					recordPlaybackMetric('media_stall', 1, {
+						rendition: hlsInstance ? 'hls' : 'mp4'
+					});
+				}
 				state.isBuffering = true;
-				state.stallCount += 1;
+				showBufferingAfterGrace();
 				updatePlaybackReadiness(false);
 				recoverPlayback();
 			};
@@ -718,6 +909,7 @@
 			const handleHlsError = (event, data) => {
 				if(data?.type === Hls.ErrorTypes.NETWORK_ERROR) {
 					state.isBuffering = true;
+					showBufferingAfterGrace();
 					recoverPlayback();
 				}
 
@@ -731,26 +923,41 @@
 							try {
 								hlsInstance?.startLoad(hlsStartPosition());
 							}
-							catch(error) {}
+							catch(error) {
+								markPlaybackTerminalError(error?.name || 'hls_network');
+							}
 						}
 						break;
 					case Hls.ErrorTypes.MEDIA_ERROR:
+						state.retryCount += 1;
+						if(state.retryCount > 3) {
+							if(! applyFallbackSource()) {
+								markPlaybackTerminalError('hls_media_retry_limit');
+							}
+							break;
+						}
 						try {
 							hlsInstance?.recoverMediaError();
 						}
 						catch(error) {
-							applyFallbackSource();
+							if(! applyFallbackSource()) {
+								markPlaybackTerminalError(error?.name || 'hls_media');
+							}
 						}
 						break;
 					default:
-						applyFallbackSource();
+						if(! applyFallbackSource()) {
+							markPlaybackTerminalError('hls_fatal');
+						}
 						break;
 				}
 			};
 
 				const configurePlaybackSource = () => {
 				const videoElement = videoPlayerRef.value;
-				const source = playbackSource.value;
+				const source = state.forceMp4Fallback
+					? (getDirectPlaybackFallback(props.mediaItem) || playbackSource.value)
+					: playbackSource.value;
 
 				destroyHlsInstance();
 				state.nativeVideoUrl = '';
@@ -775,7 +982,7 @@
 						capLevelToPlayerSize: true,
 						lowLatencyMode: false,
 						backBufferLength: state.networkProfile.reelsBackBufferLength,
-						startLevel: 0,
+						startLevel: isSlowNetworkProfile(state.networkProfile) ? 0 : -1,
 						maxBufferLength: state.networkProfile.reelsMaxBufferLength,
 						maxMaxBufferLength: state.networkProfile.reelsMaxMaxBufferLength
 					});
@@ -785,7 +992,15 @@
 						handleLoadedMetadata();
 					});
 					hlsInstance.on(Hls.Events.FRAG_BUFFERED, syncBuffered);
-					hlsInstance.on(Hls.Events.LEVEL_SWITCHED, syncBuffered);
+					hlsInstance.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
+						syncBuffered();
+						const height = hlsInstance?.levels?.[data?.level]?.height || 0;
+						if(height > 0) {
+							recordPlaybackMetric('media_rendition', height, {
+								rendition: `${height}p`
+							});
+						}
+					});
 					hlsInstance.attachMedia(videoElement);
 					hlsInstance.on(Hls.Events.MEDIA_ATTACHED, () => {
 						hlsInstance.loadSource(source.url);
@@ -864,6 +1079,8 @@
 				watch(() => props.active, (isActive) => {
 				if(isActive) {
 					state.manualPaused = false;
+					state.showRetry = false;
+					state.playRequested = true;
 					syncPlaybackWindow();
 
 					nextTick(() => {
@@ -897,6 +1114,7 @@
 				pauseVideo({
 					emitInteraction: props.active
 				});
+					state.forceMp4Fallback = false;
 				state.sessionId = `reel-video-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 				configurePlaybackSource();
 			});
@@ -924,9 +1142,7 @@
 			});
 
 			onUnmounted(() => {
-				if(tapTimer) {
-					clearTimeout(tapTimer);
-				}
+				playbackGestureController?.reset();
 
 				unsubscribeNetworkProfile?.();
 				pauseVideo({
@@ -934,6 +1150,7 @@
 				});
 				destroyHlsInstance();
 				clearBufferRecoveryTimer();
+				clearBufferingGraceTimer();
 			});
 
 			return {
@@ -947,6 +1164,7 @@
 					canRenderVideo: canRenderVideo,
 					displayProgress: displayProgress,
 					handleSurfaceTap: handleSurfaceTap,
+					retryPlayback: retryPlayback,
 					handleLoadedMetadata: handleLoadedMetadata,
 					handleLoadedData: handleLoadedData,
 					handleCanPlay: handleCanPlay,

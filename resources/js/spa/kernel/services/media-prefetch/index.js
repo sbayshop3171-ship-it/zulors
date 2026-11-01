@@ -176,42 +176,35 @@ function prefetchReelsPlaybackWindow(posts = [], activeIndex = 0) {
 
     const networkProfile = getNetworkProfileSnapshot();
 
-    if(networkProfile.offline) {
-        return;
-    }
-
     const safeActiveIndex = Math.max(0, Math.min(posts.length - 1, Number(activeIndex || 0)));
-    const forwardRadius = Math.max(0, Number(networkProfile.reelsPrefetchAhead || 0));
-    const orderedPosts = [];
     const activePost = posts[safeActiveIndex];
+    const nextPost = posts[safeActiveIndex + 1];
 
-    if(activePost) {
-        prefetchTimelineMedia([activePost], 1, {
-            immediate: true,
-            forceVideoPrefetch: true,
-            videoPreload: networkProfile.activeVideoPreload || 'auto',
-            includeFallbackSource: false
+    const collectPostCacheUrls = (postData) => {
+        const mediaItems = postData?.relations?.media || [];
+
+        return mediaItems.filter((mediaItem) => mediaItem?.type === 'video').flatMap((mediaItem) => {
+            if(mediaItem.thumbnail_url && ! networkProfile.offline) {
+                prefetchImage(mediaItem.thumbnail_url);
+            }
+
+            const source = buildAdaptiveVideoSource(mediaItem);
+
+            return [mediaItem.thumbnail_url, source.transport === 'hls' ? source.url : ''].filter(Boolean);
+        });
+    };
+
+    const currentUrls = collectPostCacheUrls(activePost);
+    const nextUrls = collectPostCacheUrls(nextPost);
+    const worker = navigator.serviceWorker?.controller;
+
+    if(worker) {
+        worker.postMessage({
+            type: 'ZULORS_REELS_CACHE_WINDOW',
+            current: currentUrls,
+            next: nextUrls
         });
     }
-
-    for(let offset = 1; offset <= forwardRadius; offset++) {
-        const postData = posts[safeActiveIndex + offset];
-
-        if(postData) {
-            orderedPosts.push(postData);
-        }
-    }
-
-    if(! orderedPosts.length) {
-        return;
-    }
-
-    prefetchTimelineMedia(orderedPosts, orderedPosts.length || 1, {
-        immediate: true,
-        forceVideoPrefetch: true,
-        videoPreload: networkProfile.reelsAdjacentVideoPreload || 'metadata',
-        includeFallbackSource: false
-    });
 }
 
 function warmHomeFeedMedia(posts = [], options = {}) {

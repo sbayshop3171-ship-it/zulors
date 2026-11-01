@@ -43,6 +43,7 @@ Schedule::command('media:cleanup-temp --hours=72')->dailyAt('03:00')->withoutOve
 Schedule::command('story-music:expire-original-audio --delete-files')->hourly()->withoutOverlapping();
 Schedule::command('horizon:snapshot')->everyFiveMinutes();
 Schedule::command('media:reconcile-publications')->everyFiveMinutes()->withoutOverlapping();
+Schedule::command('media:reconcile-reel-hls')->everyFiveMinutes()->withoutOverlapping();
 
 Schedule::command('calls:cleanup-stale --limit=200')->everyMinute()->withoutOverlapping();
 Schedule::command('ads:reset-monthly-credits')->dailyAt('00:10')->withoutOverlapping();

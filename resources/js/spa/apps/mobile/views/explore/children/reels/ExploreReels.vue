@@ -37,6 +37,7 @@
 					v-bind:postData="postData"
 					v-bind:active="activeIndex === (visibleWindow.start + index)"
 					v-bind:isNear="Math.abs(activeIndex - (visibleWindow.start + index)) <= nearRadius"
+					v-bind:isNext="(visibleWindow.start + index) === activeIndex + 1"
 					v-bind:distanceFromActive="Math.abs(activeIndex - (visibleWindow.start + index))"
 					v-bind:position="visibleWindow.start + index + 1"
 					v-bind:feedSessionId="feedSessionId"
@@ -48,12 +49,22 @@
 			<div v-if="state.isLoadingContent" class="h-24 inline-flex-center text-white/70">
 				<div class="colibri-primary-animation"></div>
 			</div>
+			<div v-else-if="showRetryLoadMore" class="h-24 inline-flex-center">
+				<button type="button" class="rounded-full bg-white/15 px-5 py-2 text-par-s text-white" v-on:click="retryFeed">
+					{{ $t('labels.retry') }}
+				</button>
+			</div>
 		</div>
 
 		<div v-else class="size-full inline-flex-center px-8 text-center">
-			<p class="text-par-s text-white/65">
-				{{ $t('empty_state.empty') }}
-			</p>
+			<div>
+				<p class="text-par-s text-white/65">
+					{{ state.initialLoadFailed ? $t('labels.reels_load_failed') : $t('empty_state.empty') }}
+				</p>
+				<button v-if="state.initialLoadFailed" type="button" class="mt-4 rounded-full bg-white/15 px-5 py-2 text-par-s" v-on:click="retryFeed">
+					{{ $t('labels.retry') }}
+				</button>
+			</div>
 		</div>
 	</div>
 </template>
@@ -94,6 +105,8 @@
 				isLoading: true,
 				isLoadingContent: false,
 				noMoreContent: false,
+				initialLoadFailed: false,
+				loadMoreFailed: false,
 				networkProfile: getNetworkProfileSnapshot(),
 				viewportHeight: 0
 			});
@@ -111,6 +124,10 @@
 
 			const showInitialLoader = computed(() => {
 				return state.isLoading && ! posts.value.length;
+			});
+
+			const showRetryLoadMore = computed(() => {
+				return state.loadMoreFailed || reelsStore.pageLoadError;
 			});
 
 			const nearRadius = computed(() => {
@@ -194,36 +211,47 @@
 				warmPlaybackWindow();
 			};
 
-			const maybeLoadMore = async () => {
+			const maybeLoadMore = async (force = false) => {
 				const scroller = scrollerRef.value;
 
-				if(! scroller || state.isLoadingContent || state.noMoreContent || ! posts.value.length) {
+				if(! scroller || state.isLoadingContent || state.noMoreContent || ! posts.value.length || (showRetryLoadMore.value && ! force)) {
 					return;
 				}
 
 				const remaining = scroller.scrollHeight - (scroller.scrollTop + scroller.clientHeight);
 
-				if(remaining > scroller.clientHeight * 4) {
+				if(! force && remaining > scroller.clientHeight * 4) {
 					return;
 				}
 
 				state.isLoadingContent = true;
+				state.loadMoreFailed = false;
 
-					await reelsStore.loadNextPage().then((response) => {
-						const newPosts = response.data.data;
+				try {
+					const response = await reelsStore.loadNextPage();
+					const newPosts = Array.isArray(response?.data?.data) ? response.data.data : [];
+					state.noMoreContent = newPosts.length === 0;
 
-						if(newPosts.length) {
-							reelsStore.appendPosts(newPosts);
-							warmPlaybackWindow();
-						}
-						else {
-							state.noMoreContent = true;
+					if(newPosts.length) {
+						reelsStore.appendPosts(newPosts);
+						warmPlaybackWindow();
 					}
-				}).catch(() => {
-					state.noMoreContent = true;
-				});
+				}
+				catch(error) {
+					state.loadMoreFailed = true;
+				}
+				finally {
+					state.isLoadingContent = false;
+				}
+			};
 
-				state.isLoadingContent = false;
+			const retryFeed = async () => {
+				if(! posts.value.length) {
+					await loadReels();
+					return;
+				}
+
+				await maybeLoadMore(true);
 			};
 
 			const handleScroll = () => {
@@ -241,20 +269,28 @@
 			const loadReels = async () => {
 				state.isLoading = true;
 				state.noMoreContent = false;
+				state.initialLoadFailed = false;
+				state.loadMoreFailed = false;
 				activeIndex.value = 0;
 
-				await reelsStore.initialLoad(props.hash_id, route.query.ad_id).finally(() => {
+				try {
+					await reelsStore.initialLoad(props.hash_id, route.query.ad_id);
+				}
+				catch(error) {
+					state.initialLoadFailed = true;
+				}
+				finally {
 					state.isLoading = false;
 
 					nextTick(() => {
 						if(scrollerRef.value) {
 							scrollerRef.value.scrollTop = 0;
-							}
+						}
 
-							updateActiveIndex();
-							warmPlaybackWindow();
-						});
+						updateActiveIndex();
+						warmPlaybackWindow();
 					});
+				}
 				};
 
 			const handleResize = () => {
@@ -301,6 +337,8 @@
 				state: state,
 				posts: posts,
 				showInitialLoader: showInitialLoader,
+				showRetryLoadMore: showRetryLoadMore,
+				retryFeed: retryFeed,
 				feedSessionId: feedSessionId,
 				nearRadius: nearRadius,
 				visibleWindow: visibleWindow,

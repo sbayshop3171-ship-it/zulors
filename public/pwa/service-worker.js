@@ -9,6 +9,8 @@ const navigationTimeoutMs = 850;
 const mediaCacheMaxBytes = 80 * 1024 * 1024;
 const mediaCacheMaxEntries = 160;
 const mediaCacheMaxSingleBytes = 25 * 1024 * 1024;
+let reelCachePriorityUrls = new Map();
+let hlsDescendantPriorityUrls = new Map();
 
 const appShellManifestEntries = [
     'resources/js/spa/apps/desktop/bootstrap/application.js',
@@ -159,7 +161,69 @@ const isMediaRequest = (request, url) => {
         return true;
     }
 
-    return /\.(avif|gif|jpe?g|png|svg|webp|mp4|m4v|webm|mov|m3u8|mp3|ogg|wav)$/i.test(url.pathname);
+    return /\.(avif|gif|jpe?g|png|svg|webp|mp4|m4v|webm|mov|m3u8|ts|m4s|mp3|ogg|wav)$/i.test(url.pathname);
+};
+
+const mediaPriorityForUrl = (url) => Math.max(
+    Number(reelCachePriorityUrls.get(url) || 0),
+    Number(hlsDescendantPriorityUrls.get(url) || 0),
+);
+
+const normalizeCachePriorityUrl = (value) => {
+    try {
+        const url = new URL(String(value || ''), self.location.origin);
+        if(! ['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
+            return null;
+        }
+        return url.href;
+    }
+    catch (error) {
+        return null;
+    }
+};
+
+const rememberHlsDescendantPriorities = async (url, response, priority) => {
+    if(priority < 1 || !/\.m3u8(?:$|\?)/i.test(url)) {
+        return;
+    }
+
+    try {
+        const manifest = await response.clone().text();
+        const lines = manifest.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+        let expectVariant = false;
+        let firstSegmentRemembered = false;
+
+        for(const line of lines) {
+            if(line.startsWith('#EXT-X-STREAM-INF')) {
+                expectVariant = true;
+                continue;
+            }
+
+            if(line.startsWith('#')) {
+                continue;
+            }
+
+            const childUrl = normalizeCachePriorityUrl(new URL(line, url).href);
+            if(!childUrl) {
+                expectVariant = false;
+                continue;
+            }
+
+            if(expectVariant || /\.m3u8(?:$|\?)/i.test(childUrl)) {
+                hlsDescendantPriorityUrls.set(childUrl, Math.max(priority, Number(hlsDescendantPriorityUrls.get(childUrl) || 0)));
+                expectVariant = false;
+                continue;
+            }
+
+            if(! firstSegmentRemembered) {
+                hlsDescendantPriorityUrls.set(childUrl, Math.max(priority, Number(hlsDescendantPriorityUrls.get(childUrl) || 0)));
+                firstSegmentRemembered = true;
+            }
+        }
+    }
+    catch (error) {
+        // A malformed or opaque playlist simply receives ordinary LRU treatment.
+    }
 };
 
 const isCacheableBasicResponse = (response) => {
@@ -250,7 +314,10 @@ const writeMediaMeta = async (cache, meta) => {
 
 const pruneMediaCache = async (cache, meta) => {
     const entries = Object.entries(meta.entries || {})
-        .sort((left, right) => Number(left[1].last_accessed_at || 0) - Number(right[1].last_accessed_at || 0));
+        .sort((left, right) => {
+            const priorityDifference = Number(left[1].priority || 0) - Number(right[1].priority || 0);
+            return priorityDifference || Number(left[1].last_accessed_at || 0) - Number(right[1].last_accessed_at || 0);
+        });
     let totalBytes = entries.reduce((total, entry) => {
         return total + Number(entry[1].size || 0);
     }, 0);
@@ -280,6 +347,7 @@ const rememberMediaMeta = async (cache, request, response, cachedAt = Date.now()
         cached_at: meta.entries[request.url]?.cached_at || cachedAt,
         last_accessed_at: cachedAt,
         content_type: response?.headers?.get('content-type') || null,
+        priority: mediaPriorityForUrl(request.url),
     };
 
     await writeMediaMeta(cache, meta);
@@ -301,10 +369,17 @@ const canCacheMediaResponse = (request, response) => {
 };
 
 const mediaStaleWhileRevalidate = async (request) => {
+    // A cached full response must never replace a byte-range response expected by the video element.
+    if(request.headers.has('range')) {
+        return fetch(request);
+    }
+
     const cache = await caches.open(mediaCacheName);
     const cachedResponse = await cache.match(request);
     const refreshPromise = fetch(request)
-        .then((response) => {
+        .then(async (response) => {
+            await rememberHlsDescendantPriorities(request.url, response, mediaPriorityForUrl(request.url));
+
             if(canCacheMediaResponse(request, response)) {
                 cache.put(request, response.clone())
                     .then(() => rememberMediaMeta(cache, request, response.clone()))
@@ -316,6 +391,7 @@ const mediaStaleWhileRevalidate = async (request) => {
         .catch(() => null);
 
     if(cachedResponse) {
+        await rememberHlsDescendantPriorities(request.url, cachedResponse, mediaPriorityForUrl(request.url));
         rememberMediaMeta(cache, request, cachedResponse.clone()).catch(() => {});
 
         return cachedResponse;
@@ -345,6 +421,29 @@ self.addEventListener('message', (event) => {
         caches.open(shellCacheName)
             .then((cache) => cache.delete(navigationShellRequest))
             .catch(() => {});
+    }
+
+    if(messageType === 'ZULORS_REELS_CACHE_WINDOW') {
+        const nextPriorities = new Map();
+        (Array.isArray(event.data?.current) ? event.data.current : []).forEach((value) => {
+            const url = normalizeCachePriorityUrl(value);
+            if(url) nextPriorities.set(url, 3);
+        });
+        (Array.isArray(event.data?.next) ? event.data.next : []).forEach((value) => {
+            const url = normalizeCachePriorityUrl(value);
+            if(url && !nextPriorities.has(url)) nextPriorities.set(url, 2);
+        });
+        reelCachePriorityUrls = nextPriorities;
+        hlsDescendantPriorityUrls = new Map();
+
+        event.waitUntil?.(caches.open(mediaCacheName).then(async (cache) => {
+            const meta = await readMediaMeta(cache);
+            Object.entries(meta.entries || {}).forEach(([url, entry]) => {
+                entry.priority = mediaPriorityForUrl(url);
+            });
+            await writeMediaMeta(cache, meta);
+            await pruneMediaCache(cache, meta);
+        }));
     }
 });
 

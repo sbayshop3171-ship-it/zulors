@@ -7,7 +7,14 @@ const ALLOWED_METRICS = new Set([
     'api_slow',
     'startup_shell',
     'startup_visual',
-    'first_input'
+    'first_input',
+    'media_first_frame',
+    'media_play_request',
+    'media_stall',
+    'media_recovery',
+    'media_fallback',
+    'media_terminal_error',
+    'media_rendition'
 ]);
 const ALLOWED_CATEGORIES = new Set([
     'bootstrap',
@@ -35,6 +42,42 @@ let maximumClsSession = 0;
 const interactionDurations = new Map();
 let firstInputDelay = 0;
 let routeStartedAt = null;
+let activeRouteName = '';
+let runtimeContext = null;
+
+function readRuntimeContext() {
+    if (runtimeContext) {
+        return runtimeContext;
+    }
+
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    let nativeContext = {};
+
+    try {
+        const rawContext = window.ZulorsStartup?.performanceContext?.();
+        nativeContext = rawContext ? JSON.parse(rawContext) : {};
+    }
+    catch (error) {
+        nativeContext = {};
+    }
+
+    const deviceMemory = Number(navigator.deviceMemory || 0);
+    const deviceMemoryBucket = !deviceMemory
+        ? 'unknown'
+        : (deviceMemory <= 1 ? '1' : (deviceMemory <= 2 ? '2' : (deviceMemory <= 4 ? '4' : '8p')));
+    const effectiveType = navigator.onLine === false
+        ? 'offline'
+        : String(connection?.effectiveType || 'unknown').toLowerCase();
+
+    runtimeContext = {
+        device_memory: ['1', '2', '4', '8p'].includes(deviceMemoryBucket) ? deviceMemoryBucket : 'unknown',
+        network: ['offline', 'slow-2g', '2g', '3g', '4g'].includes(effectiveType) ? effectiveType : 'unknown',
+        android_api: Number(nativeContext.android_api || 0),
+        low_ram: typeof nativeContext.low_ram === 'boolean' ? nativeContext.low_ram : null
+    };
+
+    return runtimeContext;
+}
 
 function isSampledSession() {
     if (typeof window === 'undefined') {
@@ -80,13 +123,43 @@ function queueMetric(metric, value, details = {}) {
             ? 'mobile'
             : (document.documentElement.clientWidth < 768 ? 'mobile' : 'desktop')
     };
+    const context = readRuntimeContext();
+
+    if (context.device_memory !== 'unknown') {
+        event.device_memory = context.device_memory;
+    }
+
+    if (context.network !== 'unknown') {
+        event.network = context.network;
+    }
+
+    if (context.android_api >= 24 && context.android_api <= 99) {
+        event.android_api = context.android_api;
+    }
+
+    if (context.low_ram !== null) {
+        event.low_ram = context.low_ram;
+    }
 
     if (details.route && /^[a-z0-9_]{1,60}$/.test(details.route)) {
         event.route = details.route;
     }
+    else if (activeRouteName && /^[a-z0-9_]{1,60}$/.test(activeRouteName)) {
+        event.route = activeRouteName;
+    }
+
+    const serverDuration = Number(details.server_ms);
+    if (Number.isFinite(serverDuration) && serverDuration >= 0 && serverDuration <= 600000) {
+        event.server_ms = roundMetricValue(serverDuration);
+    }
 
     if (details.category && ALLOWED_CATEGORIES.has(details.category)) {
         event.category = details.category;
+    }
+
+    const rendition = String(details.rendition || '');
+    if (['hls', 'mp4', 'direct', '240p', '360p', '480p', '720p'].includes(rendition)) {
+        event.rendition = rendition;
     }
 
     pendingEvents.push(event);
@@ -195,6 +268,59 @@ function observePerformanceEntries() {
             }
         });
     }
+
+    observe('longtask', (entries) => {
+        for (const entry of entries) {
+            if (entry.duration >= 50) {
+                queueMetric('long_task', entry.duration, { route: activeRouteName });
+            }
+        }
+    });
+}
+
+function observeMediaStartup() {
+    if (typeof document === 'undefined' || typeof HTMLVideoElement === 'undefined') {
+        return;
+    }
+
+    const playbackStartedAt = new WeakMap();
+    const firstFrameReported = new WeakSet();
+
+    const reportFirstFrame = (videoElement) => {
+        if(firstFrameReported.has(videoElement)) {
+            return;
+        }
+
+        const startedAt = playbackStartedAt.get(videoElement);
+
+        if(Number.isFinite(startedAt)) {
+            playbackStartedAt.delete(videoElement);
+            firstFrameReported.add(videoElement);
+            queueMetric('media_first_frame', performance.now() - startedAt, {
+                route: activeRouteName,
+                category: activeRouteName === 'explore_reels' ? 'explore' : 'timeline'
+            });
+        }
+    };
+
+    document.addEventListener('play', (event) => {
+        if (event.target instanceof HTMLVideoElement && !firstFrameReported.has(event.target)) {
+            playbackStartedAt.set(event.target, performance.now());
+        }
+    }, true);
+
+    document.addEventListener('playing', (event) => {
+        if (!(event.target instanceof HTMLVideoElement)) {
+            return;
+        }
+
+        if (typeof event.target.requestVideoFrameCallback === 'function') {
+            event.target.requestVideoFrameCallback(() => reportFirstFrame(event.target));
+        }
+        else {
+            reportFirstFrame(event.target);
+        }
+    }, true);
 }
 
 function reportPageVitals() {
@@ -227,8 +353,9 @@ function reportPageVitals() {
 }
 
 function installRouterPerformance(router) {
-    router.beforeEach(() => {
+    router.beforeEach((to) => {
         routeStartedAt = performance.now();
+        activeRouteName = typeof to.name === 'string' ? to.name : '';
     });
 
     router.afterEach((to, from, failure) => {
@@ -283,6 +410,7 @@ function installPerformanceMonitoring() {
     }
 
     observePerformanceEntries();
+    observeMediaStartup();
     window.addEventListener('zulors:startup', (event) => {
         const detail = event.detail || {};
         const startupMetric = detail.name === 'app_shell_ready'

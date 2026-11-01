@@ -78,4 +78,14 @@ return [
             'customer_subdomain' => env('CLOUDFLARE_STREAM_CUSTOMER_SUBDOMAIN'),
         ],
     ],
+
+    'reels_hls' => [
+        'enabled' => (bool) env('MEDIA_REELS_HLS_ENABLED', false),
+        'user_ids' => array_values(array_filter(array_map(
+            static fn ($userId) => trim((string) $userId),
+            explode(',', (string) env('MEDIA_REELS_HLS_USER_IDS', ''))
+        ), static fn ($userId) => $userId !== '')),
+        'timeout_seconds' => (int) env('MEDIA_REELS_HLS_TIMEOUT_SECONDS', 21600),
+        'stale_after_minutes' => (int) env('MEDIA_REELS_HLS_STALE_AFTER_MINUTES', 120),
+    ],
 ];

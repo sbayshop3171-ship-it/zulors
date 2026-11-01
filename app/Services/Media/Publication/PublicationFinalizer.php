@@ -105,7 +105,7 @@ class PublicationFinalizer
 
                 foreach ($items as $item) {
                     $output = $outputs[$item->id];
-                    $entity->media()->create(array_merge(Arr::only($output, [
+                    $media = $entity->media()->create(array_merge(Arr::only($output, [
                         'source_path', 'disk', 'mime', 'extension', 'size',
                         'thumbnail_path', 'thumbnail_disk', 'thumbnail_size', 'lqip_base64',
                     ]), [
@@ -114,6 +114,28 @@ class PublicationFinalizer
                         'order' => $item->position,
                         'metadata' => $this->mediaMetadata($publication, $item, $output),
                     ]));
+
+                    if ($entity instanceof Post && $item->type === 'video') {
+                        $metadata = $media->metadata ?? [];
+                        $hlsEnabled = (bool) config('media.reels_hls.enabled', false);
+                        $metadata['playback_state'] = 'ready';
+                        $metadata['background_processing_state'] = $hlsEnabled ? 'queued' : 'skipped';
+                        $metadata['background_processing_progress'] = $hlsEnabled ? 0 : 100;
+                        $metadata['background_processing_updated_at'] = now()->toIso8601String();
+                        $metadata['background_processing_dispatched_at'] = now()->toIso8601String();
+                        $metadata['background_processing_attempts'] = 0;
+                        $metadata['playback'] = array_merge((array) ($metadata['playback'] ?? []), [
+                            'hls' => null,
+                            'hls_state' => $hlsEnabled ? 'queued' : 'skipped',
+                            'renditions' => [],
+                        ]);
+                        $media->metadata = $metadata;
+                        $media->save();
+
+                        if ($hlsEnabled) {
+                            DB::afterCommit(fn () => app(\App\Services\Media\ReelsHlsRollout::class)->dispatch($media));
+                        }
+                    }
                 }
 
                 if ($entity instanceof Comment && ($previousMediaIds = $entity->getAttribute('_previous_media_ids'))) {

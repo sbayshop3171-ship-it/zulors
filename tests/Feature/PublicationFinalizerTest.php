@@ -115,6 +115,31 @@ class PublicationFinalizerTest extends TestCase
         $this->assertNull(Auth::user());
     }
 
+    public function test_verified_mp4_publication_stays_active_while_reel_hls_is_queued(): void
+    {
+        config(['media.reels_hls.enabled' => true]);
+        $actor = $this->user();
+        $publication = $this->publication($actor, 'post', ['video']);
+        $item = $publication->items()->firstOrFail();
+        $output = $item->output;
+        $output['disk'] = 'r2_final';
+        $output['metadata'] = array_merge($output['metadata'] ?? [], ['provider' => 'r2']);
+        $item->update(['output' => $output]);
+
+        $published = $this->finalize($publication);
+        $post = Post::with('media')->findOrFail($published->result['id']);
+        $media = $post->media->firstOrFail();
+
+        $this->assertSame('published', $published->status);
+        $this->assertSame(PostStatus::ACTIVE, $post->status);
+        $this->assertSame(MediaStatus::PROCESSED, $media->status);
+        $this->assertSame('r2_final', $media->disk);
+        $this->assertSame('ready', data_get($media->metadata, 'playback_state'));
+        $this->assertSame('queued', data_get($media->metadata, 'background_processing_state'));
+        $this->assertSame('queued', data_get($media->metadata, 'playback.hls_state'));
+        $this->assertNull(data_get($media->metadata, 'playback.hls'));
+    }
+
     public function test_comment_photo_publication_creates_one_comment_only_after_the_image_is_ready(): void
     {
         Notification::fake();

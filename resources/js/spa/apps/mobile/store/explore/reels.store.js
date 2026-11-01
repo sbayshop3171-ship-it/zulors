@@ -4,6 +4,7 @@ import { readCache, writeCache } from '@/kernel/services/cache/index.js';
 import { defaultFeedMeta, extractFeedMeta, mergeProtectedTail } from '@/kernel/services/feed-session/index.js';
 import { prioritizeReelsByRecentSignals, recordReelInteractionSignal } from '@/kernel/services/feed-session/reels-session-signals.js';
 import { prefetchReelsPlaybackWindow } from '@/kernel/services/media-prefetch/index.js';
+import { requestNextReelsPage } from '@/kernel/services/feed-session/reels-pagination.js';
 import { useAuthStore } from '@M/store/auth/auth.store.js';
 
 const reelsCacheLimit = 20;
@@ -71,6 +72,7 @@ const useExploreReelsStore = defineStore('mobile_explore_reels_store', {
 			swipeCount: 0,
 			lastTailRerankAt: 0,
 			isTailReranking: false,
+			pageLoadError: false,
 			directSponsoredEntry: false,
 			warmPromise: null,
 			filter: {
@@ -135,6 +137,7 @@ const useExploreReelsStore = defineStore('mobile_explore_reels_store', {
 			this.swipeCount = 0;
 			this.lastTailRerankAt = 0;
 			this.isTailReranking = false;
+			this.pageLoadError = false;
 
 			if(! hydrateCache || ! this.hydrateCachedFirstPage()) {
 				this.posts = [];
@@ -149,6 +152,7 @@ const useExploreReelsStore = defineStore('mobile_explore_reels_store', {
 			return await this.load().then((response) => {
 				const posts = prioritizeIncomingPosts(response.data.data || [], this.filter.seed_hash_id);
 
+				this.pageLoadError = false;
 				this.posts = posts;
 				this.applyFeedMeta(response?.data?.meta);
 				prefetchReelsPlaybackWindow(this.posts, 0);
@@ -160,9 +164,23 @@ const useExploreReelsStore = defineStore('mobile_explore_reels_store', {
 			});
 		},
 		loadNextPage: async function() {
-			this.filter.page += 1;
-
-			return await this.load();
+			try {
+				return await requestNextReelsPage(this.filter.page, (nextPage) => {
+					return colibriAPI().userTimeline().params({
+						filter: {
+							...this.requestFilter(),
+							page: nextPage
+						}
+					}).getFrom('feed');
+				}, (nextPage) => {
+					this.filter.page = nextPage;
+					this.pageLoadError = false;
+				});
+			}
+			catch(error) {
+				this.pageLoadError = true;
+				throw error;
+			}
 		},
 		load: async function() {
 			return await colibriAPI().userTimeline().params({

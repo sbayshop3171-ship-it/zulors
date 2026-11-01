@@ -5,6 +5,7 @@ namespace App\Http\Resources\User\Media;
 use Illuminate\Support\Arr;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use App\Services\Media\ReelsHlsRollout;
 
 class MediaResource extends JsonResource
 {
@@ -22,13 +23,13 @@ class MediaResource extends JsonResource
             'thumbnail_url' => $this->thumbnail_url,
             'thumbnail_size' => $this->thumbnail_size,
             'lqip_base64' => $this->lqip_base64,
-            'metadata' => $this->getMetadata($this->metadata)
+            'metadata' => $this->getMetadata($this->metadata, $request)
         ];
 
         return $mediaItem;
     }
 
-    private function getMetadata(array $metadata)
+    private function getMetadata(array $metadata, Request $request)
     {
         if(is_array($metadata)) {
             if($this->type->isVideo()) {
@@ -66,8 +67,13 @@ class MediaResource extends JsonResource
                     'processing_dispatched_at',
                     'processing_error',
                     'processing_fallback',
+                    'playback_state',
                     'background_processing_state',
                     'background_processing_progress',
+                    'background_processing_updated_at',
+                    'background_processing_dispatched_at',
+                    'background_processing_attempts',
+                    'background_processing_error',
                     'processed_at',
                     'original_size',
                     'optimized_size',
@@ -77,6 +83,17 @@ class MediaResource extends JsonResource
                     'original_name',
                     'story_music',
                 ]);
+
+                if (data_get($metadata, 'provider') === 'r2'
+                    && ! app(ReelsHlsRollout::class)->playbackEnabledFor($request->user())) {
+                    if (is_array($metadata['playback'] ?? null)) {
+                        unset($metadata['playback']['hls']);
+                    }
+                }
+
+                if (is_array($metadata['playback'] ?? null)) {
+                    unset($metadata['playback']['hls_source_signature']);
+                }
             }
 
             if($this->type->isAudio()) {

@@ -18,6 +18,7 @@ use App\Events\User\Timeline\PublicTimelinePostCreatedEvent;
 use App\Traits\Http\Api\SupportsApiResponses;
 use App\Services\Media\Cloudflare\R2DirectUploadService;
 use App\Services\Media\Cloudflare\CloudflareStreamService;
+use App\Services\Media\ReelsHlsRollout;
 use App\Support\StoryMusic\OriginalAudioEligibility;
 use App\Traits\Http\Controllers\Api\User\Timeline\InteractsWithDraftPost;
 
@@ -402,8 +403,12 @@ class DirectMediaUploadController extends Controller
             'processing_state' => 'processed',
             'processing_progress' => 100,
             'processing_updated_at' => $now,
-            'background_processing_state' => 'skipped',
-            'background_processing_progress' => 100,
+            'playback_state' => 'ready',
+            'background_processing_state' => app(ReelsHlsRollout::class)->processingEnabled() ? 'queued' : 'skipped',
+            'background_processing_progress' => app(ReelsHlsRollout::class)->processingEnabled() ? 0 : 100,
+            'background_processing_updated_at' => $now,
+            'background_processing_dispatched_at' => $now,
+            'background_processing_attempts' => 0,
             'processing_mode' => 'original_direct',
             'temp_path' => data_get($metadata, 'temp_path', $temporaryPath),
             'temp_disk' => data_get($metadata, 'temp_disk', $temporaryDisk),
@@ -412,6 +417,11 @@ class DirectMediaUploadController extends Controller
             'optimized_size' => null,
             'optimization_ratio' => null,
             'instant_publish' => true,
+            'playback' => array_merge((array) data_get($metadata, 'playback', []), [
+                'hls' => null,
+                'hls_state' => app(ReelsHlsRollout::class)->processingEnabled() ? 'queued' : 'skipped',
+                'renditions' => [],
+            ]),
         ]);
 
         unset($nextMetadata['processed_at'], $nextMetadata['processing_fallback']);
@@ -419,6 +429,8 @@ class DirectMediaUploadController extends Controller
         $media->metadata = $nextMetadata;
         $media->status = MediaStatus::PROCESSED;
         $media->save();
+
+        app(ReelsHlsRollout::class)->dispatch($media);
         $media->load('mediaable');
 
         $post = $media->mediaable;
