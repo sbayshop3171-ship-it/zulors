@@ -1,16 +1,10 @@
-import { buildAdaptiveVideoSource, getDirectPlaybackFallback } from '@/kernel/services/media/adaptive-video/index.js';
+import { buildAdaptiveVideoSource } from '@/kernel/services/media/adaptive-video/index.js';
 import { getNetworkProfileSnapshot, isSlowNetworkProfile } from '@/kernel/services/network/index.js';
 
 const prefetchedUrls = new Map();
-const retainedVideoPrefetches = [];
 let queuedPosts = [];
 let queuedLimit = 0;
 let prefetchHandle = null;
-
-const videoPrefetchLevels = {
-    metadata: 1,
-    auto: 2
-};
 
 function canPrefetch() {
     return typeof window !== 'undefined' && typeof document !== 'undefined';
@@ -29,43 +23,7 @@ function prefetchImage(url) {
     image.src = url;
 }
 
-function rememberVideoPrefetch(video) {
-    retainedVideoPrefetches.push(video);
-
-    while(retainedVideoPrefetches.length > 8) {
-        const staleVideo = retainedVideoPrefetches.shift();
-
-        try {
-            staleVideo.pause();
-            staleVideo.removeAttribute('src');
-            staleVideo.load();
-        }
-        catch(error) {}
-    }
-}
-
-function prefetchVideoSource(url, preload = 'metadata') {
-    const preloadMode = preload === 'auto' ? 'auto' : 'metadata';
-    const preloadLevel = videoPrefetchLevels[preloadMode];
-
-    if(! url || ! canPrefetch() || (prefetchedUrls.get(url) || 0) >= preloadLevel) {
-        return;
-    }
-
-    prefetchedUrls.set(url, preloadLevel);
-
-    const video = document.createElement('video');
-    video.preload = preloadMode;
-    video.muted = true;
-    video.playsInline = true;
-    video.setAttribute('playsinline', '');
-    video.setAttribute('webkit-playsinline', '');
-    video.src = url;
-    rememberVideoPrefetch(video);
-    video.load();
-}
-
-function prefetchPostMedia(postData, state, networkProfile, options = {}) {
+function prefetchPostMedia(postData, state) {
 	const mediaItems = postData?.relations?.media || [];
 
 	mediaItems.forEach((mediaItem) => {
@@ -75,21 +33,6 @@ function prefetchPostMedia(postData, state, networkProfile, options = {}) {
 
 		if(mediaItem.type === 'video') {
 			prefetchImage(mediaItem.thumbnail_url);
-
-			if(networkProfile.allowVideoPrefetch || options.forceVideoPrefetch) {
-				const playbackSource = buildAdaptiveVideoSource(mediaItem);
-				const preloadMode = options.videoPreload || 'metadata';
-
-				prefetchVideoSource(playbackSource.url, preloadMode);
-
-				if(options.includeFallbackSource) {
-					const fallbackSource = getDirectPlaybackFallback(mediaItem);
-
-					if(fallbackSource?.url && fallbackSource.url !== playbackSource.url) {
-						prefetchVideoSource(fallbackSource.url, preloadMode);
-					}
-				}
-			}
 		}
 		else {
 			prefetchImage(mediaItem.source_url);
@@ -99,7 +42,7 @@ function prefetchPostMedia(postData, state, networkProfile, options = {}) {
 	});
 
 	if(postData?.relations?.quoted_post) {
-		prefetchPostMedia(postData.relations.quoted_post, state, networkProfile, options);
+		prefetchPostMedia(postData.relations.quoted_post, state);
 	}
 }
 
@@ -136,8 +79,6 @@ function prefetchTimelineMedia(posts = [], limit = 8, options = {}) {
 
 		const postsBatch = queuedPosts.splice(0);
 		const limitBatch = queuedLimit || effectiveLimit;
-		const activeNetworkProfile = getNetworkProfileSnapshot();
-
 		queuedLimit = 0;
 
 		const state = {
@@ -146,7 +87,7 @@ function prefetchTimelineMedia(posts = [], limit = 8, options = {}) {
 		};
 
 		postsBatch.some((postData) => {
-			prefetchPostMedia(postData, state, activeNetworkProfile, options);
+			prefetchPostMedia(postData, state);
 
 			return state.count >= state.limit;
 		});

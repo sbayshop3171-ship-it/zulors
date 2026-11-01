@@ -9,11 +9,10 @@
 			ref="videoPlayerRef"
 			webkit-playsinline
 			playsinline
-			preload="metadata"
+			preload="none"
 			muted
 			v-bind:poster="thumbnailUrl"
 			loop="loop"
-			v-bind:src="videoUrl"
 		class="size-full object-contain"
 		>
 		</video>
@@ -88,6 +87,8 @@
 <script>
 	import { defineComponent, computed, watch, reactive, onMounted, onUnmounted } from 'vue';
 	import { useIntersectionObserver } from '@/kernel/vue/composables/inter-obs/index.js';
+	import { buildAdaptiveVideoSource, getDirectPlaybackFallback } from '@/kernel/services/media/adaptive-video/index.js';
+	import { createAdaptiveVideoPlaybackController } from '@/kernel/services/media/adaptive-video/playback.js';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { colibriAPI } from '@/kernel/services/api-client/native/index.js';
 	import { buildVideoPresentationMetadata, videoFrameAspectStyle } from '@/kernel/services/media/video-metadata.js';
@@ -106,7 +107,11 @@
 		props: {
 			videoUrl: {
 				type: String,
-				required: true
+				default: ''
+			},
+			mediaItem: {
+				type: Object,
+				default: () => ({})
 			},
 			duration: {
 				type: Object,
@@ -146,6 +151,21 @@
 			const { isIntersecting, intersectionRatio, observerEntry, videoPlayerRef } = useIntersectionObserver({
 				threshold: 0.5
 			});
+			const playbackSource = computed(() => {
+				if(! props.mediaItem?.preview_url && ! props.mediaItem?.source_url && props.videoUrl) {
+					return { url: props.videoUrl, type: 'video/mp4', transport: 'direct' };
+				}
+
+				const source = buildAdaptiveVideoSource(props.mediaItem);
+
+				return source.transport === 'hls' ? source : (getDirectPlaybackFallback(props.mediaItem) || source);
+			});
+			const directFallbackSource = computed(() => playbackSource.value.transport === 'hls'
+				? getDirectPlaybackFallback(props.mediaItem)
+				: null);
+			let playbackController = null;
+			let hasBeenVisible = false;
+			let playbackSuspended = false;
 			const playbackCandidateId = `mobile-feed-video-${props.postId || 'post'}-${props.mediaId || 'media'}-${Math.random().toString(36).slice(2)}`;
 			const unregisterPlaybackCandidate = registerVideoPlaybackCandidate({
 				id: playbackCandidateId,
@@ -308,6 +328,51 @@
 				syncPlaybackCandidate();
 			});
 
+			watch(isIntersecting, (isVisible) => {
+				if(isVisible) {
+					hasBeenVisible = true;
+					if(playbackSuspended) {
+						playbackSuspended = false;
+						state.isLoaded = false;
+						playbackController?.resume();
+					}
+					return;
+				}
+
+				if(! hasBeenVisible || ! playbackController) {
+					return;
+				}
+
+				const resumePosition = Number(videoPlayerRef.value?.currentTime || 0);
+				pauseVideo();
+				playbackController.suspend(resumePosition);
+				playbackSuspended = true;
+				state.isLoaded = false;
+			});
+
+			watch(() => [playbackSource.value.url, playbackSource.value.transport, directFallbackSource.value?.url], () => {
+				if(! playbackController) {
+					return;
+				}
+
+				playbackController.setSource(playbackSource.value, directFallbackSource.value);
+				if(playbackSuspended) {
+					return;
+				}
+
+				const resumePosition = Number(videoPlayerRef.value?.currentTime || 0);
+				if(resumePosition > 0) {
+					videoPlayerRef.value?.addEventListener('loadedmetadata', () => {
+						try {
+							videoPlayerRef.value.currentTime = resumePosition;
+						}
+						catch(error) {}
+					}, { once: true });
+				}
+				state.isLoaded = false;
+				playbackController.attach(playbackSource.value, directFallbackSource.value);
+			});
+
 			watch(() => state.isLoaded, () => {
 				syncPlaybackCandidate();
 			});
@@ -340,15 +405,16 @@
 			onMounted(() => {
 				setMuted();
 
-				if(videoPlayerRef.value && videoPlayerRef.value.readyState >= 1) {
-					handleVideoReady();
-				}
-
 				if(videoPlayerRef.value) {
 					videoPlayerRef.value.addEventListener('loadedmetadata', handleVideoReady);
 					videoPlayerRef.value.addEventListener('canplay', handleVideoReady);
 					videoPlayerRef.value.addEventListener('durationchange', handleVideoReady);
 					videoPlayerRef.value.addEventListener('progress', syncBufferedProgress);
+					playbackController = createAdaptiveVideoPlaybackController(videoPlayerRef.value);
+					playbackController.attach(playbackSource.value, directFallbackSource.value);
+					if(videoPlayerRef.value.readyState >= 1) {
+						handleVideoReady();
+					}
 				}
 
 				syncPlaybackCandidate();
@@ -365,6 +431,8 @@
 				}
 
 				stopProgressUpdater();
+				playbackController?.destroy();
+				playbackController = null;
 				unregisterPlaybackCandidate();
 			});
 
@@ -383,6 +451,7 @@
 					}
 
 					colibriEventBus.emit('media:pause-all');
+					playbackController?.startLoad(Number(videoPlayerRef.value.currentTime || 0));
 					videoPlayerRef.value.play().then(() => {
 						setMuted();
 						state.isPlaying = true;
@@ -409,6 +478,7 @@
 
 					videoPlayerRef.value.pause();
 				}
+				playbackController?.stopLoad();
 
 				state.isPlaying = false;
 				stopProgressUpdater();

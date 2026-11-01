@@ -4,7 +4,7 @@ export function useIntersectionObserver(options = {}) {
 	const isIntersecting = ref(false);
 	const intersectionRatio = ref(0);
 	const observerEntry = ref(null);
-	const videoPlayerRef = ref(null);
+	const videoPlayerRef = options.targetRef || ref(null);
 	let observer = null;
 
 	const callback = (entries) => {
@@ -16,8 +16,14 @@ export function useIntersectionObserver(options = {}) {
 	}
 
 	onMounted(() => {
+		if(typeof IntersectionObserver === 'undefined') {
+			isIntersecting.value = true;
+			intersectionRatio.value = 1;
+			return;
+		}
+
 		observer = new IntersectionObserver(callback, {
-			threshold: options.threshold || 0.5,
+			threshold: options.threshold ?? 0.5,
 			rootMargin: options.rootMargin || '0px',
 			root: options.root || null
 		});

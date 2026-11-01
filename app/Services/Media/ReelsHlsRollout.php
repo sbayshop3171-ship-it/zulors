@@ -21,9 +21,10 @@ final class ReelsHlsRollout
             return false;
         }
 
-        $allowedUserIds = config('media.reels_hls.user_ids', []);
+        $allowedUserIds = array_map('strval', config('media.reels_hls.user_ids', []));
 
-        return in_array((string) $user->getKey(), array_map('strval', $allowedUserIds), true);
+        return in_array('*', $allowedUserIds, true)
+            || in_array((string) $user->getKey(), $allowedUserIds, true);
     }
 
     public function dispatch(Media $media): void

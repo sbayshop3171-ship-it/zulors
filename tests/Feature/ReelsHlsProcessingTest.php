@@ -60,6 +60,10 @@ class ReelsHlsProcessingTest extends TestCase
         $this->assertSame('https://cdn.example.test/master.m3u8', $visible['metadata']['playback']['hls']);
         $this->assertArrayNotHasKey('hls_source_signature', $visible['metadata']['playback']);
 
+        config(['media.reels_hls.user_ids' => ['*']]);
+        $wildcardVisible = $this->resourceFor($media, $this->user());
+        $this->assertSame('https://cdn.example.test/master.m3u8', $wildcardVisible['metadata']['playback']['hls']);
+
         config(['media.reels_hls.enabled' => false]);
         $disabled = $this->resourceFor($media, $viewer);
         $this->assertArrayNotHasKey('hls', $disabled['metadata']['playback']);

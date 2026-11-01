@@ -6,11 +6,16 @@
 			v-bind:isPortrait="isPortrait"
 			v-bind:aspectRatio="mediaAspectRatio"></PublicationVideoProcessing>
 		<div v-else
+			ref="mediaViewportRef"
+			v-bind:style="mediaFrameStyle"
 			v-bind:class="mediaFrameClass"
-		class="bg-fill-pr block border border-bord-card rounded-xl overflow-hidden">
+		class="relative bg-fill-pr block border border-bord-card rounded-xl overflow-hidden">
+			<img v-if="mediaItem.thumbnail_url" v-bind:src="mediaItem.thumbnail_url" alt="" aria-hidden="true" loading="lazy" decoding="async" class="pointer-events-none absolute inset-0 size-full object-cover">
 			<VideoPlayer
+				v-if="isNearViewport"
 				v-bind:postId="mediaItem.mediaable_id"
 				v-bind:mediaId="mediaItem.id"
+				v-bind:mediaItem="mediaItem"
 				v-bind:thumbnailUrl="mediaItem.thumbnail_url"
 			v-bind:duration="mediaItem.metadata.duration"
 			v-bind:isPortrait="isPortrait"
@@ -19,21 +24,20 @@
 			v-bind:sponsoredFeed="sponsoredFeed"
 			v-bind:surfaceClickAction="openReelsOnTap ? 'emit' : 'toggle'"
 			v-on:surface-click="$emit('open-reels')"
-		v-bind:videoUrl="mediaItem.preview_url || mediaItem.source_url"></VideoPlayer>
+			></VideoPlayer>
 		</div>
 	</div>
 </template>
 
 <script>
 	import { defineComponent, computed, defineAsyncComponent, onMounted, onUnmounted } from 'vue';
+	import { useNearViewport } from '@/kernel/vue/composables/near-viewport/index.js';
 	import { useTimelineStore } from '@D/store/timeline/timeline.store.js';
 	import { useAuthStore } from '@D/store/auth/auth.store.js';
 	import { MediaStatusUtils } from '@/kernel/enums/post/media.status.js';
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { isVideoPortrait, normalizeVideoAspectRatio } from '@/kernel/services/media/video-metadata.js';
 	import BRD from '@/kernel/websockets/brd/index.js';
-
-	import VideoPlayer from '@D/components/players/video/VideoPlayer.vue';
 
 	export default defineComponent({
 		emits: ['open-reels'],
@@ -49,6 +53,7 @@
             }
 		},
 		setup: function(props) {
+			const { targetRef: mediaViewportRef, isNearViewport } = useNearViewport({ rootMargin: '500px 0px' });
 			const timelineStore = useTimelineStore();
 			const authStore = useAuthStore();
 			const mediaItem = computed(() => {
@@ -121,17 +126,24 @@
 				return 'w-full';
 			});
 
+			const mediaFrameStyle = computed(() => ({
+				aspectRatio: props.sponsoredFeed ? '1 / 1' : String(mediaAspectRatio.value)
+			}));
+
 			return {
 				mediaItem: mediaItem,
+				mediaViewportRef: mediaViewportRef,
+				isNearViewport: isNearViewport,
 				canPlayImmediately: canPlayImmediately,
 				MediaStatusUtils: MediaStatusUtils,
 				isPortrait: isPortrait,
 				mediaAspectRatio: mediaAspectRatio,
-				mediaFrameClass: mediaFrameClass
+				mediaFrameClass: mediaFrameClass,
+				mediaFrameStyle: mediaFrameStyle
 			};
 		},
 		components: {
-			VideoPlayer: VideoPlayer,
+			VideoPlayer: defineAsyncComponent(() => import('@D/components/players/video/VideoPlayer.vue')),
 			PublicationVideoProcessing: defineAsyncComponent(() => {
                 return import('@D/components/timeline/feed/parts/media/state/PublicationVideoProcessing.vue');
             })

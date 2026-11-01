@@ -9,12 +9,16 @@ if(($existing['APP_ENV'] ?? '') !== 'production') {
     throw new RuntimeException('Media rollout configuration requires the production release environment.');
 }
 $currentVersion = (int) ($existing['R2_MEDIA_PIPELINE_VERSION'] ?? 0);
-if($currentVersion >= 2) {
-    echo "Media rollout configuration v2 already applied.\n";
+if($currentVersion >= 3) {
+    echo "Media rollout configuration v3 already applied.\n";
     exit(0);
 }
 $settings = [
-    'R2_MEDIA_PIPELINE_VERSION' => '2',
+    'R2_MEDIA_PIPELINE_VERSION' => '3',
+    // Enable adaptive HLS for new R2 post videos and expose it to signed-in viewers.
+    // The MP4 remains the fallback if an encode or HLS playback fails.
+    'MEDIA_REELS_HLS_ENABLED' => 'true',
+    'MEDIA_REELS_HLS_USER_IDS' => '*',
     // The direct R2 pipeline supports long originals without sending their
     // bytes through PHP or the VPS. Keep production aligned with the current
     // application policy (8 GiB and 60 minutes).
@@ -50,4 +54,4 @@ if($updated !== $contents) {
         throw new RuntimeException('Could not save media rollout environment settings.');
     }
 }
-echo "Media rollout settings configured; secrets and existing queue aliases preserved.\n";
+echo "Media rollout settings v3 configured; secrets and existing queue aliases preserved.\n";

@@ -314,10 +314,12 @@ for(const platform of Object.keys(previewPaths)) {
 }
 
 for(const platform of Object.keys(feedVideoPlayerPaths)) {
-    test(`${platform}: published video player lets the browser detect the uploaded container`, async () => {
+    test(`${platform}: published feed player does not bind a video source eagerly`, async () => {
         const source = (await readFile(new URL(`../../${feedVideoPlayerPaths[platform]}`, import.meta.url))).toString();
         const template = parse(source).descriptor.template.content;
-        assert.match(template, /<video[\s\S]*?v-bind:src="videoUrl"/);
+        assert.match(template, /<video[\s\S]*?preload="none"/);
+        assert.doesNotMatch(template, /<video[\s\S]*?v-bind:src=/);
+        assert.match(source, /createAdaptiveVideoPlaybackController/);
         assert.doesNotMatch(template, /<source[^>]+type="video\/mp4"/);
     });
 }
