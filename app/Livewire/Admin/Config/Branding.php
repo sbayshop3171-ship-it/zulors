@@ -88,12 +88,10 @@ class Branding extends Component
 
             foreach ($faviconSizes as $disk => $files) {
                 foreach ($files as $path => $size) {
-                    $favicon = (new ImageManager(new Driver()))
-                        ->read($this->faviconLogo->getRealPath())
-                        ->cover($size, $size)
-                        ->encode(new PngEncoder());
-
-                    Storage::disk($disk)->put($path, (string) $favicon);
+                    Storage::disk($disk)->put(
+                        $path,
+                        $this->makeCircularPng($this->faviconLogo->getRealPath(), $size),
+                    );
                 }
             }
 
@@ -175,5 +173,67 @@ class Branding extends Component
         if (! $pwa->put('manifest.json', json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR))) {
             throw new Exception('Unable to refresh the PWA icon manifest.');
         }
+    }
+
+    private function makeCircularPng(string $sourcePath, int $size): string
+    {
+        $renderSize = $size * 2;
+        $source = imagecreatefromstring((string) (new ImageManager(new Driver()))
+            ->read($sourcePath)
+            ->cover($renderSize, $renderSize)
+            ->encode(new PngEncoder()));
+
+        if ($source === false) {
+            throw new Exception('Unable to read the uploaded favicon image.');
+        }
+
+        $circle = imagecreatetruecolor($renderSize, $renderSize);
+        imagealphablending($circle, false);
+        imagesavealpha($circle, true);
+        $transparent = imagecolorallocatealpha($circle, 0, 0, 0, 127);
+        imagefill($circle, 0, 0, $transparent);
+        imagecopy($circle, $source, 0, 0, 0, 0, $renderSize, $renderSize);
+
+        $center = $renderSize / 2;
+        $radius = $center - 1;
+        $innerRadiusSquared = ($radius - 0.5) ** 2;
+
+        for ($y = 0; $y < $renderSize; $y++) {
+            $dy = ($y + 0.5) - $center;
+
+            for ($x = 0; $x < $renderSize; $x++) {
+                $distanceSquared = (($x + 0.5) - $center) ** 2 + ($dy ** 2);
+
+                if ($distanceSquared <= $innerRadiusSquared) {
+                    continue;
+                }
+
+                $distance = sqrt($distanceSquared);
+                $outside = min(1, max(0, $distance - ($radius - 0.5)));
+                $color = imagecolorat($circle, $x, $y);
+                $alpha = ($color >> 24) & 0x7f;
+                $alpha = (int) round($alpha + ((127 - $alpha) * $outside));
+                $pixel = imagecolorallocatealpha(
+                    $circle,
+                    ($color >> 16) & 0xff,
+                    ($color >> 8) & 0xff,
+                    $color & 0xff,
+                    $alpha,
+                );
+                imagesetpixel($circle, $x, $y, $pixel);
+            }
+        }
+
+        $icon = imagecreatetruecolor($size, $size);
+        imagealphablending($icon, false);
+        imagesavealpha($icon, true);
+        $transparent = imagecolorallocatealpha($icon, 0, 0, 0, 127);
+        imagefill($icon, 0, 0, $transparent);
+        imagecopyresampled($icon, $circle, 0, 0, 0, 0, $size, $size, $renderSize, $renderSize);
+
+        ob_start();
+        imagepng($icon, null, 9);
+
+        return (string) ob_get_clean();
     }
 }
