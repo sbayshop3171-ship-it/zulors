@@ -7,6 +7,10 @@ use App\Support\Views\Flash;
 use Exception;
 use Livewire\Component;
 use Livewire\WithFileUploads;
+use Illuminate\Support\Facades\Storage;
+use Intervention\Image\ImageManager;
+use Intervention\Image\Drivers\Gd\Driver;
+use Intervention\Image\Drivers\Gd\Encoders\PngEncoder;
 
 class Branding extends Component
 {
@@ -71,7 +75,29 @@ class Branding extends Component
                 'faviconLogo' => 'Favicon Logo',
             ]);
 
-            $this->faviconLogo->storeAs('logos', 'favicon.png', 'assets');
+            $faviconSizes = [
+                'assets' => [
+                    'logos/favicon.png' => 32,
+                    'logos/apple-touch-icon.png' => 180,
+                ],
+                'pwa' => [
+                    'icons/192x192.png' => 192,
+                    'icons/512x512.png' => 512,
+                ],
+            ];
+
+            foreach ($faviconSizes as $disk => $files) {
+                foreach ($files as $path => $size) {
+                    $favicon = (new ImageManager(new Driver()))
+                        ->read($this->faviconLogo->getRealPath())
+                        ->cover($size, $size)
+                        ->encode(new PngEncoder());
+
+                    Storage::disk($disk)->put($path, (string) $favicon);
+                }
+            }
+
+            $this->refreshPwaIconVersions();
 
         } catch (Exception $e) {
             $this->addError('faviconLogo', $e->getMessage());
@@ -123,5 +149,31 @@ class Branding extends Component
     public function render()
     {
         return view('livewire.admin.config.branding');
+    }
+
+    private function refreshPwaIconVersions(): void
+    {
+        $pwa = Storage::disk('pwa');
+        $manifest = json_decode($pwa->get('manifest.json'), true, flags: JSON_THROW_ON_ERROR);
+
+        foreach ($manifest['icons'] ?? [] as &$icon) {
+            $iconPath = parse_url($icon['src'] ?? '', PHP_URL_PATH);
+
+            if (! is_string($iconPath) || ! str_starts_with($iconPath, '/pwa/icons/')) {
+                continue;
+            }
+
+            $publicPath = public_path(ltrim($iconPath, '/'));
+
+            if (is_file($publicPath)) {
+                $icon['src'] = $iconPath.'?v='.hash_file('sha256', $publicPath);
+            }
+        }
+
+        unset($icon);
+
+        if (! $pwa->put('manifest.json', json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR))) {
+            throw new Exception('Unable to refresh the PWA icon manifest.');
+        }
     }
 }

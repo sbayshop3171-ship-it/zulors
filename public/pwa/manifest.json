@@ -5,8 +5,8 @@
     "description": "Zulors is a social platform for sharing updates, products, jobs, messages and community moments.",
     "start_url": "/",
     "display": "standalone",
-    "background_color": "#ffffff",
-    "theme_color": "#ffffff",
+    "background_color": "#fcf0de",
+    "theme_color": "#fcf0de",
     "scope": "/",
     "dir": "auto",
     "orientation": "portrait",
@@ -19,12 +19,12 @@
     ],
     "icons": [
         {
-            "src": "/pwa/icons/192x192.png",
+            "src": "/pwa/icons/192x192.png?v=344c9a809a66656d852be414368fb46f0d97435c0da21613fd2fd5b3432b48dc",
             "sizes": "192x192",
             "type": "image/png"
         },
         {
-            "src": "/pwa/icons/512x512.png",
+            "src": "/pwa/icons/512x512.png?v=ec14a810852b357dc9b89a48e695a70639410923d228c60ca144e58020aedd6c",
             "sizes": "512x512",
             "type": "image/png"
         }

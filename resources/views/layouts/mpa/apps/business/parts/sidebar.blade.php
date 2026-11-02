@@ -2,7 +2,7 @@
     <x-sidebar.navbar>
         <div class="mb-12">
             <a href="{{ route('business.dashboard.index') }}" class="flex items-center gap-2">
-                <img class="h-5" src="{{ $logotypeUrl }}" alt="Image">
+                <img class="h-5" src="{{ $logotypeUrl }}" alt="{{ config('app.name') }}">
                 <span class="font-bold text-lab-pr">
                     {{ __('business/labels.business_account') }}
                 </span>

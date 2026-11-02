@@ -92,7 +92,7 @@ class PWA extends Component
                 $filename = pathinfo($file, PATHINFO_FILENAME);
 
                 return [
-                    'src' => "/pwa/{$file}",
+                    'src' => "/pwa/{$file}?v=".filemtime(public_path("pwa/{$file}")),
                     'sizes' => $filename,
                     'type' => 'image/png',
                 ];

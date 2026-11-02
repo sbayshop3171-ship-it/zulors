@@ -22,8 +22,10 @@ class ViewServiceProvider extends ServiceProvider
 
         View::composer("*", function ($view) {
             $logoUrl = (theme_name() === 'dark') ? 'dark.png' : 'light.png';
+            $logoPath = public_path("assets/logos/{$logoUrl}");
+            $logoVersion = file_exists($logoPath) ? filemtime($logoPath) : '';
 
-            $view->with('logotypeUrl', asset("assets/logos/{$logoUrl}"));
+            $view->with('logotypeUrl', asset("assets/logos/{$logoUrl}").($logoVersion ? "?v={$logoVersion}" : ''));
             $view->with('appVersion', Zulors::VERSION);
         });
 

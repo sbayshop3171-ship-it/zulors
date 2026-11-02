@@ -9,7 +9,7 @@
 @endphp
 
 @if ($shouldRegisterPwa)
-	<link rel="manifest" href="{{ asset('pwa/manifest.json') }}">
+	<link rel="manifest" href="{{ asset('pwa/manifest.json') }}?v={{ filemtime(public_path('pwa/manifest.json')) }}">
 
 	<script>
 		if ('serviceWorker' in navigator) {
