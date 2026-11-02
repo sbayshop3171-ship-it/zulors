@@ -9,6 +9,7 @@ export function mergePostMediaPreviews(serverMedia = [], localPreviews = []) {
         return {
             ...item,
             preview_url: preview.preview_url,
+            thumbnail_url: item.thumbnail_url || preview.thumbnail_url,
             preview_key: preview.id,
             metadata: { ...preview.metadata, ...item.metadata }
         };

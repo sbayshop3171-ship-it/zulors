@@ -8,6 +8,7 @@ use App\Events\User\Chat\CallSessionEvent;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\User\Chat\CallSessionResource;
 use App\Jobs\User\Chat\ExpireRingingCallJob;
+use App\Models\CallParticipant;
 use App\Models\CallSession;
 use App\Models\Chat;
 use App\Models\User;
@@ -431,6 +432,10 @@ class CallController extends Controller
             'remote_audio_live' => ['nullable', 'boolean'],
             'engine_activity_at' => ['nullable', 'date'],
             'app_visibility' => ['nullable', 'string', 'max:40'],
+            'media_events' => ['nullable', 'array', 'max:10'],
+            'media_events.*.event' => ['required', 'string', Rule::in(['remote_audio_arrived', 'remote_audio_lost', 'remote_audio_recovered', 'route_changed'])],
+            'media_events.*.elapsed_ms' => ['nullable', 'integer', 'min:0', 'max:120000'],
+            'media_events.*.route' => ['nullable', 'string', 'max:40'],
         ]);
 
         if($validator->fails()) {
@@ -731,11 +736,19 @@ class CallController extends Controller
                 return $lockedCallSession->fresh(['chat', 'initiator', 'receiver']);
             }
 
-            $this->recordParticipantSignalState($lockedCallSession, $signalType, $signalPayload);
-
             $metadata = $lockedCallSession->metadata ?: [];
-            $latestSignals = data_get($metadata, 'signaling.latest', []);
             $signalProvider = $this->signalProvider($signalPayload);
+            $isAgoraCall = $signalProvider === 'agora'
+                || data_get($metadata, 'media.provider') === 'agora';
+
+            $this->recordParticipantSignalState(
+                $lockedCallSession,
+                $signalType,
+                $signalPayload,
+                ! $isAgoraCall
+            );
+
+            $latestSignals = data_get($metadata, 'signaling.latest', []);
             $latestSignals[(string) me()->id] = array_filter([
                 'type' => $signalType,
                 'provider' => $signalProvider,
@@ -757,7 +770,17 @@ class CallController extends Controller
                 $attributes['status'] = CallStatus::CONNECTING;
             }
 
-            if($signalType === 'connected') {
+            if($isAgoraCall && in_array($signalType, ['ready', 'connected'], true)) {
+                if($this->allAgoraParticipantsReady($lockedCallSession)) {
+                    $attributes['status'] = CallStatus::CONNECTED;
+                    $attributes['connected_at'] = $lockedCallSession->connected_at ?: now();
+                    $this->markAgoraParticipantsConnected($lockedCallSession);
+                }
+                elseif($lockedCallSession->status !== CallStatus::CONNECTED) {
+                    $attributes['status'] = CallStatus::CONNECTING;
+                }
+            }
+            elseif($signalType === 'connected') {
                 $attributes['status'] = CallStatus::CONNECTED;
                 $attributes['connected_at'] = $lockedCallSession->connected_at ?: now();
             }
@@ -873,6 +896,17 @@ class CallController extends Controller
         $metadata['heartbeat_at'] = $reportedAt;
         $metadata['heartbeat'] = array_merge($heartbeat, $sample);
 
+        if(! empty($sample['media_events'])) {
+            $mediaEvents = $heartbeat['media_events'] ?? [];
+
+            foreach($sample['media_events'] as $event) {
+                $event['reported_at'] = $reportedAt;
+                $mediaEvents[] = $event;
+            }
+
+            $metadata['heartbeat']['media_events'] = array_slice($mediaEvents, -20);
+        }
+
         foreach(['media_provider', 'network_state', 'call_engine', 'route', 'app_visibility'] as $field) {
             if(array_key_exists($field, $sample)) {
                 $metadata[$field] = $sample[$field];
@@ -932,10 +966,25 @@ class CallController extends Controller
             $sample['engine_activity_at'] = Carbon::parse((string) $request->input('engine_activity_at'))->toIso8601String();
         }
 
+        if(is_array($request->input('media_events'))) {
+            $sample['media_events'] = array_values(array_map(function (array $event) {
+                return array_filter([
+                    'event' => $event['event'] ?? null,
+                    'elapsed_ms' => $this->boundedDuration($event['elapsed_ms'] ?? null),
+                    'route' => isset($event['route']) ? Str::limit((string) $event['route'], 40, '') : null,
+                ], fn ($value) => $value !== null);
+            }, $request->input('media_events')));
+        }
+
         return $sample;
     }
 
-    private function recordParticipantSignalState(CallSession $callSession, string $signalType, array $signalPayload): void
+    private function recordParticipantSignalState(
+        CallSession $callSession,
+        string $signalType,
+        array $signalPayload,
+        bool $allowConnectedStatus = true
+    ): void
     {
         $participant = $callSession->participants()
             ->where('user_id', me()->id)
@@ -963,13 +1012,23 @@ class CallController extends Controller
             ? CallStatus::CONNECTING
             : $participant->status;
 
+        if($signalType === 'connected' && ! $allowConnectedStatus) {
+            $participantStatus = CallStatus::CONNECTING;
+        }
+
         if($signalType === 'ready') {
             $metadata['media_ready_at'] = $reportedAt;
+            $metadata['media_ready'] = array_filter([
+                'channel_join_duration_ms' => $this->boundedDuration($signalPayload['channel_join_duration_ms'] ?? null),
+                'local_audio_publish_duration_ms' => $this->boundedDuration($signalPayload['local_audio_publish_duration_ms'] ?? null),
+            ], fn ($value) => $value !== null);
         }
 
         if($signalType === 'connected') {
-            $metadata['media_connected_at'] = $reportedAt;
-            $participantStatus = CallStatus::CONNECTED;
+            if($allowConnectedStatus) {
+                $metadata['media_connected_at'] = $reportedAt;
+                $participantStatus = CallStatus::CONNECTED;
+            }
         }
 
         $participant->forceFill([
@@ -977,6 +1036,41 @@ class CallController extends Controller
             'joined_at' => $participant->joined_at ?: now(),
             'metadata' => $metadata,
         ])->save();
+    }
+
+    private function allAgoraParticipantsReady(CallSession $callSession): bool
+    {
+        $participants = $callSession->participants()->get();
+
+        return $participants->count() === 2
+            && $participants->every(fn (CallParticipant $participant) =>
+                data_get($participant->metadata, 'media_provider') === 'agora'
+                && filled(data_get($participant->metadata, 'media_ready_at'))
+            );
+    }
+
+    private function markAgoraParticipantsConnected(CallSession $callSession): void
+    {
+        $connectedAt = now()->toIso8601String();
+
+        foreach($callSession->participants()->get() as $participant) {
+            $metadata = $participant->metadata ?: [];
+            $metadata['media_connected_at'] = $metadata['media_connected_at'] ?? $connectedAt;
+
+            $participant->forceFill([
+                'status' => CallStatus::CONNECTED,
+                'metadata' => $metadata,
+            ])->save();
+        }
+    }
+
+    private function boundedDuration(mixed $value): ?int
+    {
+        if(! is_numeric($value)) {
+            return null;
+        }
+
+        return max(0, min(120000, (int) $value));
     }
 
     private function signalProvider(array $signalPayload): ?string

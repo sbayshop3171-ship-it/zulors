@@ -61,8 +61,8 @@ const parseUnitVolume = (value, fallback) => {
 
     return Math.max(0, Math.min(1, number));
 };
-const browserCallQuietVolume = parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_QUIET_VOLUME, 0.28);
-const browserCallMobileQuietVolume = parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_MOBILE_QUIET_VOLUME, 0.18);
+const browserCallQuietVolume = parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_QUIET_VOLUME, 0.8);
+const browserCallMobileQuietVolume = parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_MOBILE_QUIET_VOLUME, 0.8);
 const browserCallMaximumVolume = parseUnitVolume(import.meta.env.VITE_CALL_BROWSER_MAX_VOLUME, 1);
 const browserCallSpeakerVolume = Math.min(
     browserCallMaximumVolume,
@@ -193,6 +193,10 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             mediaSetupAttempt: 0,
             heartbeatInFlight: false,
             pendingHeartbeatFlush: false,
+            pendingCallMediaEvents: [],
+            nextCallMediaEventId: 1,
+            mediaReadyAtMs: 0,
+            firstRemoteAudioAtMs: 0,
             appVisibility: 'visible',
             lastEngineActivityAtMs: 0,
             heartbeatVisibilityHandler: null,
@@ -1045,7 +1049,19 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
 
             try {
-                if(this.mediaProvider === 'agora' && ['offer', 'answer', 'ice', 'candidate', 'ready'].includes(data.signal_type)) {
+                if(this.mediaProvider === 'agora' && data.signal_type === 'ready') {
+                    this.setCall(call, {
+                        status: call.status || this.status
+                    });
+
+                    if(call.status === 'connected') {
+                        this.markConnected(false);
+                    }
+
+                    return true;
+                }
+
+                if(this.mediaProvider === 'agora' && ['offer', 'answer', 'ice', 'candidate'].includes(data.signal_type)) {
                     return false;
                 }
 
@@ -1077,7 +1093,12 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     this.queueIceSignalDrain(data.signal || {});
                 }
                 else if(data.signal_type === 'connected') {
-                    this.markConnected(false);
+                    if(this.mediaProvider !== 'agora' || call.status === 'connected') {
+                        this.setCall(call, {
+                            status: call.status || this.status
+                        });
+                        this.markConnected(false);
+                    }
                 }
                 else if(data.signal_type === 'mute') {
                     this.remoteMuted = data.signal?.muted === true;
@@ -1185,8 +1206,27 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 },
                 onRemoteStream: (stream) => {
                     this.noteCallEngineActivity();
+                    const hadRemoteStream = Boolean(this.remoteStream);
                     this.remoteStream = markRaw(stream);
+
+                    if(stream && ! hadRemoteStream) {
+                        const arrivedAtMs = Date.now();
+                        const firstArrival = ! this.firstRemoteAudioAtMs;
+
+                        if(firstArrival) {
+                            this.firstRemoteAudioAtMs = arrivedAtMs;
+                        }
+
+                        if(this.mediaReadyAtMs) {
+                            this.queueCallMediaEvent(firstArrival ? 'remote_audio_arrived' : 'remote_audio_recovered', arrivedAtMs);
+                        }
+                    }
+
                     if(! stream) {
+                        if(hadRemoteStream) {
+                            this.queueCallMediaEvent('remote_audio_lost');
+                        }
+
                         this.applyRemoteAudioHealth({
                             live: false,
                             reason: 'remote_stream_missing'
@@ -1200,7 +1240,25 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 },
                 onNativeRemoteAudioState: (connected) => {
                     this.noteCallEngineActivity();
+                    const wasConnected = this.nativeRemoteAudioConnected;
                     this.nativeRemoteAudioConnected = Boolean(connected);
+
+                    if(connected && ! wasConnected) {
+                        const arrivedAtMs = Date.now();
+                        const firstArrival = ! this.firstRemoteAudioAtMs;
+
+                        if(firstArrival) {
+                            this.firstRemoteAudioAtMs = arrivedAtMs;
+                        }
+
+                        if(this.mediaReadyAtMs) {
+                            this.queueCallMediaEvent(firstArrival ? 'remote_audio_arrived' : 'remote_audio_recovered', arrivedAtMs);
+                        }
+                    }
+                    else if(! connected && wasConnected) {
+                        this.queueCallMediaEvent('remote_audio_lost');
+                    }
+
                     this.applyRemoteAudioHealth({
                         live: connected === true,
                         reason: connected === true ? 'native_remote_audio_connected' : 'native_remote_audio_stale'
@@ -1225,12 +1283,13 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     this.syncDegradedConnectionTimeout();
                 },
                 onConnected: () => {
-                    this.markConnected(true);
+                    if(this.mediaProvider !== 'agora') {
+                        this.markConnected(true);
+                    }
                 },
                 onStateChange: (state) => {
                     this.noteCallEngineActivity();
                     if(state === 'connected' && this.mediaProvider === 'agora') {
-                        this.sendMediaReadySignal().catch(() => {});
                         this.reconcileActiveCall({
                             setupIfNeeded: false
                         }).catch(() => {});
@@ -1250,7 +1309,14 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 },
                 onNativeRouteChange: (route) => {
                     this.noteCallEngineActivity();
-                    this.nativeAudioRoute = String(route || 'unknown');
+                    const nextRoute = String(route || 'unknown');
+                    const routeChanged = nextRoute !== this.nativeAudioRoute;
+                    this.nativeAudioRoute = nextRoute;
+
+                    if(routeChanged && this.mediaReadyAtMs) {
+                        this.queueCallMediaEvent('route_changed');
+                    }
+
                     this.requestHeartbeatFlush('route_change', {
                         immediate: true
                     });
@@ -1288,12 +1354,18 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             try {
                 await this.yieldToUiFrame();
-                await this.peer.ensurePeerConnection(this.call?.media_type || 'audio');
+                const mediaReadyDetails = await this.peer.ensurePeerConnection(this.call?.media_type || 'audio');
                 assertCurrentSetup();
+                this.mediaReadyAtMs = Date.now();
+
+                if(this.firstRemoteAudioAtMs) {
+                    this.queueCallMediaEvent('remote_audio_arrived', this.firstRemoteAudioAtMs);
+                }
+
                 this.enterNativeAudioMode();
 
                 if(isAgora) {
-                    await this.sendMediaReadySignal();
+                    await this.sendMediaReadySignal(mediaReadyDetails || {});
                 }
             }
             catch(error) {
@@ -1311,7 +1383,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             return this.peer;
         },
-        sendMediaReadySignal: async function() {
+        sendMediaReadySignal: async function(mediaReadyDetails = {}) {
             if(this.mediaReadySent || ! this.call?.call_uuid || this.mediaProvider !== 'agora') {
                 return false;
             }
@@ -1320,7 +1392,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
             try {
                 await this.sendSignal('ready', {
-                    provider: 'agora'
+                    provider: 'agora',
+                    channel_join_duration_ms: Number(mediaReadyDetails.channel_join_duration_ms || 0),
+                    local_audio_publish_duration_ms: Number(mediaReadyDetails.local_audio_publish_duration_ms || 0),
                 });
 
                 return true;
@@ -1330,6 +1404,40 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
 
                 return false;
             }
+        },
+        queueCallMediaEvent: function(event, occurredAtMs = Date.now()) {
+            if(this.mediaProvider !== 'agora' || ! this.call?.call_uuid || ! this.mediaReadyAtMs) {
+                return false;
+            }
+
+            const normalizedEvent = String(event || '');
+
+            if(! [
+                'remote_audio_arrived',
+                'remote_audio_lost',
+                'remote_audio_recovered',
+                'route_changed'
+            ].includes(normalizedEvent)) {
+                return false;
+            }
+
+            const route = this.nativeAudioRoute || (this.speakerEnabled ? 'speaker' : 'browser');
+            const timestamp = Number(occurredAtMs);
+
+            this.pendingCallMediaEvents.push({
+                id: this.nextCallMediaEventId++,
+                event: normalizedEvent,
+                elapsed_ms: Number.isFinite(timestamp)
+                    ? Math.max(0, Math.min(120000, Math.round(timestamp - this.mediaReadyAtMs)))
+                    : 0,
+                route: route
+            });
+            this.pendingCallMediaEvents = this.pendingCallMediaEvents.slice(-20);
+            this.requestHeartbeatFlush(normalizedEvent, {
+                immediate: true
+            });
+
+            return true;
         },
         createOffer: async function() {
             if(this.mediaProvider === 'agora') {
@@ -1369,6 +1477,10 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 return;
             }
 
+            if(this.mediaProvider === 'agora' && this.call.status !== 'connected') {
+                return;
+            }
+
             this.noteCallEngineActivity();
             this.status = 'connected';
             this.networkState = 'stable';
@@ -1387,7 +1499,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 immediate: true
             });
 
-            if(shouldNotify && ! this.connectedSignalSent) {
+            if(shouldNotify && this.mediaProvider !== 'agora' && ! this.connectedSignalSent) {
                 this.connectedSignalSent = true;
                 this.sendSignal('connected', {}).catch(() => {});
             }
@@ -1631,6 +1743,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 muted: this.isMuted,
                 reconnect_count: this.reconnectCount,
                 remote_audio_live: this.hasLiveRemoteAudio(),
+                media_events: this.pendingCallMediaEvents.slice(0, 10).map(({ id, ...event }) => event),
                 engine_activity_at: this.lastEngineActivityAtMs > 0
                     ? new Date(this.lastEngineActivityAtMs).toISOString()
                     : null,
@@ -1741,10 +1854,19 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.heartbeatInFlight = true;
 
             try {
+                const heartbeatPayload = this.buildHeartbeatPayload();
+                const sentEventIds = this.pendingCallMediaEvents
+                    .slice(0, heartbeatPayload.media_events.length)
+                    .map((event) => event.id);
                 const response = await colibriAPI().messenger()
-                    .with(this.buildHeartbeatPayload())
+                    .with(heartbeatPayload)
                     .sendTo(`calls/${this.call.call_uuid}/heartbeat`);
                 const call = response.data?.data?.call;
+
+                if(sentEventIds.length) {
+                    const sentIds = new Set(sentEventIds);
+                    this.pendingCallMediaEvents = this.pendingCallMediaEvents.filter((event) => ! sentIds.has(event.id));
+                }
 
                 if(call?.call_uuid === this.call?.call_uuid) {
                     this.setCall(call, {
@@ -2051,6 +2173,11 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         toggleSpeaker: function() {
             this.speakerEnabled = ! this.speakerEnabled;
             this.noteCallEngineActivity();
+
+            if(this.mediaProvider === 'agora' && this.callEngine !== 'android-native' && this.mediaReadyAtMs) {
+                this.queueCallMediaEvent('route_changed');
+            }
+
             this.requestHeartbeatFlush('speaker_toggle', {
                 immediate: true
             });
@@ -2208,6 +2335,10 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.mediaSetupAttempt += 1;
             this.heartbeatInFlight = false;
             this.pendingHeartbeatFlush = false;
+            this.pendingCallMediaEvents = [];
+            this.nextCallMediaEventId = 1;
+            this.mediaReadyAtMs = 0;
+            this.firstRemoteAudioAtMs = 0;
             this.appVisibility = 'visible';
             this.lastEngineActivityAtMs = 0;
             this.heartbeatVisibilityHandler = null;
@@ -2265,6 +2396,9 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             this.remoteMuted = false;
             this.audioPlaybackBlocked = false;
             this.pendingHeartbeatFlush = false;
+            this.pendingCallMediaEvents = [];
+            this.mediaReadyAtMs = 0;
+            this.firstRemoteAudioAtMs = 0;
             this.lastEngineActivityAtMs = 0;
             this.exitNativeAudioMode();
             this.closeRingToneContext();
@@ -2434,15 +2568,18 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
         hasLiveRemoteAudio: function() {
             return this.remoteAudioLive === true;
         },
+        hasRemoteAudioPath: function() {
+            return Boolean(this.remoteStream || this.nativeRemoteAudioConnected);
+        },
         startRemoteAudioWatchdog: function() {
-            if(this.remoteAudioWatchdogTimer || ! this.call?.call_uuid || this.status !== 'connected' || this.hasLiveRemoteAudio() || this.remoteMuted || this.audioPlaybackBlocked) {
+            if(this.remoteAudioWatchdogTimer || ! this.call?.call_uuid || this.status !== 'connected' || this.hasLiveRemoteAudio() || this.hasRemoteAudioPath() || this.remoteMuted || this.audioPlaybackBlocked) {
                 return;
             }
 
             this.remoteAudioWatchdogTimer = window.setTimeout(async () => {
                 this.remoteAudioWatchdogTimer = null;
 
-                if(this.status !== 'connected' || this.hasLiveRemoteAudio() || this.isFinal || this.remoteMuted || this.audioPlaybackBlocked) {
+                if(this.status !== 'connected' || this.hasLiveRemoteAudio() || this.hasRemoteAudioPath() || this.isFinal || this.remoteMuted || this.audioPlaybackBlocked) {
                     return;
                 }
 
@@ -2452,7 +2589,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 }
                 catch(error) {}
 
-                if(this.status !== 'connected' || this.hasLiveRemoteAudio() || this.isFinal || this.remoteMuted || this.audioPlaybackBlocked) {
+                if(this.status !== 'connected' || this.hasLiveRemoteAudio() || this.hasRemoteAudioPath() || this.isFinal || this.remoteMuted || this.audioPlaybackBlocked) {
                     return;
                 }
 
@@ -2474,7 +2611,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
             }
         },
         syncRemoteAudioWatchdog: function() {
-            if(this.status === 'connected' && ! this.hasLiveRemoteAudio() && ! this.remoteMuted && ! this.audioPlaybackBlocked) {
+            if(this.status === 'connected' && ! this.hasLiveRemoteAudio() && ! this.hasRemoteAudioPath() && ! this.remoteMuted && ! this.audioPlaybackBlocked) {
                 this.startRemoteAudioWatchdog();
             }
             else {
@@ -2486,6 +2623,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                 status: this.status,
                 networkState: this.networkState,
                 hasLiveRemoteAudio: this.hasLiveRemoteAudio(),
+                hasRemoteAudioPath: this.hasRemoteAudioPath(),
                 remoteMuted: this.remoteMuted,
                 audioPlaybackBlocked: this.audioPlaybackBlocked
             });
@@ -2581,6 +2719,7 @@ const createCallStore = ({ storeId, useAuthStore }) => defineStore(storeId, {
                     isActive: this.isActive,
                     networkState: this.networkState,
                     hasLiveRemoteAudio: this.hasLiveRemoteAudio(),
+                    hasRemoteAudioPath: this.hasRemoteAudioPath(),
                     remoteMuted: this.remoteMuted,
                     audioPlaybackBlocked: this.audioPlaybackBlocked
                 })) {

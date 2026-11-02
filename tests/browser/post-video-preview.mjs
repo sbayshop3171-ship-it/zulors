@@ -74,11 +74,9 @@ try {
         await page.goto(`${origin}/tests/browser/post-video-preview.html${name === 'desktop' ? '?desktop' : ''}`);
         await page.locator('input').setInputFiles(fixture.path);
         await page.waitForFunction(() => document.querySelector('video')?.readyState >= 2);
-        await page.evaluate(async () => {
-            window.originalVideo = document.querySelector('video');
-            window.originalVideo.muted = true;
-            await window.originalVideo.play();
-        });
+        await page.evaluate(() => { window.originalVideo = document.querySelector('video'); });
+        await page.waitForFunction(() => window.originalVideo.poster.startsWith('data:image/jpeg;base64,'));
+        await page.getByRole('button', { name: 'Play video preview' }).click();
         await page.waitForFunction(() => window.originalVideo.currentTime > 0.2);
         await page.evaluate(() => window.previewTest.complete());
         await page.waitForTimeout(200);
@@ -95,6 +93,7 @@ try {
             for(let index = 0; index < pixels.length; index += 4) colors.add(`${pixels[index]},${pixels[index + 1]},${pixels[index + 2]}`);
             const data = { sameElement: video === window.originalVideo, duration: Number.isFinite(video.duration) ? video.duration : 'unbounded', time: video.currentTime,
                 src: video.currentSrc, count: document.querySelectorAll('video').length, colors: colors.size,
+                poster: video.poster,
                 width: video.getBoundingClientRect().width, viewportWidth: innerWidth,
                 videoWidth: video.videoWidth, videoHeight: video.videoHeight,
                 objectFit: getComputedStyle(video).objectFit,
@@ -109,6 +108,7 @@ try {
         assert.equal(result.sameElement, true, `${name}: completing upload must not remount the player`);
         assert.equal(result.count, 1);
         assert.ok(result.src.startsWith('blob:'));
+        assert.ok(result.poster.startsWith('data:image/jpeg;base64,'), `${name}/${fixture.orientation}: first frame is used as the poster`);
         assert.ok((result.duration === 'unbounded' || result.duration >= 3.9) && result.time > 0.2);
         assert.ok(result.colors > 1, 'decoded video frame must not be blank');
         assert.ok(result.width > 100 && result.width <= result.viewportWidth, JSON.stringify(result));
@@ -134,7 +134,7 @@ try {
         await page.waitForFunction(() => ! document.querySelector('video'));
         assert.equal(await page.locator('[role="status"]').count(), 1, 'reopened draft shows a placeholder, not a 0:00 player');
         assert.deepEqual(errors, []);
-        console.log(JSON.stringify({ ...result, viewport: `${name}/${fixture.orientation}`, src: 'blob:[redacted]', seek: 'passed', controlsAutoHide: true, reopenedPlaceholder: true, screenshot }));
+        console.log(JSON.stringify({ ...result, viewport: `${name}/${fixture.orientation}`, src: 'blob:[redacted]', poster: 'data:image/jpeg,[redacted]', seek: 'passed', centerButtonInlinePlayback: true, controlsAutoHide: true, reopenedPlaceholder: true, screenshot }));
         await page.close();
         }
     }

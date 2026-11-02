@@ -13,14 +13,17 @@
 			<video
 				v-if="videoUrl(mediaItem)"
 				v-on:loadedmetadata="captureVideoMetadata(mediaItem, $event)"
-				v-on:click="togglePreviewPlayback(mediaItem, $event)"
+				v-on:loadeddata="capturePreviewThumbnail(mediaItem, $event)"
+				v-on:click.stop.prevent="togglePreviewPlayback(mediaItem, $event)"
 				v-on:play="setPreviewPlaying(mediaItem, true)"
 				v-on:pause="setPreviewPlaying(mediaItem, false)"
 				v-on:ended="setPreviewPlaying(mediaItem, false)"
 				v-on:error="captureVideoError(mediaItem)"
 				playsinline
 				webkit-playsinline
-				preload="metadata"
+				disablepictureinpicture
+				disableremoteplayback
+				preload="auto"
 				v-bind:poster="mediaItem.thumbnail_url"
 				v-bind:src="videoUrl(mediaItem)"
 			class="size-full object-cover"></video>
@@ -41,15 +44,15 @@
 			type="button"
 			class="absolute left-1/2 top-1/2 z-10 flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white shadow-lg ring-1 ring-white/70 transition hover:bg-black/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
 			v-bind:aria-label="playbackError(mediaItem) ? 'Retry video preview' : 'Play video preview'"
-			v-on:click="playPreview(mediaItem, $event)">
+			v-on:click.stop.prevent="playPreview(mediaItem, $event)">
 			<svg v-if="!playbackError(mediaItem)" viewBox="0 0 24 24" class="ml-1 size-7 fill-current" aria-hidden="true"><path d="M7 4.75v14.5L19 12 7 4.75Z"></path></svg>
 			<svg v-else viewBox="0 0 24 24" class="size-7 fill-current" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm1 15h-2v-2h2v2Zm0-4h-2V7h2v6Z"></path></svg>
 		</button>
 		<div v-if="mediaItem.metadata && mediaItem.metadata.duration" v-bind:class="playbackControlsHidden(mediaItem) ? 'opacity-0' : 'opacity-100'" class="pointer-events-none absolute left-4 top-4 rounded-full bg-black/60 px-2.5 py-1 transition-opacity duration-300">
 			<VideoDurationTime v-bind:videoDuration="mediaItem.metadata.duration"></VideoDurationTime>
 		</div>
-		<div v-if="playbackFallback(mediaItem) || mediaItem.metadata?.preview_unavailable || playbackError(mediaItem)" class="pointer-events-none absolute inset-x-3 bottom-3 z-10 rounded-lg bg-black/75 px-3 py-2 text-center text-xs text-white" role="status">
-			{{ playbackFallback(mediaItem) ? 'Video opened in the device player.' : "Preview playback couldn't start. You can still publish this video." }}
+		<div v-if="mediaItem.metadata?.preview_unavailable || playbackError(mediaItem)" class="pointer-events-none absolute inset-x-3 bottom-3 z-10 rounded-lg bg-black/75 px-3 py-2 text-center text-xs text-white" role="status">
+			Preview playback couldn't start. You can still publish this video.
 		</div>
 		</div>
 	</div>
@@ -57,8 +60,7 @@
 
 <script>
 	import { defineComponent, computed, onBeforeUnmount, ref } from 'vue';
-	import { applyVideoPresentationMetadata, buildVideoPresentationMetadata } from '@/kernel/services/media/video-metadata.js';
-	import { publicationManager } from '@/kernel/services/media/publications/index.js';
+	import { applyVideoPresentationMetadata, buildVideoPresentationMetadata, captureVideoThumbnail } from '@/kernel/services/media/video-metadata.js';
 	import { useMediaPreviewBounds } from '@/kernel/vue/composables/media-preview-bounds.js';
 
 	import MediaDeleteButton from '@M/views/editors/post/parts/buttons/MediaDeleteButton.vue';
@@ -160,18 +162,7 @@
 						setPreviewPlaying(mediaItem, true);
 					}
 					catch {
-						try {
-							const payload = mediaItem.native_file_id
-								? { native_file_id: mediaItem.native_file_id }
-								: { url: video.currentSrc || video.src || mediaItem.preview_url || mediaItem.source_url };
-							const fallback = await publicationManager.bridge.request('playPreview', payload, 10000);
-							if (fallback?.opened) {
-								applyVideoPresentationMetadata(mediaItem, { preview_unavailable: false });
-								previewState.value[previewKey(mediaItem)] = { playing: false, error: false, fallback: true };
-								return;
-							}
-						} catch { /* Keep the web preview error when a native player is unavailable. */ }
-						previewState.value[previewKey(mediaItem)] = { playing: false, error: true, fallback: false };
+						previewState.value[previewKey(mediaItem)] = { playing: false, error: true };
 					}
 				};
 				const togglePreviewPlayback = (mediaItem, event) => {
@@ -197,10 +188,14 @@
 					previewKey,
 					isPreviewPlaying: (mediaItem) => Boolean(stateFor(mediaItem).playing),
 					playbackError: (mediaItem) => Boolean(stateFor(mediaItem).error),
-					playbackFallback: (mediaItem) => Boolean(stateFor(mediaItem).fallback),
 					setPreviewPlaying,
 					playPreview,
 					togglePreviewPlayback,
+					capturePreviewThumbnail: (mediaItem, event) => {
+						if(mediaItem.thumbnail_url) return;
+						const thumbnail = captureVideoThumbnail(event.currentTarget);
+						if(thumbnail) mediaItem.thumbnail_url = thumbnail;
+					},
 					captureVideoMetadata: (mediaItem, event) => {
 						const videoElement = event.currentTarget;
 						videoElement.playbackRate = playbackSpeed(mediaItem);

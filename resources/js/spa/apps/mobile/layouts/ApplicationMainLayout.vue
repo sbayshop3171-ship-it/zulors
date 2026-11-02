@@ -32,7 +32,6 @@
 	import { colibriEventBus } from '@/kernel/events/bus/index.js';
 	import { useAuthStore } from '@M/store/auth/auth.store.js';
 	import { useInboxStore } from '@M/store/chats/inbox.store.js';
-	import { useCallStore } from '@M/store/calls/call.store.js';
 	import useToastNotificationStore from '@M/store/toast/toast.store.js';
 	import { colibriSounds } from '@/kernel/services/sounds/index.js';
 	import { routeRealtimeNotification } from '@/kernel/services/realtime/notification-router.js';
@@ -52,13 +51,36 @@
 			const notificationsStore = useNotificationsStore();
 			const authStore = useAuthStore();
 			const inboxStore = useInboxStore();
-			const callStore = useCallStore();
 			const toastStore = useToastNotificationStore();
 			const postEditorStore = usePostEditorStore();
 			const routeTransition = useMobileRouteTransition();
 			const router = useRouter();
 			const route = useRoute();
 			let isListening = false;
+			let callStore = null;
+			let callStorePromise = null;
+			const pendingCallNotifications = [];
+
+			const ensureCallStore = () => {
+				if(callStore) {
+					return Promise.resolve(callStore);
+				}
+
+				if(! callStorePromise) {
+					callStorePromise = import('@M/store/calls/call.store.js')
+						.then(({ useCallStore }) => {
+							callStore = useCallStore();
+							pendingCallNotifications.splice(0).forEach(payload => callStore.handleNotification(payload));
+							return callStore;
+						})
+						.catch(() => {
+							callStorePromise = null;
+							return null;
+						});
+				}
+
+				return callStorePromise;
+			};
 
 			const openEditor = (data) => {
 				if(data?.editPost) {
@@ -86,7 +108,14 @@
 
 			const syncAppNotifications = (event) => {
 				if(event.type === 'call.notification') {
-					callStore.handleNotification(event.data);
+					if(callStore) {
+						callStore.handleNotification(event.data);
+					}
+					else {
+						pendingCallNotifications.push(event.data);
+						if(pendingCallNotifications.length > 4) pendingCallNotifications.shift();
+						ensureCallStore();
+					}
 
 					return;
 				}

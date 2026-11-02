@@ -14,10 +14,13 @@ class PerformanceTelemetryController extends Controller
         'inp',
         'route',
         'api_slow',
+        'api_duration',
         'startup_shell',
         'startup_visual',
         'first_input',
+        'long_task',
         'media_first_frame',
+        'upload_start',
         'media_play_request',
         'media_stall',
         'media_recovery',
@@ -37,6 +40,7 @@ class PerformanceTelemetryController extends Controller
         'media-publications',
         'uploads',
         'downloads',
+        'calls',
         'api',
     ];
 

@@ -120,11 +120,11 @@ AxiosAuth.interceptors.request.use((config) => {
 });
 
 AxiosAuth.interceptors.response.use((response) => {
-    reportApiDuration(response.config, response.config?.__zulorsPerformanceStartedAt);
+    reportApiDuration(response.config, response.config?.__zulorsPerformanceStartedAt, response.headers);
 
     return response;
 }, (error) => {
-    reportApiDuration(error.config, error.config?.__zulorsPerformanceStartedAt);
+    reportApiDuration(error.config, error.config?.__zulorsPerformanceStartedAt, error.response?.headers);
 
     return Promise.reject(error);
 });

@@ -90,6 +90,7 @@
 	import { applyVideoPresentationMetadata, buildVideoPresentationMetadata, readVideoFileMetadata } from '@/kernel/services/media/video-metadata.js';
 	import { mergePostMediaPreviews } from '@/kernel/services/media/post-media-preview.js';
 	import { createMultipartUploadProgress, uploadMultipartPartsAdaptive } from '@/kernel/services/media/multipart-upload-progress.js';
+	import { queueMetric } from '@/kernel/services/performance/index.js';
 	import { usePostEditorStore } from '@M/store/timeline/editor.store.js';
 	import { useAuthStore } from '@M/store/auth/auth.store.js';
 		import { PostTypeUtils, PostType } from '@/kernel/enums/post/post.type.js';
@@ -651,6 +652,7 @@
 				if(! mediaFile) {
 					return false;
 				}
+				const uploadRequestedAt = performance.now();
 
 				state.directVideoUploadReady = false;
 				state.videoUploadFailed = false;
@@ -709,6 +711,10 @@
 						reportUploadProgress(0, {
 							force: true
 						});
+					queueMetric('upload_start', performance.now() - uploadRequestedAt, {
+						category: 'uploads',
+						route: 'post_editor'
+					});
 
 					let completedParts = [];
 

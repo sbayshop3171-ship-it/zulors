@@ -184,7 +184,11 @@ class VideoSafetyAdsTest extends TestCase
         app(\App\Services\Ad\UserAdInterestService::class)->record($viewer, 'tech', 60);
 
         $techAd = $this->createAd('Tech launch', ['tech']);
-        $sportsAd = $this->createAd('Sports sale', ['sports']);
+        $sportsAd = $this->createAd('Sports sale', ['sports'], [
+            // Keep the relevance and frequency-cap assertions deterministic even
+            // when this viewer is assigned to the exploration lane.
+            'start_at' => now()->addDay(),
+        ]);
 
         $deliveries = [];
         foreach([0, 1] as $index) {
@@ -196,6 +200,8 @@ class VideoSafetyAdsTest extends TestCase
                 'visible_ratio' => 0.7, 'visible_seconds' => 1, 'is_video' => false,
             ])->assertOk();
         }
+
+        $sportsAd->forceFill(['start_at' => now()->subMinute()])->save();
 
         $this->actingAs($viewer)->withoutMiddleware()->getJson('/api/ads/ad?placement=sidebar')
             ->assertOk()->assertJsonPath('data.id', $sportsAd->id);

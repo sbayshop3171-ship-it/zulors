@@ -5,9 +5,6 @@
 				<div v-if="renderActionSheet" class="zulors-action-sheet relative mt-auto flex max-h-full w-screen max-w-none flex-col rounded-none shadow-none"
 				v-bind:class="[isMuted ? 'bg-bg-sc' : 'bg-bg-pr']">
 					<div v-on:click.stop.self="close"
-					v-on:touchstart.stop.self="close"
-					v-on:touchmove.stop.self="close"
-					v-on:touchend.stop.self="close"
 					class="flex justify-center cursor-pointer h-14 shrink-0 items-center">
 						<div class="w-1/10 h-[3px] bg-lab-sc rounded-full" v-bind:class="{'opacity-50': isLocked}"></div>
 					</div>

@@ -30,6 +30,7 @@ __LOCATION_PERMISSIONS__
         android:supportsRtl="true"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="__USES_CLEARTEXT__">
+        __PROFILEABLE_BY_SHELL__
         <meta-data
             android:name="android.supports_size_changes"
             android:value="true" />

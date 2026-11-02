@@ -3,6 +3,7 @@ package com.zulors.app;
 import android.annotation.SuppressLint;
 import android.Manifest;
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.app.NotificationManager;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
@@ -22,6 +23,9 @@ import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.media.Ringtone;
 import android.media.RingtoneManager;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -30,6 +34,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.os.SystemClock;
+import android.os.Trace;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
@@ -45,11 +50,15 @@ import android.webkit.JsResult;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.credentials.Credential;
@@ -60,6 +69,11 @@ import androidx.credentials.GetCredentialRequest;
 import androidx.credentials.GetCredentialResponse;
 import androidx.credentials.exceptions.GetCredentialException;
 import androidx.core.splashscreen.SplashScreen;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewOutcomeReceiver;
+import androidx.webkit.WebViewStartUpConfig;
+import androidx.webkit.WebViewStartUpResult;
+import androidx.webkit.WebViewStartupException;
 
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption;
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential;
@@ -94,6 +108,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
     public static final String EXTRA_PUSH_URL = "zulors_url";
@@ -125,12 +141,29 @@ public class MainActivity extends Activity {
     private static final long FLEXIBLE_UPDATE_CHECK_DELAY_MS = 1800L;
     private static final long FLEXIBLE_UPDATE_INSTALL_DELAY_MS = 1200L;
     private static final long DUPLICATE_NOTIFICATION_LAUNCH_WINDOW_MS = 1800L;
+    private static final long MAIN_FRAME_LOAD_TIMEOUT_MS = 30000L;
+    private static final long NETWORK_UNAVAILABLE_RECHECK_MS = 5000L;
+    private static final long[] NETWORK_RETRY_DELAYS_MS = {1000L, 2000L, 4000L, 8000L, 15000L, 30000L};
     private static final int FILE_CHOOSER_FLAGS =
         Intent.FLAG_GRANT_READ_URI_PERMISSION |
         Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
         Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION;
 
     private WebView webView;
+    private ExecutorService webViewStartupExecutor;
+    private ConnectivityManager connectivityManager;
+    private ConnectivityManager.NetworkCallback networkCallback;
+    private boolean networkCallbackRegistered = false;
+    private FrameLayout networkRecoveryOverlay;
+    private TextView networkRecoveryStatus;
+    private String pendingRecoveryUrl;
+    private String lastMainFrameUrl;
+    private String pendingLaunchUrlOverride;
+    private int networkRecoveryAttempts = 0;
+    private boolean mainFrameLoadFailed = false;
+    private boolean mainFrameAutoRetryEnabled = false;
+    private Runnable networkRecoveryRunnable;
+    private Runnable mainFrameLoadTimeoutRunnable;
     private ZulorsUploadBridge uploadBridge;
     private ValueCallback<Uri[]> filePathCallback;
     private PermissionRequest pendingPermissionRequest;
@@ -154,6 +187,7 @@ public class MainActivity extends Activity {
     private Ringtone activeCallRingtone;
     private boolean callAudioModeActive = false;
     private int previousAudioMode = AudioManager.MODE_NORMAL;
+    private int previousVolumeControlStream = AudioManager.USE_DEFAULT_STREAM_TYPE;
     private boolean previousSpeakerphoneOn = false;
     private boolean currentSpeakerphoneOn = false;
     private String currentCommunicationAudioRoute = AUDIO_ROUTE_EARPIECE;
@@ -179,6 +213,7 @@ public class MainActivity extends Activity {
     private boolean startupAppShellReady = false;
     private boolean startupFirstVisualReady = false;
     private boolean startupFullyDrawnReported = false;
+    private boolean startupTraceOpen = false;
     private boolean startupLaunchCoverRemoved = false;
     private boolean deferredStartupTasksStarted = false;
     private Runnable deferredStartupTasksRunnable;
@@ -232,14 +267,16 @@ public class MainActivity extends Activity {
         startupStartedAtMs = SystemClock.elapsedRealtime();
         SplashScreen splashScreen = SplashScreen.Companion.installSplashScreen(this);
         super.onCreate(savedInstanceState);
+        Trace.beginSection("ZulorsInitialScreen");
+        startupTraceOpen = true;
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
         splashScreen.setKeepOnScreenCondition(() -> startupSplashVisible);
         recordStartupEvent("launch_started");
 
-        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG_WEBVIEW);
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         credentialManager = CredentialManager.create(this);
         mainHandler = new Handler(Looper.getMainLooper());
+        registerNetworkRecoveryMonitor();
         mainExecutor = new Executor() {
             @Override
             public void execute(Runnable command) {
@@ -268,6 +305,76 @@ public class MainActivity extends Activity {
             }
         });
 
+        attachStartupLaunchCover();
+
+        setContentView(rootLayout);
+        rootLayout.requestApplyInsets();
+        releaseStartupSplash("native_cover_ready");
+        applySystemChrome(false);
+        scheduleStartupSplashTimeout();
+        scheduleStartupLaunchCoverFallback();
+        startWebViewStartup();
+    }
+
+    private void startWebViewStartup() {
+        if (webViewStartupExecutor != null && !webViewStartupExecutor.isShutdown()) {
+            return;
+        }
+
+        recordStartupEvent("webview_async_startup_requested");
+        webViewStartupExecutor = Executors.newSingleThreadExecutor();
+        WebViewStartUpConfig startupConfig = new WebViewStartUpConfig.Builder(webViewStartupExecutor).build();
+
+        try {
+            WebViewCompat.startUpWebView(
+                getApplicationContext(),
+                startupConfig,
+                new WebViewOutcomeReceiver<WebViewStartUpResult, WebViewStartupException>() {
+                    @Override
+                    public void onResult(WebViewStartUpResult result) {
+                        recordStartupEvent("webview_async_startup_complete");
+                        createWebViewAndLoadLaunchUrl();
+                    }
+
+                    @Override
+                    public void onError(WebViewStartupException error) {
+                        fallbackToSynchronousWebView(error);
+                    }
+                }
+            );
+        }
+        catch (Throwable error) {
+            fallbackToSynchronousWebView(error);
+        }
+    }
+
+    private void fallbackToSynchronousWebView(Throwable error) {
+        recordStartupEvent("webview_async_startup_failed", error == null ? null : error.getMessage());
+        if (webViewStartupExecutor != null) {
+            webViewStartupExecutor.shutdownNow();
+        }
+        recordStartupEvent("webview_sync_startup_fallback");
+        try {
+            createWebViewAndLoadLaunchUrl();
+        }
+        catch (Throwable fallbackError) {
+            recordStartupEvent("webview_sync_startup_failed", fallbackError.getMessage());
+            showWebViewStartupFailure();
+        }
+    }
+
+    private void createWebViewAndLoadLaunchUrl() {
+        if (isFinishing() || isDestroyed() || rootLayout == null) {
+            if (webViewStartupExecutor != null) {
+                webViewStartupExecutor.shutdown();
+            }
+            return;
+        }
+
+        if (webView != null) {
+            return;
+        }
+
         webView = new WebView(this);
         webView.setFitsSystemWindows(false);
         webView.setBackgroundColor(Color.parseColor(LIGHT_CHROME_COLOR));
@@ -282,22 +389,19 @@ public class MainActivity extends Activity {
             ViewGroup.LayoutParams.MATCH_PARENT
         );
         webViewLayoutParams.setMargins(0, 0, 0, 0);
-        rootLayout.addView(webView, webViewLayoutParams);
-        attachStartupLaunchCover();
+        rootLayout.addView(webView, 0, webViewLayoutParams);
 
-        setContentView(rootLayout);
-        rootLayout.requestApplyInsets();
-        releaseStartupSplash("native_cover_ready");
-        applySystemChrome(false);
+        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG_WEBVIEW);
         configureWebView();
         seedCookies();
         prepareFreshPreview();
         configureBackNavigation();
-        scheduleStartupSplashTimeout();
-        scheduleStartupLaunchCoverFallback();
-        String requestedLaunchUrl = hasLaunchUrl(getIntent())
-            ? resolveLaunchUrl(getIntent())
-            : null;
+        recordStartupEvent("webview_view_created");
+
+        String requestedLaunchUrl = pendingLaunchUrlOverride != null
+            ? pendingLaunchUrlOverride
+            : (hasLaunchUrl(getIntent()) ? resolveLaunchUrl(getIntent()) : null);
+        pendingLaunchUrlOverride = null;
         boolean googleCallbackLaunch = requestedLaunchUrl != null
             && isGoogleCallbackUrl(Uri.parse(requestedLaunchUrl));
         StartupNavigationPolicy.LaunchPlan launchPlan = StartupNavigationPolicy.forColdStart(
@@ -318,6 +422,58 @@ public class MainActivity extends Activity {
 
         webView.loadUrl(launchUrl, noCacheHeaders());
         recordStartupEvent("webview_load_requested");
+        scheduleDeferredStartupTasks(DEFERRED_STARTUP_TASK_DELAY_MS);
+
+        if (webViewStartupExecutor != null) {
+            webViewStartupExecutor.shutdown();
+        }
+    }
+
+    private void showWebViewStartupFailure() {
+        if (rootLayout == null || isFinishing()) {
+            return;
+        }
+
+        if (startupLaunchCover != null) {
+            rootLayout.removeView(startupLaunchCover);
+            startupLaunchCover = null;
+            startupLaunchCoverRemoved = true;
+        }
+
+        LinearLayout failurePanel = new LinearLayout(this);
+        failurePanel.setOrientation(LinearLayout.VERTICAL);
+        failurePanel.setGravity(android.view.Gravity.CENTER);
+        failurePanel.setPadding(40, 40, 40, 40);
+        failurePanel.setBackgroundColor(Color.WHITE);
+
+        TextView message = new TextView(this);
+        message.setText("Zulors could not start the in-app browser. Open Zulors in your browser to continue.");
+        message.setTextColor(Color.DKGRAY);
+        message.setGravity(android.view.Gravity.CENTER);
+        failurePanel.addView(message, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+
+        Button openBrowser = new Button(this);
+        openBrowser.setText("Open Zulors in browser");
+        openBrowser.setOnClickListener(view -> {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(BuildConfig.APP_URL)));
+            }
+            catch (Throwable exception) {
+                Toast.makeText(this, "Unable to open the browser.", Toast.LENGTH_SHORT).show();
+            }
+        });
+        failurePanel.addView(openBrowser, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+
+        rootLayout.addView(failurePanel, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        ));
     }
 
     private void scheduleStartupSplashTimeout() {
@@ -353,7 +509,7 @@ public class MainActivity extends Activity {
         startupLaunchCover.setBackgroundResource(R.drawable.launch_screen);
         startupLaunchCover.setClickable(true);
         startupLaunchCover.setFocusable(false);
-        startupLaunchCover.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        startupLaunchCover.setContentDescription("Loading Zulors");
         rootLayout.addView(
             startupLaunchCover,
             new FrameLayout.LayoutParams(
@@ -430,6 +586,11 @@ public class MainActivity extends Activity {
     }
 
     private void runDeferredStartupTasks() {
+        if (webView == null) {
+            deferredStartupTasksStarted = false;
+            return;
+        }
+
         recordStartupEvent("deferred_startup_tasks_started");
         requestNotificationPermission();
         ZulorsTelecomCallManager.registerPhoneAccount(this);
@@ -454,6 +615,325 @@ public class MainActivity extends Activity {
         String suffix = detail == null || detail.trim().isEmpty() ? "" : " [" + detail + "]";
 
         Log.d(TAG, "startup:" + name + " @" + elapsedMs + "ms" + suffix);
+    }
+
+    private void registerNetworkRecoveryMonitor() {
+        connectivityManager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (connectivityManager == null || networkCallback != null) {
+            return;
+        }
+
+        networkCallback = new ConnectivityManager.NetworkCallback() {
+            @Override
+            public void onAvailable(Network network) {
+                scheduleRecoveryAfterNetworkChange("available");
+            }
+
+            @Override
+            public void onCapabilitiesChanged(Network network, NetworkCapabilities capabilities) {
+                scheduleRecoveryAfterNetworkChange("capabilities_changed");
+            }
+
+            @Override
+            public void onLost(Network network) {
+                scheduleRecoveryAfterNetworkChange("lost");
+            }
+        };
+
+        try {
+            connectivityManager.registerDefaultNetworkCallback(networkCallback);
+            networkCallbackRegistered = true;
+        }
+        catch (RuntimeException exception) {
+            networkCallback = null;
+            recordStartupEvent("network_callback_registration_failed", exception.getClass().getSimpleName());
+        }
+    }
+
+    private void unregisterNetworkRecoveryMonitor() {
+        if (connectivityManager == null || networkCallback == null || !networkCallbackRegistered) {
+            return;
+        }
+
+        try {
+            connectivityManager.unregisterNetworkCallback(networkCallback);
+        }
+        catch (RuntimeException exception) {
+            Log.w(TAG, "Unable to unregister network recovery callback", exception);
+        }
+
+        networkCallbackRegistered = false;
+        networkCallback = null;
+    }
+
+    private void scheduleRecoveryAfterNetworkChange(final String reason) {
+        if (mainHandler == null) {
+            return;
+        }
+
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (!mainFrameLoadFailed || !mainFrameAutoRetryEnabled || pendingRecoveryUrl == null || !appInForeground) {
+                    return;
+                }
+
+                if (hasValidatedInternet()) {
+                    recordStartupEvent("network_recovery_network_ready", reason);
+                    scheduleNetworkRecovery(250L);
+                }
+                else if (networkRecoveryStatus != null) {
+                    networkRecoveryStatus.setText("Waiting for an internet connection. Zulors will reconnect automatically.");
+                }
+            }
+        });
+    }
+
+    private boolean hasValidatedInternet() {
+        if (connectivityManager == null) {
+            return true;
+        }
+
+        Network activeNetwork = connectivityManager.getActiveNetwork();
+        if (activeNetwork == null) {
+            return false;
+        }
+
+        NetworkCapabilities capabilities = connectivityManager.getNetworkCapabilities(activeNetwork);
+        return capabilities != null
+            && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+    }
+
+    private void markMainFrameLoadFailed(String url, String reason, boolean retryAutomatically) {
+        String recoveryUrl = isTrustedWebUrl(Uri.parse(url == null ? "" : url))
+            ? url
+            : (isTrustedWebUrl(Uri.parse(lastMainFrameUrl == null ? "" : lastMainFrameUrl))
+                ? lastMainFrameUrl
+                : BuildConfig.APP_URL);
+
+        if (pendingRecoveryUrl == null || !pendingRecoveryUrl.equals(recoveryUrl)) {
+            networkRecoveryAttempts = 0;
+        }
+
+        pendingRecoveryUrl = recoveryUrl;
+        mainFrameLoadFailed = true;
+        mainFrameAutoRetryEnabled = retryAutomatically;
+        removeMainFrameLoadTimeout();
+        removeStartupLaunchCover("main_frame_load_failed");
+        showNetworkRecoveryOverlay(retryAutomatically);
+        recordStartupEvent("main_frame_load_failed", reason);
+
+        if (retryAutomatically) {
+            scheduleNetworkRecovery(NETWORK_RETRY_DELAYS_MS[
+                Math.min(networkRecoveryAttempts, NETWORK_RETRY_DELAYS_MS.length - 1)
+            ]);
+        }
+    }
+
+    private void showNetworkRecoveryOverlay(boolean retryAutomatically) {
+        if (rootLayout == null || isFinishing() || isDestroyed()) {
+            return;
+        }
+
+        if (networkRecoveryOverlay != null) {
+            if (networkRecoveryStatus != null) {
+                networkRecoveryStatus.setText(!hasValidatedInternet()
+                    ? (retryAutomatically
+                        ? "Waiting for an internet connection. Zulors will reconnect automatically."
+                        : "No internet connection. Restore your connection, then tap Retry now.")
+                    : (retryAutomatically
+                        ? "Reconnecting to Zulors. Your screen will return automatically."
+                        : "A secure connection could not be established. Check your connection and retry."));
+            }
+            return;
+        }
+
+        FrameLayout overlay = new FrameLayout(this);
+        overlay.setBackgroundColor(Color.WHITE);
+        overlay.setClickable(true);
+        overlay.setFocusable(true);
+        overlay.setContentDescription("Zulors connection recovery");
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setGravity(android.view.Gravity.CENTER);
+        content.setPadding(48, 40, 48, 40);
+
+        TextView title = new TextView(this);
+        title.setText("Connection problem");
+        title.setTextColor(Color.DKGRAY);
+        title.setTextSize(20f);
+        title.setGravity(android.view.Gravity.CENTER);
+        content.addView(title, new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+
+        networkRecoveryStatus = new TextView(this);
+        networkRecoveryStatus.setText(!hasValidatedInternet()
+            ? (retryAutomatically
+                ? "Waiting for an internet connection. Zulors will reconnect automatically."
+                : "No internet connection. Restore your connection, then tap Retry now.")
+            : (retryAutomatically
+                ? "Reconnecting to Zulors. Your screen will return automatically."
+                : "A secure connection could not be established. Check your connection and retry."));
+        networkRecoveryStatus.setTextColor(Color.DKGRAY);
+        networkRecoveryStatus.setTextSize(16f);
+        networkRecoveryStatus.setGravity(android.view.Gravity.CENTER);
+        LinearLayout.LayoutParams statusParams = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        statusParams.topMargin = 16;
+        content.addView(networkRecoveryStatus, statusParams);
+
+        Button retryButton = new Button(this);
+        retryButton.setText("Retry now");
+        retryButton.setOnClickListener(view -> retryPendingPageNow());
+        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        buttonParams.topMargin = 24;
+        content.addView(retryButton, buttonParams);
+
+        overlay.addView(content, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        ));
+        rootLayout.addView(overlay, new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        ));
+        networkRecoveryOverlay = overlay;
+    }
+
+    private void hideNetworkRecoveryOverlay() {
+        if (networkRecoveryOverlay != null && rootLayout != null) {
+            rootLayout.removeView(networkRecoveryOverlay);
+        }
+
+        networkRecoveryOverlay = null;
+        networkRecoveryStatus = null;
+    }
+
+    private void retryPendingPageNow() {
+        if (pendingRecoveryUrl == null || webView == null) {
+            return;
+        }
+
+        networkRecoveryAttempts = 0;
+        mainFrameAutoRetryEnabled = true;
+        if (!hasValidatedInternet()) {
+            if (networkRecoveryStatus != null) {
+                networkRecoveryStatus.setText("Waiting for an internet connection. Zulors will reconnect automatically.");
+            }
+            scheduleNetworkRecovery(NETWORK_UNAVAILABLE_RECHECK_MS);
+            return;
+        }
+
+        scheduleNetworkRecovery(0L);
+    }
+
+    private void scheduleNetworkRecovery(long delayMs) {
+        if (mainHandler == null
+            || !appInForeground
+            || !mainFrameLoadFailed
+            || !mainFrameAutoRetryEnabled
+            || pendingRecoveryUrl == null) {
+            return;
+        }
+
+        if (!hasValidatedInternet()) {
+            if (!networkCallbackRegistered) {
+                if (networkRecoveryRunnable != null) {
+                    mainHandler.removeCallbacks(networkRecoveryRunnable);
+                }
+                networkRecoveryRunnable = new Runnable() {
+                    @Override
+                    public void run() {
+                        networkRecoveryRunnable = null;
+                        scheduleNetworkRecovery(0L);
+                    }
+                };
+                mainHandler.postDelayed(networkRecoveryRunnable, NETWORK_UNAVAILABLE_RECHECK_MS);
+            }
+            return;
+        }
+
+        if (networkRecoveryRunnable != null) {
+            mainHandler.removeCallbacks(networkRecoveryRunnable);
+        }
+        networkRecoveryRunnable = new Runnable() {
+            @Override
+            public void run() {
+                networkRecoveryRunnable = null;
+                attemptPendingPageRecovery();
+            }
+        };
+        mainHandler.postDelayed(networkRecoveryRunnable, Math.max(0L, delayMs));
+    }
+
+    private void attemptPendingPageRecovery() {
+        if (webView == null || !appInForeground || !mainFrameLoadFailed || pendingRecoveryUrl == null) {
+            return;
+        }
+
+        if (!hasValidatedInternet()) {
+            if (networkRecoveryStatus != null) {
+                networkRecoveryStatus.setText("Waiting for an internet connection. Zulors will reconnect automatically.");
+            }
+            scheduleNetworkRecovery(NETWORK_UNAVAILABLE_RECHECK_MS);
+            return;
+        }
+
+        String retryUrl = pendingRecoveryUrl;
+        networkRecoveryAttempts++;
+        recordStartupEvent("main_frame_recovery_attempt", "attempt=" + networkRecoveryAttempts);
+        if (networkRecoveryStatus != null) {
+            networkRecoveryStatus.setText("Reconnecting to Zulors. Your screen will return automatically.");
+        }
+        webView.stopLoading();
+        webView.loadUrl(retryUrl, noCacheHeaders());
+    }
+
+    private void scheduleMainFrameLoadTimeout(final String url) {
+        removeMainFrameLoadTimeout();
+        if (mainHandler == null) {
+            return;
+        }
+
+        mainFrameLoadTimeoutRunnable = new Runnable() {
+            @Override
+            public void run() {
+                mainFrameLoadTimeoutRunnable = null;
+                if (webView != null
+                    && !mainFrameLoadFailed
+                    && url.equals(pendingRecoveryUrl)
+                    && webView.getProgress() < 100) {
+                    markMainFrameLoadFailed(url, "main_frame_timeout", true);
+                }
+            }
+        };
+        mainHandler.postDelayed(mainFrameLoadTimeoutRunnable, MAIN_FRAME_LOAD_TIMEOUT_MS);
+    }
+
+    private void removeMainFrameLoadTimeout() {
+        if (mainHandler != null && mainFrameLoadTimeoutRunnable != null) {
+            mainHandler.removeCallbacks(mainFrameLoadTimeoutRunnable);
+        }
+        mainFrameLoadTimeoutRunnable = null;
+    }
+
+    private boolean isRetryableHttpStatus(int statusCode) {
+        return statusCode == 408
+            || statusCode == 425
+            || statusCode == 429
+            || statusCode == 500
+            || statusCode == 502
+            || statusCode == 503
+            || statusCode == 504;
     }
 
     private void configureSystemChrome() {
@@ -575,7 +1055,8 @@ public class MainActivity extends Activity {
         uploadBridge = new ZulorsUploadBridge(this, webView);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            settings.setOffscreenPreRaster(true);
+            ActivityManager activityManager = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+            settings.setOffscreenPreRaster(activityManager == null || !activityManager.isLowRamDevice());
         }
 
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
@@ -592,6 +1073,85 @@ public class MainActivity extends Activity {
             public android.webkit.WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 android.webkit.WebResourceResponse response = uploadBridge == null ? null : uploadBridge.intercept(request);
                 return response == null ? super.shouldInterceptRequest(view, request) : response;
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                super.onReceivedError(view, request, error);
+                if (request == null || !request.isForMainFrame()) {
+                    return;
+                }
+
+                int errorCode = error == null ? WebViewClient.ERROR_UNKNOWN : error.getErrorCode();
+                boolean retryAutomatically = errorCode == WebViewClient.ERROR_CONNECT
+                    || errorCode == WebViewClient.ERROR_TIMEOUT
+                    || errorCode == WebViewClient.ERROR_HOST_LOOKUP
+                    || errorCode == WebViewClient.ERROR_IO
+                    || errorCode == WebViewClient.ERROR_UNKNOWN;
+                markMainFrameLoadFailed(
+                    request.getUrl().toString(),
+                    "web_error=" + errorCode,
+                    retryAutomatically
+                );
+            }
+
+            @Override
+            public void onReceivedHttpError(
+                WebView view,
+                WebResourceRequest request,
+                android.webkit.WebResourceResponse response
+            ) {
+                super.onReceivedHttpError(view, request, response);
+                if (request == null || !request.isForMainFrame() || response == null) {
+                    return;
+                }
+
+                int statusCode = response.getStatusCode();
+                if (isRetryableHttpStatus(statusCode)) {
+                    markMainFrameLoadFailed(
+                        request.getUrl().toString(),
+                        "http_status=" + statusCode,
+                        true
+                    );
+                }
+            }
+
+            @Override
+            public boolean onRenderProcessGone(
+                WebView view,
+                android.webkit.RenderProcessGoneDetail detail
+            ) {
+                String restoreUrl = isTrustedWebUrl(Uri.parse(pendingRecoveryUrl == null ? "" : pendingRecoveryUrl))
+                    ? pendingRecoveryUrl
+                    : (isTrustedWebUrl(Uri.parse(lastMainFrameUrl == null ? "" : lastMainFrameUrl))
+                        ? lastMainFrameUrl
+                        : BuildConfig.APP_URL);
+                recordStartupEvent("webview_renderer_gone", detail != null && detail.didCrash() ? "crashed" : "killed");
+                removeMainFrameLoadTimeout();
+                if (mainHandler != null && networkRecoveryRunnable != null) {
+                    mainHandler.removeCallbacks(networkRecoveryRunnable);
+                    networkRecoveryRunnable = null;
+                }
+
+                if (uploadBridge != null) {
+                    uploadBridge.destroy();
+                    uploadBridge = null;
+                }
+                if (rootLayout != null) {
+                    rootLayout.removeView(view);
+                }
+                view.destroy();
+                if (webView == view) {
+                    webView = null;
+                }
+
+                pendingLaunchUrlOverride = restoreUrl;
+                pendingRecoveryUrl = restoreUrl;
+                mainFrameLoadFailed = true;
+                mainFrameAutoRetryEnabled = true;
+                showNetworkRecoveryOverlay(true);
+                createWebViewAndLoadLaunchUrl();
+                return true;
             }
 
             @Override
@@ -634,6 +1194,21 @@ public class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
+                if (url != null) {
+                    if (pendingRecoveryUrl == null || !pendingRecoveryUrl.equals(url)) {
+                        networkRecoveryAttempts = 0;
+                    }
+                    pendingRecoveryUrl = url;
+                    if (isTrustedWebUrl(Uri.parse(url))) {
+                        lastMainFrameUrl = url;
+                    }
+                    mainFrameLoadFailed = false;
+                    if (mainHandler != null && networkRecoveryRunnable != null) {
+                        mainHandler.removeCallbacks(networkRecoveryRunnable);
+                        networkRecoveryRunnable = null;
+                    }
+                    scheduleMainFrameLoadTimeout(url);
+                }
                 if (uploadBridge != null) uploadBridge.pageStarted(url);
                 if (isAccountCreationHandoffUrl(url)) {
                     flushCookiesAfterAuthHandoff = true;
@@ -645,6 +1220,13 @@ public class MainActivity extends Activity {
             public void onPageCommitVisible(WebView view, String url) {
                 super.onPageCommitVisible(view, url);
                 recordStartupEvent("page_commit_visible", url);
+                if (!mainFrameLoadFailed) {
+                    removeMainFrameLoadTimeout();
+                    pendingRecoveryUrl = null;
+                    networkRecoveryAttempts = 0;
+                    mainFrameAutoRetryEnabled = false;
+                    hideNetworkRecoveryOverlay();
+                }
             }
 
             @Override
@@ -661,7 +1243,17 @@ public class MainActivity extends Activity {
                     flushCookiesAfterAuthHandoff = false;
                 }
 
-                rememberSafeRoute(url);
+                if (!mainFrameLoadFailed) {
+                    if (isTrustedWebUrl(Uri.parse(url))) {
+                        lastMainFrameUrl = url;
+                    }
+                    pendingRecoveryUrl = null;
+                    networkRecoveryAttempts = 0;
+                    mainFrameAutoRetryEnabled = false;
+                    removeMainFrameLoadTimeout();
+                    hideNetworkRecoveryOverlay();
+                    rememberSafeRoute(url);
+                }
 
                 if (deferredStartupTasksStarted) {
                     PushTokenBridge.syncLatestToken(MainActivity.this, view);
@@ -1573,12 +2165,14 @@ public class MainActivity extends Activity {
 
         if (!callAudioModeActive) {
             previousAudioMode = audioManager.getMode();
+            previousVolumeControlStream = getVolumeControlStream();
             previousSpeakerphoneOn = audioManager.isSpeakerphoneOn();
             currentSpeakerphoneOn = false;
             callAudioModeActive = true;
             requestCallAudioFocus();
         }
 
+        setVolumeControlStream(AudioManager.STREAM_VOICE_CALL);
         audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
         audioManager.setSpeakerphoneOn(currentSpeakerphoneOn);
         registerCommunicationAudioDeviceCallback();
@@ -1639,6 +2233,7 @@ public class MainActivity extends Activity {
 
         audioManager.setSpeakerphoneOn(previousSpeakerphoneOn);
         audioManager.setMode(previousAudioMode);
+        setVolumeControlStream(previousVolumeControlStream);
         abandonCallAudioFocus();
         callAudioModeActive = false;
         previousAudioMode = AudioManager.MODE_NORMAL;
@@ -2209,6 +2804,22 @@ public class MainActivity extends Activity {
 
     private final class StartupBridge {
         @JavascriptInterface
+        public String performanceContext() {
+            JSONObject context = new JSONObject();
+            ActivityManager activityManager = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+
+            try {
+                context.put("android_api", Build.VERSION.SDK_INT);
+                context.put("low_ram", activityManager != null && activityManager.isLowRamDevice());
+            }
+            catch (Throwable ignored) {
+                // This context contains only coarse, non-identifying device properties.
+            }
+
+            return context.toString();
+        }
+
+        @JavascriptInterface
         public void appShellReady(final String detailJson) {
             runOnUiThread(new Runnable() {
                 @Override
@@ -2225,6 +2836,10 @@ public class MainActivity extends Activity {
                 @Override
                 public void run() {
                     startupFirstVisualReady = true;
+                    if (startupTraceOpen) {
+                        Trace.endSection();
+                        startupTraceOpen = false;
+                    }
                     if (!startupFullyDrawnReported) {
                         startupFullyDrawnReported = true;
                         reportFullyDrawn();
@@ -2395,7 +3010,6 @@ public class MainActivity extends Activity {
                     setSpeakerEnabledNative(enabled);
 
                     if (callSessionManager != null) {
-                        callSessionManager.setSpeakerEnabled(enabled);
                         callSessionManager.setAudioRoute(currentCommunicationAudioRoute);
                     }
                 }
@@ -2766,6 +3380,17 @@ public class MainActivity extends Activity {
         }
 
         webView.onResume();
+        if (mainFrameLoadFailed && pendingRecoveryUrl != null) {
+            boolean internetReady = hasValidatedInternet();
+            if (mainFrameAutoRetryEnabled) {
+                scheduleNetworkRecovery(0L);
+            }
+            if (!internetReady && networkRecoveryStatus != null) {
+                networkRecoveryStatus.setText(mainFrameAutoRetryEnabled
+                    ? "Waiting for an internet connection. Zulors will reconnect automatically."
+                    : "No internet connection. Restore your connection, then tap Retry now.");
+            }
+        }
         clearZulorsNotifications();
         webView.post(new Runnable() {
             @Override
@@ -3098,6 +3723,10 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (startupTraceOpen) {
+            Trace.endSection();
+            startupTraceOpen = false;
+        }
         if (uploadBridge != null) { uploadBridge.destroy(); uploadBridge = null; }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && backInvokedCallback != null) {
             getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backInvokedCallback);
@@ -3112,6 +3741,18 @@ public class MainActivity extends Activity {
         if (mainHandler != null && startupLaunchCoverFallbackRunnable != null) {
             mainHandler.removeCallbacks(startupLaunchCoverFallbackRunnable);
             startupLaunchCoverFallbackRunnable = null;
+        }
+
+        if (mainHandler != null && networkRecoveryRunnable != null) {
+            mainHandler.removeCallbacks(networkRecoveryRunnable);
+            networkRecoveryRunnable = null;
+        }
+        removeMainFrameLoadTimeout();
+        unregisterNetworkRecoveryMonitor();
+
+        if (webViewStartupExecutor != null) {
+            webViewStartupExecutor.shutdownNow();
+            webViewStartupExecutor = null;
         }
 
         unregisterFlexibleUpdateListener();

@@ -235,6 +235,7 @@
     import { applyVideoPresentationMetadata, buildVideoPresentationMetadata, readVideoFileMetadata } from '@/kernel/services/media/video-metadata.js';
     import { mergePostMediaPreviews } from '@/kernel/services/media/post-media-preview.js';
     import { createMultipartUploadProgress, uploadMultipartPartsAdaptive } from '@/kernel/services/media/multipart-upload-progress.js';
+    import { queueMetric } from '@/kernel/services/performance/index.js';
     import { useCheatSheet } from '@D/core/composables/cheat-sheet/index.js';
     import { useInputHandlers } from '@/kernel/vue/composables/input/index.js';
     import { useAuthStore } from '@D/store/auth/auth.store.js';
@@ -869,6 +870,7 @@
                 if(! mediaFile) {
                     return false;
                 }
+                const uploadRequestedAt = performance.now();
 
                 state.directVideoUploadReady = false;
                 state.videoUploadFailed = false;
@@ -926,6 +928,10 @@
                     const reportUploadProgress = createDirectUploadProgressReporter(uploadData);
                     reportUploadProgress(0, {
                         force: true
+                    });
+                    queueMetric('upload_start', performance.now() - uploadRequestedAt, {
+                        category: 'uploads',
+                        route: 'publication_editor'
                     });
 
                     let completedParts = [];

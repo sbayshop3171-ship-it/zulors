@@ -1,6 +1,7 @@
 *.sqlite
 .DS_Store
 **/.DS_Store
+/.local/
 /.env.before-appkey-sync
 /.env.*
 !.env.example

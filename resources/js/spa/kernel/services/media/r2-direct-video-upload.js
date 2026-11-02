@@ -1,4 +1,5 @@
 import { uploadMultipartPartsAdaptive } from './multipart-upload-progress.js';
+import { queueMetric } from '../performance/index.js';
 
 const videoMimeByExtension = {
     mp4: 'video/mp4', m4v: 'video/x-m4v', mov: 'video/quicktime',
@@ -88,6 +89,7 @@ export async function uploadR2DirectVideo(upload, file, onProgress = () => {}) {
 // Progress is advisory. Completion is sent only after all R2 requests settle.
 export async function directVideoUpload({ file, options, request, onProgress, onCreated, onStage }) {
     const uploadFile = file;
+    const uploadRequestedAt = performance.now();
     let identity = null;
     let pendingProgress = Promise.resolve();
     let lastProgress = -10;
@@ -100,6 +102,9 @@ export async function directVideoUpload({ file, options, request, onProgress, on
         identity = { media_id: upload.media_id || upload.id || upload.media?.id, uid: upload.uid };
         onCreated?.(upload);
         onStage?.({ stage: 'uploading', progress: 0, label: 'uploading_to_r2' });
+        queueMetric('upload_start', performance.now() - uploadRequestedAt, {
+            category: 'uploads'
+        });
         const parts = await uploadR2DirectVideo(upload, uploadFile, progress => {
             onProgress?.(progress);
             if(progress >= lastProgress + 10) {

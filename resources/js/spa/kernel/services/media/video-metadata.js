@@ -100,6 +100,31 @@ export const applyVideoPresentationMetadata = (mediaItem, metadata = {}) => {
     return mediaItem;
 };
 
+export const captureVideoThumbnail = (video, maxDimension = 640) => {
+    if(! video || video.readyState < 2 || ! video.videoWidth || ! video.videoHeight) {
+        return '';
+    }
+
+    try {
+        const scale = Math.min(1, maxDimension / Math.max(video.videoWidth, video.videoHeight));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+        canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+        const context = canvas.getContext('2d');
+
+        if(! context) {
+            return '';
+        }
+
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        return canvas.toDataURL('image/jpeg', 0.78);
+    } catch {
+        // Cross-origin media or an unsupported canvas encoder may prevent a local copy.
+        return '';
+    }
+};
+
 export const readVideoFileMetadata = (file) => {
     return new Promise((resolve) => {
         if(! file) {

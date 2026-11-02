@@ -17,6 +17,7 @@ use App\Notifications\Traits\BaseNotification;
 use App\Notifications\User\Chat\MessageReceivedNotification;
 use App\Services\Notifications\FirebaseCloudMessagingService;
 use App\Services\Notifications\NotificationActionTokenService;
+use App\Services\Notifications\PushNotificationPayloadFactory;
 use Illuminate\Console\Command;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -30,6 +31,31 @@ use Tests\TestCase;
 class PushNotificationsTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_push_priority_is_high_for_chat_and_normal_for_nonurgent_activity(): void
+    {
+        $user = $this->createUser('fcm-priority-user');
+        $factory = app(PushNotificationPayloadFactory::class);
+        $chatNotification = new class extends Notification {
+            public string $notificationType = 'chat.message_received';
+
+            public function toDatabase(): array
+            {
+                return [];
+            }
+        };
+        $activityNotification = new class extends Notification {
+            public string $notificationType = 'post.reacted';
+
+            public function toDatabase(): array
+            {
+                return [];
+            }
+        };
+
+        $this->assertSame('high', $factory->make($user, $chatNotification)['android']['priority']);
+        $this->assertSame('normal', $factory->make($user, $activityNotification)['android']['priority']);
+    }
 
     public function test_new_users_start_with_push_notifications_enabled_by_default(): void
     {

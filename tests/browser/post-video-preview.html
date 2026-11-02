@@ -31,7 +31,7 @@
                 return [
                 h('input', { type: 'file', accept: 'video/*', onChange(event) {
                     remove();
-                    state.local = [{ id: 'local-test', type: 'video', is_local_preview: true,
+                    state.local = [{ id: 'local-test', type: 'video', is_local_preview: true, thumbnail_url: '',
                         preview_url: URL.createObjectURL(event.target.files[0]), metadata: {} }];
                 } }),
                 h('div', { class: 'preview-stage' }, Array.isArray(preview) ? preview : [preview]),

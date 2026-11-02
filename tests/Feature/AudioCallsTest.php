@@ -538,7 +538,7 @@ class AudioCallsTest extends TestCase
             ->assertJsonPath('data.media.audio_sample_rate', 16000);
     }
 
-    public function test_agora_ready_signals_keep_answered_call_in_connecting_until_media_connects(): void
+    public function test_agora_call_connects_only_after_both_participants_publish_audio(): void
     {
         [$caller, $receiver, $chat] = $this->createDirectChat();
         $call = $this->createRingingCall($caller, $receiver, $chat, [
@@ -562,16 +562,18 @@ class AudioCallsTest extends TestCase
             'signal_type' => 'ready',
             'signal' => [
                 'provider' => 'agora',
+                'channel_join_duration_ms' => 240,
+                'local_audio_publish_duration_ms' => 510,
             ],
         ])->assertOk()
-            ->assertJsonPath('data.call.status', 'connecting');
+            ->assertJsonPath('data.call.status', 'connected');
 
         $this->assertDatabaseHas('call_sessions', [
             'id' => $call->id,
-            'status' => CallStatus::CONNECTING->value,
+            'status' => CallStatus::CONNECTED->value,
         ]);
 
-        $this->assertNull($call->fresh()->connected_at);
+        $this->assertNotNull($call->fresh()->connected_at);
 
         $participants = $call->fresh()->participants()->get();
 
@@ -580,10 +582,15 @@ class AudioCallsTest extends TestCase
         foreach($participants as $participant) {
             $this->assertSame('agora', $participant->metadata['media_provider'] ?? null);
             $this->assertNotEmpty($participant->metadata['media_ready_at'] ?? null);
+            $this->assertSame(CallStatus::CONNECTED, $participant->status);
         }
+
+        $callerParticipant = $participants->firstWhere('user_id', $caller->id);
+        $this->assertSame(240, data_get($callerParticipant->metadata, 'media_ready.channel_join_duration_ms'));
+        $this->assertSame(510, data_get($callerParticipant->metadata, 'media_ready.local_audio_publish_duration_ms'));
     }
 
-    public function test_explicit_connected_signal_promotes_agora_call_to_connected(): void
+    public function test_agora_connected_signal_cannot_skip_the_two_party_ready_barrier(): void
     {
         [$caller, $receiver, $chat] = $this->createDirectChat();
         $call = $this->createRingingCall($caller, $receiver, $chat, [
@@ -599,17 +606,17 @@ class AudioCallsTest extends TestCase
                 'provider' => 'agora',
             ],
         ])->assertOk()
-            ->assertJsonPath('data.call.status', 'connected');
+            ->assertJsonPath('data.call.status', 'connecting');
 
         $this->assertDatabaseHas('call_sessions', [
             'id' => $call->id,
-            'status' => CallStatus::CONNECTED->value,
+            'status' => CallStatus::CONNECTING->value,
         ]);
 
         $participant = $call->fresh()->participants()->where('user_id', $caller->id)->firstOrFail();
 
-        $this->assertSame(CallStatus::CONNECTED, $participant->status);
-        $this->assertNotEmpty(data_get($participant->metadata, 'media_connected_at'));
+        $this->assertSame(CallStatus::CONNECTING, $participant->status);
+        $this->assertEmpty(data_get($participant->metadata, 'media_connected_at'));
     }
 
     public function test_answered_call_uses_webrtc_fallback_when_agora_is_not_configured(): void
@@ -853,6 +860,18 @@ class AudioCallsTest extends TestCase
             'remote_audio_live' => true,
             'engine_activity_at' => now()->subSeconds(4)->toIso8601String(),
             'app_visibility' => 'background',
+            'media_events' => [
+                [
+                    'event' => 'remote_audio_arrived',
+                    'elapsed_ms' => 620,
+                    'route' => 'earpiece',
+                ],
+                [
+                    'event' => 'route_changed',
+                    'elapsed_ms' => 4200,
+                    'route' => 'speaker',
+                ],
+            ],
         ])->assertOk();
 
         $freshCall = $call->fresh();
@@ -864,6 +883,29 @@ class AudioCallsTest extends TestCase
         $this->assertSame('reconnecting', $participantHeartbeat['network_state'] ?? null);
         $this->assertSame('background', $participantHeartbeat['app_visibility'] ?? null);
         $this->assertSame(true, $participantHeartbeat['remote_audio_live'] ?? null);
+        $this->assertSame('remote_audio_arrived', data_get($participantHeartbeat, 'media_events.0.event'));
+        $this->assertSame(620, data_get($participantHeartbeat, 'media_events.0.elapsed_ms'));
+        $this->assertSame('speaker', data_get($participantHeartbeat, 'media_events.1.route'));
+
+        $this->postJson("/api/messenger/calls/{$call->call_uuid}/heartbeat", [
+            'status' => 'connected',
+            'media_provider' => 'agora',
+            'media_events' => [
+                [
+                    'event' => 'remote_audio_lost',
+                    'elapsed_ms' => 8300,
+                    'route' => 'speaker',
+                ],
+            ],
+        ])->assertOk();
+
+        $participantHeartbeat = data_get(
+            $call->fresh()->participants()->where('user_id', $caller->id)->firstOrFail()->metadata,
+            'heartbeat',
+            []
+        );
+        $this->assertCount(3, $participantHeartbeat['media_events'] ?? []);
+        $this->assertSame('remote_audio_lost', data_get($participantHeartbeat, 'media_events.2.event'));
         $this->assertSame('speaker', $callHeartbeat['route'] ?? null);
         $this->assertSame(3, $callHeartbeat['reconnect_count'] ?? null);
         $this->assertNotEmpty($callHeartbeat['engine_activity_at'] ?? null);

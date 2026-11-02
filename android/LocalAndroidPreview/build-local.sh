@@ -37,15 +37,19 @@ GOOGLE_SERVICES_PLUGIN_VERSION="${GOOGLE_SERVICES_PLUGIN_VERSION:-4.4.2}"
 FIREBASE_MESSAGING_VERSION="${FIREBASE_MESSAGING_VERSION:-25.0.1}"
 CREDENTIALS_VERSION="${CREDENTIALS_VERSION:-1.6.0}"
 GOOGLE_ID_VERSION="${GOOGLE_ID_VERSION:-1.2.0}"
-AGORA_VOICE_SDK_VERSION="${AGORA_VOICE_SDK_VERSION:-4.6.3}"
+AGORA_VOICE_SDK_VERSION="${AGORA_VOICE_SDK_VERSION:-4.7.0}"
 PLAY_APP_UPDATE_VERSION="${PLAY_APP_UPDATE_VERSION:-2.1.0}"
 ANDROIDX_ACTIVITY_VERSION="${ANDROIDX_ACTIVITY_VERSION:-1.13.0}"
 ANDROIDX_FRAGMENT_VERSION="${ANDROIDX_FRAGMENT_VERSION:-1.9.0}"
 ANDROIDX_SPLASHSCREEN_VERSION="${ANDROIDX_SPLASHSCREEN_VERSION:-1.0.1}"
-ANDROIDX_WEBKIT_VERSION="1.12.1"
+ANDROIDX_WEBKIT_VERSION="1.16.0"
 ANDROIDX_WORK_VERSION="2.10.3"
+ANDROIDX_BENCHMARK_VERSION="1.5.0"
+ANDROIDX_PROFILEINSTALLER_VERSION="1.4.1"
 OKHTTP_VERSION="4.12.0"
 RUN_UPLOAD_TESTS="${RUN_UPLOAD_TESTS:-false}"
+RUN_MACROBENCHMARK_TESTS="${RUN_MACROBENCHMARK_TESTS:-false}"
+BUILD_MACROBENCHMARK_TESTS="${BUILD_MACROBENCHMARK_TESTS:-$RUN_MACROBENCHMARK_TESTS}"
 LOCAL_MAVEN_CACHE="${LOCAL_MAVEN_CACHE:-}"
 DEFAULT_GOOGLE_WEB_CLIENT_ID="92185010272-6likk4ebn353qm2mjdembk8cttaivfl3.apps.googleusercontent.com"
 GOOGLE_WEB_CLIENT_ID="${GOOGLE_WEB_CLIENT_ID:-}"
@@ -109,7 +113,7 @@ if [ "$APP_MODE" = "production" ]; then
 	NATIVE_GOOGLE_AUTH_ENABLED="${NATIVE_GOOGLE_AUTH_ENABLED:-true}"
 	USER_AGENT_SUFFIX="${USER_AGENT_SUFFIX:-ZulorsAndroidApp}"
 else
-	MIN_SDK="${MIN_SDK:-23}"
+	MIN_SDK="${MIN_SDK:-24}"
 	RELEASE_KEYSTORE="${RELEASE_KEYSTORE:-$APP_DIR/keystores/zulors-upload.jks}"
 	GOOGLE_SERVICES_JSON="${GOOGLE_SERVICES_JSON:-$APP_DIR/firebase/google-services.json}"
 	APP_ID="${APP_ID:-com.zulors.localpreview}"
@@ -232,8 +236,20 @@ if [ -z "$GOOGLE_WEB_CLIENT_ID" ]; then
 	GOOGLE_WEB_CLIENT_ID="$DEFAULT_GOOGLE_WEB_CLIENT_ID"
 fi
 
+if { [ "$BUILD_MACROBENCHMARK_TESTS" = "true" ] || [ "$RUN_MACROBENCHMARK_TESTS" = "true" ]; } \
+	&& { [ "$APP_MODE" != "production" ] || [ "$BUILD_TYPE" != "release" ]; }; then
+	echo "Macrobenchmark tests require APP_MODE=production and BUILD_TYPE=release to measure the production WebView shell." >&2
+	exit 1
+fi
+
+PROFILEABLE_BY_SHELL=""
+if [ "$BUILD_MACROBENCHMARK_TESTS" = "true" ] || [ "$RUN_MACROBENCHMARK_TESTS" = "true" ]; then
+	PROFILEABLE_BY_SHELL='<profileable android:shell="true" />'
+fi
+
 sed \
 	-e "s/__USES_CLEARTEXT__/$(escape_sed "$USES_CLEARTEXT")/g" \
+	-e "s/__PROFILEABLE_BY_SHELL__/$(escape_sed "$PROFILEABLE_BY_SHELL")/g" \
 	-e "/__WEB_MEDIA_PERMISSIONS__/{
 		r /dev/stdin
 		d
@@ -380,6 +396,14 @@ if [ -n "$LOCAL_MAVEN_CACHE" ]; then
     LOCAL_MAVEN_REPOSITORY="maven { url uri('$(gradle_plain_string "$LOCAL_MAVEN_CACHE")'); allowInsecureProtocol = true }"
 fi
 
+BENCHMARK_INCLUDE=""
+if [ "$BUILD_MACROBENCHMARK_TESTS" = "true" ] || [ "$RUN_MACROBENCHMARK_TESTS" = "true" ]; then
+	BENCHMARK_INCLUDE="include ':macrobenchmark'"
+	mkdir -p "$GRADLE_PROJECT/macrobenchmark/src/main/java/com/zulors/benchmark"
+	cp "$APP_DIR/benchmark/src/main/java/com/zulors/benchmark/StartupMacrobenchmark.java" \
+		"$GRADLE_PROJECT/macrobenchmark/src/main/java/com/zulors/benchmark/StartupMacrobenchmark.java"
+fi
+
 cat > "$GRADLE_PROJECT/settings.gradle" <<EOF
 pluginManagement {
     repositories {
@@ -396,11 +420,13 @@ dependencyResolutionManagement {
         $LOCAL_MAVEN_REPOSITORY
         google()
         mavenCentral()
+        maven { url 'https://download.agora.io/maven/' }
     }
 }
 
 rootProject.name = 'ZulorsAndroidPreview'
 include ':app'
+$BENCHMARK_INCLUDE
 EOF
 
 SDK_FIELD="$(gradle_plain_string "$SDK")"
@@ -418,6 +444,7 @@ EOF
 cat > "$GRADLE_PROJECT/build.gradle" <<EOF
 plugins {
     id 'com.android.application' version '$ANDROID_GRADLE_PLUGIN_VERSION' apply false
+    id 'com.android.test' version '$ANDROID_GRADLE_PLUGIN_VERSION' apply false
     id 'com.google.gms.google-services' version '$GOOGLE_SERVICES_PLUGIN_VERSION' apply false
 }
 EOF
@@ -531,6 +558,7 @@ $BUILD_TYPES
 dependencies {
     implementation 'androidx.webkit:webkit:$ANDROIDX_WEBKIT_VERSION'
     implementation 'androidx.work:work-runtime:$ANDROIDX_WORK_VERSION'
+    implementation 'androidx.profileinstaller:profileinstaller:$ANDROIDX_PROFILEINSTALLER_VERSION'
     implementation 'com.squareup.okhttp3:okhttp:$OKHTTP_VERSION'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.robolectric:robolectric:4.14.1'
@@ -596,6 +624,37 @@ tasks.register('exportIdeClasspath') {
 }
 EOF
 
+if [ "$BUILD_MACROBENCHMARK_TESTS" = "true" ] || [ "$RUN_MACROBENCHMARK_TESTS" = "true" ]; then
+	cat > "$GRADLE_PROJECT/macrobenchmark/build.gradle" <<EOF
+plugins {
+    id 'com.android.test'
+}
+
+android {
+    namespace 'com.zulors.benchmark'
+    compileSdk $PLATFORM_API
+    targetProjectPath ':app'
+
+    buildTypes {
+        create('release')
+    }
+
+    defaultConfig {
+        minSdk 24
+        targetSdk $TARGET_SDK
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+}
+
+dependencies {
+    implementation 'androidx.benchmark:benchmark-macro-junit4:$ANDROIDX_BENCHMARK_VERSION'
+    implementation 'androidx.test.ext:junit:1.3.0'
+    implementation 'androidx.test:runner:1.7.0'
+    implementation 'androidx.test.uiautomator:uiautomator:2.3.0'
+}
+EOF
+fi
+
 export RELEASE_STORE_PASSWORD="${RELEASE_STORE_PASSWORD:-}"
 export RELEASE_KEY_PASSWORD="${RELEASE_KEY_PASSWORD:-}"
 
@@ -612,6 +671,12 @@ fi
 	--no-daemon \
 	--project-dir "$GRADLE_PROJECT" \
 	:app:exportIdeClasspath
+
+if [ "$RUN_MACROBENCHMARK_TESTS" = "true" ]; then
+	"$GRADLE_BIN" --no-daemon --project-dir "$GRADLE_PROJECT" :macrobenchmark:connectedReleaseAndroidTest
+elif [ "$BUILD_MACROBENCHMARK_TESTS" = "true" ]; then
+	"$GRADLE_BIN" --no-daemon --project-dir "$GRADLE_PROJECT" :macrobenchmark:assembleReleaseAndroidTest
+fi
 
 mkdir -p "$APP_DIR/build/latest"
 if [ "$ARTIFACT_TYPE" = "bundle" ]; then

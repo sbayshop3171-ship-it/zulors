@@ -34,6 +34,47 @@ const createNativeAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     let remoteAudioConnected = false;
     let currentMediaSession = options.mediaSession || null;
     let nativeEventListener = null;
+    let mediaReadyWaiter = null;
+
+    const resolveMediaReady = (payload = {}) => {
+        if(! mediaReadyWaiter) {
+            return;
+        }
+
+        const waiter = mediaReadyWaiter;
+        mediaReadyWaiter = null;
+        window.clearTimeout(waiter.timer);
+        waiter.resolve({
+            channel_join_duration_ms: Number(payload.channel_join_duration_ms || 0),
+            local_audio_publish_duration_ms: Number(payload.local_audio_publish_duration_ms || 0),
+        });
+    };
+
+    const rejectMediaReady = (error = new Error('Native audio media did not become ready.')) => {
+        if(! mediaReadyWaiter) {
+            return;
+        }
+
+        const waiter = mediaReadyWaiter;
+        mediaReadyWaiter = null;
+        window.clearTimeout(waiter.timer);
+        waiter.reject(error);
+    };
+
+    const waitForMediaReady = () => {
+        return new Promise((resolve, reject) => {
+            const timeoutMs = Math.max(1000, Number(options.mediaReadyTimeoutMs || 25000));
+            const timer = window.setTimeout(() => {
+                rejectMediaReady(new Error('Joining and publishing call audio took too long.'));
+            }, timeoutMs);
+
+            mediaReadyWaiter = {
+                resolve: resolve,
+                reject: reject,
+                timer: timer,
+            };
+        });
+    };
 
     const emit = (name, ...args) => {
         try {
@@ -111,6 +152,9 @@ const createNativeAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             if(['failed', 'disconnected'].includes(state)) {
                 emit('onStateChange', 'failed');
                 emit('onReconnectState', state === 'disconnected' ? 'reconnecting' : 'failed');
+                if(state === 'failed') {
+                    rejectMediaReady(new Error('Agora could not join the call channel.'));
+                }
             }
 
             return;
@@ -175,6 +219,12 @@ const createNativeAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             return;
         }
 
+        if(type === 'media-ready') {
+            resolveMediaReady(detail);
+
+            return;
+        }
+
         if(type === 'token-expiring' || type === 'token-expired') {
             updateToken();
 
@@ -184,6 +234,7 @@ const createNativeAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         if(type === 'error') {
             emit('onStateChange', 'failed');
             emit('onReconnectState', 'failed');
+            rejectMediaReady(new Error(detail.message || 'Unable to start native audio.'));
         }
     };
 
@@ -243,17 +294,26 @@ const createNativeAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             media_type: mediaType || 'audio',
         });
 
-        const result = getNativeAgoraBridge()?.startNativeAgoraCall?.(payload);
+        const readiness = waitForMediaReady();
+        let result = false;
 
-        if(result === false) {
-            throw new Error('Unable to start native audio engine.');
+        try {
+            result = getNativeAgoraBridge()?.startNativeAgoraCall?.(payload);
+        }
+        catch(error) {
+            rejectMediaReady(error);
         }
 
-        return true;
+        if(result === false) {
+            rejectMediaReady(new Error('Unable to start native audio engine.'));
+        }
+
+        return await readiness;
     };
 
     const close = () => {
         isClosed = true;
+        rejectMediaReady(new Error('Call setup was cancelled.'));
         setRemoteAudioConnected(false);
         detachNativeEventListener();
 

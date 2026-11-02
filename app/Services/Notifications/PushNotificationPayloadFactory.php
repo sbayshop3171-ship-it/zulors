@@ -24,7 +24,7 @@ class PushNotificationPayloadFactory
         $body = (string) ($customPayload['body'] ?? $this->body($notifiable, $data, $type));
 
         $android = array_merge([
-            'priority' => 'high',
+            'priority' => $this->androidPriority($type),
         ], Arr::get($customPayload, 'android', []));
 
         $collapseKey = Arr::get($customPayload, 'collapse_key')
@@ -128,6 +128,13 @@ class PushNotificationPayloadFactory
         }
 
         return 'zulors_activity';
+    }
+
+    private function androidPriority(string $type): string
+    {
+        return Str::startsWith($type, ['call.', 'chat.', 'important.', 'wallet.'])
+            ? 'high'
+            : 'normal';
     }
 
     private function stringData(array $data): array

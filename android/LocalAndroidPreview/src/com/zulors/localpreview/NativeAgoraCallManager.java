@@ -4,6 +4,7 @@ import android.content.Context;
 import android.media.AudioAttributes;
 import android.os.Build;
 import android.os.Handler;
+import android.os.SystemClock;
 import android.util.Log;
 
 import org.json.JSONObject;
@@ -54,6 +55,10 @@ public class NativeAgoraCallManager {
     private boolean speakerEnabled = false;
     private boolean remoteAudioConnected = false;
     private boolean remoteAudioDecoding = false;
+    private boolean localAudioEncoding = false;
+    private boolean mediaReadyDispatched = false;
+    private long callStartedAtElapsedMs = 0L;
+    private long channelJoinedAtElapsedMs = 0L;
     private int routeApplyGeneration = 0;
     private String preferredAudioRouteName = ROUTE_EARPIECE;
     private String activeAppId = null;
@@ -98,16 +103,36 @@ public class NativeAgoraCallManager {
         public void onJoinChannelSuccess(String channel, int uid, int elapsed) {
             joining = false;
             joined = true;
+            channelJoinedAtElapsedMs = SystemClock.elapsedRealtime();
             activeChannel = channel;
             activeUid = uid;
             applySpeakerRoute();
             dispatchState("connected");
+            dispatchMediaReadyIfAvailable();
+        }
+
+        @Override
+        public void onLocalAudioStateChanged(int state, int error) {
+            localAudioEncoding = state == Constants.LOCAL_AUDIO_STREAM_STATE_ENCODING;
+
+            if (state == Constants.LOCAL_AUDIO_STREAM_STATE_FAILED) {
+                dispatchEvent("error", makePayload(
+                    "error", error,
+                    "message", "Agora could not publish microphone audio."
+                ));
+
+                return;
+            }
+
+            dispatchMediaReadyIfAvailable();
         }
 
         @Override
         public void onLeaveChannel(RtcStats stats) {
             joining = false;
             joined = false;
+            localAudioEncoding = false;
+            mediaReadyDispatched = false;
             remoteAudioConnected = false;
             remoteAudioDecoding = false;
             resetQualityMetrics();
@@ -326,6 +351,10 @@ public class NativeAgoraCallManager {
             speakerEnabled = ROUTE_SPEAKER.equals(preferredAudioRouteName);
             remoteAudioConnected = false;
             remoteAudioDecoding = false;
+            localAudioEncoding = false;
+            mediaReadyDispatched = false;
+            callStartedAtElapsedMs = SystemClock.elapsedRealtime();
+            channelJoinedAtElapsedMs = 0L;
             resetQualityMetrics();
             joining = true;
             joined = false;
@@ -385,6 +414,8 @@ public class NativeAgoraCallManager {
         finally {
             joining = false;
             joined = false;
+            localAudioEncoding = false;
+            mediaReadyDispatched = false;
             remoteAudioConnected = false;
             remoteAudioDecoding = false;
             resetQualityMetrics();
@@ -483,6 +514,19 @@ public class NativeAgoraCallManager {
         config.mAreaCode = resolveAreaCode(activeAreaCode, activeExcludedArea);
         engine = (RtcEngineEx) RtcEngine.create(config);
         loadAudioExtensions();
+    }
+
+    private void dispatchMediaReadyIfAvailable() {
+        if (!joined || !localAudioEncoding || mediaReadyDispatched) {
+            return;
+        }
+
+        mediaReadyDispatched = true;
+        long now = SystemClock.elapsedRealtime();
+        dispatchEvent("media-ready", makePayload(
+            "channel_join_duration_ms", Math.max(0L, channelJoinedAtElapsedMs - callStartedAtElapsedMs),
+            "local_audio_publish_duration_ms", Math.max(0L, now - callStartedAtElapsedMs)
+        ));
     }
 
     private void configureEngineAudio() {

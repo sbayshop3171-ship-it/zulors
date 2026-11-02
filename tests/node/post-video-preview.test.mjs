@@ -8,6 +8,7 @@ import * as postTypes from '../../resources/js/spa/kernel/enums/post/post.type.j
 import * as previews from '../../resources/js/spa/kernel/services/media/post-media-preview.js';
 import * as progress from '../../resources/js/spa/kernel/services/media/multipart-upload-progress.js';
 import * as previewSizing from '../../resources/js/spa/kernel/services/media/media-preview-sizing.js';
+import { captureVideoThumbnail } from '../../resources/js/spa/kernel/services/media/video-metadata.js';
 
 const paths = {
     mobile: 'resources/js/spa/apps/mobile/views/editors/post/PostEditor.vue',
@@ -97,6 +98,7 @@ async function editorHarness(platform, { fallback = false, fail = false } = {}) 
         ['@/kernel/services/media/post-media-preview.js', previews],
         ['@/kernel/services/media/multipart-upload-progress.js', progress],
         ['@/kernel/services/media/media-preview-sizing.js', previewSizing],
+        ['@/kernel/services/performance/index.js', { queueMetric() {} }],
         ['@/kernel/services/media/prepare-media-file.js', { prepareVideoFile: async (file, options) => {
             preparationCalls.push(file);
             options.onStage({ stage: 'preparing', progress: 40 });
@@ -118,6 +120,7 @@ async function editorHarness(platform, { fallback = false, fail = false } = {}) 
         }],
         ['@/kernel/services/media/video-metadata.js', {
             readVideoFileMetadata: async () => ({ duration_seconds: 100, duration: 100, dimensions: { width: 640, height: 360 } }),
+            captureVideoThumbnail,
             buildVideoPresentationMetadata: (width, height, durationSeconds = 0) => {
                 const result = {};
                 if(width > 0 && height > 0) {
@@ -175,6 +178,7 @@ async function videoPreviewHarness(platform, play = async () => {}) {
         ['@/kernel/services/media/video-metadata.js', {
             applyVideoPresentationMetadata: (item, metadata) => { item.metadata = { ...item.metadata, ...metadata }; },
             buildVideoPresentationMetadata: () => ({}),
+            captureVideoThumbnail,
             isVideoPortrait: () => true,
             videoFrameAspectStyle: () => ({}),
         }],
@@ -221,7 +225,7 @@ for(const platform of Object.keys(previewPaths)) {
     test(`${platform}: visible preview play button starts video playback`, async () => {
         let playCalls = 0;
         const h = await videoPreviewHarness(platform, async () => { playCalls++; });
-        assert.match(h.descriptor.template.content, /v-on:click="playPreview/);
+        assert.match(h.descriptor.template.content, /v-on:click(?:\.stop\.prevent)?="playPreview/);
         if(platform === 'mobile') await h.preview.playPreview(h.item, h.event);
         else await h.preview.playPreview(h.event);
         assert.equal(playCalls, 1);
@@ -236,6 +240,33 @@ for(const platform of Object.keys(previewPaths)) {
         assert.equal(platform === 'mobile' ? h.preview.isPreviewPlaying(h.item) : h.preview.isPreviewPlaying.value, false);
         assert.match(h.descriptor.template.content, /Preview playback couldn't start\. You can still publish this video\./);
         assert.doesNotMatch(h.descriptor.template.content, /try a supported MP4 video/);
+        assert.doesNotMatch(h.descriptor.script.content, /bridge\.request\(['"]playPreview/);
+    });
+
+    test(`${platform}: paused first frame is captured as the inline video poster`, async () => {
+        const h = await videoPreviewHarness(platform);
+        const originalDocument = globalThis.document;
+        const canvas = {
+            width: 0,
+            height: 0,
+            getContext: () => ({ drawImage() {} }),
+            toDataURL: () => 'data:image/jpeg;base64,first-frame',
+        };
+        globalThis.document = { createElement: () => canvas };
+        try {
+            const video = { readyState: 2, videoWidth: 360, videoHeight: 640 };
+            const event = { currentTarget: video };
+            if(platform === 'mobile') h.preview.capturePreviewThumbnail(h.item, event);
+            else h.preview.capturePreviewThumbnail(event);
+            assert.equal(h.item.thumbnail_url, 'data:image/jpeg;base64,first-frame');
+            assert.equal(canvas.width, 360);
+            assert.equal(canvas.height, 640);
+            assert.match(h.descriptor.template.content, /loadeddata/);
+            assert.match(h.descriptor.template.content, /v-bind:poster="mediaItem\.thumbnail_url"/);
+        } finally {
+            if(originalDocument === undefined) delete globalThis.document;
+            else globalThis.document = originalDocument;
+        }
     });
 
     test(`${platform}: retries reload the failed video source`, async () => {
@@ -395,11 +426,12 @@ for(const platform of Object.keys(paths)) {
 
 test('preview merge does not duplicate associated video or mutate server data; unrelated images survive', () => {
     const server = [{ id: 1, type: 'image' }, { id: 2, type: 'video', source_url: null }];
-    const local = [{ id: 'local-video', media_id: '2', preview_url: 'blob:video', type: 'video' }, { id: 'local-image', type: 'image' }];
+    const local = [{ id: 'local-video', media_id: '2', preview_url: 'blob:video', thumbnail_url: 'data:image/jpeg,poster', type: 'video' }, { id: 'local-image', type: 'image' }];
     const result = previews.mergePostMediaPreviews(server, local);
     assert.equal(result.length, 3);
     assert.equal(result[1].id, 2);
     assert.equal(result[1].preview_url, 'blob:video');
+    assert.equal(result[1].thumbnail_url, 'data:image/jpeg,poster');
     assert.equal(server[1].preview_url, undefined);
     assert.deepEqual(previews.mergePostMediaPreviews(server, []), server);
 });

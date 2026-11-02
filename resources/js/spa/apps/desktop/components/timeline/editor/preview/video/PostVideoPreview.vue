@@ -19,14 +19,17 @@
 			<video
 				v-if="videoUrl"
 				v-on:loadedmetadata="captureVideoMetadata"
-				v-on:click="togglePreviewPlayback"
+				v-on:loadeddata="capturePreviewThumbnail"
+				v-on:click.stop.prevent="togglePreviewPlayback"
 				v-on:play="setPreviewPlaying(true)"
 				v-on:pause="setPreviewPlaying(false)"
 				v-on:ended="setPreviewPlaying(false)"
 				v-on:error="captureVideoError"
 				playsinline
 				webkit-playsinline
-				preload="metadata"
+				disablepictureinpicture
+				disableremoteplayback
+				preload="auto"
 				v-bind:poster="mediaItem.thumbnail_url"
 				v-bind:src="videoUrl"
 			class="size-full object-cover"></video>
@@ -47,7 +50,7 @@
 			type="button"
 			class="absolute left-1/2 top-1/2 z-10 flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white shadow-lg ring-1 ring-white/70 transition hover:bg-black/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
 			v-bind:aria-label="playbackError ? 'Retry video preview' : 'Play video preview'"
-			v-on:click="playPreview">
+			v-on:click.stop.prevent="playPreview">
 			<svg v-if="!playbackError" viewBox="0 0 24 24" class="ml-1 size-7 fill-current" aria-hidden="true"><path d="M7 4.75v14.5L19 12 7 4.75Z"></path></svg>
 			<svg v-else viewBox="0 0 24 24" class="size-7 fill-current" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm1 15h-2v-2h2v2Zm0-4h-2V7h2v6Z"></path></svg>
 		</button>
@@ -64,7 +67,7 @@
 
 <script>
 	import { defineComponent, computed, onBeforeUnmount, ref } from 'vue';
-	import { applyVideoPresentationMetadata, buildVideoPresentationMetadata } from '@/kernel/services/media/video-metadata.js';
+	import { applyVideoPresentationMetadata, buildVideoPresentationMetadata, captureVideoThumbnail } from '@/kernel/services/media/video-metadata.js';
 	import { useMediaPreviewBounds } from '@/kernel/vue/composables/media-preview-bounds.js';
 
 	import MediaBlurOverlay from '@D/components/timeline/editor/animations/MediaBlurOverlay.vue';
@@ -177,6 +180,11 @@
 				setPreviewPlaying,
 				playPreview,
 				togglePreviewPlayback,
+				capturePreviewThumbnail: (event) => {
+					if(props.mediaItem.thumbnail_url) return;
+					const thumbnail = captureVideoThumbnail(event.currentTarget);
+					if(thumbnail) props.mediaItem.thumbnail_url = thumbnail;
+				},
 				videoUrl: computed(() => {
 					return props.mediaItem.preview_url || props.mediaItem.source_url;
 				}),

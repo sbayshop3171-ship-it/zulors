@@ -26,6 +26,13 @@ test('degraded recovery watches only when connected audio is already missing', (
     }), false);
 
     assert.equal(shouldWatchDegradedCallRecovery({
+        status: 'connected',
+        networkState: 'poor',
+        hasLiveRemoteAudio: false,
+        hasRemoteAudioPath: true
+    }), false);
+
+    assert.equal(shouldWatchDegradedCallRecovery({
         status: 'connecting',
         networkState: 'poor',
         hasLiveRemoteAudio: false
@@ -57,6 +64,13 @@ test('reconnect timeout hangs up only after audio is gone', () => {
         isActive: true,
         networkState: 'reconnecting',
         hasLiveRemoteAudio: true
+    }), false);
+
+    assert.equal(shouldForceReconnectHangup({
+        isActive: true,
+        networkState: 'reconnecting',
+        hasLiveRemoteAudio: false,
+        hasRemoteAudioPath: true
     }), false);
 
     assert.equal(shouldForceReconnectHangup({

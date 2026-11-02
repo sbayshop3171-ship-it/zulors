@@ -25,7 +25,7 @@
         "@tailwindcss/vite": "^4.1.8",
         "@vitejs/plugin-vue": "^6.0",
         "agora-extension-ai-denoiser": "^2.0.2",
-        "agora-rtc-sdk-ng": "^4.24.7",
+        "agora-rtc-sdk-ng": "^4.24.9",
         "alpinejs": "^3.14.3",
         "apexcharts": "^5.0",
         "autolinker": "^4.0.0",

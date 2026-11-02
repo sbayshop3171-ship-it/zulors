@@ -5,10 +5,13 @@ const ALLOWED_METRICS = new Set([
     'inp',
     'route',
     'api_slow',
+    'api_duration',
     'startup_shell',
     'startup_visual',
     'first_input',
+    'long_task',
     'media_first_frame',
+    'upload_start',
     'media_play_request',
     'media_stall',
     'media_recovery',
@@ -27,6 +30,7 @@ const ALLOWED_CATEGORIES = new Set([
     'media-publications',
     'uploads',
     'downloads',
+    'calls',
     'api'
 ]);
 
@@ -380,20 +384,68 @@ function getApiCategory(config) {
         const segments = requestUrl.pathname.split('/').filter(Boolean);
         const prefixSegments = String(import.meta.env.VITE_APP_API_PREFIX || 'api').split('/').filter(Boolean);
         const prefixIndex = segments.findIndex((segment, index) => prefixSegments.every((prefixSegment, offset) => segments[index + offset] === prefixSegment));
-        const category = segments[prefixIndex >= 0 ? prefixIndex + prefixSegments.length : 0];
+        const apiSegments = segments.slice(prefixIndex >= 0 ? prefixIndex + prefixSegments.length : 0);
+        const categoryAliases = new Map([
+            ['bootstrap', 'bootstrap'],
+            ['timeline', 'timeline'],
+            ['feed', 'timeline'],
+            ['explore', 'explore'],
+            ['search', 'explore'],
+            ['profile', 'profile'],
+            ['messenger', 'messenger'],
+            ['calls', 'calls'],
+            ['uploads', 'uploads'],
+            ['upload', 'uploads'],
+            ['publications', 'media-publications']
+        ]);
+        const category = apiSegments
+            .map((segment) => categoryAliases.get(segment))
+            .find((candidate) => candidate && ALLOWED_CATEGORIES.has(candidate));
 
-        return ALLOWED_CATEGORIES.has(category) ? category : 'api';
+        return category || 'api';
     }
     catch (error) {
         return 'api';
     }
 }
 
-function reportApiDuration(config, startedAt) {
-    const duration = performance.now() - Number(startedAt || performance.now());
+function parseServerTimingDuration(headers) {
+    const serverTiming = typeof headers?.get === 'function'
+        ? headers.get('server-timing')
+        : (headers?.['server-timing'] || headers?.['Server-Timing']);
 
-    if (duration >= 750 && !String(config?.url || '').includes('/performance/events')) {
-        queueMetric('api_slow', duration, { category: getApiCategory(config) });
+    if (typeof serverTiming !== 'string') {
+        return 0;
+    }
+
+    const durations = [...serverTiming.matchAll(/(?:^|,)\s*([a-z0-9_-]+)\s*;\s*dur=([\d.]+)/gi)]
+        .map((match) => ({ name: match[1].toLowerCase(), duration: Number(match[2]) }))
+        .filter(({ duration }) => Number.isFinite(duration) && duration >= 0);
+    const totalDuration = durations.find(({ name }) => name === 'app');
+
+    if (totalDuration) {
+        return totalDuration.duration;
+    }
+
+    return durations.length ? Math.max(...durations.map(({ duration }) => duration)) : 0;
+}
+
+function reportApiDuration(config, startedAt, headers = null) {
+    const duration = performance.now() - Number(startedAt || performance.now());
+    const serverDuration = parseServerTimingDuration(headers);
+
+    if (!String(config?.url || '').includes('/performance/events')) {
+        queueMetric('api_duration', duration, {
+            category: getApiCategory(config),
+            server_ms: serverDuration
+        });
+    }
+
+    if ((duration >= 750 || serverDuration >= 250) && !String(config?.url || '').includes('/performance/events')) {
+        queueMetric('api_slow', duration, {
+            category: getApiCategory(config),
+            server_ms: serverDuration
+        });
     }
 }
 

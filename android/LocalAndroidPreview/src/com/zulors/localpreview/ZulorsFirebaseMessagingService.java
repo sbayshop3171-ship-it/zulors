@@ -9,12 +9,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.media.AudioAttributes;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.graphics.BitmapShader;
 import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Paint;
-import android.graphics.Shader;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
@@ -25,9 +21,6 @@ import android.media.AudioManager;
 import com.google.firebase.messaging.FirebaseMessagingService;
 import com.google.firebase.messaging.RemoteMessage;
 
-import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.util.Map;
 
 public class ZulorsFirebaseMessagingService extends FirebaseMessagingService {
@@ -96,12 +89,6 @@ public class ZulorsFirebaseMessagingService extends FirebaseMessagingService {
 
         if (callNotification && isIncomingCallNotification(data)) {
             incomingCallBundle = ZulorsTelecomCallManager.createCallBundle(this, data, title, body, notificationId);
-            try {
-                ZulorsTelecomCallManager.reportIncomingCall(this, data, title, body, notificationId);
-            }
-            catch (Throwable exception) {
-                android.util.Log.w("ZulorsPush", "Incoming call Telecom report failed; showing notification fallback.", exception);
-            }
         }
 
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
@@ -202,6 +189,18 @@ public class ZulorsFirebaseMessagingService extends FirebaseMessagingService {
                 android.util.Log.w("ZulorsPush", "Unable to display push notification.", exception);
             }
         }
+
+        if (incomingCallBundle != null) {
+            try {
+                ZulorsTelecomCallManager.reportIncomingCall(this, data, title, body, notificationId);
+            }
+            catch (Throwable exception) {
+                android.util.Log.w("ZulorsPush", "Incoming call Telecom report failed; notification fallback remains visible.", exception);
+            }
+        }
+
+        // Keep optional avatar enrichment behind the user-visible notification and call handoff.
+        scheduleNotificationAvatar(notificationId, notificationAvatarUrl(data));
     }
 
     private PendingIntent createContentIntent(int notificationId, String url, Map<String, String> data) {
@@ -446,66 +445,36 @@ public class ZulorsFirebaseMessagingService extends FirebaseMessagingService {
     }
 
     private Bitmap loadLargeIcon(Map<String, String> data) {
-        Bitmap remoteAvatar = loadRemoteAvatar(firstNonBlank(
-            data.get("sender_avatar_url"),
-            data.get("caller_avatar_url"),
-            data.get("avatar_url"),
-            data.get("image_url")
-        ));
+        String avatarUrl = notificationAvatarUrl(data);
+        Bitmap cachedAvatar = NotificationAvatarCache.readCachedAvatar(this, avatarUrl);
 
-        if (remoteAvatar != null) {
-            return remoteAvatar;
+        if (cachedAvatar != null) {
+            return cachedAvatar;
         }
 
         return drawableToBitmap(getApplicationInfo().loadIcon(getPackageManager()));
     }
 
-    private Bitmap loadRemoteAvatar(String avatarUrl) {
-        if (isBlank(avatarUrl)) {
-            return null;
+    private String notificationAvatarUrl(Map<String, String> data) {
+        return firstNonBlank(
+            data.get("sender_avatar_url"),
+            data.get("caller_avatar_url"),
+            data.get("avatar_url"),
+            data.get("image_url")
+        );
+    }
+
+    private void scheduleNotificationAvatar(int notificationId, String avatarUrl) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N || isBlank(avatarUrl)) {
+            return;
         }
 
         try {
-            Uri uri = Uri.parse(avatarUrl);
-            String scheme = uri.getScheme();
-
-            if (!"https".equalsIgnoreCase(scheme) && !"http".equalsIgnoreCase(scheme)) {
-                return null;
-            }
-
-            HttpURLConnection connection = (HttpURLConnection) new URL(avatarUrl).openConnection();
-            connection.setConnectTimeout(1200);
-            connection.setReadTimeout(1500);
-            connection.setInstanceFollowRedirects(true);
-
-            try (InputStream stream = connection.getInputStream()) {
-                Bitmap bitmap = BitmapFactory.decodeStream(stream);
-
-                if (bitmap == null) {
-                    return null;
-                }
-
-                return circularCrop(bitmap);
-            }
+            NotificationAvatarWorker.enqueue(this, notificationId, avatarUrl);
         }
-        catch (Throwable ignored) {
-            return null;
+        catch (Throwable exception) {
+            android.util.Log.d("ZulorsPush", "Notification avatar enrichment skipped.", exception);
         }
-    }
-
-    private Bitmap circularCrop(Bitmap source) {
-        int size = Math.min(source.getWidth(), source.getHeight());
-        int left = (source.getWidth() - size) / 2;
-        int top = (source.getHeight() - size) / 2;
-        Bitmap squared = Bitmap.createBitmap(source, left, top, size, size);
-        Bitmap output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(output);
-        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-
-        paint.setShader(new BitmapShader(squared, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP));
-        canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint);
-
-        return output;
     }
 
     private Bitmap drawableToBitmap(Drawable drawable) {

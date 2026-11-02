@@ -1,8 +1,12 @@
-import { AIDenoiserExtension } from 'agora-extension-ai-denoiser';
+import * as AgoraDenoiserExtensionModule from 'agora-extension-ai-denoiser';
 import {
     createRemoteAudioHealthState,
     evaluateWebRemoteAudioHealth,
 } from './remote-audio-health.js';
+
+const agoraEnvironment = import.meta.env || {};
+const AIDenoiserExtension = AgoraDenoiserExtensionModule.AIDenoiserExtension
+    || AgoraDenoiserExtensionModule.default?.AIDenoiserExtension;
 
 const parsePositiveNumber = (value, defaultValue) => {
     const number = Number(value);
@@ -131,55 +135,56 @@ const clampAgoraAudioBitrateKbps = (value, fallback = 20, minimum = 12, maximum 
     return Math.max(minimum, Math.min(maximum, bitrate));
 };
 
-const qualityMonitorIntervalMs = parsePositiveNumber(import.meta.env.VITE_CALL_QUALITY_MONITOR_INTERVAL, 3000);
-const qualityWarningSamples = Math.max(1, parsePositiveNumber(import.meta.env.VITE_CALL_QUALITY_WARNING_SAMPLES, 4));
-const agoraSdkLoadTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_SDK_TIMEOUT_MS, 12000);
-const agoraPermissionTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_PERMISSION_TIMEOUT_MS, 12000);
-const agoraJoinTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_JOIN_TIMEOUT_MS, 12000);
-const agoraTrackTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_TRACK_TIMEOUT_MS, 12000);
-const agoraPublishTimeoutMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_PUBLISH_TIMEOUT_MS, 12000);
-const agoraRemoteSweepIntervalMs = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_REMOTE_SWEEP_INTERVAL_MS, 1000);
+const qualityMonitorIntervalMs = parsePositiveNumber(agoraEnvironment.VITE_CALL_QUALITY_MONITOR_INTERVAL, 3000);
+const qualityWarningSamples = Math.max(1, parsePositiveNumber(agoraEnvironment.VITE_CALL_QUALITY_WARNING_SAMPLES, 4));
+const agoraSdkLoadTimeoutMs = parsePositiveNumber(agoraEnvironment.VITE_AGORA_CALL_SDK_TIMEOUT_MS, 12000);
+const agoraPermissionTimeoutMs = parsePositiveNumber(agoraEnvironment.VITE_AGORA_CALL_PERMISSION_TIMEOUT_MS, 12000);
+const agoraJoinTimeoutMs = parsePositiveNumber(agoraEnvironment.VITE_AGORA_CALL_JOIN_TIMEOUT_MS, 12000);
+const agoraTrackTimeoutMs = parsePositiveNumber(agoraEnvironment.VITE_AGORA_CALL_TRACK_TIMEOUT_MS, 12000);
+const agoraPublishTimeoutMs = parsePositiveNumber(agoraEnvironment.VITE_AGORA_CALL_PUBLISH_TIMEOUT_MS, 12000);
+const agoraRemoteSweepIntervalMs = parsePositiveNumber(agoraEnvironment.VITE_AGORA_CALL_REMOTE_SWEEP_INTERVAL_MS, 1000);
 const agoraRemoteSubscribeFailureReportEvery = Math.max(
     1,
-    parsePositiveInteger(import.meta.env.VITE_AGORA_CALL_REMOTE_SUBSCRIBE_FAILURE_REPORT_EVERY, 3)
+    parsePositiveInteger(agoraEnvironment.VITE_AGORA_CALL_REMOTE_SUBSCRIBE_FAILURE_REPORT_EVERY, 3)
 );
-const remoteAudioFreshnessMs = parsePositiveNumber(import.meta.env.VITE_CALL_REMOTE_AUDIO_FRESHNESS_MS, 12000);
+const remoteAudioFreshnessMs = parsePositiveNumber(agoraEnvironment.VITE_CALL_REMOTE_AUDIO_FRESHNESS_MS, 12000);
 const remoteAudioZeroProgressTolerance = Math.max(
     1,
-    parsePositiveInteger(import.meta.env.VITE_CALL_REMOTE_AUDIO_ZERO_PROGRESS_WINDOWS, 2)
+    parsePositiveInteger(agoraEnvironment.VITE_CALL_REMOTE_AUDIO_ZERO_PROGRESS_WINDOWS, 2)
 );
-const agoraPreferredAudioLatency = parsePositiveNumber(import.meta.env.VITE_AGORA_CALL_AUDIO_LATENCY, 0.01);
-const enableVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_AUDIO_PROCESSING, false);
-const enableNativeAppVoiceProcessing = parseBooleanEnv(import.meta.env.VITE_CALL_NATIVE_APP_AUDIO_PROCESSING, false);
-const enableBrowserMicrophoneWarmup = parseBooleanEnv(import.meta.env.VITE_AGORA_CALL_BROWSER_MIC_WARMUP, true);
+const agoraPreferredAudioLatency = parsePositiveNumber(agoraEnvironment.VITE_AGORA_CALL_AUDIO_LATENCY, 0.01);
+const enableVoiceProcessing = parseBooleanEnv(agoraEnvironment.VITE_CALL_AUDIO_PROCESSING, false);
+const enableNativeAppVoiceProcessing = parseBooleanEnv(agoraEnvironment.VITE_CALL_NATIVE_APP_AUDIO_PROCESSING, false);
+const enableBrowserMicrophoneWarmup = parseBooleanEnv(agoraEnvironment.VITE_AGORA_CALL_BROWSER_MIC_WARMUP, true);
 const voiceProcessingOutputGain = Math.min(
     0.7,
-    parseUnitNumber(import.meta.env.VITE_CALL_AUDIO_INPUT_GAIN, 0.65)
+    parseUnitNumber(agoraEnvironment.VITE_CALL_AUDIO_INPUT_GAIN, 0.65)
 );
 const maximumRemoteOutputVolume = Math.min(
     2,
-    parsePositiveNumber(import.meta.env.VITE_CALL_REMOTE_MAX_VOLUME, 1)
+    parsePositiveNumber(agoraEnvironment.VITE_CALL_REMOTE_MAX_VOLUME, 1)
 );
-const enableAgoraAiDenoiser = parseBooleanEnv(import.meta.env.VITE_AGORA_AI_DENOISER, true);
-const agoraAiDenoiserLevel = String(import.meta.env.VITE_AGORA_AI_DENOISER_LEVEL || 'SOFT').toUpperCase();
-const agoraAiDenoiserMode = String(import.meta.env.VITE_AGORA_AI_DENOISER_MODE || 'STATIONARY_NS').toUpperCase();
-const agoraAiDenoiserAssetsPath = String(import.meta.env.VITE_AGORA_AI_DENOISER_ASSETS_PATH || '/assets/agora-ai-denoiser')
+const enableAgoraAiDenoiser = parseBooleanEnv(agoraEnvironment.VITE_AGORA_AI_DENOISER, true);
+const agoraAiDenoiserLevel = String(agoraEnvironment.VITE_AGORA_AI_DENOISER_LEVEL || 'SOFT').toUpperCase();
+const agoraAiDenoiserMode = String(agoraEnvironment.VITE_AGORA_AI_DENOISER_MODE || 'STATIONARY_NS').toUpperCase();
+const agoraAiDenoiserAssetsPath = String(agoraEnvironment.VITE_AGORA_AI_DENOISER_ASSETS_PATH || '/assets/agora-ai-denoiser')
     .replace(/\/+$/, '');
 const processedLocalPublishVolume = Math.round(voiceProcessingOutputGain * 100);
-const defaultAgoraAreaCode = normalizeAgoraAreaCode(import.meta.env.VITE_AGORA_CALL_AREA_CODE, 'GLOBAL');
-const defaultAgoraExcludedArea = normalizeAgoraAreaCode(import.meta.env.VITE_AGORA_CALL_EXCLUDED_AREA, '');
+const autoReceiveAndPlayAudio = true;
+const defaultAgoraAreaCode = normalizeAgoraAreaCode(agoraEnvironment.VITE_AGORA_CALL_AREA_CODE, 'GLOBAL');
+const defaultAgoraExcludedArea = normalizeAgoraAreaCode(agoraEnvironment.VITE_AGORA_CALL_EXCLUDED_AREA, '');
 const defaultAgoraAudioEncoderProfile = normalizeAgoraAudioEncoderProfile(
-    import.meta.env.VITE_AGORA_CALL_AUDIO_ENCODER_PROFILE,
+    agoraEnvironment.VITE_AGORA_CALL_AUDIO_ENCODER_PROFILE,
     'speech_low_quality'
 );
 const defaultAgoraSpeechEncoderConfig = {
     ...agoraAudioEncoderPresets[defaultAgoraAudioEncoderProfile],
     sampleRate: normalizeAgoraAudioSampleRate(
-        import.meta.env.VITE_AGORA_CALL_AUDIO_SAMPLE_RATE,
+        agoraEnvironment.VITE_AGORA_CALL_AUDIO_SAMPLE_RATE,
         agoraAudioEncoderPresets[defaultAgoraAudioEncoderProfile].sampleRate
     ),
     bitrate: clampAgoraAudioBitrateKbps(
-        import.meta.env.VITE_AGORA_CALL_AUDIO_BITRATE,
+        agoraEnvironment.VITE_AGORA_CALL_AUDIO_BITRATE,
         18,
         12,
         32
@@ -905,7 +910,7 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
     let remoteStream = null;
     let remoteMediaTrackId = null;
     let remoteOutputElement = null;
-    let AgoraRTCModule = null;
+    let AgoraRTCModule = options.AgoraRTC || null;
     let joined = false;
     let isMuted = false;
     let qualityTimer = null;
@@ -1154,7 +1159,8 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         const normalizedVolume = Math.max(0, Math.min(1, cappedRemoteOutputVolume / 100));
 
         try {
-            remoteAudioTrack?.setVolume?.(cappedRemoteOutputVolume);
+            // When using the controlled media element, apply gain there only.
+            remoteAudioTrack?.setVolume?.(remoteOutputElement ? 100 : cappedRemoteOutputVolume);
         }
         catch(error) {}
 
@@ -1365,6 +1371,10 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
         }
 
         try {
+            // Agora's join option starts playback early. Stop that player before
+            // transferring the same stream to our volume/AEC-controlled element.
+            stopRemoteAudioTrackPlayback();
+
             if(remoteOutputElement.srcObject !== remoteStream) {
                 remoteOutputElement.srcObject = remoteStream;
             }
@@ -1376,8 +1386,6 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
                 .catch((error) => reportRemoteAudioPlaybackBlocked(error));
         }
         catch(error) {}
-
-        stopRemoteAudioTrackPlayback();
     };
 
     const classifyNetworkQuality = ({ rtt, jitter, packetLossPercent }) => {
@@ -1430,6 +1438,10 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
 
         try {
             if(! user.audioTrack) {
+                if(autoReceiveAndPlayAudio) {
+                    return false;
+                }
+
                 await withTimeout(
                     client.subscribe(user, 'audio'),
                     agoraTrackTimeoutMs,
@@ -1679,11 +1691,11 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             await yieldToBrowser();
         }
 
-        const AgoraRTC = await withTimeout(
+        const AgoraRTC = AgoraRTCModule || await withTimeout(
             loadAgoraRTC(),
             agoraSdkLoadTimeoutMs,
-                'Audio engine took too long to load.'
-            );
+            'Audio engine took too long to load.'
+        );
             throwIfClosing();
             AgoraRTCModule = AgoraRTC;
 
@@ -1703,16 +1715,21 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             });
             setupClientEvents();
 
+            const channelJoinStartedAtMs = Date.now();
             localAgoraUid = await withTimeout(
                 client.join(
                     currentMediaSession.app_id,
                     currentMediaSession.channel,
                     currentMediaSession.token || null,
-                    currentMediaSession.uid || null
+                    currentMediaSession.uid || null,
+                    {
+                        autoReceiveAndPlayAudio: autoReceiveAndPlayAudio,
+                    }
                 ),
                 agoraJoinTimeoutMs,
                 'Joining the call took too long.'
             );
+            const channelJoinDurationMs = Math.max(0, Date.now() - channelJoinStartedAtMs);
             throwIfClosing();
             await yieldToBrowser();
 
@@ -1740,11 +1757,13 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
 
             await applyLocalMuteState();
 
+            const localAudioPublishStartedAtMs = Date.now();
             await withTimeout(
                 client.publish([localAudioTrack]),
                 agoraPublishTimeoutMs,
                 'Publishing microphone audio took too long.'
             );
+            const localAudioPublishDurationMs = Math.max(0, Date.now() - localAudioPublishStartedAtMs);
             throwIfClosing();
             await yieldToBrowser();
             joined = true;
@@ -1754,7 +1773,10 @@ const createAgoraAudioCallPeer = (callbacks = {}, options = {}) => {
             startRemoteUserSweep();
             startQualityTimer();
 
-            return true;
+            return {
+                channel_join_duration_ms: channelJoinDurationMs,
+                local_audio_publish_duration_ms: localAudioPublishDurationMs,
+            };
         }
         catch(error) {
             close();
