@@ -1,5 +1,6 @@
 <resources>
     <color name="white">#FFFFFF</color>
     <color name="black">#0F0F10</color>
-    <color name="splash_background">#FCF0DE</color>
+    <color name="splash_background">#FFFFFF</color>
+    <color name="launcher_background">#FCF0DE</color>
 </resources>

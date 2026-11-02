@@ -135,7 +135,7 @@ public class MainActivity extends Activity {
     private static final String PREF_LAST_FLEXIBLE_UPDATE_VERSION = "last_flexible_update_version";
     private static final String STARTUP_PREFS = "zulors_startup_state";
     private static final String PREF_LAST_SAFE_ROUTE = "last_safe_route";
-    private static final long STARTUP_SPLASH_MAX_HOLD_MS = 300L;
+    private static final long STARTUP_SPLASH_MAX_HOLD_MS = 4500L;
     private static final long STARTUP_LAUNCH_COVER_MAX_HOLD_MS = 4500L;
     private static final long DEFERRED_STARTUP_TASK_DELAY_MS = 180L;
     private static final long FLEXIBLE_UPDATE_CHECK_DELAY_MS = 1800L;
@@ -309,7 +309,6 @@ public class MainActivity extends Activity {
 
         setContentView(rootLayout);
         rootLayout.requestApplyInsets();
-        releaseStartupSplash("native_cover_ready");
         applySystemChrome(false);
         scheduleStartupSplashTimeout();
         scheduleStartupLaunchCoverFallback();
@@ -434,6 +433,8 @@ public class MainActivity extends Activity {
             return;
         }
 
+        releaseStartupSplash("webview_startup_failed");
+
         if (startupLaunchCover != null) {
             rootLayout.removeView(startupLaunchCover);
             startupLaunchCover = null;
@@ -540,6 +541,8 @@ public class MainActivity extends Activity {
         if (startupLaunchCoverRemoved) {
             return;
         }
+
+        releaseStartupSplash("launch_cover_removed_" + (reason == null ? "unknown" : reason));
 
         startupLaunchCoverRemoved = true;
 

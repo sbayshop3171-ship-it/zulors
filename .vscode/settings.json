@@ -1,0 +1,15 @@
+{
+  "java.server.launchMode": "Standard",
+  "java.import.gradle.enabled": false,
+  "java.configuration.updateBuildConfiguration": "automatic",
+  "java.autobuild.enabled": true,
+  "java.project.sourcePaths": [
+    "android/LocalAndroidPreview/ide-project/app/src/main/java",
+    "android/LocalAndroidPreview/ide-project/app/build/generated/source/buildConfig/debug",
+    "tests/android"
+  ],
+  "java.project.referencedLibraries": [
+    "android/LocalAndroidPreview/ide-project/ide-classpath/**/*.jar"
+  ],
+  "java.project.outputPath": "android/LocalAndroidPreview/ide-project/vscode-bin"
+}
