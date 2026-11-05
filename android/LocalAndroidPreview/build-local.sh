@@ -2,7 +2,17 @@
 set -euo pipefail
 
 SDK="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
-ANDROID_PLATFORM="$(find "$SDK/platforms" -maxdepth 1 -mindepth 1 -type d -name 'android-*' | sort -V | tail -1)"
+ANDROID_PLATFORM="$(find "$SDK/platforms" -maxdepth 1 -mindepth 1 -type d -name 'android-*' | while IFS= read -r candidate; do
+	api_level="${candidate##*/android-}"
+	case "$api_level" in
+		''|*[!0-9]*) continue ;;
+	esac
+	printf '%s\n' "$candidate"
+done | sort -V | tail -1)"
+if [ -z "$ANDROID_PLATFORM" ]; then
+	echo "No stable Android SDK platform was found under: $SDK/platforms" >&2
+	exit 1
+fi
 PLATFORM_API="${ANDROID_PLATFORM##*/android-}"
 APP_MODE="${APP_MODE:-local}"
 ARTIFACT_TYPE="${ARTIFACT_TYPE:-apk}"
